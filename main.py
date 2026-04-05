@@ -733,8 +733,9 @@ def delete_chat(chat_id: str, db: Session = Depends(get_db),
     db.commit()
     return {"status": "deleted"}
 
+@app.get("/chats/all")
 @app.get("/chats/{model}")
-def get_chats(model: str, db: Session = Depends(get_db), user=Depends(optional_user)):
+def get_chats(db: Session = Depends(get_db), user=Depends(optional_user), model: str = "all"):
     if not user:
         return []
     from sqlalchemy import or_
@@ -794,7 +795,8 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db),
     try:
         answer = generate_response(req.model, formatted, req.extra)
     except Exception as e:
-        return {"error": str(e)}
+        log.error(f"AI error [{req.model}]: {e}")
+        return {"error": "Сервис временно недоступен. Попробуйте ещё раз."}
 
     content   = answer.get("content", "") if isinstance(answer, dict) else answer
     resp_type = answer.get("type", "text") if isinstance(answer, dict) else "text"
