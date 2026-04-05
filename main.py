@@ -733,15 +733,14 @@ def delete_chat(chat_id: str, db: Session = Depends(get_db),
     db.commit()
     return {"status": "deleted"}
 
-@app.get("/chats/all")
 @app.get("/chats/{model}")
-def get_chats(db: Session = Depends(get_db), user=Depends(optional_user), model: str = "all"):
+def get_chats(model: str, db: Session = Depends(get_db), user=Depends(optional_user)):
     if not user:
         return []
     from sqlalchemy import or_
-    # Показываем все чаты пользователя, независимо от модели
     q = db.query(Message.chat_id, Message.title, Message.created_at)\
         .filter(Message.title.isnot(None))\
+        .filter(Message.model == model)\
         .filter(or_(Message.user_id == user.id, Message.user_id == None))\
         .order_by(Message.created_at.desc())
     result = {}

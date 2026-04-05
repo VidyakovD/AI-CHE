@@ -1407,8 +1407,10 @@ async function createChat(){
 
 async function loadChats(){
   const hdrs={};if(authToken)hdrs["Authorization"]="Bearer "+authToken;
-  const r=await fetch(`${API}/chats/all`,{headers:hdrs});
+  const model=currentModel;
+  const r=await fetch(`${API}/chats/${model}`,{headers:hdrs});
   if(!r.ok)return;
+  if(currentModel!==model)return;
   const chats=await r.json();
   const list=document.getElementById("chatList");list.innerHTML="";
   if(!Array.isArray(chats))return;
