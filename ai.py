@@ -31,17 +31,21 @@ def get_token_cost(model: str) -> int:
     return TOKEN_COST.get(model, 50)
 
 
-# ── image helper: url → base64 ────────────────────────────────────────────────
+# ── image helper: path → base64 ──────────────────────────────────────────────
 
-def _image_to_base64(image_url: str) -> tuple[str, str]:
-    """Fetch image from local server, return (base64_data, media_type)."""
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def _image_to_base64(file_url: str) -> tuple[str, str]:
+    """Read image from disk by /uploads/... path, return (base64_data, media_type)."""
+    import mimetypes
+    local_path = os.path.join(_BASE_DIR, file_url.lstrip("/"))
     try:
-        resp = httpx.get(image_url, timeout=10)
-        resp.raise_for_status()
-        ct = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
-        return base64.b64encode(resp.content).decode(), ct
+        with open(local_path, "rb") as f:
+            data = f.read()
+        mime = mimetypes.guess_type(local_path)[0] or "image/jpeg"
+        return base64.b64encode(data).decode(), mime
     except Exception as e:
-        raise RuntimeError(f"Failed to fetch image: {e}")
+        raise RuntimeError(f"Failed to read image: {e}")
 
 
 # ── OpenAI ────────────────────────────────────────────────────────────────────
@@ -61,9 +65,8 @@ def openai_response(model: str, messages: list, extra: dict = None) -> dict:
                 parts.append({"type": "text", "text": content["text"]})
             # Картинка → base64, не URL с локального сервера
             file_url = content["file_url"]
-            full_url = f"http://127.0.0.1:8000{file_url}"
             try:
-                b64, mime = _image_to_base64(full_url)
+                b64, mime = _image_to_base64(file_url)
                 parts.append({
                     "type": "image_url",
                     "image_url": {"url": f"data:{mime};base64,{b64}"}
@@ -73,9 +76,8 @@ def openai_response(model: str, messages: list, extra: dict = None) -> dict:
             formatted.append({"role": m["role"], "content": parts})
 
         elif isinstance(content, str) and content.startswith("/uploads/"):
-            full_url = f"http://127.0.0.1:8000{content}"
             try:
-                b64, mime = _image_to_base64(full_url)
+                b64, mime = _image_to_base64(content)
                 formatted.append({"role": m["role"], "content": [
                     {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
                 ]})
