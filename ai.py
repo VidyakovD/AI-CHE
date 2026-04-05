@@ -264,11 +264,33 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
 # ── NanoBanana ────────────────────────────────────────────────────────────────
 
 def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
+    """Google Imagen 3 — генерация изображений."""
     keys = _shuffle(_keys("NANO_API_KEYS"))
+    extra = extra or {}
     if not keys:
-        return {"type": "text", "content": "Nano Banana API ключ не добавлен. Добавьте ключ в Админке → API Ключи."}
-    # TODO: реализовать когда будет известен endpoint Nano Banana API
-    return {"type": "text", "content": "Nano Banana API временно недоступен. Endpoint в разработке."}
+        return {"type": "text", "content": "Imagen: добавьте Google API ключ в Админке → API Ключи."}
+    prompt = _last_text(messages)
+    if not prompt and not extra.get("image_url"):
+        return {"type": "text", "content": "Опишите изображение или загрузите фото-референс."}
+
+    params = {"sampleCount": int(extra.get("sample_count", 1))}
+    # Aspect ratio mapping
+    ar_map = {"1:1": "1:1", "16:9": "16:9", "9:16": "9:16", "4:3": "4:3", "3:4": "3:4"}
+    ar = extra.get("aspect_ratio", "1:1")
+    if ar in ar_map:
+        params["aspectRatio"] = ar_map[ar]
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={keys[0]}"
+    payload = {"instances": [{"prompt": prompt or ""}], "parameters": params}
+    try:
+        resp = httpx.post(url, json=payload, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        b64 = data["predictions"][0]["bytesBase64Encoded"]
+        mime = data["predictions"][0].get("mimeType", "image/png")
+        return {"type": "image", "content": f"data:{mime};base64,{b64}"}
+    except Exception as e:
+        return {"type": "text", "content": f"Imagen ошибка: {e}"}
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

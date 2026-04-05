@@ -713,7 +713,7 @@ def get_chat(chat_id: str, db: Session = Depends(get_db),
              user: User = Depends(current_user)):
     _assert_chat_owner(chat_id, user, db)
     msgs = db.query(Message).filter_by(chat_id=chat_id).order_by(Message.id).all()
-    return [{"role": m.role, "content": m.content} for m in msgs]
+    return [{"role": m.role, "content": m.content, "created_at": m.created_at.isoformat() if m.created_at else None} for m in msgs]
 
 @app.post("/chat/rename")
 def rename_chat(req: RenameRequest, db: Session = Depends(get_db),
@@ -738,16 +738,33 @@ def get_chats(model: str, db: Session = Depends(get_db), user=Depends(optional_u
     if not user:
         return []
     from sqlalchemy import or_
-    q = db.query(Message.chat_id, Message.title, Message.created_at)\
+    from sqlalchemy import func
+    # Получаем title из первого сообщения чата, last_msg — время последнего
+    subq = db.query(
+        Message.chat_id,
+        func.max(Message.created_at).label("last_msg")
+    ).filter(
+        or_(Message.user_id == user.id, Message.user_id == None)
+    ).filter(Message.model == model).group_by(Message.chat_id).subquery()
+
+    title_q = db.query(Message.chat_id, Message.title)\
         .filter(Message.title.isnot(None))\
         .filter(Message.model == model)\
-        .filter(or_(Message.user_id == user.id, Message.user_id == None))\
-        .order_by(Message.created_at.desc())
-    result = {}
-    for cid, title, _ in q.all():
-        if cid not in result:
-            result[cid] = title
-    return [{"id": k, "title": v} for k, v in result.items()]
+        .filter(or_(Message.user_id == user.id, Message.user_id == None))
+
+    titles = {}
+    for cid, title in title_q.all():
+        if cid not in titles:
+            titles[cid] = title
+
+    rows = db.query(subq.c.chat_id, subq.c.last_msg)\
+        .order_by(subq.c.last_msg.desc()).all()
+
+    result = []
+    for cid, _ in rows:
+        if cid in titles:
+            result.append({"id": cid, "title": titles[cid]})
+    return result
 
 @app.post("/message")
 def send_message(req: MessageRequest, db: Session = Depends(get_db),

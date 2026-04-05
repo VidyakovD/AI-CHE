@@ -1,0 +1,13 @@
+[Unit]
+Description=AI Che FastAPI Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/AI-CHE
+ExecStart=/root/AI-CHE/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

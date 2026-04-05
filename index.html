@@ -48,6 +48,7 @@ const SVG_ICONS = {
   psychology:`<path d="M13 8.57c-.79 0-1.43.64-1.43 1.43s.64 1.43 1.43 1.43 1.43-.64 1.43-1.43S13.79 8.57 13 8.57zM13 3C9.25 3 6.2 5.94 6.02 9.64L4.1 12.2c-.25.33-.01.8.4.8H6v3c0 1.1.9 2 2 2h1v3h7v-4.68c2.36-1.12 4-3.53 4-6.32 0-3.87-3.13-7-7-7z"/>`,
   travel_explore:`<path d="M16.36 14c.08-.42.14-.85.14-1.29C16.5 9.52 14.37 7 12 7c-.44 0-.87.06-1.29.14L9.03 5.46C9.96 5.17 10.96 5 12 5c4.42 0 8 3.58 8 8 0 1.04-.17 2.04-.46 2.97L16.36 14zM2 3.05L5.07 6.1C3.6 7.99 2.75 10.4 2.75 13s.85 5.01 2.32 6.9L2 21l1.41 1.41L21 5.41 22.41 4 21 2.59 2 3.05z"/>`,
   emoji_food_beverage:`<path d="M20 3H4v10c0 2.21 1.79 4 4 4h6c2.21 0 4-1.79 4-4v-3h2c1.11 0 2-.89 2-2V5c0-1.11-.89-2-2-2zm0 5h-2V5h2v3zM4 19h16v2H4z"/>`,
+  image:`<path d="M21 3H3C2 3 1 4 1 5v14c0 1 1 2 2 2h18c1 0 2-1 2-2V5c0-1-1-2-2-2zm0 16H3V5h18v14zm-5-7l-3 3.72-1.99-2.5L5 15h14l-5-3zm-4.79-7l2.5 3.13L15.5 5.4H9.21z"/>`,
   videocam:`<path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>`,
   movie:`<path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>`,
   account_tree:`<path d="M22 11V3h-7v3H9V3H2v8h7V8h2v10h4v3h7v-8h-7v3h-2V8h2v3z"/>`,
@@ -492,12 +493,12 @@ const MODELS=[
   {id:"perplexity",      label:"Perplexity",       group:"Perplexity", tab:"Perplexity", icon:"travel_explore"},
   {id:"perplexity-large",label:"Perplexity Large", group:"Perplexity", tab:null,         icon:"travel_explore"},
   {id:"grok",            label:"Grok 3 Mini",      group:"xAI",        tab:"xAI",        icon:"bolt"},
-  {id:"nano",            label:"Nano Banana",      group:"Nano",       tab:"Nano",       icon:"emoji_food_beverage"},
+  {id:"nano",            label:"Imagen",           group:"Imagen",     tab:"Imagen",     icon:"image"},
   {id:"kling",           label:"Kling v1",         group:"Видео",      tab:"Kling",      icon:"videocam", feature:"video_gen"},
   {id:"kling-pro",       label:"Kling Pro",        group:"Видео",      tab:null,         icon:"videocam", feature:"video_gen"},
   {id:"veo",             label:"Veo 3",            group:"Видео",      tab:"Veo 3",      icon:"movie",    feature:"video_gen"},
 ];
-const VIDEO_MODELS=["kling","kling-pro","veo"];
+const VIDEO_MODELS=["kling","kling-pro","veo","nano"];
 const VIDEO_PARAMS={
   // ── Kling: полные параметры по официальной документации API ──────────────
   kling:[
@@ -554,6 +555,11 @@ const VIDEO_PARAMS={
     {id:"sample_count",     label:"Вариантов",           type:"select",   default:"1",    options:["1","2","3","4"]},
     {id:"enhance_prompt",   label:"Улучшить промпт",     type:"toggle",   default:true},
     {id:"image_mode",       label:"Режим изображения",   type:"select",   default:"",     options:[["","Только текст"],["i2v","Image→Video (обрезка авто)"]]},
+  ],
+  nano:[
+    {id:"prompt",           label:"Описание изображения",type:"textarea", default:""},
+    {id:"aspect_ratio",     label:"Соотношение сторон",  type:"select",   default:"1:1",  options:["1:1","16:9","9:16","4:3","3:4"]},
+    {id:"sample_count",     label:"Количество вариантов",type:"select",   default:"1",    options:["1","2","3","4"]},
   ],
 };
 
@@ -971,6 +977,17 @@ function collectVideoParams(){
   return Object.keys(r).length?r:null;
 }
 
+function collectImageParams(){
+  const params=VIDEO_PARAMS.nano||[];
+  const r={};
+  params.forEach(p=>{const el=document.getElementById(`vp_${p.id}`);if(!el)return;r[p.id]=el.value;});
+  // If image was attached, pass as reference image
+  if(pendingAttachment?.isImg){
+    r.image_url = API + pendingAttachment.url;
+  }
+  return Object.keys(r).length?r:null;
+}
+
 // ── auth ───────────────────────────────────────────────────────────────────
 async function fetchMe(){
   try{const r=await api("/auth/me");currentUser=r;}
@@ -1383,7 +1400,8 @@ async function sendMessage(){
     addTyping();ta.value="";ta.style.height="auto";updateSendBtn();
     const body={chat_id:currentChat,message:text,model:currentModel};
     if(att)body.file_url=att.url;
-    if(VIDEO_MODELS.includes(currentModel))body.extra=collectVideoParams();
+    if(currentModel==="nano")body.extra=collectImageParams();
+    else if(VIDEO_MODELS.includes(currentModel))body.extra=collectVideoParams();
     const hdrs={"Content-Type":"application/json"};
     if(authToken)hdrs["Authorization"]="Bearer "+authToken;
     const res=await fetch(`${API}/message`,{method:"POST",headers:hdrs,body:JSON.stringify(body)});
@@ -1393,6 +1411,7 @@ async function sendMessage(){
     else{
       const r=data.response;
       if(r.type==="video_task"||r.type==="video_base64")addVideoMsg(r);
+      else if(r.type==="image"){addMsg(r.content||"","ai","image");}
       else addMsg(r.content||"Ошибка","ai");
       if(authToken)fetchMe();
       await loadChats();
@@ -1414,7 +1433,7 @@ async function loadChats(){
   const chats=await r.json();
   const list=document.getElementById("chatList");list.innerHTML="";
   if(!Array.isArray(chats))return;
-  [...chats].reverse().forEach(chat=>{
+  chats.forEach(chat=>{
     const el=document.createElement("div");
     el.className="group flex items-center justify-between px-3 py-2 rounded-lg text-on-surface-dim/70 hover:text-on-surface hover:bg-surface2 transition cursor-pointer text-sm";
     el.innerHTML=`<span class="truncate">${esc(chat.title||"Новый чат")}</span>
@@ -1459,7 +1478,7 @@ async function loadMessages(chatId){
   const r=await fetch(`${API}/chat/${chatId}`,{headers:hdrs});
   const msgs=await r.json();
   document.getElementById("chatContainer").innerHTML="";
-  msgs.forEach(m=>addMsg(m.content,m.role==="assistant"?"ai":"user"));
+  msgs.forEach(m=>addMsg(m.content,m.role==="assistant"?"ai":"user",null,m.created_at));
 }
 
 // ── render ─────────────────────────────────────────────────────────────────
@@ -1492,32 +1511,54 @@ function promptExample(text){
   // Не отправляем автоматически — пользователь сам нажмёт
 }
 
-function addUserMsg(text,fileUrl,isImg){
+function _fmtTime(d){
+  const now=new Date(),dt=d?new Date(d):now;
+  const sameDay=dt.toDateString()===now.toDateString();
+  return sameDay
+    ? dt.toLocaleTimeString("ru",{hour:"2-digit",minute:"2-digit"})
+    : dt.toLocaleDateString("ru",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+}
+
+function addUserMsg(text,fileUrl,isImg,ts){
   const c=document.getElementById("chatContainer");
   const w=document.createElement("div");
-  w.className="flex flex-col items-end space-y-1.5 max-w-[85%] self-end";
-  w.innerHTML=`<div class="bg-surface2 px-5 py-3.5 rounded-2xl rounded-br-sm shadow-lg border border-outline/15">${buildUserHTML(text,fileUrl,isImg)}</div>`;
+  w.className="flex flex-col items-end space-y-1 max-w-[85%] self-end";
+  w.innerHTML=`<div class="bg-surface2 px-5 py-3.5 rounded-2xl rounded-br-sm shadow-lg border border-outline/15">${buildUserHTML(text,fileUrl,isImg)}</div>
+    <span class="text-[10px] text-on-surface-dim/40 pr-1">${_fmtTime(ts)}</span>`;
   c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
 }
 
-function addMsg(content,role,type){
+function addMsg(content,role,type,ts){
   let text=content,fileUrl=null,isImg=false;
   try{const p=JSON.parse(content);if(p&&"file_url" in p){text=p.text||"";fileUrl=p.file_url;isImg=/\.(png|jpg|jpeg|gif|webp)$/i.test(fileUrl);}}catch{}
   const c=document.getElementById("chatContainer");
   const w=document.createElement("div");
   if(role==="user"){
-    w.className="flex flex-col items-end space-y-1.5 max-w-[85%] self-end";
-    w.innerHTML=`<div class="bg-surface2 px-5 py-3.5 rounded-2xl rounded-br-sm shadow-lg border border-outline/15">${buildUserHTML(text,fileUrl,isImg)}</div>`;
+    w.className="flex flex-col items-end space-y-1 max-w-[85%] self-end";
+    w.innerHTML=`<div class="bg-surface2 px-5 py-3.5 rounded-2xl rounded-br-sm shadow-lg border border-outline/15">${buildUserHTML(text,fileUrl,isImg)}</div>
+      <span class="text-[10px] text-on-surface-dim/40 pr-1">${_fmtTime(ts)}</span>`;
   }else{
-    w.className="flex flex-col items-start space-y-1.5 max-w-[90%] self-start";
-    const ebdr=type==="error"?"border border-error/30":"";
-    w.innerHTML=`<div class="flex items-center gap-2 mb-1">
-      <div class="w-5 h-5 rounded-md sig flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:12px;height:12px;color:#1e1a14"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg></div>
-      <span class="text-[10px] uppercase tracking-widest text-primary font-bold">AI Студия Че</span>
-    </div>
-    <div class="glass ghost px-5 py-4 rounded-2xl rounded-bl-sm shadow-xl ${ebdr}">
-      <p class="text-on-surface text-sm leading-relaxed whitespace-pre-wrap">${esc(text)}</p>
-    </div>`;
+    w.className="flex flex-col items-start space-y-1 max-w-[90%] self-start";
+    if(type==="image"){
+      w.innerHTML=`<div class="flex items-center gap-2 mb-1">
+        <div class="w-5 h-5 rounded-md sig flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:12px;height:12px;color:#1e1a14"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg></div>
+        <span class="text-[10px] uppercase tracking-widest text-primary font-bold">AI Студия Че</span>
+      </div>
+      <div class="glass ghost p-3 rounded-2xl rounded-bl-sm shadow-xl">
+        <img src="${esc(text)}" class="rounded-xl max-w-[512px] max-h-[512px] object-contain border border-outline/15 cursor-pointer hover:opacity-90 transition" onclick="window.open(this.src,'_blank')"/>
+      </div>
+      <span class="text-[10px] text-on-surface-dim/40 pl-1">${_fmtTime(ts)}</span>`;
+    }else{
+      const ebdr=type==="error"?"border border-error/30":"";
+      w.innerHTML=`<div class="flex items-center gap-2 mb-1">
+        <div class="w-5 h-5 rounded-md sig flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:12px;height:12px;color:#1e1a14"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg></div>
+        <span class="text-[10px] uppercase tracking-widest text-primary font-bold">AI Студия Че</span>
+      </div>
+      <div class="glass ghost px-5 py-4 rounded-2xl rounded-bl-sm shadow-xl ${ebdr}">
+        <p class="text-on-surface text-sm leading-relaxed whitespace-pre-wrap">${esc(text)}</p>
+      </div>
+      <span class="text-[10px] text-on-surface-dim/40 pl-1">${_fmtTime(ts)}</span>`;
+    }
   }
   c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
 }
