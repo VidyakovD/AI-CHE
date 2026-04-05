@@ -99,7 +99,7 @@ def openai_response(model: str, messages: list, extra: dict = None) -> dict:
                 except Exception as e:
                     err = str(e).lower()
                     if "401" in err or "invalid" in err:
-                        break  # этот ключ невалиден — пробуем следующий
+                        raise  # невалидный ключ — outer except поймает, попробует следующий
                     if attempt == 1:
                         raise
                     time.sleep(1)
