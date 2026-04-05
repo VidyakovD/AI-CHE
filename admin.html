@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Админ</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{
+  "primary":"#ff8c42","secondary":"#ffb347","background":"#141210",
+  "surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","surface4":"#3d3325",
+  "on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"
+},fontFamily:{headline:["Manrope"],body:["Inter"]}}}}</script>
+<style>
+.material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;display:inline-block;line-height:1;text-transform:none;white-space:nowrap}
+.sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;transition:border-color .2s;font-family:Inter,sans-serif}
+.inp:focus{border-color:#ff8c42}
+.inp::placeholder{color:#a89880}
+.btn{padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity .15s;border:none}
+.btn:hover{opacity:.85}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#1e1a14}
+.btn-d{background:#3d1010;color:#ff6b6b;border:1px solid rgba(255,107,107,0.3)}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4)}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.card{background:#1e1a14;border:1px solid rgba(74,63,47,0.25);border-radius:13px;padding:16px}
+.sec-on{background:rgba(255,140,66,0.1);color:#ff8c42}
+.step-card{background:#272018;border:1px solid rgba(74,63,47,0.3);border-radius:9px;padding:13px}
+select.inp option{background:#272018;color:#f0e6d8}
+.key-ok{color:#6bff9e}.key-err{color:#ff6b6b}.key-unk{color:#a89880}
+</style>
+</head>
+<body class="bg-background text-on-surface font-body min-h-screen">
+
+<!-- Login gate -->
+<div id="loginGate" class="fixed inset-0 bg-background flex items-center justify-center z-50">
+  <div class="bg-surface rounded-2xl p-8 w-full max-w-sm border border-outline/25 shadow-2xl">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-10 h-10 rounded-xl sig flex items-center justify-center shadow-[0_0_20px_rgba(255,140,66,0.3)]">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14"><path d="M17 11c.34 0 .67.03 1 .08V6.27L10.5 3 3 6.27v4.91c0 4.54 3.2 8.79 7.5 9.82.55-.13 1.08-.32 1.6-.55C11.41 19.47 11 18.28 11 17c0-3.31 2.69-6 6-6zm0 2c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 1.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5-1.5-.67-1.5-1.5.67-1.5 1.5-1.5zm0 5c-1.11 0-2.08-.56-2.66-1.4.87-.39 1.72-.6 2.66-.6.94 0 1.79.21 2.66.6-.58.84-1.55 1.4-2.66 1.4z"/></svg>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold font-headline">AI Студия Че</h1>
+        <p class="text-xs text-on-dim">Панель администратора</p>
+      </div>
+    </div>
+    <div class="space-y-3">
+      <input id="lg_email" type="email" placeholder="Email администратора" class="inp"/>
+      <input id="lg_pass"  type="password" placeholder="Пароль" class="inp" onkeydown="if(event.key==='Enter')adminLogin()"/>
+      <div id="lg_err" class="text-error text-xs hidden"></div>
+      <button onclick="adminLogin()" class="btn btn-p w-full py-2.5">Войти в админку</button>
+    </div>
+  </div>
+</div>
+
+<!-- Admin UI -->
+<div id="adminUI" class="hidden">
+  <!-- Topbar -->
+  <header class="sticky top-0 z-30 bg-surface border-b border-outline/20 px-5 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg sig flex items-center justify-center shadow-[0_0_12px_rgba(255,140,66,0.2)]">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
+      </div>
+      <span class="font-headline font-bold text-sm">AI Студия Че · Админ</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="adminEmail" class="text-xs text-on-dim"></span>
+      <a href="index.html" class="btn btn-g text-xs flex items-center gap-1.5">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:14px;height:14px"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg> Открыть сайт
+      </a>
+      <button onclick="adminLogout()" class="btn btn-d text-xs">Выйти</button>
+    </div>
+  </header>
+
+  <div class="flex min-h-[calc(100vh-53px)]">
+    <!-- Sidebar -->
+    <nav class="w-52 flex-shrink-0 bg-surface border-r border-outline/20 p-3 space-y-0.5">
+      <button onclick="showSec('dashboard')" data-sec="dashboard" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>Дашборд
+      </button>
+      <button onclick="showSec('solutions')" data-sec="solutions" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>Решения
+      </button>
+      <button onclick="showSec('users')" data-sec="users" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>Пользователи
+      </button>
+      <button onclick="showSec('apikeys')" data-sec="apikeys" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>API Ключи
+      </button>
+      <button onclick="showSec('pricing')" data-sec="pricing" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/></svg>Прайс и тарифы
+      </button>
+      <button onclick="showSec('features')" data-sec="features" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>Модули
+      </button>
+      <button onclick="showSec('faq')" data-sec="faq" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>FAQ
+      </button>
+    </nav>
+
+    <main class="flex-1 p-5 overflow-auto">
+
+      <!-- Dashboard -->
+      <div id="sec-dashboard" class="sec hidden space-y-5">
+        <h2 class="text-lg font-bold font-headline">Дашборд</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="statsGrid"></div>
+      </div>
+
+      <!-- Solutions -->
+      <div id="sec-solutions" class="sec hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold font-headline">Готовые решения</h2>
+          <button onclick="openSolModal()" class="btn btn-p flex items-center gap-1.5">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:15px;height:15px"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Новое решение
+          </button>
+        </div>
+        <div class="flex gap-2 mb-4 flex-wrap" id="catTabs">
+          <button onclick="filterCat(null)" data-cat="" class="cat-btn btn btn-p text-xs">Все</button>
+        </div>
+        <div id="solsList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+      </div>
+
+      <!-- Users -->
+      <div id="sec-users" class="sec hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold font-headline">Пользователи</h2>
+          <input id="userSearch" type="text" placeholder="Поиск по email..." class="inp w-64" style="width:256px" oninput="filterUsers()"/>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-outline/20 text-on-dim text-[10px] uppercase tracking-wider">
+                <th class="text-left py-2 px-3">Email</th>
+                <th class="text-left py-2 px-3">Имя</th>
+                <th class="text-right py-2 px-3">Баланс</th>
+                <th class="text-left py-2 px-3">Подписка</th>
+                <th class="text-center py-2 px-3">✓</th>
+                <th class="text-left py-2 px-3">Дата</th>
+                <th class="text-left py-2 px-3">Действия</th>
+              </tr>
+            </thead>
+            <tbody id="usersTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- API Keys -->
+      <div id="sec-apikeys" class="sec hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold font-headline">API Ключи</h2>
+          <button onclick="checkAllKeys()" class="btn btn-g flex items-center gap-1.5">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:15px;height:15px"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>Проверить все
+          </button>
+        </div>
+
+        <div id="keysContent" class="space-y-5"></div>
+
+        <!-- Add key form -->
+        <div class="mt-6 card">
+          <p class="text-sm font-bold font-headline mb-3">Добавить ключ</p>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="block text-[10px] text-on-dim mb-1">Провайдер</label>
+              <select id="newKeyProvider" class="inp">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="gemini">Gemini (Google)</option>
+                <option value="grok">xAI / Grok</option>
+                <option value="perplexity">Perplexity</option>
+                <option value="kling">Kling</option>
+                <option value="veo">Veo (Google)</option>
+                <option value="nano">Nano Banana</option>
+                <option value="yookassa">ЮKassa (формат: shop_id:secret_key)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] text-on-dim mb-1">API Ключ</label>
+              <input id="newKeyValue" type="password" placeholder="sk-..." class="inp"/>
+            </div>
+            <div>
+              <label class="block text-[10px] text-on-dim mb-1">Метка (необязательно)</label>
+              <input id="newKeyLabel" type="text" placeholder="Основной" class="inp"/>
+            </div>
+          </div>
+          <div id="addKeyErr" class="text-error text-xs mt-2 hidden"></div>
+          <button onclick="addKey()" class="btn btn-p mt-3">Добавить ключ</button>
+        </div>
+      </div>
+
+
+      <!-- Pricing -->
+      <div id="sec-pricing" class="sec hidden space-y-6">
+        <h2 class="text-lg font-bold font-headline">Прайс и тарифы</h2>
+
+        <!-- Global settings -->
+        <div class="card space-y-4">
+          <h3 class="font-headline font-bold text-sm">Глобальные настройки</h3>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="globalSettingsGrid">
+            <div class="text-on-dim text-sm">Загрузка...</div>
+          </div>
+        </div>
+
+        <!-- Model pricing -->
+        <div class="card">
+          <h3 class="font-headline font-bold text-sm mb-3">Стоимость запросов (CH за запрос)</h3>
+          <p class="text-xs text-on-dim mb-4">Итоговая стоимость = себестоимость $ × курс ₽ × наценка ÷ (стоимость 1 CH в ₽). Задайте CH вручную или пересчитайте автоматически.</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead><tr class="border-b border-outline/20 text-on-dim text-[10px] uppercase tracking-wider">
+                <th class="text-left py-2 px-2">Модель</th>
+                <th class="text-right py-2 px-2">CH/запрос</th>
+                <th class="text-right py-2 px-2">Себест. $</th>
+                <th class="text-right py-2 px-2">Наценка ×</th>
+                <th class="text-right py-2 px-2">Итого ₽*</th>
+                <th class="py-2 px-2"></th>
+              </tr></thead>
+              <tbody id="modelPricingTable"></tbody>
+            </table>
+            <p class="text-[10px] text-on-dim/50 mt-2">* При текущем курсе и стоимости CH</p>
+          </div>
+        </div>
+
+        <!-- Subscriptions -->
+        <div class="card">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-headline font-bold text-sm">Тарифные планы (подписки)</h3>
+          </div>
+          <div id="subscriptionPlans" class="space-y-2"></div>
+        </div>
+
+        <!-- Token packages -->
+        <div class="card">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-headline font-bold text-sm">Пакеты токенов (докупка)</h3>
+            <button onclick="addTokenPackage()" class="btn btn-p text-xs flex items-center gap-1">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:14px;height:14px"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Добавить
+            </button>
+          </div>
+          <div id="tokenPackages" class="space-y-2"></div>
+        </div>
+      </div>
+
+      <!-- FAQ -->
+      <!-- Модули / Feature Flags -->
+      <div id="sec-features" class="sec hidden">
+        <div class="mb-4">
+          <h2 class="text-lg font-bold font-headline">Модули системы</h2>
+          <p class="text-xs text-on-dim mt-1">Включайте и выключайте разделы для пользователей. Код остаётся нетронутым — можно дорабатывать отдельно и включить одной кнопкой.</p>
+        </div>
+        <div id="featuresGrid" class="grid grid-cols-1 gap-3"></div>
+      </div>
+
+      <div id="sec-faq" class="sec hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold font-headline">Частые вопросы</h2>
+          <button onclick="addFaqItem()" class="btn btn-p text-xs flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:14px;height:14px"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Добавить вопрос
+          </button>
+        </div>
+        <div id="faqList" class="space-y-3"></div>
+      </div>
+
+      <!-- Promos -->
+      <div id="sec-promos" class="sec hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold font-headline">Промокоды</h2>
+          <button onclick="addPromo()" class="btn btn-p text-xs flex items-center gap-1">
+            <span style="font-size:14px;line-height:1">+</span> Создать промокод
+          </button>
+        </div>
+        <div class="overflow-x-auto mb-6">
+          <table class="w-full text-sm" id="promosTable">
+            <thead><tr class="border-b border-outline/20 text-on-dim text-[10px] uppercase tracking-wider">
+              <th class="text-left py-2 px-3">Код</th>
+              <th class="text-right py-2 px-3">Скидка</th>
+              <th class="text-right py-2 px-3">Бонус CH</th>
+              <th class="text-right py-2 px-3">Использовано</th>
+              <th class="text-right py-2 px-3">Макс.</th>
+              <th class="text-center py-2 px-3">Статус</th>
+              <th class="py-2 px-3"></th>
+            </tr></thead>
+            <tbody id="promosTbody"></tbody>
+          </table>
+        </div>
+        <!-- Create form -->
+        <div class="card">
+          <p class="text-sm font-bold font-headline mb-3">Новый промокод</p>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <div>
+              <label class="block text-[10px] text-on-dim mb-1">Код (будет в верхнем регистре)</label>
+              <input id="prm_code" type="text" placeholder="SUMMER25" class="inp text-xs"/>
+            </div>
+            <div>
+              <label class="block text-[10px] text-on-dim mb-1">Скидка %</label>
+              <input id="prm_disc" type="number" value="0" min="0" max="100" class="inp text-xs"/>
+            </div>
+            <div>
+              <label class="block text-[10px] text-on-dim mb-1">Бонус CH</label>
+              <input id="prm_bonus" type="number" value="0" min="0" class="inp text-xs"/>
+            </div>
+            <div>
+              <label class="block text-[10px] text-on-dim mb-1">Макс. использований</label>
+              <input id="prm_max" type="number" value="100" min="1" class="inp text-xs"/>
+            </div>
+          </div>
+          <div id="prm_err" class="text-error text-xs mb-2 hidden"></div>
+          <button onclick="createPromo()" class="btn btn-p text-xs">Создать</button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Solution Modal -->
+<div id="solModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-start justify-center z-50 hidden overflow-y-auto py-5">
+  <div class="bg-surface rounded-2xl w-full max-w-2xl mx-4 border border-outline/25 shadow-2xl overflow-hidden">
+    <div class="sig px-5 py-4 flex items-center justify-between">
+      <h3 class="font-headline font-bold text-[#1e1a14]" id="solModalTitle">Новое решение</h3>
+      <button onclick="closeSolModal()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div class="p-5 space-y-4">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-[10px] text-on-dim mb-1">Категория</label>
+          <select id="sol_cat" class="inp"></select>
+        </div>
+        <div>
+          <label class="block text-[10px] text-on-dim mb-1">Цена (токены)</label>
+          <input id="sol_price" type="number" value="0" class="inp"/>
+        </div>
+      </div>
+      <div>
+        <label class="block text-[10px] text-on-dim mb-1">Название</label>
+        <input id="sol_title" type="text" placeholder="Например: Генерация лендинга" class="inp"/>
+      </div>
+      <div>
+        <label class="block text-[10px] text-on-dim mb-1">Описание</label>
+        <textarea id="sol_desc" rows="2" class="inp resize-none" placeholder="Краткое описание..."></textarea>
+      </div>
+      <div>
+        <label class="block text-[10px] text-on-dim mb-1">URL изображения</label>
+        <input id="sol_img" type="text" placeholder="https://..." class="inp"/>
+      </div>
+      <div class="flex items-center gap-4">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" id="sol_active" checked class="accent-primary w-4 h-4"/>
+          <span class="text-sm text-on-dim">Активно</span>
+        </label>
+        <div class="flex items-center gap-2 ml-auto">
+          <span class="text-[10px] text-on-dim">Порядок:</span>
+          <input id="sol_order" type="number" value="0" class="inp" style="width:70px"/>
+        </div>
+      </div>
+
+      <!-- Steps -->
+      <div class="border-t border-outline/20 pt-4">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="font-headline font-bold text-sm">Цепочка шагов</h4>
+          <button onclick="addStep()" class="btn btn-g text-xs flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:13px;height:13px"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Добавить шаг
+          </button>
+        </div>
+        <p class="text-xs text-on-dim/60 mb-3">В промптах доступны переменные: <code class="text-primary">{input}</code> — ввод пользователя, <code class="text-primary">{prev_result}</code> — результат прошлого шага, <code class="text-primary">{step_N}</code> — результат шага N</p>
+        <div id="stepsList" class="space-y-3"></div>
+      </div>
+
+      <div id="sol_err" class="text-error text-xs hidden"></div>
+      <div class="flex justify-end gap-3">
+        <button onclick="closeSolModal()" class="btn btn-g">Отмена</button>
+        <button onclick="saveSolution()" class="btn btn-p">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Adjust balance modal -->
+<div id="balanceModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+  <div class="bg-surface rounded-xl p-6 w-80 border border-outline/25 shadow-2xl mx-4">
+    <h3 class="font-headline font-bold mb-4">Изменить баланс</h3>
+    <p class="text-sm text-on-dim mb-3" id="balModalUser">—</p>
+    <input id="balDelta" type="number" placeholder="+10000 или -5000" class="inp mb-2"/>
+    <input id="balReason" type="text" placeholder="Причина" class="inp mb-3" value="Ручная корректировка"/>
+    <div id="balErr" class="text-error text-xs mb-2 hidden"></div>
+    <div class="flex gap-3">
+      <button onclick="closeM('balanceModal')" class="btn btn-g flex-1">Отмена</button>
+      <button onclick="doAdjustBalance()" class="btn btn-p flex-1">Применить</button>
+    </div>
+  </div>
+</div>
+
+<template id="stepTpl">
+  <div class="step-card relative">
+    <button onclick="removeStep(this)" class="absolute top-2 right-2 w-6 h-6 rounded-full bg-surface3 hover:bg-error/20 flex items-center justify-center transition">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:12px;height:12px" class="text-on-dim"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+    </button>
+    <div class="grid grid-cols-3 gap-2 mb-2">
+      <div>
+        <label class="block text-[9px] text-on-dim mb-1">№ шага</label>
+        <input type="number" name="step_number" class="inp text-xs" placeholder="1"/>
+      </div>
+      <div>
+        <label class="block text-[9px] text-on-dim mb-1">Модель</label>
+        <select name="model" class="inp text-xs">
+          <option value="gpt">GPT-4o mini</option>
+          <option value="gpt-4o">GPT-4o</option>
+          <option value="claude">Claude Haiku</option>
+          <option value="claude-sonnet">Claude Sonnet</option>
+          <option value="perplexity">Perplexity</option>
+          <option value="kling">Kling v1</option>
+          <option value="kling-pro">Kling Pro</option>
+          <option value="veo">Veo 3</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-[9px] text-on-dim mb-1">Заголовок шага</label>
+        <input type="text" name="title" class="inp text-xs" placeholder="Анализ данных..."/>
+      </div>
+    </div>
+    <div class="mb-2">
+      <label class="block text-[9px] text-on-dim mb-1">Системный промпт</label>
+      <textarea name="system_prompt" rows="2" class="inp text-xs resize-none" placeholder="Ты эксперт по..."></textarea>
+    </div>
+    <div class="mb-2">
+      <label class="block text-[9px] text-on-dim mb-1">Промпт пользователя</label>
+      <textarea name="user_prompt" rows="2" class="inp text-xs resize-none" placeholder="На основе {input} сделай..."></textarea>
+    </div>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="block text-[9px] text-on-dim mb-1">Подсказка пользователю</label>
+        <input type="text" name="user_hint" class="inp text-xs" placeholder="Введите название компании..."/>
+      </div>
+      <div class="flex items-end pb-1.5">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" name="wait_for_user" class="accent-primary"/>
+          <span class="text-xs text-on-dim">Ждать ввода</span>
+        </label>
+      </div>
+    </div>
+    <div>
+      <label class="block text-[9px] text-on-dim mb-1">Доп. параметры JSON (Kling/Veo)</label>
+      <input type="text" name="extra_params" class="inp text-xs font-mono" placeholder='{"aspect_ratio":"16:9"}'/>
+    </div>
+  </div>
+</template>
+
+<script>
+const API="http://127.0.0.1:8000";
+let adminToken=localStorage.getItem("obs_admin_token")||null;
+let categories=[];
+let editingSolId=null;
+let adjustingUserId=null;
+let allUsers=[];
+let currentCatFilter=null;
+
+
+// ── SVG Icons helper ───────────────────────────────────────────────────────
+const SVG_ICONS={auto_awesome:`<path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/>`,group:`<path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>`,dashboard:`<path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>`,key:`<path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>`,payments:`<path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/>`,help:`<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>`,verified:`<path d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12zm-13 5l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>`,chat:`<path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/>`,sync:`<path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>`,add:`<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>`,edit:`<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>`,delete:`<path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>`,close:`<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>`,open_in_new:`<path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>`,admin_panel_settings:`<path d="M17 11c.34 0 .67.03 1 .08V6.27L10.5 3 3 6.27v4.91c0 4.54 3.2 8.79 7.5 9.82.55-.13 1.08-.32 1.6-.55C11.41 19.47 11 18.28 11 17c0-3.31 2.69-6 6-6zm0 2c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 1.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5-1.5-.67-1.5-1.5.67-1.5 1.5-1.5zm0 5c-1.11 0-2.08-.56-2.66-1.4.87-.39 1.72-.6 2.66-.6.94 0 1.79.21 2.66.6-.58.84-1.55 1.4-2.66 1.4z"/>`,};
+function getSvgIcon(name,size=20,color='currentColor'){const p=SVG_ICONS[name];if(!p)return`<span style="width:${size}px;height:${size}px;display:inline-block"></span>`;return`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="${color}" style="display:inline-block;vertical-align:middle;flex-shrink:0">${p}</svg>`;}
+
+async function adminLogin(){
+  const email=document.getElementById("lg_email").value.trim();
+  const pass=document.getElementById("lg_pass").value;
+  const err=document.getElementById("lg_err");err.classList.add("hidden");
+  try{
+    const r=await post("/auth/login",{email,password:pass});
+    if(r.status==="pending_verification"){err.textContent="Email не подтверждён";err.classList.remove("hidden");return;}
+    adminToken=r.token;
+    await get("/admin/stats"); // throws 403 if not admin
+    localStorage.setItem("obs_admin_token",adminToken);
+    document.getElementById("adminEmail").textContent=email;
+    document.getElementById("loginGate").classList.add("hidden");
+    document.getElementById("adminUI").classList.remove("hidden");
+    loadAdmin();
+  }catch(e){adminToken=null;err.textContent=e.message||"Нет доступа администратора";err.classList.remove("hidden");}
+}
+
+function adminLogout(){adminToken=null;localStorage.removeItem("obs_admin_token");location.reload();}
+
+async function checkAutoLogin(){
+  if(!adminToken)return;
+  try{
+    await get("/admin/stats");
+    const me=await get("/auth/me");
+    document.getElementById("adminEmail").textContent=me.email;
+    document.getElementById("loginGate").classList.add("hidden");
+    document.getElementById("adminUI").classList.remove("hidden");
+    loadAdmin();
+  }catch{adminToken=null;localStorage.removeItem("obs_admin_token");}
+}
+
+async function loadAdmin(){
+  await loadCategories();
+  showSec("dashboard");
+}
+
+async function loadCategories(){
+  categories=await get("/solutions/categories");
+  const sel=document.getElementById("sol_cat");
+  sel.innerHTML=categories.map(c=>`<option value="${c.id}">${c.title}</option>`).join("");
+  const tabs=document.getElementById("catTabs");
+  tabs.innerHTML=`<button onclick="filterCat(null)" data-cat="" class="cat-btn btn btn-p text-xs">Все</button>`;
+  categories.forEach(c=>{
+    const b=document.createElement("button");b.dataset.cat=c.slug;
+    b.className="cat-btn btn btn-g text-xs";b.textContent=c.title;b.onclick=()=>filterCat(c.slug);
+    tabs.appendChild(b);
+  });
+  if(!categories.length){
+    await post("/admin/categories",{slug:"prompts",title:"Готовые промпты",sort_order:0});
+    await post("/admin/categories",{slug:"business",title:"Бизнес-решения",sort_order:1});
+    await loadCategories();
+  }
+}
+
+function showSec(sec){
+  document.querySelectorAll(".sec").forEach(s=>s.classList.add("hidden"));
+  const secEl = document.getElementById("sec-"+sec);
+  if(secEl) secEl.classList.remove("hidden");
+  document.querySelectorAll(".sec-btn").forEach(b=>{
+    b.classList.toggle("sec-on",b.dataset.sec===sec);
+    b.classList.toggle("text-on-dim",b.dataset.sec!==sec);
+    b.classList.toggle("text-on-surface",b.dataset.sec===sec);
+  });
+  if(sec==="dashboard") loadDashboard();
+  if(sec==="solutions")  loadSolutions();
+  if(sec==="users")      loadUsers();
+  if(sec==="apikeys")    loadApiKeys();
+  if(sec==="pricing")    loadPricing();
+  if(sec==="faq")        loadFaq();
+  if(sec==="promos")     loadPromos();
+  if(sec==="features")   loadFeatures();
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+async function loadDashboard(){
+  const s=await get("/admin/stats");
+  document.getElementById("statsGrid").innerHTML=[
+    {l:"Пользователей",v:s.total_users,i:"group"},
+    {l:"Подтверждённых",v:s.verified_users,i:"verified"},
+    {l:"Сообщений",v:fmtT(s.total_messages),i:"chat"},
+    {l:"Выручка",v:Math.round(s.total_revenue||0)+"₽",i:"payments"},
+  ].map(x=>`<div class="card flex items-center gap-3">
+    <div class="w-10 h-10 rounded-xl sig flex items-center justify-center flex-shrink-0 shadow-[0_0_16px_rgba(255,140,66,0.2)]">
+      <span style="display:inline-block;width:18px;height:18px;color:#1e1a14">${getSvgIcon(x.i,18)}</span>
+    </div>
+    <div><p class="text-xl font-bold font-headline">${x.v}</p><p class="text-xs text-on-dim">${x.l}</p></div>
+  </div>`).join("");
+}
+
+// ── Solutions ──────────────────────────────────────────────────────────────
+async function loadSolutions(cat){
+  const url=cat?`/solutions?category=${cat}`:"/solutions";
+  const sols=await get(url);
+  const list=document.getElementById("solsList");
+  if(!sols.length){list.innerHTML=`<div class="col-span-3 text-center text-on-dim py-10 text-sm">Нет решений</div>`;return;}
+  list.innerHTML=sols.map(s=>{
+    const cat=categories.find(c=>c.id===s.category_id);
+    return `<div class="card flex flex-col gap-3 hover:border-primary/35 transition">
+      ${s.image_url?`<img src="${s.image_url}" class="w-full h-32 object-cover rounded-lg"/>`:`<div class="w-full h-32 bg-surface2 rounded-lg flex items-center justify-center text-3xl">✨</div>`}
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-sm font-headline truncate">${esc(s.title)}</p>
+          <p class="text-xs text-on-dim mt-0.5">${cat?.title||"—"} · ${s.steps_count} шагов</p>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <p class="text-primary font-bold text-sm">${s.price_tokens?fmtT(s.price_tokens)+" T":"Бесплатно"}</p>
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full ${s.is_active?"bg-green-500/15 text-green-400":"bg-error/15 text-error"}">${s.is_active?"Активно":"Скрыто"}</span>
+        </div>
+      </div>
+      ${s.description?`<p class="text-xs text-on-dim leading-relaxed line-clamp-2">${esc(s.description)}</p>`:""}
+      <div class="flex gap-2 mt-auto">
+        <button onclick="editSol(${s.id})" class="btn btn-g flex-1 text-xs">✏️ Редактировать</button>
+        <button onclick="deleteSol(${s.id})" class="btn btn-d text-xs">🗑</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function filterCat(slug){
+  currentCatFilter=slug;
+  document.querySelectorAll(".cat-btn").forEach(b=>{
+    const active=(b.dataset.cat||null)===slug;
+    b.classList.toggle("btn-p",active);b.classList.toggle("btn-g",!active);
+  });
+  loadSolutions(slug);
+}
+
+// ── Users ──────────────────────────────────────────────────────────────────
+async function loadUsers(){
+  allUsers=await get("/admin/users/full");
+  renderUsers(allUsers);
+}
+
+function filterUsers(){
+  const q=document.getElementById("userSearch").value.toLowerCase();
+  renderUsers(allUsers.filter(u=>u.email.toLowerCase().includes(q)||(u.name||"").toLowerCase().includes(q)));
+}
+
+function renderUsers(users){
+  document.getElementById("usersTable").innerHTML=users.map(u=>`
+    <tr class="border-b border-outline/10 hover:bg-surface2/40 transition">
+      <td class="py-2 px-3 text-xs font-mono text-on-dim">${esc(u.email)}</td>
+      <td class="py-2 px-3 text-xs">${esc(u.name||"—")}</td>
+      <td class="py-2 px-3 text-xs text-primary font-bold text-right">${fmtT(u.tokens_balance)} T</td>
+      <td class="py-2 px-3 text-xs text-on-dim">${u.subscription?u.subscription.plan.toUpperCase():"—"}</td>
+      <td class="py-2 px-3 text-center">${u.is_verified?'<span class="text-green-400 text-xs">✓</span>':'<span class="text-error text-xs">✗</span>'}</td>
+      <td class="py-2 px-3 text-xs text-on-dim">${u.created_at?new Date(u.created_at).toLocaleDateString("ru"):"—"}</td>
+      <td class="py-2 px-3">
+        <button onclick="openBalanceModal(${u.id},'${esc(u.email)}')" class="btn btn-g text-xs py-1">Баланс</button>
+      </td>
+    </tr>`).join("");
+}
+
+function openBalanceModal(userId,email){
+  adjustingUserId=userId;
+  document.getElementById("balModalUser").textContent=email;
+  document.getElementById("balDelta").value="";
+  document.getElementById("balReason").value="Ручная корректировка";
+  document.getElementById("balErr").classList.add("hidden");
+  document.getElementById("balanceModal").classList.remove("hidden");
+}
+function closeM(id){document.getElementById(id).classList.add("hidden");}
+async function doAdjustBalance(){
+  const delta=parseInt(document.getElementById("balDelta").value);
+  const reason=document.getElementById("balReason").value.trim();
+  const err=document.getElementById("balErr");err.classList.add("hidden");
+  if(isNaN(delta)){err.textContent="Введите число";err.classList.remove("hidden");return;}
+  try{
+    const r=await post(`/admin/users/${adjustingUserId}/adjust-balance`,{delta,reason});
+    closeM("balanceModal");
+    // обновим в таблице
+    const u=allUsers.find(x=>x.id===adjustingUserId);
+    if(u)u.tokens_balance=r.tokens_balance;
+    filterUsers();
+  }catch(e){err.textContent=e.message||"Ошибка";err.classList.remove("hidden");}
+}
+
+// ── API Keys ───────────────────────────────────────────────────────────────
+const PROVIDER_LABELS={
+  openai:"OpenAI",anthropic:"Anthropic",gemini:"Gemini (Google)",grok:"xAI / Grok",
+  perplexity:"Perplexity",kling:"Kling AI",veo:"Veo (Google)",
+  nano:"Nano Banana",yookassa:"ЮKassa"
+};
+
+async function loadApiKeys(){
+  const keys=await get("/admin/apikeys");
+  const content=document.getElementById("keysContent");
+  if(!keys.length){content.innerHTML=`<div class="card text-on-dim text-sm">Ключей нет. Добавьте первый ключ ниже.</div>`;return;}
+
+  // Группируем по провайдеру
+  const grouped={};
+  keys.forEach(k=>{if(!grouped[k.provider])grouped[k.provider]=[];grouped[k.provider].push(k);});
+
+  content.innerHTML=Object.entries(grouped).map(([prov,pkeys])=>`
+    <div class="card">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-headline font-bold text-sm">${PROVIDER_LABELS[prov]||prov}</h3>
+        <div class="flex gap-1.5">
+          ${pkeys.some(k=>k.status==="error")?`<span class="text-[10px] bg-error/15 text-error px-2 py-0.5 rounded-full font-bold">⚠ Есть ошибки</span>`:""}
+          ${pkeys.every(k=>k.status==="ok")?`<span class="text-[10px] bg-green-500/15 text-green-400 px-2 py-0.5 rounded-full font-bold">✓ Всё ОК</span>`:""}
+        </div>
+      </div>
+      <div class="space-y-2">
+        ${pkeys.map(k=>`
+          <div class="flex items-center justify-between bg-surface2 rounded-lg px-3 py-2.5 border ${k.status==="ok"?"border-green-500/20":k.status==="error"?"border-error/30":"border-outline/20"}">
+            <div class="flex items-center gap-3 flex-1 min-w-0">
+              <div class="w-2 h-2 rounded-full flex-shrink-0 ${k.status==="ok"?"bg-green-400":k.status==="error"?"bg-error animate-pulse":"bg-on-dim/40"}"></div>
+              <div class="min-w-0">
+                <p class="text-xs font-mono text-on-dim truncate">${esc(k.key_preview)}</p>
+                ${k.status==="unknown"&&k.last_check?'<p class="text-[10px] text-on-dim/40">Тест не реализован для этого провайдера</p>':''}
+                ${k.label?`<p class="text-[10px] text-on-dim/50">${esc(k.label)}</p>`:""}
+                ${k.status==="error"&&k.last_error?`<p class="text-[10px] text-error mt-0.5 truncate max-w-xs">${esc(k.last_error)}</p>`:""}
+                ${k.last_check?`<p class="text-[10px] text-on-dim/40">Проверен: ${new Date(k.last_check).toLocaleString("ru")}</p>`:""}
+              </div>
+            </div>
+            <div class="flex items-center gap-2 ml-3">
+              <button onclick="checkKey(${k.id})" class="btn btn-g text-[10px] py-1 px-2">Проверить</button>
+              <button onclick="deleteKey(${k.id})" class="btn btn-d text-[10px] py-1 px-2">✕</button>
+            </div>
+          </div>`).join("")}
+      </div>
+    </div>`).join("");
+}
+
+async function addKey(){
+  const provider=document.getElementById("newKeyProvider").value;
+  const key_value=document.getElementById("newKeyValue").value.trim();
+  const label=document.getElementById("newKeyLabel").value.trim();
+  const err=document.getElementById("addKeyErr");err.classList.add("hidden");
+  if(!key_value){err.textContent="Введите ключ";err.classList.remove("hidden");return;}
+  try{
+    await post("/admin/apikeys",{provider,key_value,label:label||null});
+    document.getElementById("newKeyValue").value="";
+    document.getElementById("newKeyLabel").value="";
+    await loadApiKeys();
+  }catch(e){err.textContent=e.message||"Ошибка";err.classList.remove("hidden");}
+}
+
+async function deleteKey(id){
+  if(!confirm("Удалить ключ?"))return;
+  await del(`/admin/apikeys/${id}`);
+  await loadApiKeys();
+}
+
+async function checkKey(id){
+  const r=await post(`/admin/apikeys/${id}/check`,{});
+  await loadApiKeys();
+}
+
+async function checkAllKeys(){
+  const btn=event.target;btn.textContent="Проверяю...";btn.disabled=true;
+  try{await post("/admin/apikeys/check-all",{});}catch{}
+  btn.textContent="Проверить все";btn.disabled=false;
+  await loadApiKeys();
+}
+
+// ── Solution Modal ─────────────────────────────────────────────────────────
+function openSolModal(sol){
+  editingSolId=sol?.id||null;
+  document.getElementById("solModalTitle").textContent=sol?"Редактировать решение":"Новое решение";
+  document.getElementById("sol_title").value=sol?.title||"";
+  document.getElementById("sol_desc").value=sol?.description||"";
+  document.getElementById("sol_img").value=sol?.image_url||"";
+  document.getElementById("sol_price").value=sol?.price_tokens||0;
+  document.getElementById("sol_active").checked=sol?.is_active!==false;
+  document.getElementById("sol_order").value=sol?.sort_order||0;
+  if(sol?.category_id)document.getElementById("sol_cat").value=sol.category_id;
+  document.getElementById("sol_err").classList.add("hidden");
+  document.getElementById("stepsList").innerHTML="";
+  if(sol?.steps)sol.steps.forEach(st=>addStep(st));
+  document.getElementById("solModal").classList.remove("hidden");
+}
+function closeSolModal(){document.getElementById("solModal").classList.add("hidden");editingSolId=null;}
+
+async function editSol(id){
+  const sol=await get(`/solutions/${id}`);openSolModal(sol);
+}
+async function deleteSol(id){
+  if(!confirm("Удалить решение?"))return;
+  await del(`/admin/solutions/${id}`);loadSolutions(currentCatFilter);
+}
+
+function addStep(data){
+  const tpl=document.getElementById("stepTpl").content.cloneNode(true);
+  const card=tpl.querySelector(".step-card");
+  if(data){
+    card.querySelector("[name=step_number]").value=data.step_number||"";
+    card.querySelector("[name=model]").value=data.model||"gpt";
+    card.querySelector("[name=title]").value=data.title||"";
+    card.querySelector("[name=system_prompt]").value=data.system_prompt||"";
+    card.querySelector("[name=user_prompt]").value=data.user_prompt||"";
+    card.querySelector("[name=user_hint]").value=data.user_hint||"";
+    card.querySelector("[name=wait_for_user]").checked=!!data.wait_for_user;
+    card.querySelector("[name=extra_params]").value=data.extra_params?JSON.stringify(data.extra_params):"";
+  }else{
+    const n=document.querySelectorAll("#stepsList .step-card").length;
+    card.querySelector("[name=step_number]").value=n+1;
+  }
+  document.getElementById("stepsList").appendChild(tpl);
+}
+function removeStep(btn){btn.closest(".step-card").remove();}
+
+function collectSteps(){
+  const cards=document.querySelectorAll("#stepsList .step-card");
+  const steps=[];let valid=true;
+  cards.forEach((c,i)=>{
+    const model=c.querySelector("[name=model]").value;
+    const num=parseInt(c.querySelector("[name=step_number]").value)||i+1;
+    if(!model){valid=false;return;}
+    const ep=c.querySelector("[name=extra_params]").value.trim();
+    let extra=null;
+    if(ep){try{extra=JSON.parse(ep);}catch{valid=false;}}
+    steps.push({step_number:num,model,
+      title:c.querySelector("[name=title]").value||null,
+      system_prompt:c.querySelector("[name=system_prompt]").value||null,
+      user_prompt:c.querySelector("[name=user_prompt]").value||null,
+      user_hint:c.querySelector("[name=user_hint]").value||null,
+      wait_for_user:c.querySelector("[name=wait_for_user]").checked,
+      extra_params:extra});
+  });
+  return valid?steps:null;
+}
+
+async function saveSolution(){
+  const err=document.getElementById("sol_err");err.classList.add("hidden");
+  const body={
+    category_id:parseInt(document.getElementById("sol_cat").value),
+    title:document.getElementById("sol_title").value.trim(),
+    description:document.getElementById("sol_desc").value.trim()||null,
+    image_url:document.getElementById("sol_img").value.trim()||null,
+    price_tokens:parseInt(document.getElementById("sol_price").value)||0,
+    is_active:document.getElementById("sol_active").checked,
+    sort_order:parseInt(document.getElementById("sol_order").value)||0,
+  };
+  if(!body.title){err.textContent="Название обязательно";err.classList.remove("hidden");return;}
+  const steps=collectSteps();
+  if(!steps){err.textContent="Ошибка в шагах (проверьте JSON)";err.classList.remove("hidden");return;}
+  try{
+    let sol;
+    if(editingSolId){
+      sol=await put(`/admin/solutions/${editingSolId}`,body);
+      const existing=await get(`/solutions/${editingSolId}`);
+      for(const st of existing.steps||[])await del(`/admin/steps/${st.id}`);
+    }else{sol=await post("/admin/solutions",body);}
+    for(const st of steps)await post(`/admin/solutions/${sol.id}/steps`,st);
+    closeSolModal();loadSolutions(currentCatFilter);
+  }catch(e){err.textContent=e.message||"Ошибка";err.classList.remove("hidden");}
+}
+
+// ── utils ──────────────────────────────────────────────────────────────────
+function fmtT(n){if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1000)return(n/1000).toFixed(0)+"к";return String(n||0);}
+function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+async function get(path){
+  const r=await fetch(API+path,{headers:authH()});
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
+  return r.json();
+}
+async function post(path,body){
+  const r=await fetch(API+path,{method:"POST",headers:{...authH(),"Content-Type":"application/json"},body:JSON.stringify(body)});
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
+  return r.json();
+}
+async function put(path,body){
+  const r=await fetch(API+path,{method:"PUT",headers:{...authH(),"Content-Type":"application/json"},body:JSON.stringify(body)});
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
+  return r.json();
+}
+async function del(path){
+  const r=await fetch(API+path,{method:"DELETE",headers:authH()});
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
+  return r.json();
+}
+function authH(){return adminToken?{"Authorization":"Bearer "+adminToken}:{};}
+
+document.getElementById("solModal").addEventListener("click",e=>{if(e.target===document.getElementById("solModal"))closeSolModal();});
+document.getElementById("balanceModal").addEventListener("click",e=>{if(e.target===document.getElementById("balanceModal"))closeM("balanceModal");});
+
+// ── Pricing ────────────────────────────────────────────────────────────────
+async function loadPricing(){
+  const [models, settings, pkgs, plans] = await Promise.all([
+    get("/pricing/models"),
+    get("/pricing/settings"),
+    get("/pricing/packages"),
+    fetch(`${API}/plans`).then(r=>r.json()),
+  ]);
+
+  const usdRub = parseFloat(settings.usd_to_rub||90);
+  const chRub  = parseFloat(settings.ch_to_rub||0.1);
+
+  // Global settings
+  const gsGrid = document.getElementById("globalSettingsGrid");
+  gsGrid.innerHTML = [
+    {key:"usd_to_rub", label:"Курс $ → ₽", val:settings.usd_to_rub, hint:"Обновите при изменении курса"},
+    {key:"ch_to_rub",  label:"Стоимость 1 CH (₽)", val:settings.ch_to_rub, hint:"Базовая стоимость токена"},
+    {key:"support_url",label:"Ссылка поддержки", val:settings.support_url, hint:"URL для кнопки поддержки"},
+  ].map(s=>`
+    <div class="space-y-1">
+      <label class="block text-[10px] text-on-dim uppercase tracking-wider">${s.label}</label>
+      <p class="text-[10px] text-on-dim/50 mb-1">${s.hint}</p>
+      <div class="flex gap-2">
+        <input id="gs_${s.key}" type="text" value="${esc(s.val||'')}" class="inp flex-1 text-xs" style="padding:8px 10px"/>
+        <button onclick="saveGlobalSetting('${s.key}')" class="btn btn-g text-xs px-3">Сохранить</button>
+      </div>
+    </div>`).join("");
+
+  // Model pricing table
+  const tbody = document.getElementById("modelPricingTable");
+  tbody.innerHTML = models.map(m=>{
+    const est = ((m.usd_per_req * usdRub * m.markup) / chRub * m.cost_per_req).toFixed(2);
+    return `<tr class="border-b border-outline/10 hover:bg-surface2/30 transition" id="mrow_${m.model_id}">
+      <td class="py-2 px-2 text-xs font-medium">${esc(m.label)}</td>
+      <td class="py-2 px-2 text-right"><input type="number" class="inp text-xs text-right w-16" style="padding:5px 6px" value="${m.cost_per_req}" id="mp_ch_${m.model_id}"/></td>
+      <td class="py-2 px-2 text-right"><input type="number" step="0.0001" class="inp text-xs text-right w-20" style="padding:5px 6px" value="${m.usd_per_req}" id="mp_usd_${m.model_id}"/></td>
+      <td class="py-2 px-2 text-right"><input type="number" step="0.1" class="inp text-xs text-right w-16" style="padding:5px 6px" value="${m.markup}" id="mp_mk_${m.model_id}"/></td>
+      <td class="py-2 px-2 text-right text-on-dim text-xs" id="mp_est_${m.model_id}">${est}₽</td>
+      <td class="py-2 px-2"><button onclick="saveModelPricing('${m.model_id}')" class="btn btn-g text-[10px] py-1 px-2">Сохранить</button></td>
+    </tr>`;
+  }).join("");
+
+  // Subscription plans
+  const subsEl = document.getElementById("subscriptionPlans");
+  subsEl.innerHTML = plans.map(p=>`
+    <div class="flex items-center justify-between bg-surface2 rounded-lg px-4 py-3 border border-outline/20">
+      <div>
+        <p class="font-medium text-sm">${esc(p.name)}</p>
+        <p class="text-xs text-on-dim">${fmtT(p.tokens)} CH/мес</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-primary font-bold">${p.price_rub}₽/мес</span>
+        <p class="text-[10px] text-on-dim/50">Редактировать цены в payments.py → PLANS</p>
+      </div>
+    </div>`).join("");
+
+  // Token packages
+  renderTokenPackages(pkgs);
+}
+
+function renderTokenPackages(pkgs){
+  const el = document.getElementById("tokenPackages");
+  el.innerHTML = pkgs.length ? pkgs.map(p=>`
+    <div class="flex items-center justify-between bg-surface2 rounded-lg px-4 py-3 border border-outline/20" id="pkg_${p.id}">
+      <div class="flex-1 grid grid-cols-3 gap-3">
+        <input type="text" value="${esc(p.name)}" id="pk_name_${p.id}" class="inp text-xs" style="padding:6px 10px"/>
+        <input type="number" value="${p.tokens}" id="pk_tok_${p.id}" class="inp text-xs" style="padding:6px 10px" placeholder="Токены CH"/>
+        <input type="number" value="${p.price_rub}" id="pk_rub_${p.id}" class="inp text-xs" style="padding:6px 10px" placeholder="Цена ₽"/>
+      </div>
+      <div class="flex gap-2 ml-3">
+        <button onclick="savePkg(${p.id})" class="btn btn-g text-xs">Сохранить</button>
+        <button onclick="deletePkg(${p.id})" class="btn btn-d text-xs">✕</button>
+      </div>
+    </div>`).join("")
+    : '<p class="text-on-dim text-sm">Пакетов нет</p>';
+}
+
+async function saveGlobalSetting(key){
+  const val = document.getElementById(`gs_${key}`).value.trim();
+  await put(`/admin/pricing/settings/${key}`, {value: val});
+  // refresh calcs
+  loadPricing();
+}
+
+async function saveModelPricing(modelId){
+  const body = {
+    cost_per_req: parseInt(document.getElementById(`mp_ch_${modelId}`).value),
+    usd_per_req:  parseFloat(document.getElementById(`mp_usd_${modelId}`).value),
+    markup:       parseFloat(document.getElementById(`mp_mk_${modelId}`).value),
+  };
+  await put(`/admin/pricing/models/${modelId}`, body);
+  loadPricing();
+}
+
+async function addTokenPackage(){
+  await post("/admin/pricing/packages", {name:"Новый пакет", tokens:10000, price_rub:99});
+  const pkgs = await get("/pricing/packages");
+  renderTokenPackages(pkgs);
+}
+
+async function savePkg(id){
+  await put(`/admin/pricing/packages/${id}`, {
+    name: document.getElementById(`pk_name_${id}`).value,
+    tokens: parseInt(document.getElementById(`pk_tok_${id}`).value),
+    price_rub: parseFloat(document.getElementById(`pk_rub_${id}`).value),
+    is_active: true,
+  });
+  const pkgs = await get("/pricing/packages");
+  renderTokenPackages(pkgs);
+}
+
+async function deletePkg(id){
+  if(!confirm("Удалить пакет?")) return;
+  await del(`/admin/pricing/packages/${id}`);
+  const pkgs = await get("/pricing/packages");
+  renderTokenPackages(pkgs);
+}
+
+// ── Feature Flags ─────────────────────────────────────────────────────────
+async function loadFeatures(){
+  const flags = await get("/admin/features");
+  const grid = document.getElementById("featuresGrid");
+  grid.innerHTML = flags.map(f=>`
+    <div class="card flex items-center justify-between gap-4" id="ff_${f.key}">
+      <div class="flex-1">
+        <p class="font-bold text-sm">${f.label}</p>
+        ${f.description?`<p class="text-xs text-on-dim mt-0.5">${f.description}</p>`:""}
+      </div>
+      <button onclick="toggleFeature('${f.key}',${!f.enabled})"
+        class="flex-shrink-0 btn ${f.enabled?"btn-p":"btn-g"} text-xs min-w-[90px]">
+        ${f.enabled?"✓ Включён":"✗ Выключен"}
+      </button>
+    </div>
+  `).join("");
+}
+
+async function toggleFeature(key, enabled){
+  await post(`/admin/features/${key}`, {enabled});
+  loadFeatures();
+}
+
+// ── FAQ ────────────────────────────────────────────────────────────────────
+async function loadFaq(){
+  const faqs = await get("/faq");
+  const el = document.getElementById("faqList");
+  el.innerHTML = faqs.map(f=>`
+    <div class="card space-y-3" id="faq_${f.id}">
+      <div>
+        <label class="block text-[10px] text-on-dim mb-1">Вопрос</label>
+        <input type="text" id="fq_q_${f.id}" value="${esc(f.question)}" class="inp text-sm"/>
+      </div>
+      <div>
+        <label class="block text-[10px] text-on-dim mb-1">Ответ</label>
+        <textarea id="fq_a_${f.id}" rows="3" class="inp text-sm resize-none">${esc(f.answer)}</textarea>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button onclick="saveFaq(${f.id})" class="btn btn-g text-xs">Сохранить</button>
+        <button onclick="deleteFaq(${f.id})" class="btn btn-d text-xs">Удалить</button>
+      </div>
+    </div>`).join("") || '<p class="text-on-dim text-sm">Вопросов нет</p>';
+}
+
+async function addFaqItem(){
+  await post("/admin/faq", {question:"Новый вопрос", answer:"Ответ", sort_order:99});
+  loadFaq();
+}
+
+async function saveFaq(id){
+  await put(`/admin/faq/${id}`, {
+    question: document.getElementById(`fq_q_${id}`).value,
+    answer:   document.getElementById(`fq_a_${id}`).value,
+    sort_order: 0, is_active: true
+  });
+}
+
+async function deleteFaq(id){
+  if(!confirm("Удалить?")) return;
+  await del(`/admin/faq/${id}`);
+  loadFaq();
+}
+
+
+
+// ── Promos ─────────────────────────────────────────────────────────────────
+async function loadPromos(){
+  const promos = await get('/admin/promos');
+  const tbody = document.getElementById('promosTbody');
+  if(!tbody)return;
+  tbody.innerHTML = promos.length ? promos.map(p=>`
+    <tr class="border-b border-outline/10 hover:bg-surface2/30 transition">
+      <td class="py-2 px-3 font-mono text-sm font-bold text-primary">${esc(p.code)}</td>
+      <td class="py-2 px-3 text-right text-xs">${p.discount_pct?p.discount_pct+'%':'—'}</td>
+      <td class="py-2 px-3 text-right text-xs">${p.bonus_tokens?'+'+p.bonus_tokens+' CH':'—'}</td>
+      <td class="py-2 px-3 text-right text-xs">${p.used_count}</td>
+      <td class="py-2 px-3 text-right text-xs">${p.max_uses}</td>
+      <td class="py-2 px-3 text-center">
+        <span class="text-[10px] px-2 py-0.5 rounded-full font-bold ${p.is_active?'bg-green-500/15 text-green-400':'bg-error/15 text-error'}">${p.is_active?'Активен':'Отключён'}</span>
+      </td>
+      <td class="py-2 px-3">
+        <button onclick="togglePromo(${p.id},${!p.is_active})" class="btn btn-g text-[10px] py-0.5 px-2">${p.is_active?'Откл':'Вкл'}</button>
+        <button onclick="deletePromoItem(${p.id})" class="btn btn-d text-[10px] py-0.5 px-2 ml-1">✕</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="7" class="py-6 text-center text-on-dim text-sm">Промокодов нет</td></tr>';
+}
+
+async function createPromo(){
+  const code=document.getElementById('prm_code').value.trim();
+  const err=document.getElementById('prm_err'); err.classList.add('hidden');
+  if(!code){err.textContent='Введите код';err.classList.remove('hidden');return;}
+  try{
+    await post('/admin/promos',{
+      code,
+      discount_pct:parseInt(document.getElementById('prm_disc').value)||0,
+      bonus_tokens:parseInt(document.getElementById('prm_bonus').value)||0,
+      max_uses:parseInt(document.getElementById('prm_max').value)||100,
+      is_active:true
+    });
+    document.getElementById('prm_code').value='';
+    loadPromos();
+  }catch(e){err.textContent=e.message;err.classList.remove('hidden');}
+}
+
+async function addPromo(){
+  document.getElementById('prm_code').focus();
+}
+
+async function togglePromo(id, active){
+  const promos = await get('/admin/promos');
+  const p = promos.find(x=>x.id===id); if(!p)return;
+  await put(`/admin/promos/${id}`,{...p,is_active:active});
+  loadPromos();
+}
+
+async function deletePromoItem(id){
+  if(!confirm('Удалить промокод?'))return;
+  await del(`/admin/promos/${id}`);loadPromos();
+}
+
+// Patch showSec to load promos
+const _origShowSec2 = showSec;
+
+
+checkAutoLogin();
+</script>
+</body>
+</html>

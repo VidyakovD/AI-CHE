@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-high": "#2a2a2a",
+                        "on-tertiary": "#490081",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "tertiary-fixed-dim": "#ddb8ff",
+                        "error-container": "#93000a",
+                        "secondary": "#ddb7ff",
+                        "surface-bright": "#3a3939",
+                        "surface-container-low": "#1c1b1b",
+                        "primary": "#c0c1ff",
+                        "on-primary-container": "#0d0096",
+                        "on-primary-fixed": "#07006c",
+                        "secondary-container": "#6f00be",
+                        "primary-fixed": "#e1e0ff",
+                        "inverse-surface": "#e5e2e1",
+                        "tertiary-container": "#b175ec",
+                        "surface-container-highest": "#353534",
+                        "primary-container": "#8083ff",
+                        "on-error": "#690005",
+                        "on-secondary-container": "#d6a9ff",
+                        "on-background": "#e5e2e1",
+                        "outline-variant": "#464554",
+                        "on-surface-variant": "#c7c4d7",
+                        "background": "#131313",
+                        "on-secondary-fixed": "#2c0051",
+                        "on-surface": "#e5e2e1",
+                        "on-tertiary-fixed": "#2c0051",
+                        "secondary-fixed": "#f0dbff",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#201f1f",
+                        "on-tertiary-fixed-variant": "#62259b",
+                        "on-primary": "#1000a9",
+                        "surface-dim": "#131313",
+                        "on-secondary": "#490080",
+                        "surface-container-lowest": "#0e0e0e",
+                        "surface-tint": "#c0c1ff",
+                        "inverse-primary": "#494bd6",
+                        "on-tertiary-container": "#400071",
+                        "on-secondary-fixed-variant": "#6900b3",
+                        "surface-variant": "#353534",
+                        "secondary-fixed-dim": "#ddb7ff",
+                        "error": "#ffb4ab",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "outline": "#908fa0",
+                        "surface": "#131313",
+                        "inverse-on-surface": "#313030",
+                        "tertiary": "#ddb8ff",
+                        "tertiary-fixed": "#f0dbff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.875rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+        }
+        .signature-glow {
+            background: linear-gradient(135deg, #c0c1ff 0%, #ddb7ff 100%);
+        }
+        .glass-panel {
+            background: rgba(53, 53, 52, 0.6);
+            backdrop-filter: blur(20px);
+        }
+        .ghost-border-tl {
+            border-top: 1px solid rgba(70, 69, 84, 0.15);
+            border-left: 1px solid rgba(70, 69, 84, 0.15);
+        }
+        /* Chrome, Edge, Safari */
+        #messageInput::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #messageInput::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        #messageInput::-webkit-scrollbar-thumb {
+            background: rgba(192, 193, 255, 0.4);
+            border-radius: 999px;
+            transition: background 0.2s;
+        }
+
+        #messageInput::-webkit-scrollbar-thumb:hover {
+            background: rgba(192, 193, 255, 0.7);
+        }
+
+        /* Firefox */
+        #messageInput {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(192, 193, 255, 0.4) transparent;
+        }
+        #chatScroll::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #chatScroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        #chatScroll::-webkit-scrollbar-thumb {
+            background: rgba(192, 193, 255, 0.3);
+            border-radius: 999px;
+        }
+
+        #chatScroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(192, 193, 255, 0.6);
+        }
+
+        /* Firefox */
+        #chatScroll {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(192,193,255,0.3) transparent;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body selection:bg-primary/30">
+<!-- SideNavBar Anchor -->
+<aside class="fixed left-0 top-0 z-40 p-4 h-screen w-72 flex-col hidden lg:flex bg-[#1C1B1B] border-r border-[#464554]/15 shadow-2xl overflow-hidden">
+<div class="flex items-center gap-3 px-2 mb-8">
+<div class="w-10 h-10 rounded-xl signature-glow flex items-center justify-center shadow-[0_0_20px_rgba(192,193,255,0.3)]">
+<span class="material-symbols-outlined text-on-primary-container" style="font-variation-settings: 'FILL' 1;">deployed_code</span>
+</div>
+<div>
+<h1 class="text-xl font-bold tracking-tighter text-[#E5E2E1] font-headline">Obsidian AI</h1>
+<p class="text-[10px] uppercase tracking-[0.2em] text-primary font-medium opacity-80">AI-платформа</p>
+</div>
+</div>
+<div class="space-y-2 mb-8">
+<button id="newChatBtn" class="w-full flex items-center gap-3 px-4 py-3 text-[#C0C1FF] bg-[#2A2A2A] rounded-lg font-headline font-medium tracking-tight transition-transform scale-[0.98] active:opacity-80">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+                Новый чат
+            </button>
+<button class="w-full flex items-center gap-3 px-4 py-3 text-[#E5E2E1]/60 hover:text-[#E5E2E1] font-headline font-medium tracking-tight transition-all duration-200 hover:bg-[#353534]/40 rounded-lg">
+<span class="material-symbols-outlined" data-icon="auto_awesome">auto_awesome</span>
+                Готовые решения
+            </button>
+</div>
+<div id="chatScroll" class="flex-1 overflow-y-scroll space-y-1 pr-2">
+    <label class="px-4 text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2 block">
+        История чатов
+    </label>
+
+    <div id="chatList" class="space-y-1"></div>
+</div>
+<footer class="mt-auto pt-4 space-y-1">
+<button class="w-full flex items-center gap-3 px-4 py-2.5 text-[#E5E2E1]/60 hover:text-[#E5E2E1] transition-all rounded-lg">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="text-sm font-medium">Chat History</span>
+</button>
+<div class="p-3 mt-2 bg-surface-container rounded-xl flex items-center gap-3">
+<img alt="App Logo" class="w-10 h-10 rounded-full bg-surface-container-highest" data-alt="close-up portrait of a stylized digital avatar with soft neon backlighting on a dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBmKVdghwP0ixXy7TsD56kzjfiCA32mlHPHrgwqDvoiJHTFXN-NRsUAo4J1sjW9uNZTh1Gt2JxLda8I9skssX5bxwkCkwNC0JiAyG_kVkj6VEIhxEUxhVEmKHwwuxZfd_9t43Ac3SH2bsmdqwnicfheJBFGOlP14UglSSUcDg8WjkzAz4I-8A9uk4YeTouDR7zw2LLmqyeRF9GbLRP20WUGAorD610Oc-eadsbFmIpiKOio738ufVf5xZjdwfGjLcyCI_zuvuiN_587"/>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-semibold text-on-surface truncate">Alex Rivera</p>
+<p class="text-xs text-primary font-bold">$12.50 balance</p>
+</div>
+<button class="text-[#E5E2E1]/60 hover:text-[#C0C1FF] transition-colors">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</footer>
+</aside>
+<!-- Main Content Area -->
+<main class="lg:ml-72 min-h-screen flex flex-col relative">
+<!-- TopNavBar Anchor -->
+<nav class="fixed top-0 right-0 left-0 lg:left-72 z-30 flex items-center justify-between px-8 bg-[#131313]/80 backdrop-blur-xl h-16">
+<div class="flex items-center gap-6">
+<!-- Model Selector Dropdown -->
+<div class="relative" id="modelMenuWrapper">
+<button id="modelMenuBtn" class="flex items-center gap-3 bg-surface-container-high px-4 py-1.5 rounded-full text-on-surface hover:bg-surface-container-highest transition-all active:scale-95">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<span class="font-headline text-sm font-semibold tracking-tight">GPT-4</span>
+<span class="material-symbols-outlined text-sm">expand_more</span>
+</button>
+<!-- Dropdown Menu -->
+<div id="modelDropdown" class="hidden absolute top-full left-0 mt-2 w-48 glass-panel rounded-xl overflow-hidden shadow-2xl z-50">
+<div class="p-2 space-y-1">
+<div 
+    data-model="gpt"
+    onclick="setModel('gpt','GPT-4')"
+    class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary cursor-pointer"
+>
+    <div class="model-bar w-1 h-4 bg-primary rounded-full"></div>
+    <span class="text-sm font-medium">GPT</span>
+</div>
+<div 
+    data-model="claude"
+    onclick="setModel('claude','Claude')"
+    class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer"
+>
+    <div class="model-bar w-1 h-4 bg-transparent rounded-full"></div>
+    <span class="text-sm font-medium">Claude</span>
+</div>
+<div 
+    data-model="perplexity"
+    onclick="setModel('perplexity','Perplexity')"
+    class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer"
+>
+    <div class="model-bar w-1 h-4 bg-transparent rounded-full"></div>
+    <span class="text-sm font-medium">Perplexity</span>
+</div>
+<div 
+    data-model="nano"
+    onclick="setModel('nano','Nano Banana')"
+    class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer"
+>
+    <div class="model-bar w-1 h-4 bg-transparent rounded-full"></div>
+    <span class="text-sm font-medium">Nano Banana</span>
+</div>
+<div 
+    data-model="kling"
+    onclick="setModel('kling','Kling')"
+    class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-highest transition-colors cursor-pointer"
+>
+    <div class="model-bar w-1 h-4 bg-transparent rounded-full"></div>
+    <span class="text-sm font-medium">Kling</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="hidden md:flex items-center gap-6">
+<a 
+    data-model="gpt"
+    onclick="setModel('gpt','GPT-4')"
+    class="model-tab text-[#C0C1FF] border-l-4 border-[#C0C1FF] pl-2 font-['Manrope'] text-[10px] uppercase tracking-widest font-bold cursor-pointer"
+>
+    GPT
+</a>
+<a 
+    data-model="claude"
+    onclick="setModel('claude','Claude')"
+    class="model-tab text-[#E5E2E1]/70 hover:text-[#DDB7FF] transition-colors font-['Manrope'] text-[10px] uppercase tracking-widest cursor-pointer"
+>
+    Claude
+</a>
+<a 
+    data-model="perplexity"
+    onclick="setModel('perplexity','Perplexity')"
+    class="model-tab text-[#E5E2E1]/70 hover:text-[#DDB7FF] transition-colors font-['Manrope'] text-[10px] uppercase tracking-widest cursor-pointer"
+>
+    Perplexity
+</a>
+<a 
+    data-model="nano"
+    onclick="setModel('nano','Nano Banana')"
+    class="model-tab text-[#E5E2E1]/70 hover:text-[#DDB7FF] transition-colors font-['Manrope'] text-[10px] uppercase tracking-widest cursor-pointer"
+>
+    Nano Banana
+</a>
+<a 
+    data-model="veo"
+    onclick="setModel('veo','Veo 3')"
+    class="model-tab text-[#E5E2E1]/70 hover:text-[#DDB7FF] transition-colors font-['Manrope'] text-[10px] uppercase tracking-widest cursor-pointer"
+>
+    VEO 3
+</a>
+<a 
+    data-model="kling"
+    onclick="setModel('kling','Kling')"
+    class="model-tab text-[#E5E2E1]/70 hover:text-[#DDB7FF] transition-colors font-['Manrope'] text-[10px] uppercase tracking-widest cursor-pointer"
+>
+    Kling
+</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:scale-95">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:scale-95">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<div class="w-px h-6 bg-outline-variant/20 mx-2"></div>
+<img alt="User profile with balance" class="w-8 h-8 rounded-full border border-primary/20 p-0.5" data-alt="abstract close-up of high-tech circuit patterns with soft lavender and blue glowing paths" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC48pKUMEfRbo5kBpzQ7FVWICgSwO_QeKuJ10_7O1MFvCihxmHHlhfwM4S-Yi_tARJ-7toQyJ5xkBlZwPp_Rvq8NjINnCbIqdOkrWN9rDDMVvejFC0z1Te6m4FAHbgEa6DZAoJYqRxHR0HeJCsFLch58SpB76FwvjtqBrsul-NjR7xYKyBXD0r8AxK4PNvJgIR5fgK6byApqLnEu5qCzJvxTh9NW9KD6Lc95wP-F7WAjYtPUUaVqtm3RTZKxv4m05kfI6VEU6QWpjfd"/>
+</div>
+</nav>
+<!-- Chat Area Canvas -->
+<section id="chatContainer" class="flex-1 pt-24 pb-32 px-4 md:px-8 max-w-4xl mx-auto w-full flex flex-col gap-8">
+<!-- User Message -->
+<div class="flex flex-col items-end space-y-2 max-w-[85%] self-end">
+<div class="bg-surface-container-lowest px-6 py-4 rounded-xl rounded-br-sm shadow-xl border border-outline-variant/5">
+<p class="text-on-surface text-sm leading-relaxed">How can I optimize this React component for performance?</p>
+</div>
+<span class="text-[10px] uppercase tracking-tighter text-on-surface-variant/60 font-bold px-1">You • 10:42 AM</span>
+</div>
+<!-- AI Message -->
+<div class="flex flex-col items-start space-y-2 max-w-[90%] self-start">
+<div class="flex items-center gap-3 mb-1">
+<div class="w-6 h-6 rounded-lg signature-glow flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] text-on-primary-container" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+</div>
+<span class="text-[10px] uppercase tracking-widest text-primary font-bold">Obsidian Intelligence</span>
+</div>
+<div class="glass-panel ghost-border-tl px-6 py-5 rounded-xl rounded-bl-sm shadow-[0_20px_40px_-12px_rgba(0,0,0,0.5)]">
+<div class="space-y-4 text-on-surface text-sm leading-relaxed">
+<p>To optimize your React component, you can use several patterns to prevent unnecessary re-renders and reduce main-thread blockage:</p>
+<ul class="space-y-3 pl-4 border-l-2 border-primary/20">
+<li>
+<strong class="text-primary-fixed-dim">React.memo:</strong> HOC that memoizes the component based on props equality.
+                            </li>
+<li>
+<strong class="text-primary-fixed-dim">useMemo:</strong> For expensive calculations like filtering large datasets.
+                            </li>
+<li>
+<strong class="text-primary-fixed-dim">useCallback:</strong> To prevent function identity changes that trigger child re-renders.
+                            </li>
+</ul>
+<div class="flex items-center gap-1.5 py-2">
+<div class="w-1 h-1 bg-primary rounded-full animate-bounce" style="animation-delay: 0ms;"></div>
+<div class="w-1 h-1 bg-primary rounded-full animate-bounce" style="animation-delay: 150ms;"></div>
+<div class="w-1 h-1 bg-primary rounded-full animate-bounce" style="animation-delay: 300ms;"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Bottom Input Area -->
+<div class="fixed bottom-0 right-0 left-0 lg:left-72 p-6 bg-gradient-to-t from-background via-background to-transparent pointer-events-none">
+<div class="max-w-4xl mx-auto w-full pointer-events-auto">
+<div class="relative group">
+<div class="absolute -inset-1 bg-gradient-to-r from-primary/20 to-secondary/20 rounded-full blur opacity-0 group-focus-within:opacity-100 transition duration-500"></div>
+<div class="relative flex items-center bg-surface-container-low rounded-full pl-6 pr-2 py-2 shadow-2xl">
+<textarea
+    id="messageInput"
+    rows="1"
+    class="flex-1 bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-on-surface-variant/40 text-sm font-body py-2 px-3 resize-none overflow-y-auto max-h-24 leading-5 transition-all duration-100"
+    placeholder="Напиши сообщение..."
+></textarea>
+<div class="flex items-center gap-2 px-2">
+<input type="file" id="fileInput" class="hidden" />
+
+<button onclick="document.getElementById('fileInput').click()" class="p-2 text-on-surface-variant hover:text-primary transition-colors">
+    <span class="material-symbols-outlined">attach_file</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="mic">mic</span>
+</button>
+<button id="sendBtn" class="w-10 h-10 rounded-full signature-glow flex items-center justify-center text-on-primary shadow-lg hover:scale-105 active:scale-95 transition-all">
+<span class="material-symbols-outlined" data-icon="send" style="font-variation-settings: 'FILL' 1;">send</span>
+</button>
+</div>
+</div>
+</div>
+<p class="text-center text-[10px] text-on-surface-variant/40 mt-3 tracking-wide">
+                    Obsidian AI can make mistakes. Verify important information.
+                </p>
+</div>
+</div>
+</main>
+<!-- Background Grain Texture -->
+<div class="fixed inset-0 pointer-events-none opacity-[0.02] z-50 mix-blend-overlay" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuB0ifGCxK9fmJbv4ueV-dRup23S5VpeAbl0KzQM43W3nU2ICgu0B3uZ6Mi-fGaXFYKdqG4BGU-wOvza77ku0_oikLye6A8ChGJZqF-1MghiLH1Uqz-pFDDfi8EOfZt7WXkYcDeOn5-gLHSjVDZblsoRJKhqHLVeG1TcMjDgkoaTlH2XBs1_945YP100Bhi3Mk8a3U_NWI1OYvfloYIrWjptJJU4_32BOQR2uAA7KkMWt-o1s9cQ0R2fmMHNxIk7CU8J527tTdX0LQuH');">
+</div>
+<!-- МОДАЛКА -->
+<div id="renameModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+    <div class="bg-[#1C1B1B] rounded-xl p-6 w-[400px] shadow-2xl border border-[#464554]/30">
+
+        <h2 class="text-lg font-semibold mb-4 text-[#E5E2E1]">Переименовать чат</h2>
+
+        <input 
+            id="renameInput"
+            type="text"
+            class="w-full px-4 py-2 rounded-lg bg-[#2A2A2A] text-[#E5E2E1] outline-none border border-[#464554]/30 focus:border-[#C0C1FF]"
+            placeholder="Введите название"
+        />
+
+        <div class="flex justify-end gap-3 mt-6">
+            <button id="cancelRename" class="px-4 py-2 rounded-lg bg-[#353534] text-[#E5E2E1]/70 hover:text-white">
+                Отмена
+            </button>
+            <button id="confirmRename" class="px-4 py-2 rounded-lg bg-[#C0C1FF] text-black font-medium">
+                Сохранить
+            </button>
+        </div>
+
+    </div>
+</div>
+<script>
+const API_BASE = "http://127.0.0.1:8000";
+document.getElementById("fileInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch(`${API_BASE}/upload`, {
+            method: "POST",
+            body: formData
+        });
+
+        if (!res.ok) {
+            throw new Error("upload failed");
+        }
+
+        const data = await res.json();
+
+        console.log("UPLOAD OK:", data);
+
+        addMessage(data.url, "user");
+
+    } catch (err) {
+        console.error(err);
+        addMessage("Ошибка загрузки файла", "ai");
+    }
+});
+let currentChat = null;
+let currentChatInitialized = false;
+let currentModel = "gpt";
+async function createChat() {
+    const res = await fetch(`${API_BASE}/chat/create`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            model: currentModel
+        })
+    });
+
+    const data = await res.json();
+    currentChat = data.chat_id;
+
+}
+
+async function init() {
+    const res = await fetch(`${API_BASE}/chat/create`, { method: "POST" });
+    const data = await res.json();
+    currentChat = data.chat_id;
+}
+
+async function sendMessage() {
+    const sendBtn = document.getElementById("sendBtn");
+    const input = document.getElementById("messageInput");
+    const text = input.value.trim();
+
+    if (!text) return;
+
+    sendBtn.disabled = true;
+    sendBtn.classList.add("opacity-50", "cursor-not-allowed");
+
+    try {
+        if (!currentChat) {
+            await createChat();
+        }
+
+        addMessage(text, "user");
+        addTyping();
+        input.value = "";
+        document.getElementById("messageInput").style.height = "auto";
+        updateSendButton();
+
+        const res = await fetch(`${API_BASE}/message`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                chat_id: currentChat,
+                message: text,
+                model: currentModel
+            })
+        });
+
+        const data = await res.json();
+
+        removeTyping();
+
+        if (data.error) {
+            addMessage("Ошибка: " + data.error, "ai");
+        } else {
+            if (data.response?.type === "image") {
+                addMessage(data.response.content, "ai");
+            } else {
+                addMessage(data.response?.content || "Ошибка", "ai");
+            }
+            await loadChats();
+        }
+
+    } catch (err) {
+        console.error(err);
+        removeTyping();
+        addMessage("Ошибка сети или сервера", "ai");
+    }
+
+    sendBtn.disabled = false;
+    sendBtn.classList.remove("opacity-50", "cursor-not-allowed");
+}
+
+function addTyping() {
+    const container = document.getElementById("chatContainer");
+
+    const wrapper = document.createElement("div");
+    wrapper.id = "typing";
+
+    wrapper.className = "flex flex-col items-start space-y-2 max-w-[90%] self-start";
+
+    wrapper.innerHTML = `
+        <div class="glass-panel ghost-border-tl px-6 py-5 rounded-xl rounded-bl-sm shadow">
+            <div class="flex gap-1">
+                <div class="w-1 h-1 bg-primary rounded-full animate-bounce"></div>
+                <div class="w-1 h-1 bg-primary rounded-full animate-bounce delay-150"></div>
+                <div class="w-1 h-1 bg-primary rounded-full animate-bounce delay-300"></div>
+            </div>
+        </div>
+    `;
+
+    container.appendChild(wrapper);
+    container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth"
+    });
+}
+
+function removeTyping() {
+    const el = document.getElementById("typing");
+    if (el) el.remove();
+}
+
+function addMessage(text, role) {
+    const container = document.getElementById("chatContainer");
+
+    const wrapper = document.createElement("div");
+
+    if (role === "user") {
+        wrapper.className = "flex flex-col items-end space-y-2 max-w-[85%] self-end";
+
+        wrapper.innerHTML = `
+            <div class="bg-surface-container-lowest px-6 py-4 rounded-xl rounded-br-sm shadow-xl border border-outline-variant/5">
+                ${
+                    text.startsWith("/uploads/")
+                    ? `<img src="${API_BASE}${text}" class="rounded-lg max-w-xs mt-2" />`
+                    : `<p class="text-on-surface text-sm">${text}</p>`
+                }
+            </div>
+        `;
+    } else {
+        wrapper.className = "flex flex-col items-start space-y-2 max-w-[90%] self-start";
+
+        wrapper.innerHTML = `
+            <div class="glass-panel ghost-border-tl px-6 py-5 rounded-xl rounded-bl-sm shadow">
+                ${
+                    text.startsWith("/uploads/")
+                    ? `<img src="${API_BASE}${text}" class="rounded-lg max-w-xs mt-2" />`
+                    : `<p class="text-on-surface text-sm">${text}</p>`
+                }
+            </div>
+        `;
+    }
+
+    container.appendChild(wrapper);
+    container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth"
+    });
+}
+
+function updateSendButton() {
+    const input = document.getElementById("messageInput");
+    const sendBtn = document.getElementById("sendBtn");
+
+    if (input.value.trim().length === 0) {
+        sendBtn.disabled = true;
+        sendBtn.classList.add("opacity-50", "cursor-not-allowed");
+    } else {
+        sendBtn.disabled = false;
+        sendBtn.classList.remove("opacity-50", "cursor-not-allowed");
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    renderWelcome();
+    document.getElementById("newChatBtn").onclick = async () => {
+        currentChat = null;
+        currentChatInitialized = false;
+
+        renderWelcome();
+
+        await loadChats();
+    };
+    const sendBtn = document.getElementById("sendBtn");
+    const input = document.getElementById("messageInput");
+
+    sendBtn.onclick = sendMessage;
+
+    input.addEventListener("keydown", function(e) {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    const textarea = document.getElementById("messageInput");
+
+    textarea.addEventListener("input", () => {
+        document.getElementById("messageInput").style.height = "auto";
+
+        const newHeight = Math.min(textarea.scrollHeight, 96);
+
+        textarea.style.height = newHeight + "px";
+    });
+
+    input.addEventListener("input", updateSendButton);
+
+    updateSendButton();
+    loadChats();
+    document.getElementById("renameInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            document.getElementById("confirmRename").click();
+        }
+    });
+});
+
+document.addEventListener("click", (e) => {
+    const isMenu = e.target.closest(".menu-dropdown");
+    const isButton = e.target.closest(".menu-btn");
+
+    if (!isMenu && !isButton) {
+        document.querySelectorAll(".menu-dropdown").forEach(d => d.classList.add("hidden"));
+    }
+});
+
+function setModel(model, label) {
+    currentModel = model;
+
+    currentChat = null;
+    currentChatInitialized = false;
+
+    const labelEl = document.querySelector(".font-headline.text-sm.font-semibold");
+    if (labelEl) labelEl.textContent = label;
+
+    document.querySelectorAll(".model-tab").forEach(t => {
+        t.classList.remove("text-[#C0C1FF]", "border-l-4");
+    });
+
+    document.querySelectorAll(".model-tab").forEach(t => {
+        if (t.dataset.model === model) {
+            t.classList.add("text-[#C0C1FF]", "border-l-4");
+        }
+    });
+
+    // 👇 ВОТ ЭТО ТЫ ДОБАВЛЯЕШЬ
+    document.querySelectorAll("[data-model]").forEach(el => {
+        el.classList.remove("bg-primary/10", "text-primary");
+        
+        const bar = el.querySelector(".model-bar");
+        if (bar) bar.classList.remove("bg-primary");
+    });
+
+    document.querySelectorAll("[data-model]").forEach(el => {
+        if (el.dataset.model === model) {
+            el.classList.add("bg-primary/10", "text-primary");
+
+            const bar = el.querySelector(".model-bar");
+            if (bar) bar.classList.add("bg-primary");
+        }
+    });
+
+    renderWelcome();
+    loadChats();
+    const dropdown = document.getElementById("modelDropdown");
+    if (dropdown) dropdown.classList.add("hidden");
+}
+
+;
+async function loadChats() {
+    const res = await fetch(`${API_BASE}/chats/${currentModel}`);
+
+    if (!res.ok) {
+        console.error("FAILED TO LOAD CHATS");
+        return;
+    }
+
+    const chats = await res.json();
+
+    const container = document.getElementById("chatList");
+    container.innerHTML = "";
+
+    if (!Array.isArray(chats)) return;
+    chats.reverse().forEach(chat => {
+        const chatId = chat.id;
+
+        const el = document.createElement("div");
+
+        el.className = "group flex items-center justify-between px-4 py-2.5 rounded-lg text-[#E5E2E1]/60 hover:text-[#E5E2E1] hover:bg-[#353534]/40 transition-all cursor-pointer";
+
+        el.innerHTML = `
+
+            <span class="truncate text-sm">${chat.title || "Новый чат"}</span>
+        <div class="relative">
+            <span class="material-symbols-outlined text-xs opacity-0 group-hover:opacity-100 cursor-pointer menu-btn">
+                more_horiz
+            </span>
+
+            <div class="hidden absolute right-0 mt-2 w-40 bg-[#2A2A2A] rounded-lg shadow-lg border border-[#464554]/30 z-50 menu-dropdown">
+                <button class="w-full text-left px-4 py-2 text-sm hover:bg-[#353534] rename-action">
+                    Переименовать
+                </button>
+                <button class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-[#353534] delete-action">
+                    Удалить
+                </button>
+            </div>
+        </div>
+        `;
+
+        const menuBtn = el.querySelector(".menu-btn");
+        const dropdown = el.querySelector(".menu-dropdown");
+        const renameBtn = el.querySelector(".rename-action");
+        const deleteBtn = el.querySelector(".delete-action");
+
+        // открыть меню
+        menuBtn.onclick = (e) => {
+            e.stopPropagation();
+            dropdown.classList.toggle("hidden");
+        };
+
+        // не закрывать при клике внутри
+        dropdown.onclick = (e) => e.stopPropagation();
+
+        // rename
+        renameBtn.onclick = async (e) => {
+            e.stopPropagation();
+            dropdown.classList.add("hidden");
+
+            const modal = document.getElementById("renameModal");
+            const input = document.getElementById("renameInput");
+            const confirmBtn = document.getElementById("confirmRename");
+            const cancelBtn = document.getElementById("cancelRename");
+
+            modal.classList.remove("hidden");
+            input.value = chat.title || "";
+            input.focus();
+
+            cancelBtn.onclick = () => modal.classList.add("hidden");
+
+            confirmBtn.onclick = async () => {
+                const newTitle = input.value.trim();
+                if (!newTitle) return;
+
+                await fetch(`${API_BASE}/chat/rename`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        chat_id: chatId,
+                        title: newTitle
+                    })
+                });
+
+                modal.classList.add("hidden");
+                await loadChats();
+            };
+        };
+
+        // delete
+        deleteBtn.onclick = async (e) => {
+            e.stopPropagation();
+            dropdown.classList.add("hidden");
+
+            if (!confirm("Удалить чат?")) return;
+
+            await fetch(`${API_BASE}/chat/${chatId}`, {
+                method: "DELETE"
+            });
+
+            if (currentChat === chatId) {
+                currentChat = null;
+                renderWelcome();
+            }
+
+            await loadChats();
+        };
+
+        el.onclick = async () => {
+            currentChat = chatId;
+            currentChatInitialized = true;
+
+            await loadMessages(chatId);
+            highlightActive(el);
+        };
+
+        container.appendChild(el);
+    });
+}
+async function loadMessages(chatId) {
+    const res = await fetch(`${API_BASE}/chat/${chatId}`);
+    const messages = await res.json();
+
+    const container = document.getElementById("chatContainer");
+    container.innerHTML = "";
+
+    messages.forEach(m => {
+        addMessage(m.content, m.role === "assistant" ? "ai" : "user");
+    });
+}
+function renderWelcome() {
+    const container = document.getElementById("chatContainer");
+
+    container.innerHTML = `
+        <div class="flex flex-col items-center justify-center h-full text-center px-6">
+            
+            <h1 class="text-3xl md:text-4xl font-bold mb-4 text-on-surface">
+                Obsidian AI
+            </h1>
+
+            <p class="text-base md:text-lg text-on-surface-variant/60 max-w-md">
+                Начни диалог с моделью 
+            </p>
+
+        </div>
+    `;
+}
+const modal = document.getElementById("renameModal");
+
+modal.addEventListener("click", (e) => {
+    if (e.target === modal) {
+        modal.classList.add("hidden");
+    }
+});
+
+function highlightActive(activeEl) {
+    document.querySelectorAll("#chatList > div").forEach(el => {
+        el.classList.remove("bg-[#2A2A2A]", "text-white");
+    });
+
+    activeEl.classList.add("bg-[#2A2A2A]", "text-white");
+}
+const modelBtn = document.getElementById("modelMenuBtn");
+const modelDropdown = document.getElementById("modelDropdown");
+
+modelBtn.onclick = (e) => {
+    e.stopPropagation();
+    modelDropdown.classList.toggle("hidden");
+};
+
+modelDropdown.onclick = (e) => e.stopPropagation();
+
+document.addEventListener("click", () => {
+    modelDropdown.classList.add("hidden");
+});
+</script>
+</body></html>

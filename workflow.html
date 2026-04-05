@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Воркфлоу</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#0d0b09","surface":"#1a1510","surface2":"#231d16","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;font-family:Inter,sans-serif;color:#f0e6d8}
+#grid-canvas{position:fixed;top:0;left:0;pointer-events:none;z-index:0}
+.toolbar{position:fixed;top:0;left:0;right:0;height:52px;background:rgba(26,21,16,0.95);backdrop-filter:blur(16px);border-bottom:1px solid rgba(74,63,47,0.4);z-index:200;display:flex;align-items:center;gap:8px;padding:0 16px}
+.sidebar{position:fixed;left:0;top:52px;bottom:0;width:220px;background:rgba(26,21,16,0.95);backdrop-filter:blur(16px);border-right:1px solid rgba(74,63,47,0.3);overflow-y:auto;z-index:100;padding:12px}
+.sidebar::-webkit-scrollbar{width:3px}.sidebar::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.3);border-radius:99px}
+.canvas-area{position:fixed;left:220px;top:52px;right:0;bottom:0;overflow:hidden;cursor:default;background:#0d0b09}
+#svg-layer{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1}
+#nodes-layer{position:absolute;top:0;left:0;transform-origin:0 0;z-index:2}
+#nodes-layer *{user-select:none;-webkit-user-select:none}
+/* Node */
+.node{position:absolute;background:#1a1510;border:1.5px solid rgba(74,63,47,0.6);border-radius:14px;min-width:196px;max-width:196px;cursor:default;user-select:none;transition:border-color .15s,box-shadow .15s}
+.node:hover{border-color:rgba(255,140,66,0.5)}
+.node.selected{border-color:#ff8c42;box-shadow:0 0 0 2px rgba(255,140,66,0.2)}
+.node-hdr{padding:10px 12px 8px;display:flex;align-items:center;gap:7px;border-bottom:1px solid rgba(74,63,47,0.3);cursor:move;position:relative;border-radius:14px 14px 0 0}
+.node-body{padding:9px 12px 11px;min-height:36px}
+.node-icon{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px}
+/* Port */
+.port{width:13px;height:13px;border-radius:50%;border:2px solid rgba(74,63,47,0.7);background:#1a1510;cursor:crosshair;flex-shrink:0;transition:all .15s;z-index:10;position:relative}
+.port:hover,.port.hilite{background:#ff8c42;border-color:#ff8c42;transform:scale(1.3)}
+.port.reject{background:#ff6b6b;border-color:#ff6b6b;cursor:not-allowed}
+/* Refresh badge */
+.rbadge{position:absolute;top:-9px;right:-9px;width:20px;height:20px;border-radius:50%;background:#1a1510;border:1.5px solid rgba(74,63,47,0.5);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .15s;z-index:20;font-size:10px}
+.node:hover .rbadge,.rbadge:hover{opacity:1}
+.rbadge:hover{border-color:#ff8c42;background:rgba(255,140,66,0.1)}
+/* Price tooltip */
+.ptip{position:absolute;top:-30px;right:-4px;background:#1a1510;border:1px solid rgba(255,140,66,0.4);border-radius:6px;padding:2px 7px;font-size:10px;color:#ff8c42;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;z-index:30}
+.rbadge:hover~.ptip,.rbadge:focus~.ptip{opacity:1}
+/* Node preview */
+.node-img{width:100%;border-radius:7px;overflow:hidden;margin-top:5px;cursor:pointer}
+.node-img img,.node-img video{width:100%;display:block;border-radius:7px}
+/* Palette */
+.pal-item{display:flex;align-items:center;gap:7px;padding:7px 9px;border-radius:9px;cursor:grab;border:1px solid transparent;font-size:12px;transition:all .15s}
+.pal-item:hover{background:#231d16;border-color:rgba(74,63,47,0.4)}
+.pal-item:active{cursor:grabbing}
+/* Props panel */
+.prop-panel{position:fixed;right:0;top:52px;bottom:0;width:280px;background:rgba(26,21,16,0.97);backdrop-filter:blur(16px);border-left:1px solid rgba(74,63,47,0.3);z-index:150;overflow-y:auto;padding:16px;transform:translateX(100%);transition:transform .25s}
+.prop-panel.open{transform:translateX(0)}
+/* Inputs */
+.inp{width:100%;padding:7px 10px;border-radius:7px;background:#231d16;color:#f0e6d8;border:1px solid rgba(74,63,47,0.45);outline:none;font-size:12px;font-family:inherit;transition:border-color .15s}
+.inp:focus{border-color:#ff8c42}.inp::placeholder{color:#6b5d4a}
+select.inp option{background:#231d16;color:#f0e6d8}
+.btn{padding:6px 13px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:none;transition:opacity .15s}
+.btn:hover{opacity:.85}.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#1a1510}
+.btn-g{background:#231d16;color:#a89880;border:1px solid rgba(74,63,47,0.4)}.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.btn-d{background:rgba(255,107,107,0.1);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25)}
+/* Zoom */
+.zoom-ctrl{position:fixed;bottom:16px;left:236px;display:flex;gap:3px;z-index:150}
+.zbtn{width:30px;height:30px;border-radius:7px;background:rgba(26,21,16,0.9);border:1px solid rgba(74,63,47,0.5);color:#a89880;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.zbtn:hover{border-color:#ff8c42;color:#ff8c42}
+#zlabel{display:flex;align-items:center;padding:0 8px;border-radius:7px;background:rgba(26,21,16,0.9);border:1px solid rgba(74,63,47,0.5);color:#6b5d4a;font-size:11px;min-width:42px;justify-content:center}
+/* Context menu */
+.ctx{position:fixed;background:#1a1510;border:1px solid rgba(74,63,47,0.5);border-radius:10px;padding:4px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.7);min-width:155px}
+.ctx button{display:block;width:100%;text-align:left;padding:7px 12px;border:none;background:none;color:#a89880;font-size:12px;cursor:pointer;border-radius:6px;font-family:inherit}
+.ctx button:hover{background:rgba(255,140,66,0.1);color:#ff8c42}
+.ctx hr{border:none;border-top:1px solid rgba(74,63,47,0.4);margin:3px 4px}
+.ctx .danger{color:#ff6b6b}.ctx .danger:hover{background:rgba(255,107,107,0.1);color:#ff6b6b}
+/* Run log */
+.run-panel{position:fixed;bottom:14px;right:14px;width:350px;max-height:260px;background:rgba(26,21,16,0.97);border:1px solid rgba(74,63,47,0.4);border-radius:12px;overflow:hidden;z-index:300;display:none;flex-direction:column}
+.run-panel.show{display:flex}
+.run-log{flex:1;overflow-y:auto;padding:10px;font-size:11px;font-family:monospace;line-height:1.6}
+/* Gallery */
+#gallery{position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(8px);z-index:500;display:none;align-items:center;justify-content:center}
+#gallery.show{display:flex}
+</style>
+</head>
+<body class="dark">
+
+<canvas id="grid-canvas"></canvas>
+
+<div id="gallery">
+  <button onclick="closeGallery()" style="position:absolute;top:16px;right:20px;color:#fff;font-size:24px;background:none;border:none;cursor:pointer">✕</button>
+  <img id="gallery-img" style="max-width:90vw;max-height:90vh;border-radius:12px;display:none"/>
+  <video id="gallery-vid" style="max-width:90vw;max-height:90vh;border-radius:12px;display:none" controls autoplay></video>
+</div>
+
+<div class="toolbar">
+  <a href="workflows.html" class="btn btn-g" style="padding:5px 10px;font-size:11px;text-decoration:none">← Назад</a>
+  <div style="width:1px;height:20px;background:rgba(74,63,47,0.4);margin:0 2px"></div>
+  <span style="color:#ff8c42;font-weight:700;font-size:13px;font-family:Manrope,sans-serif">AI Студия Че</span>
+  <span style="color:rgba(168,152,128,0.5);font-size:11px">/ Воркфлоу</span>
+  <div style="flex:1"></div>
+  <input id="wf-name" type="text" placeholder="Название..." class="inp" style="width:180px;padding:5px 10px"/>
+  <button onclick="clearCanvas()" class="btn btn-g" style="font-size:11px;padding:5px 10px">Очистить</button>
+  <button onclick="saveWorkflow()" class="btn btn-g" style="font-size:11px;padding:5px 10px">💾 Сохранить</button>
+  <button onclick="runWorkflow()" class="btn btn-p" style="font-size:11px;padding:5px 12px">▶ Запустить</button>
+</div>
+
+<div class="sidebar">
+  <p style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:rgba(168,152,128,0.5);font-weight:700;margin-bottom:8px">Блоки</p>
+
+  <p style="font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:rgba(168,152,128,0.35);margin:8px 0 4px">Данные</p>
+  <div class="pal-item" draggable="true" data-type="text_input">📝 Текст (ввод)</div>
+  <div class="pal-item" draggable="true" data-type="image_upload">🖼️ Загрузить фото</div>
+  <div class="pal-item" draggable="true" data-type="video_upload">🎬 Загрузить видео</div>
+  <div class="pal-item" draggable="true" data-type="output">📤 Вывод результата</div>
+
+  <p style="font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:rgba(168,152,128,0.35);margin:10px 0 4px">AI Помощник</p>
+  <div class="pal-item" draggable="true" data-type="assistant">🤖 Помощник (GPT)</div>
+
+  <p style="font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:rgba(168,152,128,0.35);margin:10px 0 4px">Языковые модели</p>
+  <div class="pal-item" draggable="true" data-type="gpt4o">🧠 GPT-4o</div>
+  <div class="pal-item" draggable="true" data-type="claude">🟣 Claude Sonnet</div>
+  <div class="pal-item" draggable="true" data-type="gemini">✨ Gemini Flash</div>
+  <div class="pal-item" draggable="true" data-type="perplexity">🔍 Perplexity</div>
+  <div class="pal-item" draggable="true" data-type="nano">🍌 Nano Banana</div>
+
+  <p style="font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:rgba(168,152,128,0.35);margin:10px 0 4px">Генерация изображений</p>
+  <div class="pal-item" draggable="true" data-type="dalle">🎨 DALL-E 3</div>
+
+  <p style="font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:rgba(168,152,128,0.35);margin:10px 0 4px">Генерация видео</p>
+  <div class="pal-item" draggable="true" data-type="kling">🎥 Kling (текст→видео)</div>
+  <div class="pal-item" draggable="true" data-type="kling_i2v">🎥 Kling (фото→видео)</div>
+  <div class="pal-item" draggable="true" data-type="kling_motion">🎥 Kling Motion</div>
+  <div class="pal-item" draggable="true" data-type="veo">🎞️ Veo 3</div>
+
+  <p style="font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:rgba(168,152,128,0.35);margin:10px 0 4px">Логика</p>
+  <div class="pal-item" draggable="true" data-type="merge">🔗 Объединить</div>
+  <div class="pal-item" draggable="true" data-type="delay">⏱️ Задержка</div>
+</div>
+
+<div class="canvas-area" id="canvas-area">
+  <svg id="svg-layer" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div id="nodes-layer"></div>
+</div>
+
+<div class="prop-panel" id="propPanel">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <h3 style="font-size:13px;font-weight:700;font-family:Manrope,sans-serif" id="propTitle">Свойства</h3>
+    <button onclick="closeProp()" style="color:#a89880;background:none;border:none;cursor:pointer;font-size:18px;line-height:1">✕</button>
+  </div>
+  <div id="propContent"></div>
+  <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(74,63,47,0.2)">
+    <button onclick="deleteSelected()" class="btn btn-d" style="width:100%;font-size:11px">🗑 Удалить блок</button>
+  </div>
+</div>
+
+<div class="zoom-ctrl">
+  <button class="zbtn" onclick="zoomBy(0.15)">+</button>
+  <span id="zlabel">100%</span>
+  <button class="zbtn" onclick="zoomBy(-0.15)">−</button>
+  <button class="zbtn" onclick="resetZoom()" title="Сброс">⊙</button>
+</div>
+
+<div class="run-panel" id="runPanel">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid rgba(74,63,47,0.2)">
+    <span style="font-size:11px;font-weight:700;color:#ff8c42">Выполнение</span>
+    <button onclick="document.getElementById('runPanel').classList.remove('show')" style="color:#a89880;background:none;border:none;cursor:pointer">✕</button>
+  </div>
+  <div class="run-log" id="runLog"></div>
+</div>
+
+<div id="ctx-menu" class="ctx" style="display:none"></div>
+
+<script>
+const API = localStorage.getItem('obs_api')||'http://127.0.0.1:8000';
+const authToken = localStorage.getItem('obs_token');
+
+// ── Port type definitions (what can connect to what) ───────────────────────
+// Each node has: inputs (array of accepted types), outputs (array of produced types)
+// Types: 'text', 'image', 'video', 'prompt', 'any'
+const NODE_DEF = {
+  text_input:   {label:'Текст (ввод)',      emoji:'📝', color:'#ff8c42', ins:[],              outs:['text'],          price:0},
+  image_upload: {label:'Фото (загрузка)',   emoji:'🖼️', color:'#ff8c42', ins:[],              outs:['image'],         price:0},
+  video_upload: {label:'Видео (загрузка)',  emoji:'🎬', color:'#ff8c42', ins:[],              outs:['video'],         price:0},
+  output:       {label:'Вывод',            emoji:'📤', color:'#6bff9e', ins:['any'],          outs:[],                price:0},
+  assistant:    {label:'Помощник (GPT)',    emoji:'🤖', color:'#ff8c42', ins:['text','image'], outs:['prompt','text'], price:5,  desc:'Пишет промпты, анализирует текст и изображения'},
+  gpt4o:        {label:'GPT-4o',           emoji:'🧠', color:'#ff9a42', ins:['text','prompt'],outs:['text'],          price:20},
+  claude:       {label:'Claude Sonnet',    emoji:'🟣', color:'#a855f7', ins:['text','prompt'],outs:['text'],          price:25},
+  gemini:       {label:'Gemini Flash',     emoji:'✨', color:'#4285f4', ins:['text','prompt'],outs:['text'],          price:6},
+  perplexity:   {label:'Perplexity',       emoji:'🔍', color:'#3b82f6', ins:['text','prompt'],outs:['text'],          price:6},
+  nano:         {label:'Nano Banana',      emoji:'🍌', color:'#eab308', ins:['text','prompt'],outs:['text'],          price:3},
+  dalle:        {label:'DALL-E 3',         emoji:'🎨', color:'#10b981', ins:['text','prompt'],outs:['image'],         price:40},
+  kling:        {label:'Kling (T2V)',      emoji:'🎥', color:'#ef4444', ins:['text','prompt'],outs:['video'],         price:200},
+  kling_i2v:   {label:'Kling (I2V)',      emoji:'🎥', color:'#ef4444', ins:['text','image'], outs:['video'],         price:200},
+  kling_motion:{label:'Kling Motion',     emoji:'🎥', color:'#ef4444', ins:['image','video'],outs:['video'],         price:300},
+  veo:          {label:'Veo 3',           emoji:'🎞️', color:'#ef4444', ins:['text','prompt'],outs:['video'],         price:120},
+  merge:        {label:'Объединить',      emoji:'🔗', color:'#6366f1', ins:['any','any'],    outs:['text'],          price:0},
+  delay:        {label:'Задержка',        emoji:'⏱️', color:'#6b7280', ins:['any'],          outs:['any'],           price:0},
+};
+
+// Node properties forms
+const NODE_PROPS = {
+  text_input:   [{id:'text',  label:'Текст',              type:'ta',    def:''}],
+  image_upload: [{id:'label', label:'Подсказка',          type:'text',  def:'Загрузить фото'}],
+  video_upload: [{id:'label', label:'Подсказка',          type:'text',  def:'Загрузить видео'}],
+  output:       [{id:'label', label:'Заголовок вывода',   type:'text',  def:'Результат'}],
+  assistant:    [{id:'system',label:'Системный промпт',   type:'ta',    def:'Ты профессиональный ассистент. Пиши промпты для генерации изображений на английском языке.'},{id:'task',label:'Задача (если нет входящего текста)',type:'ta',def:''}],
+  gpt4o:        [{id:'system',label:'Системный промпт',   type:'ta',    def:'Ты полезный ассистент.'},{id:'max_tokens',label:'Макс. токенов',type:'number',def:'800'}],
+  claude:       [{id:'system',label:'Системный промпт',   type:'ta',    def:'Ты полезный ассистент.'}],
+  gemini:       [{id:'system',label:'Системный промпт',   type:'ta',    def:'Ты полезный ассистент.'}],
+  perplexity:   [{id:'focus', label:'Фокус поиска',       type:'text',  def:''}],
+  nano:         [{id:'system',label:'Системный промпт',   type:'ta',    def:''}],
+  dalle:        [{id:'size',  label:'Размер',             type:'sel',   def:'1024x1024',opts:['1024x1024','1792x1024','1024x1792']},{id:'style',label:'Стиль',type:'sel',def:'vivid',opts:['vivid','natural']}],
+  kling:        [{id:'aspect',label:'Формат',             type:'sel',   def:'16:9',opts:['16:9','9:16','1:1']},{id:'dur',label:'Длительность',type:'sel',def:'5',opts:['5','10']},{id:'mode',label:'Режим',type:'sel',def:'std',opts:['std','pro']}],
+  kling_i2v:   [{id:'dur',   label:'Длительность',       type:'sel',   def:'5',opts:['5','10']},{id:'mode',label:'Режим',type:'sel',def:'std',opts:['std','pro']}],
+  kling_motion:[{id:'mode',  label:'Режим',               type:'sel',   def:'std',opts:['std','pro']},{id:'keep_audio',label:'Сохранить аудио',type:'check',def:false}],
+  veo:          [{id:'aspect',label:'Формат',             type:'sel',   def:'16:9',opts:['16:9','9:16']},{id:'dur',label:'Длительность (сек)',type:'sel',def:'6',opts:['5','6','7','8']}],
+  merge:        [{id:'sep',   label:'Разделитель',        type:'text',  def:'\\n\\n'}],
+  delay:        [{id:'secs',  label:'Секунд',             type:'number',def:'2'}],
+};
+
+// ── State ──────────────────────────────────────────────────────────────────
+let nodes=[], conns=[], selId=null;
+let dragId=null, dragOff={x:0,y:0};
+let connFrom=null; // {nodeId, portIdx, portEl}
+let scale=1, panX=0, panY=0;
+let isPan=false, panStart={x:0,y:0};
+let nodeIdCtr=1;
+let mx=0,my=0; // mouse coords in screen space
+
+// ── Grid ───────────────────────────────────────────────────────────────────
+const gridCanvas = document.getElementById('grid-canvas');
+const gridCtx = gridCanvas.getContext('2d');
+function drawGrid(){
+  gridCanvas.width = window.innerWidth;
+  gridCanvas.height = window.innerHeight;
+  const g=gridCtx;
+  g.clearRect(0,0,gridCanvas.width,gridCanvas.height);
+  // Step size in screen pixels
+  const step = 24 * scale;
+  const ox = ((panX + 220) % step + step) % step;
+  const oy = ((panY + 52) % step + step) % step;
+  // Small dots
+  g.fillStyle = 'rgba(255,140,66,0.18)';
+  for(let x=ox; x<gridCanvas.width; x+=step)
+    for(let y=oy; y<gridCanvas.height; y+=step)
+      g.fillRect(x-0.7,y-0.7,1.4,1.4);
+  // Larger dots at every 4th
+  const step4 = step*4;
+  const ox4 = ((panX+220)%step4+step4)%step4;
+  const oy4 = ((panY+52)%step4+step4)%step4;
+  g.fillStyle = 'rgba(255,140,66,0.42)';
+  for(let x=ox4; x<gridCanvas.width; x+=step4)
+    for(let y=oy4; y<gridCanvas.height; y+=step4)
+      g.fillRect(x-1.2,y-1.2,2.4,2.4);
+}
+window.addEventListener('resize',()=>{drawGrid();redrawSvg();});
+
+// ── Zoom & Pan ─────────────────────────────────────────────────────────────
+function applyTransform(){
+  document.getElementById('nodes-layer').style.transform = `translate(${panX}px,${panY}px) scale(${scale})`;
+  document.getElementById('zlabel').textContent = Math.round(scale*100)+'%';
+  drawGrid(); redrawSvg();
+}
+function zoomBy(d, cx, cy){
+  const area = document.getElementById('canvas-area').getBoundingClientRect();
+  const wx = (cx !== undefined ? cx - area.left : area.width/2);
+  const wy = (cy !== undefined ? cy - area.top  : area.height/2);
+  const oldS = scale;
+  scale = Math.max(0.2, Math.min(3, scale+d));
+  panX += wx*(oldS-scale);
+  panY += wy*(oldS-scale);
+  applyTransform();
+}
+function resetZoom(){ scale=1; panX=0; panY=0; applyTransform(); }
+
+// Canvas events
+const ca = document.getElementById('canvas-area');
+ca.addEventListener('wheel',e=>{
+  e.preventDefault();
+  zoomBy(e.deltaY>0?-0.08:0.08, e.clientX, e.clientY);
+},{passive:false});
+
+ca.addEventListener('mousedown',e=>{
+  if(e.target===ca || e.target===document.getElementById('svg-layer')){
+    if(e.button===1||(e.button===0&&e.altKey)){
+      isPan=true;
+      panStart={x:e.clientX-panX,y:e.clientY-panY};
+      ca.style.cursor='grabbing';
+    } else { selectNode(null); }
+  }
+  closeCtx();
+});
+
+window.addEventListener('mousemove',e=>{
+  mx=e.clientX; my=e.clientY;
+  if(isPan){ panX=e.clientX-panStart.x; panY=e.clientY-panStart.y; applyTransform(); }
+  if(dragId){
+    const n=nodes.find(x=>x.id===dragId);
+    if(n){
+      const area=ca.getBoundingClientRect();
+      // Convert mouse screen position → canvas coordinates, then subtract stored offset
+      const mouseCanvasX=(e.clientX-area.left-panX)/scale;
+      const mouseCanvasY=(e.clientY-area.top -panY)/scale;
+      n.x=mouseCanvasX-dragOff.x;
+      n.y=mouseCanvasY-dragOff.y;
+      const el=document.getElementById('el_'+n.id);
+      if(el){el.style.left=n.x+'px';el.style.top=n.y+'px';}
+      redrawSvg();
+    }
+  }
+  if(connFrom) redrawSvg();
+});
+window.addEventListener('mouseup',e=>{
+  isPan=false; ca.style.cursor='';
+  dragId=null;
+  if(connFrom){connFrom=null;redrawSvg();}
+});
+
+// Drag from palette
+document.querySelectorAll('.pal-item').forEach(el=>{
+  el.addEventListener('dragstart',e=>e.dataTransfer.setData('ntype',el.dataset.type));
+});
+ca.addEventListener('dragover',e=>e.preventDefault());
+ca.addEventListener('drop',e=>{
+  e.preventDefault();
+  const type=e.dataTransfer.getData('ntype'); if(!type)return;
+  const area=ca.getBoundingClientRect();
+  // Convert screen coords → canvas coords (accounting for pan and scale)
+  const x=(e.clientX - area.left - panX)/scale - 98;
+  const y=(e.clientY - area.top  - panY)/scale - 44;
+  addNode(type, Math.max(0,x), Math.max(0,y));
+});
+
+// ── Node factory ───────────────────────────────────────────────────────────
+function addNode(type,x=160,y=140){
+  const id='n'+(nodeIdCtr++);
+  const props={};
+  (NODE_PROPS[type]||[]).forEach(p=>props[p.id]=p.def);
+  const node={id,type,x,y,props,result:null,generating:false,uploadedUrl:null};
+  nodes.push(node);
+  renderNode(node);
+  selectNode(id);
+  return node;
+}
+
+function renderNode(node){
+  const def = NODE_DEF[node.type]||{label:node.type,emoji:'?',color:'#888',ins:[],outs:[],price:0};
+  const el = document.createElement('div');
+  el.className='node'; el.id='el_'+node.id;
+  el.style.left=node.x+'px'; el.style.top=node.y+'px';
+
+  const hasRefresh = def.price > 0;
+  const inCount  = def.ins.length;
+  const outCount = def.outs.length;
+
+  // Build in-ports HTML
+  let inPortsHtml='';
+  for(let i=0;i<inCount;i++){
+    inPortsHtml+=`<div class="port" data-node="${node.id}" data-ptype="in" data-idx="${i}" title="${def.ins[i]||'вход'}"></div>`;
+  }
+  // Build out-ports HTML
+  let outPortsHtml='';
+  for(let i=0;i<outCount;i++){
+    outPortsHtml+=`<div class="port" data-node="${node.id}" data-ptype="out" data-idx="${i}" title="${def.outs[i]||'выход'}"></div>`;
+  }
+
+  el.innerHTML=`
+    <div class="node-hdr" id="hdr_${node.id}" draggable="false" style="user-select:none">
+      <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">${inPortsHtml}</div>
+      <div class="node-icon" style="background:${def.color}22">${def.emoji}</div>
+      <div style="flex:1;min-width:0">
+        <p style="font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(def.label)}</p>
+        ${def.desc?`<p style="font-size:9px;color:#6b5d4a;line-height:1.3;white-space:normal;margin-top:1px">${def.desc}</p>`:''}
+      </div>
+      ${hasRefresh?`<button class="rbadge" onclick="event.stopPropagation();refreshNode('${node.id}')" title="Обновить">↻</button><div class="ptip">${def.price} CH</div>`:''}
+      <div style="display:flex;align-items:center;gap:3px;flex-shrink:0">${outPortsHtml}</div>
+    </div>
+    <div class="node-body" id="body_${node.id}"></div>`;
+
+  // Header drag
+  const hdr=el.querySelector('#hdr_'+node.id);
+  hdr.addEventListener('mousedown',e=>{
+    if(e.target.classList.contains('port')||e.target.classList.contains('rbadge'))return;
+    e.preventDefault();  // prevent text selection / default browser drag
+    e.stopPropagation();
+    // Store offset in CANVAS coordinates so drag is smooth
+    const area=ca.getBoundingClientRect();
+    const mouseCanvasX=(e.clientX-area.left-panX)/scale;
+    const mouseCanvasY=(e.clientY-area.top -panY)/scale;
+    dragId=node.id;
+    dragOff={x:mouseCanvasX-node.x, y:mouseCanvasY-node.y};
+    selectNode(node.id);
+  });
+
+  // Click = select
+  el.addEventListener('click',e=>{
+    if(e.target.classList.contains('port')||e.target.classList.contains('rbadge'))return;
+    selectNode(node.id);
+  });
+
+  // Right-click = context menu
+  el.addEventListener('contextmenu',e=>{
+    e.preventDefault();
+    showNodeCtx(node.id,e.clientX,e.clientY);
+  });
+
+  // Port events
+  el.querySelectorAll('.port').forEach(p=>{
+    p.addEventListener('mousedown',e=>{
+      e.stopPropagation();
+      if(p.dataset.ptype==='out'){
+        connFrom={nodeId:node.id,portIdx:parseInt(p.dataset.idx),el:p};
+      }
+    });
+    p.addEventListener('mouseup',e=>{
+      e.stopPropagation();
+      if(!connFrom||connFrom.nodeId===node.id)return;
+      if(p.dataset.ptype==='in'){
+        const toIdx=parseInt(p.dataset.idx);
+        // Validate connection types
+        if(canConnect(connFrom.nodeId,connFrom.portIdx,node.id,toIdx)){
+          addConn(connFrom.nodeId,connFrom.portIdx,node.id,toIdx);
+        } else {
+          flashReject(p);
+        }
+      }
+      connFrom=null; redrawSvg();
+    });
+    // Hover highlight for valid connection
+    p.addEventListener('mouseenter',()=>{
+      if(connFrom&&connFrom.nodeId!==node.id&&p.dataset.ptype==='in'){
+        const toIdx=parseInt(p.dataset.idx);
+        if(canConnect(connFrom.nodeId,connFrom.portIdx,node.id,toIdx)){
+          p.classList.add('hilite');
+        } else {
+          p.classList.add('reject');
+        }
+      }
+    });
+    p.addEventListener('mouseleave',()=>{
+      p.classList.remove('hilite','reject');
+    });
+  });
+
+  el.setAttribute('draggable','false');
+  document.getElementById('nodes-layer').appendChild(el);
+  updateNodeBody(node);
+}
+
+function flashReject(portEl){
+  portEl.classList.add('reject');
+  setTimeout(()=>portEl.classList.remove('reject'),600);
+}
+
+// ── Connection type validation ─────────────────────────────────────────────
+function canConnect(fromId,fromIdx,toId,toIdx){
+  const fromDef = NODE_DEF[nodes.find(n=>n.id===fromId)?.type];
+  const toDef   = NODE_DEF[nodes.find(n=>n.id===toId)?.type];
+  if(!fromDef||!toDef) return false;
+  const outType = fromDef.outs[fromIdx]; // what the source produces
+  const inType  = toDef.ins[toIdx];      // what the target accepts
+  if(!outType||!inType) return false;
+  if(inType==='any'||outType==='any') return true;
+  // 'prompt' is compatible with 'text'
+  if(inType==='text'&&outType==='prompt') return true;
+  if(inType==='prompt'&&outType==='text') return true;
+  return inType===outType;
+}
+
+// ── Connections ────────────────────────────────────────────────────────────
+function addConn(fromId,fromIdx,toId,toIdx){
+  // no duplicates
+  if(conns.find(c=>c.from===fromId&&c.fi===fromIdx&&c.to===toId&&c.ti===toIdx)) return;
+  conns.push({id:'c'+(nodeIdCtr++),from:fromId,fi:fromIdx,to:toId,ti:toIdx});
+  redrawSvg();
+}
+function deleteConn(cid){ conns=conns.filter(c=>c.id!==cid); redrawSvg(); }
+
+// ── SVG Lines ──────────────────────────────────────────────────────────────
+function portScreenPos(nodeId,ptype,idx){
+  const p=document.querySelector(`[data-node="${nodeId}"][data-ptype="${ptype}"][data-idx="${idx}"]`);
+  if(!p)return null;
+  const pr=p.getBoundingClientRect();
+  const ar=ca.getBoundingClientRect();
+  return{x:pr.left+pr.width/2-ar.left, y:pr.top+pr.height/2-ar.top};
+}
+
+function bezierPath(x1,y1,x2,y2){
+  const cx=(x1+x2)/2;
+  return `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`;
+}
+
+function redrawSvg(){
+  const svg=document.getElementById('svg-layer');
+  svg.innerHTML='';
+  const defs=document.createElementNS('http://www.w3.org/2000/svg','defs');
+  defs.innerHTML='<marker id="arr" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto"><path d="M0,0 L0,5 L5,2.5 z" fill="#ff8c42" opacity="0.7"/></marker>';
+  svg.appendChild(defs);
+
+  conns.forEach(c=>{
+    const f=portScreenPos(c.from,'out',c.fi);
+    const t=portScreenPos(c.to,'in',c.ti);
+    if(!f||!t)return;
+
+    const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+    const d=bezierPath(f.x,f.y,t.x,t.y);
+
+    // Visible line
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d',d);
+    path.setAttribute('stroke','#ff8c42');
+    path.setAttribute('stroke-width','1.5');
+    path.setAttribute('fill','none');
+    path.setAttribute('opacity','0.6');
+    path.setAttribute('marker-end','url(#arr)');
+    g.appendChild(path);
+
+    // Thick invisible hit area - double click to delete
+    const hit=document.createElementNS('http://www.w3.org/2000/svg','path');
+    hit.setAttribute('d',d);
+    hit.setAttribute('stroke','transparent');
+    hit.setAttribute('stroke-width','14');
+    hit.setAttribute('fill','none');
+    hit.style.cursor='pointer';
+    hit.addEventListener('dblclick',e=>{
+      e.stopPropagation();
+      deleteConn(c.id);
+    });
+    hit.addEventListener('contextmenu',e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      showConnCtx(c.id,e.clientX,e.clientY);
+    });
+    // Hover: show mid delete button
+    const mx2=(f.x+t.x)/2,my2=(f.y+t.y)/2;
+    const circle=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    circle.setAttribute('cx',mx2);circle.setAttribute('cy',my2);circle.setAttribute('r','7');
+    circle.setAttribute('fill','#1a1510');circle.setAttribute('stroke','rgba(74,63,47,0.5)');circle.setAttribute('stroke-width','1');
+    circle.style.opacity='0';circle.style.cursor='pointer';
+    const txt=document.createElementNS('http://www.w3.org/2000/svg','text');
+    txt.setAttribute('x',mx2);txt.setAttribute('y',my2+4);
+    txt.setAttribute('text-anchor','middle');txt.setAttribute('font-size','10');
+    txt.setAttribute('fill','#ff6b6b');txt.style.opacity='0';txt.style.cursor='pointer';
+    txt.textContent='✕';
+    [circle,txt].forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();deleteConn(c.id);}));
+    g.addEventListener('mouseenter',()=>{circle.style.opacity='1';txt.style.opacity='1';path.setAttribute('opacity','0.9');});
+    g.addEventListener('mouseleave',()=>{circle.style.opacity='0';txt.style.opacity='0';path.setAttribute('opacity','0.6');});
+    g.appendChild(hit);
+    g.appendChild(circle);
+    g.appendChild(txt);
+    svg.appendChild(g);
+  });
+
+  // Temp connecting line
+  if(connFrom){
+    const f=portScreenPos(connFrom.nodeId,'out',connFrom.portIdx);
+    if(f){
+      const ar=ca.getBoundingClientRect();
+      const tmx=mx-ar.left,tmy=my-ar.top;
+      const p2=document.createElementNS('http://www.w3.org/2000/svg','path');
+      p2.setAttribute('d',bezierPath(f.x,f.y,tmx,tmy));
+      p2.setAttribute('stroke','#ff8c42');p2.setAttribute('stroke-width','1.5');
+      p2.setAttribute('fill','none');p2.setAttribute('opacity','0.35');
+      p2.setAttribute('stroke-dasharray','6 4');
+      svg.appendChild(p2);
+    }
+  }
+}
+
+// ── Selection & Props ──────────────────────────────────────────────────────
+function selectNode(id){
+  selId=id;
+  document.querySelectorAll('.node').forEach(el=>el.classList.remove('selected'));
+  if(id){
+    document.getElementById('el_'+id)?.classList.add('selected');
+    openProp(id);
+  } else { closeProp(); }
+}
+
+function openProp(nodeId){
+  const node=nodes.find(n=>n.id===nodeId); if(!node)return;
+  const def=NODE_DEF[node.type]||{};
+  const propDefs=NODE_PROPS[node.type]||[];
+  document.getElementById('propTitle').textContent=def.emoji+' '+def.label;
+  const price=def.price||0;
+  document.getElementById('propContent').innerHTML=
+    (price?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(255,140,66,0.06);border-radius:8px;border:1px solid rgba(255,140,66,0.15);display:flex;justify-content:space-between;align-items:center"><span style="font-size:10px;color:#a89880">Стоимость</span><span style="font-size:13px;font-weight:700;color:#ff8c42">${price} CH</span></div>`:'')
+    +propDefs.map(p=>`<div style="margin-bottom:10px">
+      <label style="display:block;font-size:9px;color:rgba(168,152,128,0.6);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">${p.label}</label>
+      ${p.type==='ta'?`<textarea id="pr_${p.id}" rows="3" class="inp" style="resize:none;font-size:11px">${esc(node.props[p.id]??p.def)}</textarea>`
+        :p.type==='sel'?`<select id="pr_${p.id}" class="inp" style="padding:6px 8px;font-size:11px">${(p.opts||[]).map(o=>`<option${(node.props[p.id]??p.def)===o?' selected':''}>${o}</option>`).join('')}</select>`
+        :p.type==='check'?`<label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="pr_${p.id}"${(node.props[p.id]??p.def)?' checked':''} style="accent-color:#ff8c42"/><span style="font-size:12px;color:#a89880">${p.label}</span></label>`
+        :`<input id="pr_${p.id}" type="${p.type||'text'}" value="${esc(node.props[p.id]??p.def)}" class="inp" style="font-size:11px"/>`}
+    </div>`).join('')
+    +`<button onclick="applyProps('${nodeId}')" class="btn btn-p" style="width:100%;font-size:11px">Применить</button>
+    ${node.result?`<button onclick="clearResult('${nodeId}')" class="btn btn-g" style="width:100%;font-size:11px;margin-top:6px">Очистить результат</button>`:''}`;
+
+  // Upload button for image/video nodes
+  if(node.type==='image_upload'||node.type==='video_upload'){
+    const accept=node.type==='image_upload'?'image/*':'video/*';
+    const extra=document.createElement('div');
+    extra.style.marginTop='8px';
+    extra.innerHTML=`<button onclick="triggerUpload('${node.id}','${accept}')" class="btn btn-g" style="width:100%;font-size:11px">📁 Выбрать файл</button>
+      ${node.uploadedUrl?`<div style="margin-top:6px"><img src="${API+node.uploadedUrl}" style="width:100%;border-radius:7px;max-height:100px;object-fit:cover"/></div>`:''}`;
+    document.getElementById('propContent').appendChild(extra);
+  }
+
+  document.getElementById('propPanel').classList.add('open');
+}
+
+function applyProps(nodeId){
+  const node=nodes.find(n=>n.id===nodeId);if(!node)return;
+  (NODE_PROPS[node.type]||[]).forEach(p=>{
+    const el=document.getElementById('pr_'+p.id);
+    if(el)node.props[p.id]=p.type==='check'?el.checked:el.value;
+  });
+  updateNodeBody(node);
+}
+function clearResult(nodeId){const n=nodes.find(x=>x.id===nodeId);if(n)n.result=null;updateNodeBody(n);openProp(nodeId);}
+function closeProp(){document.getElementById('propPanel').classList.remove('open');}
+
+function deleteSelected(){
+  if(!selId)return;
+  document.getElementById('el_'+selId)?.remove();
+  nodes=nodes.filter(n=>n.id!==selId);
+  conns=conns.filter(c=>c.from!==selId&&c.to!==selId);
+  selId=null;closeProp();redrawSvg();
+}
+
+window.addEventListener('keydown',e=>{
+  if((e.key==='Delete'||e.key==='Backspace')&&selId&&!e.target.matches('input,textarea,select')){
+    deleteSelected();
+  }
+  if(e.key==='Escape'){closeCtx();selectNode(null);}
+});
+
+// ── Node body update ───────────────────────────────────────────────────────
+function updateNodeBody(node){
+  const body=document.getElementById('body_'+node.id);if(!body)return;
+  const def=NODE_DEF[node.type]||{};
+
+  if(node.generating){
+    body.innerHTML='<div style="display:flex;align-items:center;gap:7px;padding:2px 0"><div style="width:11px;height:11px;border:2px solid #ff8c42;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite"></div><span style="font-size:10px;color:#ff8c42">Генерация...</span></div>';
+    return;
+  }
+
+  if(node.result){
+    const r=node.result;
+    if(r.type==='image'&&r.url){
+      body.innerHTML=`<div class="node-img" onclick="openGallery('img','${r.url}')"><img src="${API+r.url}" alt=""/></div>`;
+      return;
+    }
+    if(r.type==='video'&&r.url){
+      body.innerHTML=`<div class="node-img" onclick="openGallery('vid','${r.url}')"><video src="${API+r.url}" muted loop autoplay playsinline></video></div>`;
+      return;
+    }
+    if(r.type==='video_task'){
+      body.innerHTML=`<div style="font-size:10px;color:#ff8c42;padding:2px 0">⏳ Задача: ${esc(String(r.task_id||''))}</div>`;
+      return;
+    }
+    const txt=r.content||JSON.stringify(r);
+    body.innerHTML=`<p style="font-size:10px;color:#f0e6d8;line-height:1.5;white-space:pre-wrap">${esc(txt.slice(0,140))}${txt.length>140?'…':''}</p>`;
+    return;
+  }
+
+  if(node.uploadedUrl){
+    const isImg=/\.(png|jpg|jpeg|gif|webp)/i.test(node.uploadedUrl);
+    if(isImg) body.innerHTML=`<div class="node-img" onclick="openGallery('img','${node.uploadedUrl}')"><img src="${API+node.uploadedUrl}" alt=""/></div>`;
+    else body.innerHTML=`<p style="font-size:10px;color:#6bff9e">✓ Файл загружен</p>`;
+    return;
+  }
+
+  if(node.type==='text_input'){
+    const txt=node.props.text||'';
+    body.innerHTML=txt?`<p style="font-size:10px;color:#f0e6d8;line-height:1.4">${esc(txt.slice(0,80))}${txt.length>80?'…':''}</p>`
+      :`<p style="font-size:10px;color:rgba(168,152,128,0.4)">нажмите для ввода текста</p>`;
+    // Allow inline editing by clicking body
+    body.style.cursor='text';
+    body.onclick=()=>{ selectNode(node.id); document.getElementById('pr_text')?.focus(); };
+    return;
+  }
+
+  const preview=node.props.system||node.props.text||node.props.task||node.props.label||def.desc||'';
+  body.innerHTML=`<p style="font-size:10px;color:rgba(168,152,128,0.5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:170px">${esc(preview.slice(0,60))||'—'}</p>`;
+}
+
+// ── File upload for nodes ──────────────────────────────────────────────────
+function triggerUpload(nodeId,accept){
+  const inp=document.createElement('input');inp.type='file';inp.accept=accept;
+  inp.onchange=async e=>{
+    const file=e.target.files[0];if(!file)return;
+    const fd=new FormData();fd.append('file',file);
+    try{
+      const r=await fetch(API+'/upload',{method:'POST',body:fd});
+      const d=await r.json();
+      const node=nodes.find(n=>n.id===nodeId);
+      if(node){node.uploadedUrl=d.url;updateNodeBody(node);}
+      openProp(nodeId);
+    }catch(e){alert('Ошибка загрузки: '+e.message);}
+  };
+  inp.click();
+}
+
+// ── Gallery ────────────────────────────────────────────────────────────────
+function openGallery(type,url){
+  const img=document.getElementById('gallery-img');
+  const vid=document.getElementById('gallery-vid');
+  img.style.display='none';vid.style.display='none';
+  if(type==='img'){img.src=API+url;img.style.display='block';}
+  else{vid.src=API+url;vid.style.display='block';}
+  document.getElementById('gallery').style.display='flex';
+}
+function closeGallery(){document.getElementById('gallery').style.display='none';}
+document.getElementById('gallery').addEventListener('click',e=>{if(e.target===e.currentTarget)closeGallery();});
+
+// ── Context menus ──────────────────────────────────────────────────────────
+function showNodeCtx(nodeId,cx,cy){
+  const m=document.getElementById('ctx-menu');
+  m.innerHTML=`
+    <button onclick="selectNode('${nodeId}');closeCtx()">⚙️ Свойства</button>
+    <button onclick="refreshNode('${nodeId}');closeCtx()">↻ Обновить</button>
+    <button onclick="duplicateNode('${nodeId}');closeCtx()">⧉ Дублировать</button>
+    <hr>
+    <button class="danger" onclick="selId='${nodeId}';deleteSelected();closeCtx()">🗑 Удалить блок</button>`;
+  // Position ABOVE the viewport clip - use fixed coords directly
+  m.style.display='block';
+  // Place below cursor but ensure stays in viewport
+  const mw=170,mh=130;
+  let left=cx,top=cy+4;
+  if(left+mw>window.innerWidth)left=cx-mw;
+  if(top+mh>window.innerHeight)top=cy-mh-4;
+  m.style.left=left+'px';
+  m.style.top=top+'px';
+}
+function showConnCtx(cid,cx,cy){
+  const m=document.getElementById('ctx-menu');
+  m.innerHTML=`<button class="danger" onclick="deleteConn('${cid}');closeCtx()">✕ Удалить связь</button>`;
+  m.style.display='block';m.style.left=cx+'px';m.style.top=cy+'px';
+}
+function closeCtx(){document.getElementById('ctx-menu').style.display='none';}
+document.addEventListener('click',()=>closeCtx());
+
+function duplicateNode(nodeId){
+  const n=nodes.find(x=>x.id===nodeId);if(!n)return;
+  const n2=addNode(n.type,n.x+25,n.y+25);
+  n2.props={...n.props};
+  updateNodeBody(n2);
+}
+
+// ── Refresh single node ────────────────────────────────────────────────────
+async function refreshNode(nodeId){
+  const node=nodes.find(n=>n.id===nodeId);if(!node)return;
+  // Get upstream results
+  const upConns=conns.filter(c=>c.to===nodeId).sort((a,b)=>a.ti-b.ti);
+  const results={};
+  nodes.forEach(n=>{if(n.result||n.uploadedUrl)results[n.id]=n.result||{type:'image',url:n.uploadedUrl};});
+  const inputs=upConns.map(c=>results[c.from]||null);
+  node.generating=true;updateNodeBody(node);
+  try{
+    const r=await executeNode(node,inputs);
+    node.result=r;
+  }catch(e){node.result={type:'text',content:'Ошибка: '+e.message};}
+  node.generating=false;updateNodeBody(node);
+}
+
+// ── Run workflow ───────────────────────────────────────────────────────────
+async function runWorkflow(){
+  const panel=document.getElementById('runPanel');
+  panel.classList.add('show');
+  document.getElementById('runLog').innerHTML='';
+  if(!nodes.length){logRun('⚠️ Добавьте блоки','warn');return;}
+  const order=topoSort();
+  if(!order){logRun('⚠️ Обнаружен цикл','err');return;}
+  const results={};
+  for(const nodeId of order){
+    const node=nodes.find(n=>n.id===nodeId);if(!node)continue;
+    const def=NODE_DEF[node.type]||{};
+    logRun(`▶ ${def.emoji} ${def.label}`,'info');
+    const upConns=conns.filter(c=>c.to===nodeId).sort((a,b)=>a.ti-b.ti);
+    const inputs=upConns.map(c=>results[c.from]||null);
+    node.generating=true;updateNodeBody(node);
+    try{
+      const r=await executeNode(node,inputs);
+      results[nodeId]=r;node.result=r;
+    }catch(e){logRun('❌ '+e.message,'err');node.generating=false;updateNodeBody(node);break;}
+    node.generating=false;updateNodeBody(node);
+    if(node.result){
+      const txt=node.result.content||node.result.url||node.result.task_id||'ok';
+      logRun('✓ '+String(txt).slice(0,80),'ok');
+    }
+  }
+  logRun('🏁 Выполнено','done');
+}
+
+async function executeNode(node,inputs){
+  const getStr=v=>v?.(v.content||v.url||''):'' ;
+  const primary=inputs[0];
+  const primaryStr=primary?(primary.content||primary.url||''):'';
+
+  switch(node.type){
+    case 'text_input': return {type:'text',content:node.props.text||''};
+    case 'image_upload':
+      if(node.uploadedUrl) return{type:'image',url:node.uploadedUrl};
+      return await uploadInteractive('image/*',node);
+    case 'video_upload':
+      if(node.uploadedUrl) return{type:'video',url:node.uploadedUrl};
+      return await uploadInteractive('video/*',node);
+    case 'output': return primary||{type:'text',content:''};
+    case 'merge':{
+      const sep=node.props.sep||'\n\n';
+      return{type:'text',content:inputs.map(v=>v?.content||v?.url||'').join(sep)};
+    }
+    case 'delay':
+      await new Promise(r=>setTimeout(r,(parseInt(node.props.secs)||2)*1000));
+      return primary||{type:'text',content:''};
+    default:
+      return await callApi(node,primaryStr,primary);
+  }
+}
+
+async function callApi(node,text,inputObj){
+  if(!authToken)throw new Error('Требуется авторизация');
+  const body={
+    chat_id:'wf_'+node.id+'_'+Date.now(),
+    message:text||node.props.task||node.props.system||'Привет',
+    model:getModelId(node.type)
+  };
+  if(node.props.system)body.system=node.props.system;
+  const extra={};
+  if(node.props.aspect)extra.aspect_ratio=node.props.aspect;
+  if(node.props.dur)extra.duration=node.props.dur;
+  if(node.props.mode)extra.mode=node.props.mode;
+  if(node.props.size)extra.size=node.props.size;
+  if(node.props.style)extra.style=node.props.style;
+  // Pass image/video URLs
+  if(inputObj?.type==='image'&&inputObj.url) extra.image_url=API+inputObj.url;
+  if(Object.keys(extra).length)body.extra=extra;
+
+  const r=await fetch(API+'/message',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(d.error)throw new Error(d.error);
+  return d.response||{type:'text',content:'ok'};
+}
+
+async function uploadInteractive(accept,node){
+  return new Promise(res=>{
+    const inp=document.createElement('input');inp.type='file';inp.accept=accept;
+    inp.onchange=async e=>{
+      const file=e.target.files[0];if(!file){res({type:'text',content:''});return;}
+      const fd=new FormData();fd.append('file',file);
+      const r=await fetch(API+'/upload',{method:'POST',body:fd});
+      const d=await r.json();
+      node.uploadedUrl=d.url;
+      res({type:accept.includes('image')?'image':'video',url:d.url});
+    };
+    inp.click();
+  });
+}
+
+function getModelId(type){
+  return{assistant:'gpt',gpt4o:'gpt-4o',claude:'claude-sonnet',gemini:'gemini',perplexity:'perplexity',nano:'nano',dalle:'dalle',kling:'kling',kling_i2v:'kling',kling_motion:'kling',veo:'veo'}[type]||'gpt';
+}
+
+function topoSort(){
+  const deg={};nodes.forEach(n=>deg[n.id]=0);
+  conns.forEach(c=>deg[c.to]=(deg[c.to]||0)+1);
+  const q=nodes.filter(n=>deg[n.id]===0).map(n=>n.id);
+  const out=[];
+  while(q.length){
+    const id=q.shift();out.push(id);
+    conns.filter(c=>c.from===id).forEach(c=>{if(--deg[c.to]===0)q.push(c.to);});
+  }
+  return out.length===nodes.length?out:null;
+}
+
+function logRun(msg,type){
+  const el=document.getElementById('runLog');
+  const c={info:'#a89880',ok:'#6bff9e',warn:'#ffd36b',err:'#ff6b6b',done:'#ff8c42'}[type]||'#a89880';
+  const d=document.createElement('div');d.style.color=c;d.textContent=msg;
+  el.appendChild(d);el.scrollTop=el.scrollHeight;
+}
+
+// ── Save / Load ────────────────────────────────────────────────────────────
+let savedWfs=JSON.parse(localStorage.getItem('obs_wf_v3')||'[]');
+let curWfId=null;
+
+function saveWorkflow(){
+  const name=document.getElementById('wf-name').value.trim()||'Без названия';
+  const wf={id:curWfId||Date.now(),name,
+    nodes:nodes.map(n=>({id:n.id,type:n.type,x:n.x,y:n.y,props:{...n.props},uploadedUrl:n.uploadedUrl||null})),
+    conns:[...conns],savedAt:new Date().toISOString()};
+  curWfId=wf.id;
+  const idx=savedWfs.findIndex(w=>w.id===wf.id);
+  if(idx>=0)savedWfs[idx]=wf;else savedWfs.push(wf);
+  localStorage.setItem('obs_wf_v3',JSON.stringify(savedWfs));
+  alert('✅ Сохранено: '+name);
+}
+
+function loadWorkflow(wf){
+  nodes=[];conns=[];nodeIdCtr=1;
+  document.getElementById('nodes-layer').innerHTML='';
+  document.getElementById('wf-name').value=wf.name||'';
+  curWfId=wf.id;
+  (wf.nodes||[]).forEach(n=>{
+    const node={...n,result:null,generating:false,uploadedUrl:n.uploadedUrl||null};
+    const num=parseInt(n.id.replace('n',''));
+    if(!isNaN(num)&&num>=nodeIdCtr)nodeIdCtr=num+1;
+    nodes.push(node);
+    renderNode(node);
+  });
+  conns=[...(wf.conns||[])];
+  setTimeout(()=>{redrawSvg();selectNode(null);},100);
+}
+
+function clearCanvas(){
+  if(nodes.length&&!confirm('Очистить холст?'))return;
+  nodes=[];conns=[];nodeIdCtr=1;curWfId=null;
+  document.getElementById('nodes-layer').innerHTML='';
+  document.getElementById('wf-name').value='';
+  redrawSvg();closeProp();
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// CSS spin animation
+const style=document.createElement('style');
+style.textContent='@keyframes spin{to{transform:rotate(360deg)}}';
+document.head.appendChild(style);
+
+// ── Init ───────────────────────────────────────────────────────────────────
+const urlId=new URLSearchParams(location.search).get('id');
+setTimeout(()=>{
+  drawGrid();
+  if(urlId){
+    const wf=savedWfs.find(w=>String(w.id)===urlId);
+    if(wf)loadWorkflow(wf);else addWelcomeNodes();
+  } else if(savedWfs.length){
+    loadWorkflow(savedWfs[savedWfs.length-1]);
+  } else {
+    addWelcomeNodes();
+  }
+  applyTransform();
+},80);
+
+function addWelcomeNodes(){
+  const n1=addNode('text_input',80,120);
+  const n2=addNode('assistant',320,120);
+  const n3=addNode('dalle',560,120);
+  const n4=addNode('output',800,120);
+  addConn(n1.id,0,n2.id,0);
+  addConn(n2.id,0,n3.id,0);
+  addConn(n3.id,0,n4.id,0);
+  selectNode(null);
+  setTimeout(redrawSvg,150);
+}
+</script>
+</body>
+</html>

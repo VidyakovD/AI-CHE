@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(grep -rn \"agent_runner\\\\|from agent\" /c/Users/Денис/Desktop/ai-service/*.py)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //F //PID 2964 //PID 27504 //PID 27472)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(curl -s \"http://localhost:8000/chats/gpt\" --no-keepalive)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/index.html)",
+      "Bash(curl -s http://localhost:8000/chat/c5522860-5545-4cb2-af45-2e96c771b475)"
+    ]
+  }
+}

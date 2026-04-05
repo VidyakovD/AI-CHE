@@ -1,0 +1,1860 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<style>
+/* Fallback: если шрифт не загрузился (file:// протокол), скрываем иконки-текст и показываем emoji */
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+}
+</style>
+<script>
+// Проверяем загрузку шрифта иконок
+
+// ── Inline SVG Icons (работает без интернета, file://) ─────────────────────
+const SVG_ICONS = {
+  auto_awesome:`<path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/>`,
+  add:`<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>`,
+  manage_accounts:`<path d="M10 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v1h9.5c-.36-.63-.59-1.3-.63-2.02L11 17c0-.28.02-.56.07-.84L10 16zm10 1.5c0-.28-.03-.55-.07-.81l.87-.87-1-1.73-.92.55c-.35-.27-.75-.48-1.18-.63L17.5 15h-2l-.2 1.01c-.43.15-.83.36-1.18.63l-.92-.55-1 1.73.87.87c-.05.26-.07.53-.07.81s.03.55.07.81l-.87.87 1 1.73.92-.55c.35.27.75.48 1.18.63L15.5 23h2l.2-1.01c.43-.15.83-.36 1.18-.63l.92.55 1-1.73-.87-.87c.04-.26.07-.53.07-.81zm-3.5 1.5c-.83 0-1.5-.67-1.5-1.5S15.67 15 16.5 15s1.5.67 1.5 1.5S17.33 17 16.5 17z"/>`,
+  admin_panel_settings:`<path d="M17 11c.34 0 .67.03 1 .08V6.27L10.5 3 3 6.27v4.91c0 4.54 3.2 8.79 7.5 9.82.55-.13 1.08-.32 1.6-.55C11.41 19.47 11 18.28 11 17c0-3.31 2.69-6 6-6zm0 2c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 1.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5-1.5-.67-1.5-1.5.67-1.5 1.5-1.5zm0 5c-1.11 0-2.08-.56-2.66-1.4.87-.39 1.72-.6 2.66-.6.94 0 1.79.21 2.66.6-.58.84-1.55 1.4-2.66 1.4z"/>`,
+  expand_more:`<path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41z"/>`,
+  close:`<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>`,
+  send:`<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>`,
+  attach_file:`<path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/>`,
+  account_circle:`<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>`,
+  deployed_code:`<path d="M4 6l8-4 8 4v2l-8 4-8-4V6zm0 5l8 4 8-4v2l-8 4-8-4v-2zm0 5l8 4 8-4v2l-8 4-8-4v-2z"/>`,
+  business_center:`<path d="M10 16v-1H3.01L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-4h-7v1h-4zm10-9h-4.01V5l-2-2h-4l-2 2v2H4c-1.1 0-2 .9-2 2v3c0 1.1.9 2 2 2h6v-2h4v2h6c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zm-6 0h-4V5h4v2z"/>`,
+  more_horiz:`<path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>`,
+  mark_email_read:`<path d="M12 19c0 .34.03.67.08 1H3c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h18c1.1 0 2 .9 2 2v7.1c-.31-.06-.66-.1-1-.1s-.69.04-1 .1V8l-8 5-8-5v10h9zm1-13L3 4v2l9 5.5L21 6V4l-8 2zm7 7l-5 5 2 2 3-3 5-5-1.4-1.4-3.6 2.4z"/>`,
+  autorenew:`<path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"/>`,
+  help:`<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>`,
+  support_agent:`<path d="M21 12.22C21 6.73 16.74 3 12 3c-4.69 0-9 3.65-9 9.28-.6.34-1 .98-1 1.72v2c0 1.1.9 2 2 2h1v-6.1c0-3.87 3.13-7 7-7s7 3.13 7 7V19h-8v2h8c1.1 0 2-.9 2-2v-1.22c.59-.31 1-.92 1-1.64v-2.3c0-.7-.41-1.31-1-1.62z"/><circle cx="9" cy="13" r="1"/><circle cx="15" cy="13" r="1"/>`,
+  play_arrow:`<path d="M8 5v14l11-7z"/>`,
+  open_in_new:`<path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>`,
+  key:`<path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/>`,
+  dashboard:`<path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>`,
+  group:`<path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>`,
+  payments:`<path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/>`,
+  verified:`<path d="M23 12l-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68L23 12zm-13 5l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>`,
+  chat:`<path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/>`,
+  sync:`<path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>`,
+  psychology:`<path d="M13 8.57c-.79 0-1.43.64-1.43 1.43s.64 1.43 1.43 1.43 1.43-.64 1.43-1.43S13.79 8.57 13 8.57zM13 3C9.25 3 6.2 5.94 6.02 9.64L4.1 12.2c-.25.33-.01.8.4.8H6v3c0 1.1.9 2 2 2h1v3h7v-4.68c2.36-1.12 4-3.53 4-6.32 0-3.87-3.13-7-7-7z"/>`,
+  travel_explore:`<path d="M16.36 14c.08-.42.14-.85.14-1.29C16.5 9.52 14.37 7 12 7c-.44 0-.87.06-1.29.14L9.03 5.46C9.96 5.17 10.96 5 12 5c4.42 0 8 3.58 8 8 0 1.04-.17 2.04-.46 2.97L16.36 14zM2 3.05L5.07 6.1C3.6 7.99 2.75 10.4 2.75 13s.85 5.01 2.32 6.9L2 21l1.41 1.41L21 5.41 22.41 4 21 2.59 2 3.05z"/>`,
+  emoji_food_beverage:`<path d="M20 3H4v10c0 2.21 1.79 4 4 4h6c2.21 0 4-1.79 4-4v-3h2c1.11 0 2-.89 2-2V5c0-1.11-.89-2-2-2zm0 5h-2V5h2v3zM4 19h16v2H4z"/>`,
+  videocam:`<path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>`,
+  movie:`<path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>`,
+  account_tree:`<path d="M22 11V3h-7v3H9V3H2v8h7V8h2v10h4v3h7v-8h-7v3h-2V8h2v3z"/>`,
+  smart_toy:`<path d="M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zm-2 11H6v-2h12v2zm0-4H6V7h12v9zM9 14h2v2H9zm4 0h2v2h-2zm-4-4h2v2H9zm4 0h2v2h-2z"/>`,
+  hub:`<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM8 17.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5zM9.5 8c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5S9.5 9.38 9.5 8zm6.5 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>`,
+  bolt:`<path d="M7 2v11h3v9l7-12h-4l4-8z"/>`,
+  schedule:`<path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z"/>`,
+  edit:`<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>`,
+  delete:`<path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>`,
+  link:`<path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/>`,
+  arrow_forward:`<path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>`,
+};
+
+function getSvgIcon(name, size=20, color='currentColor') {
+  const path = SVG_ICONS[name];
+  if (!path) return `<span style="width:${size}px;height:${size}px;display:inline-block"></span>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="${color}" style="display:inline-block;vertical-align:middle;flex-shrink:0">${path}</svg>`;
+}
+
+// Font loader — runs immediately, no conflict
+(function() {
+  if (location.protocol === 'file:') {
+    ['https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200',
+     'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@500;600;700;800&display=swap'
+    ].forEach(href => {
+      const l = document.createElement('link');
+      l.rel = 'stylesheet'; l.href = href; l.crossOrigin = 'anonymous';
+      document.head.appendChild(l);
+    });
+  }
+})();
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config={darkMode:"class",theme:{extend:{colors:{
+  "primary":"#ff8c42","primary-dim":"#ff6b00","primary-soft":"#ff8c42",
+  "secondary":"#ffb347","surface-lo":"#181510","surface":"#1e1a14",
+  "surface2":"#272018","surface3":"#322a1e","surface4":"#3d3325",
+  "on-surface":"#f0e6d8","on-surface-dim":"#a89880","outline":"#4a3f2f",
+  "error":"#ff6b6b","background":"#141210"
+},fontFamily:{headline:["Manrope"],body:["Inter"]}}}}
+</script>
+<style>
+.material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;display:inline-block;line-height:1;text-transform:none;white-space:nowrap}
+.sig{background:linear-gradient(135deg,#ff8c42 0%,#ffb347 100%)}
+.sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.glass{background:rgba(39,32,24,0.75);backdrop-filter:blur(20px)}
+.ghost{border-top:1px solid rgba(74,63,47,0.3);border-left:1px solid rgba(74,63,47,0.3)}
+#messageInput,#chatScroll{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.3) transparent}
+#messageInput::-webkit-scrollbar,#chatScroll::-webkit-scrollbar{width:5px}
+#messageInput::-webkit-scrollbar-thumb,#chatScroll::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.3);border-radius:999px}
+.tab-on{color:#ff8c42 !important;background:rgba(255,140,66,0.08) !important;border-color:rgba(255,140,66,0.3) !important}
+.tab-btn{display:inline-block}
+#modelTabs{scrollbar-width:none}
+#modelTabs::-webkit-scrollbar{display:none}
+.overlay{background:rgba(0,0,0,0.8);backdrop-filter:blur(8px)}
+.inp{width:100%;padding:11px 14px;border-radius:10px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:14px;transition:border-color .2s;font-family:Inter,sans-serif}
+.inp:focus{border-color:#ff8c42}
+.inp::placeholder{color:#a89880}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#1e1a14;font-weight:700;border-radius:10px;padding:11px 20px;cursor:pointer;transition:opacity .15s;font-size:14px;width:100%;display:block;text-align:center}
+.btn-p:hover{opacity:.88}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.code-cell{width:42px;height:50px;text-align:center;font-size:20px;font-weight:800;border-radius:10px;background:#272018;border:1px solid rgba(74,63,47,0.5);color:#ff8c42;outline:none;transition:border-color .2s}
+.code-cell:focus{border-color:#ff8c42}
+.err{color:#ff6b6b;font-size:12px;margin-top:4px;display:none}
+.ok{color:#6bff9e;font-size:12px;margin-top:4px;display:none}
+/* Welcome screen hides input */
+body.welcome #inputArea{display:none!important}
+</style>
+</head>
+<body class="bg-background text-on-surface font-body welcome">
+
+<!-- ══ SIDEBAR ══════════════════════════════════════════════════════════════ -->
+<aside class="fixed left-0 top-0 z-40 p-4 h-screen w-68 flex-col hidden lg:flex bg-surface border-r border-outline/20 shadow-2xl overflow-hidden" style="width:272px">
+  <!-- Logo -->
+  <div class="flex items-center gap-3 px-2 mb-6">
+    <div class="w-10 h-10 rounded-xl sig flex items-center justify-center shadow-[0_0_24px_rgba(255,140,66,0.35)]">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:22px;height:22px;color:#1e1a14"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
+    </div>
+    <div>
+      <h1 class="text-lg font-extrabold tracking-tight text-on-surface font-headline leading-none">AI Студия Че</h1>
+      <p class="text-[10px] uppercase tracking-[0.2em] text-primary font-bold opacity-80 mt-0.5">AI-платформа</p>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <button id="newChatBtn" class="w-full flex items-center gap-3 px-4 py-2.5 text-primary bg-surface2 rounded-lg font-headline font-semibold mb-1.5 transition active:opacity-75 border border-outline/20 hover:border-primary/40">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg> Новый чат
+  </button>
+  <button data-feature="solutions" onclick="openSolutions('prompts')" class="w-full flex items-center gap-3 px-4 py-2.5 text-on-surface-dim hover:text-primary hover:bg-surface2/70 rounded-lg font-headline font-medium mb-1 transition text-sm">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg> Готовые решения
+  </button>
+  <button data-feature="solutions" onclick="openSolutions('business')" class="w-full flex items-center gap-3 px-4 py-2.5 text-on-surface-dim hover:text-primary hover:bg-surface2/70 rounded-lg font-headline font-medium mb-3 transition text-sm">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px"><path d="M10 16v-1H3.01L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-4h-7v1h-4zm10-9h-4.01V5l-2-2h-4l-2 2v2H4c-1.1 0-2 .9-2 2v3c0 1.1.9 2 2 2h6v-2h4v2h6c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zm-6 0h-4V5h4v2z"/></svg> Бизнес-решения
+  </button>
+  <a data-feature="workflows" href="workflows.html" class="w-full flex items-center gap-3 px-4 py-2.5 text-on-surface-dim hover:text-primary hover:bg-surface2/70 rounded-lg font-headline font-medium mb-1 transition text-sm" style="text-decoration:none">
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0"><path d="M22 11V3h-7v3H9V3H2v8h7V8h2v10h4v3h7v-8h-7v3h-2V8h2v3z"/></svg> Воркфлоу
+  </a>
+  <a data-feature="agents" href="agents.html" class="w-full flex items-center gap-3 px-4 py-2.5 text-on-surface-dim hover:text-primary hover:bg-surface2/70 rounded-lg font-headline font-medium mb-3 transition text-sm" style="text-decoration:none">
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0"><path d="M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zm-2 11H6v-2h12v2zm0-4H6V7h12v9zM9 14h2v2H9zm4 0h2v2h-2zm-4-4h2v2H9zm4 0h2v2h-2z"/></svg> ИИ Агенты
+  </a>
+  <a data-feature="chatbots" href="chatbots.html" class="w-full flex items-center gap-3 px-4 py-2.5 text-on-surface-dim hover:text-primary hover:bg-surface2/70 rounded-lg font-headline font-medium mb-1 transition text-sm" style="text-decoration:none">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px;flex-shrink:0"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+    Чат-боты
+  </a>
+
+  <!-- Chat history -->
+  <div id="chatScroll" class="flex-1 overflow-y-auto space-y-0.5 pr-1">
+    <label class="px-3 text-[10px] uppercase tracking-widest text-on-surface-dim/60 font-bold mb-2 block">История</label>
+    <div id="chatList" class="space-y-0.5"></div>
+  </div>
+
+  <!-- User footer -->
+  <footer class="mt-auto pt-3 border-t border-outline/20">
+    <!-- Admin switch -->
+    <div id="adminSwitchBar" class="hidden mb-2">
+      <a href="admin.html" class="w-full flex items-center gap-2 px-3 py-2 text-xs rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition font-medium">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M17 11c.34 0 .67.03 1 .08V6.27L10.5 3 3 6.27v4.91c0 4.54 3.2 8.79 7.5 9.82.55-.13 1.08-.32 1.6-.55C11.41 19.47 11 18.28 11 17c0-3.31 2.69-6 6-6zm0 2c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 1.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5-1.5-.67-1.5-1.5.67-1.5 1.5-1.5zm0 5c-1.11 0-2.08-.56-2.66-1.4.87-.39 1.72-.6 2.66-.6.94 0 1.79.21 2.66.6-.58.84-1.55 1.4-2.66 1.4z"/></svg> Открыть админку
+      </a>
+    </div>
+    <div id="sidebarUser" class="hidden p-3 bg-surface2 rounded-xl flex items-center gap-3 cursor-pointer hover:bg-surface3 transition mb-2 border border-outline/20" onclick="openCabinet()">
+      <div class="w-9 h-9 rounded-full sig flex items-center justify-center text-sm font-bold text-[#1e1a14] flex-shrink-0" id="sidebarAvatar">?</div>
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-semibold text-on-surface truncate" id="sidebarName">—</p>
+        <p class="text-xs text-primary font-bold" id="sidebarBalance">0 токенов</p>
+      </div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px" class="text-on-surface-dim"><path d="M10 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v1h9.5c-.36-.63-.59-1.3-.63-2.02L11 17c0-.28.02-.56.07-.84L10 16zm10 1.5c0-.28-.03-.55-.07-.81l.87-.87-1-1.73-.92.55c-.35-.27-.75-.48-1.18-.63L17.5 15h-2l-.2 1.01c-.43.15-.83.36-1.18.63l-.92-.55-1 1.73.87.87c-.05.26-.07.53-.07.81s.03.55.07.81l-.87.87 1 1.73.92-.55c.35.27.75.48 1.18.63L15.5 23h2l.2-1.01c.43-.15.83-.36 1.18-.63l.92.55 1-1.73-.87-.87c.04-.26.07-.53.07-.81zm-3.5 1.5c-.83 0-1.5-.67-1.5-1.5S15.67 15 16.5 15s1.5.67 1.5 1.5S17.33 17 16.5 17z"/></svg>
+    </div>
+    <div id="sidebarAuth" class="flex gap-2">
+      <button onclick="openM('loginModal')" class="flex-1 py-2 text-sm rounded-lg bg-surface2 text-on-surface-dim hover:text-primary border border-outline/20 transition">Войти</button>
+      <button onclick="openM('registerModal')" class="flex-1 py-2 text-sm rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition font-semibold">Регистрация</button>
+    </div>
+  </footer>
+</aside>
+
+<!-- ══ MAIN ══════════════════════════════════════════════════════════════════ -->
+<main class="lg:ml-[272px] h-screen flex flex-col overflow-hidden">
+  <!-- Topnav -->
+  <nav class="fixed top-0 right-0 left-0 lg:left-[272px] z-30 flex items-center justify-between px-5 bg-surface/85 backdrop-blur-xl h-14 border-b border-outline/15">
+    <div class="flex items-center gap-3">
+      <div class="relative" id="modelMenuWrapper">
+        <button id="modelMenuBtn" class="flex items-center gap-2 bg-surface2 px-3 py-1.5 rounded-full text-on-surface hover:bg-surface3 transition active:scale-95 border border-outline/20">
+          <span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+          <span class="font-headline text-sm font-semibold" id="modelLabel">GPT-4o mini</span>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px" class="text-on-surface-dim"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41z"/></svg>
+        </button>
+        <div id="modelDropdown" class="hidden absolute top-full left-0 mt-2 w-56 glass rounded-xl overflow-hidden shadow-2xl z-50 border border-outline/30">
+          <div class="p-2 space-y-0.5" id="modelDropdownList"></div>
+        </div>
+      </div>
+      <div class="flex items-center gap-4 overflow-x-auto" id="modelTabs"></div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="navCabinetBtn" onclick="openCabinet()" class="hidden items-center gap-2 px-3 py-1.5 rounded-full bg-surface2 hover:bg-surface3 transition text-sm border border-outline/20">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
+        <span id="navBalance" class="text-primary font-bold text-xs">0 T</span>
+      </button>
+      <button onclick="openFaq()" class="p-1.5 text-on-surface-dim hover:text-primary transition" title="FAQ и поддержка">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
+      </button>
+      <button onclick="openM('loginModal')" id="navLoginBtn" class="px-3 py-1.5 text-sm rounded-full bg-surface2 text-on-surface-dim hover:text-primary border border-outline/20 transition">Войти</button>
+    </div>
+  </nav>
+
+  <!-- Chat -->
+  <section id="chatContainer" class="flex-1 pt-20 pb-4 px-4 md:px-8 max-w-4xl mx-auto w-full flex flex-col gap-5 overflow-y-auto" style="padding-bottom:160px"></section>
+
+  <!-- Input -->
+  <div id="inputArea" class="fixed bottom-0 right-0 left-0 lg:left-[272px] p-4 bg-gradient-to-t from-background via-background/95 to-transparent">
+    <div class="max-w-4xl mx-auto w-full">
+      <div id="videoParamsPanel" class="hidden mb-3 p-4 bg-surface2 rounded-xl border border-outline/20 space-y-3">
+        <p class="text-xs font-bold text-primary uppercase tracking-wider" id="videoParamsTitle">Параметры видео</p>
+        <div class="grid grid-cols-2 gap-3" id="videoParamsGrid"></div>
+      </div>
+      <div id="attachmentPreview" class="hidden mb-2">
+        <div id="attachmentList" class="flex flex-wrap gap-2"></div>
+      </div>
+      <div class="relative group">
+        <div class="absolute -inset-0.5 bg-gradient-to-r from-primary/30 to-secondary/30 rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-500"></div>
+        <div class="relative flex items-end bg-surface2 rounded-2xl pl-5 pr-2 py-2 shadow-2xl border border-outline/10" style="border-color:rgba(74,63,47,0.15)">
+          <textarea id="messageInput" rows="1"
+            class="flex-1 bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-on-surface-dim/50 text-sm font-body py-2 px-2 resize-none overflow-y-auto max-h-32 leading-5"
+            placeholder="Напишите сообщение..."></textarea>
+          <div class="flex items-center gap-1 pb-1">
+            <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf,.txt,.doc,.docx"/>
+            <button onclick="document.getElementById('fileInput').click()" class="p-2 text-on-surface-dim hover:text-primary transition rounded-lg">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px"><path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/></svg>
+            </button>
+            <button id="sendBtn" class="w-10 h-10 rounded-xl sig flex items-center justify-center text-[#1e1a14] shadow-lg hover:scale-105 active:scale-95 transition-all">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <p class="text-center text-[10px] text-on-surface-dim/30 mt-2">AI Студия Че может ошибаться. Проверяйте важную информацию.</p>
+    </div>
+  </div>
+</main>
+
+<!-- ══ MODALS ════════════════════════════════════════════════════════════════ -->
+
+<!-- Login -->
+<div id="loginModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+  <div class="bg-surface rounded-2xl p-7 w-full max-w-md shadow-2xl border border-outline/25 mx-4">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-xl font-bold font-headline">Войти</h2>
+      <button onclick="closeM('loginModal')" class="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center hover:bg-surface3 transition"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </div>
+    <div class="space-y-3">
+      <input id="li_email" type="email" placeholder="Email" class="inp"/>
+      <input id="li_pass"  type="password" placeholder="Пароль" class="inp" onkeydown="if(event.key==='Enter')doLogin()"/>
+      <div id="li_err" class="err"></div>
+      <button onclick="doLogin()" class="btn-p">Войти</button>
+      <div class="flex justify-between text-sm text-on-surface-dim pt-1">
+        <a class="text-primary cursor-pointer hover:underline" onclick="switchForgot()">Забыл пароль</a>
+        <a class="text-primary cursor-pointer hover:underline" onclick="switchM('loginModal','registerModal')">Регистрация</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Register -->
+<div id="registerModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+  <div class="bg-surface rounded-2xl p-7 w-full max-w-md shadow-2xl border border-outline/25 mx-4 max-h-[95vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-xl font-bold font-headline">Создать аккаунт</h2>
+      <button onclick="closeM('registerModal')" class="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center hover:bg-surface3 transition"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </div>
+    <div class="space-y-3">
+      <input id="rg_name"  type="text"     placeholder="Имя (необязательно)" class="inp"/>
+      <input id="rg_email" type="email"    placeholder="Email" class="inp"/>
+      <input id="rg_pass"  type="password" placeholder="Пароль (мин. 8 символов)" class="inp"/>
+      <input id="rg_ref"   type="text"     placeholder="Реферальный код (необязательно)" class="inp"/>
+      <input id="rg_promo" type="text"     placeholder="Промокод (необязательно)" class="inp"/>
+      <div class="bg-surface2 rounded-xl p-4 text-xs text-on-surface-dim/70 max-h-28 overflow-y-auto border border-outline/20 leading-relaxed">
+        <strong class="text-on-surface">Пользовательское соглашение</strong><br/><br/>
+        1. Соглашение регулирует использование платформы AI Студия Че.<br/>
+        2. Запрещается создавать незаконный или вредоносный контент.<br/>
+        3. Токены — внутренняя расчётная единица, не возвращаются после использования.<br/>
+        4. Платежи через ЮKassa. Возврат только до активации подписки.<br/>
+        5. Администрация вправе заблокировать аккаунт при нарушении правил.<br/>
+        6. Данные обрабатываются согласно ФЗ-152.
+      </div>
+      <label class="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" id="rg_agree" class="mt-0.5 w-4 h-4 accent-primary"/>
+        <span class="text-sm text-on-surface-dim">Принимаю условия пользовательского соглашения</span>
+      </label>
+      <div id="rg_err" class="err"></div>
+      <button onclick="doRegister()" class="btn-p">Зарегистрироваться</button>
+      <p class="text-center text-sm text-on-surface-dim">Уже есть аккаунт? <a class="text-primary cursor-pointer hover:underline" onclick="switchM('registerModal','loginModal')">Войти</a></p>
+    </div>
+  </div>
+</div>
+
+<!-- Verify Email -->
+<div id="verifyModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+  <div class="bg-surface rounded-2xl p-7 w-full max-w-md shadow-2xl border border-outline/25 mx-4 text-center">
+    <div class="w-14 h-14 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-2xl"><path d="M12 19c0 .34.03.67.08 1H3c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h18c1.1 0 2 .9 2 2v7.1c-.31-.06-.66-.1-1-.1s-.69.04-1 .1V8l-8 5-8-5v10h9zm1-13L3 4v2l9 5.5L21 6V4l-8 2zm7 7l-5 5 2 2 3-3 5-5-1.4-1.4-3.6 2.4z"/></svg>
+    </div>
+    <h2 class="text-xl font-bold font-headline mb-2">Подтвердите email</h2>
+    <p class="text-sm text-on-surface-dim mb-1">Код отправлен на</p>
+    <p class="text-primary font-semibold mb-5" id="verifyEmailDisplay">—</p>
+    <div class="flex gap-2 justify-center mb-4">
+      <input maxlength="1" class="code-cell" type="text" inputmode="numeric"/>
+      <input maxlength="1" class="code-cell" type="text" inputmode="numeric"/>
+      <input maxlength="1" class="code-cell" type="text" inputmode="numeric"/>
+      <input maxlength="1" class="code-cell" type="text" inputmode="numeric"/>
+      <input maxlength="1" class="code-cell" type="text" inputmode="numeric"/>
+      <input maxlength="1" class="code-cell" type="text" inputmode="numeric"/>
+    </div>
+    <div id="verify_err" class="err mb-2 text-center" style="display:none"></div>
+    <button onclick="doVerify()" class="btn-p mb-3">Подтвердить</button>
+    <button onclick="doResendVerify()" class="text-sm text-on-surface-dim hover:text-primary transition block w-full">Выслать код повторно</button>
+    <div id="verify_ok" class="ok mt-2 text-center" style="display:none"></div>
+  </div>
+</div>
+
+<!-- Forgot Password -->
+<div id="forgotModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+  <div class="bg-surface rounded-2xl p-7 w-full max-w-md shadow-2xl border border-outline/25 mx-4">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-xl font-bold font-headline">Сброс пароля</h2>
+      <button onclick="closeM('forgotModal')" class="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center hover:bg-surface3 transition"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </div>
+    <div id="forgot_step1">
+      <p class="text-sm text-on-surface-dim mb-4">Введите email — пришлём 6-значный код.</p>
+      <input id="fg_email" type="email" placeholder="Email" class="inp mb-3"/>
+      <div id="fg_err1" class="err mb-2" style="display:none"></div>
+      <button onclick="doForgotStep1()" class="btn-p">Отправить код</button>
+    </div>
+    <div id="forgot_step2" class="hidden">
+      <p class="text-sm text-on-surface-dim mb-4">Введите код из письма и новый пароль.</p>
+      <div class="flex gap-2 justify-center mb-4">
+        <input maxlength="1" class="fg-code-cell code-cell" type="text" inputmode="numeric"/>
+        <input maxlength="1" class="fg-code-cell code-cell" type="text" inputmode="numeric"/>
+        <input maxlength="1" class="fg-code-cell code-cell" type="text" inputmode="numeric"/>
+        <input maxlength="1" class="fg-code-cell code-cell" type="text" inputmode="numeric"/>
+        <input maxlength="1" class="fg-code-cell code-cell" type="text" inputmode="numeric"/>
+        <input maxlength="1" class="fg-code-cell code-cell" type="text" inputmode="numeric"/>
+      </div>
+      <input id="fg_newpass" type="password" placeholder="Новый пароль" class="inp mb-3"/>
+      <div id="fg_err2" class="err mb-2" style="display:none"></div>
+      <button onclick="doForgotStep2()" class="btn-p">Сменить пароль</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cabinet -->
+<div id="cabinetModal" class="fixed inset-0 overlay flex items-start justify-center z-50 hidden overflow-y-auto py-6">
+  <div class="bg-surface rounded-2xl w-full max-w-2xl shadow-2xl border border-outline/25 overflow-hidden mx-4">
+    <div class="relative sig p-6">
+      <button onclick="closeM('cabinetModal')" class="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/20 flex items-center justify-center hover:bg-black/35 transition">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+      <div class="flex items-center gap-4">
+        <div class="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-2xl font-bold text-[#1e1a14] font-headline" id="cabAvatar">?</div>
+        <div>
+          <h2 class="text-xl font-bold text-[#1e1a14] font-headline" id="cabName">—</h2>
+          <p class="text-[#1e1a14]/70 text-sm" id="cabEmail">—</p>
+          <div class="flex items-center gap-2 mt-1">
+            <p class="text-[#1e1a14] font-bold">Баланс: <span id="cabBalance">0</span> токенов</p>
+            <span id="cabVerBadge"   class="hidden text-[10px] bg-green-500/25 text-green-700 px-2 py-0.5 rounded-full font-bold">✓ Подтверждён</span>
+            <span id="cabUnverBadge" class="hidden text-[10px] bg-yellow-500/25 text-yellow-700 px-2 py-0.5 rounded-full font-bold cursor-pointer" onclick="showVerifyFromCabinet()">⚠ Не подтверждён</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flex border-b border-outline/20 overflow-x-auto">
+      <button onclick="cabTab('plans')"    class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="plans">Подписки</button>
+      <button onclick="cabTab('tokens')"   class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="tokens">Докупить CH</button>
+      <button onclick="cabTab('history')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="history">История</button>
+      <button onclick="cabTab('usage')"    class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="usage">Расход</button>
+      <button onclick="cabTab('referral')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="referral">Реферал</button>
+      <button onclick="cabTab('settings')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="settings">Настройки</button>
+    </div>
+    <div id="cabContent" class="p-6 min-h-52"></div>
+  </div>
+</div>
+
+<!-- Rename -->
+<div id="renameModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+  <div class="bg-surface rounded-xl p-6 w-96 shadow-2xl border border-outline/25 mx-4">
+    <h2 class="text-lg font-semibold mb-4 font-headline">Переименовать чат</h2>
+    <input id="renameInput" type="text" class="inp mb-4" onkeydown="if(event.key==='Enter')document.getElementById('confirmRename').click()"/>
+    <div class="flex justify-end gap-3">
+      <button onclick="closeM('renameModal')" class="btn-g">Отмена</button>
+      <button id="confirmRename" class="px-4 py-2 rounded-lg sig text-[#1e1a14] font-semibold text-sm">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Solutions Modal -->
+<div id="solutionsModal" class="fixed inset-0 overlay flex items-start justify-center z-50 hidden overflow-y-auto py-6">
+  <div class="bg-surface rounded-2xl w-full max-w-3xl mx-4 border border-outline/25 shadow-2xl overflow-hidden">
+    <div class="sig px-6 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-lg font-bold font-headline text-[#1e1a14]" id="solsTitle">Готовые решения</h2>
+        <p class="text-[11px] text-[#1e1a14]/70 mt-0.5">Выберите и запустите готовый сценарий</p>
+      </div>
+      <button onclick="closeM('solutionsModal')" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div class="flex border-b border-outline/20">
+      <button onclick="switchSolTab('prompts')"  id="stab_prompts"  class="sol-stab flex-1 py-3 text-sm font-medium text-on-surface-dim hover:text-primary transition">✨ Готовые промпты</button>
+      <button onclick="switchSolTab('business')" id="stab_business" class="sol-stab flex-1 py-3 text-sm font-medium text-on-surface-dim hover:text-primary transition">💼 Бизнес-решения</button>
+    </div>
+    <div id="solsGrid" class="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 min-h-48">
+      <div class="col-span-3 text-center text-on-surface-dim/40 py-12 text-sm">Загрузка...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Run Modal -->
+<div id="runModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+  <div class="bg-surface rounded-2xl w-full max-w-lg mx-4 border border-outline/25 shadow-2xl overflow-hidden">
+    <div class="sig px-5 py-4 flex items-center justify-between">
+      <div>
+        <h3 class="font-bold font-headline text-[#1e1a14] text-sm" id="runTitle">Запуск решения</h3>
+        <p class="text-[10px] text-[#1e1a14]/70 mt-0.5" id="runStepLabel">Шаг 1</p>
+      </div>
+      <button onclick="closeRun()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div class="p-5 space-y-4">
+      <div class="flex gap-1.5" id="runProgress"></div>
+      <p class="text-sm text-on-surface-dim" id="runHint"></p>
+      <div id="runInputArea" class="hidden">
+        <textarea id="runInput" rows="3" class="inp resize-none" placeholder="Введите ответ..."></textarea>
+        <p class="text-[10px] text-on-surface-dim/50 mt-1">Ctrl+Enter — отправить</p>
+      </div>
+      <div id="runResult" class="hidden bg-surface2 rounded-xl p-4 border border-outline/20 max-h-40 overflow-y-auto">
+        <p class="text-xs text-on-surface leading-relaxed whitespace-pre-wrap" id="runResultText"></p>
+      </div>
+      <div id="runErr" class="text-error text-sm hidden"></div>
+      <div class="flex gap-3">
+        <button id="runContinueBtn" onclick="continueRun()" class="flex-1 py-3 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition flex items-center justify-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M8 5v14l11-7z"/></svg>
+          <span id="runBtnLabel">Продолжить</span>
+        </button>
+        <button onclick="openRunChat()" id="runChatBtn" class="hidden px-4 py-3 rounded-xl bg-primary/10 text-primary font-medium text-sm hover:bg-primary/20 transition">Открыть чат</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Drop overlay -->
+<div id="dropOverlay" class="fixed inset-0 hidden z-[9999] pointer-events-none" style="background:rgba(255,140,66,0.08);backdrop-filter:blur(2px)">
+  <div class="absolute inset-0 border-4 border-dashed rounded-2xl m-4" style="border-color:rgba(255,140,66,0.6)"></div>
+  <div class="absolute inset-0 flex flex-col items-center justify-center gap-4">
+    <div class="w-20 h-20 rounded-2xl sig flex items-center justify-center shadow-2xl">
+      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="#1e1a14"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+    </div>
+    <p class="text-on-surface text-lg font-bold font-headline">Добавьте изображение или файл</p>
+    <p class="text-on-surface-dim text-sm">Отпустите для прикрепления к сообщению</p>
+  </div>
+</div>
+
+<!-- ══ SCRIPT ════════════════════════════════════════════════════════════════ -->
+<script>
+const API="http://127.0.0.1:8000";
+let currentChat=null,currentChatInit=false,currentModel="gpt";
+let pendingAttachment=null;
+let authToken=localStorage.getItem("obs_token")||null;
+let currentUser=null,cabinetData=null;
+let pendingVerifyUserId=null,pendingVerifyEmail=null;
+let pendingForgotUserId=null;
+let activeRun=null;
+let currentSolTab="prompts";
+
+const MODELS=[
+  {id:"gpt",             label:"GPT-4o mini",     group:"OpenAI",     tab:"GPT",        icon:"auto_awesome"},
+  {id:"gpt-4o",          label:"GPT-4o",           group:"OpenAI",     tab:null,         icon:"auto_awesome"},
+  {id:"claude",          label:"Claude Haiku",     group:"Anthropic",  tab:"Claude",     icon:"psychology"},
+  {id:"claude-sonnet",   label:"Claude Sonnet",    group:"Anthropic",  tab:null,         icon:"psychology"},
+  {id:"gemini",          label:"Gemini Flash",     group:"Gemini",     tab:"Gemini",     icon:"auto_awesome"},
+  {id:"perplexity",      label:"Perplexity",       group:"Perplexity", tab:"Perplexity", icon:"travel_explore"},
+  {id:"perplexity-large",label:"Perplexity Large", group:"Perplexity", tab:null,         icon:"travel_explore"},
+  {id:"grok",            label:"Grok 3 Mini",      group:"xAI",        tab:"xAI",        icon:"bolt"},
+  {id:"nano",            label:"Nano Banana",      group:"Nano",       tab:"Nano",       icon:"emoji_food_beverage"},
+  {id:"kling",           label:"Kling v1",         group:"Видео",      tab:"Kling",      icon:"videocam", feature:"video_gen"},
+  {id:"kling-pro",       label:"Kling Pro",        group:"Видео",      tab:null,         icon:"videocam", feature:"video_gen"},
+  {id:"veo",             label:"Veo 3",            group:"Видео",      tab:"Veo 3",      icon:"movie",    feature:"video_gen"},
+];
+const VIDEO_MODELS=["kling","kling-pro","veo"];
+const VIDEO_PARAMS={
+  // ── Kling: полные параметры по официальной документации API ──────────────
+  kling:[
+    // Основное
+    {id:"prompt",           label:"Промпт",              type:"textarea", default:""},
+    {id:"negative_prompt",  label:"Негативный промпт",   type:"text",     default:""},
+    // Соотношение — Kling принимает 16:9, 9:16, 1:1 (обрабатывает сам)
+    {id:"aspect_ratio",     label:"Соотношение сторон",  type:"select",   default:"16:9", options:["16:9","9:16","1:1"]},
+    {id:"duration",         label:"Длительность (сек)",  type:"select",   default:"5",    options:["5","10"]},
+    {id:"mode",             label:"Качество",            type:"select",   default:"std",  options:[["std","Стандарт (720p)"],["pro","Pro (1080p)"]]},
+    {id:"cfg_scale",        label:"CFG Scale (0=свобода, 1=точность)",type:"range",default:"0.5",min:"0",max:"1",step:"0.05"},
+    // Camera control (числовые значения -10..10 передаются в API)
+    {id:"camera_type",      label:"Тип движения камеры", type:"select",   default:"",     options:[
+      ["","Нет"],
+      ["zoom","Zoom"],["pan","Pan (горизонталь)"],["tilt","Tilt (вертикаль)"],
+      ["roll","Roll (вращение)"]
+    ]},
+    {id:"camera_value",     label:"Интенсивность камеры (-10..10)",type:"range",default:"0",min:"-10",max:"10",step:"1"},
+    // Режим генерации
+    {id:"generation_mode",  label:"Режим генерации",     type:"select",   default:"text2video", options:[
+      ["text2video","Текст → Видео"],
+      ["image2video","Фото → Видео (оживить)"],
+      ["motion_control","Motion Control (наложить движение)"],
+      ["avatar","ИИ Аватар (говорящая голова)"],
+    ]},
+    // Нативное аудио (v2.6+)
+    {id:"native_audio",     label:"Нативное аудио (v2.6)",type:"toggle",  default:false},
+  ],
+  "kling-pro":[
+    {id:"prompt",           label:"Промпт",              type:"textarea", default:""},
+    {id:"negative_prompt",  label:"Негативный промпт",   type:"text",     default:""},
+    {id:"aspect_ratio",     label:"Соотношение сторон",  type:"select",   default:"16:9", options:["16:9","9:16","1:1"]},
+    {id:"duration",         label:"Длительность (сек)",  type:"select",   default:"5",    options:["5","10"]},
+    {id:"mode",             label:"Качество",            type:"select",   default:"pro",  options:[["std","Стандарт (720p)"],["pro","Pro (1080p)"]]},
+    {id:"cfg_scale",        label:"CFG Scale",           type:"range",    default:"0.7",  min:"0",max:"1",step:"0.05"},
+    {id:"camera_type",      label:"Тип движения камеры", type:"select",   default:"",     options:[
+      ["","Нет"],["zoom","Zoom"],["pan","Pan"],["tilt","Tilt"],["roll","Roll"]
+    ]},
+    {id:"camera_value",     label:"Интенсивность камеры (-10..10)",type:"range",default:"0",min:"-10",max:"10",step:"1"},
+    {id:"generation_mode",  label:"Режим генерации",     type:"select",   default:"text2video", options:[
+      ["text2video","Текст → Видео"],
+      ["image2video","Фото → Видео"],
+      ["image2video_frames","Первый + Последний кадр (только Pro)"],
+      ["motion_control","Motion Control"],
+      ["avatar","ИИ Аватар"],
+    ]},
+    {id:"native_audio",     label:"Нативное аудио (v2.6)",type:"toggle",  default:false},
+    {id:"keep_audio",       label:"Сохранить аудио референса",type:"toggle",default:true},
+  ],
+  veo:[
+    {id:"prompt",           label:"Промпт",              type:"textarea", default:""},
+    {id:"aspect_ratio",     label:"Соотношение сторон",  type:"select",   default:"16:9", options:["16:9","9:16"]},
+    {id:"duration_seconds", label:"Длительность (сек)",  type:"select",   default:"6",    options:["5","6","7","8"]},
+    {id:"sample_count",     label:"Вариантов",           type:"select",   default:"1",    options:["1","2","3","4"]},
+    {id:"enhance_prompt",   label:"Улучшить промпт",     type:"toggle",   default:true},
+    {id:"image_mode",       label:"Режим изображения",   type:"select",   default:"",     options:[["","Только текст"],["i2v","Image→Video (обрезка авто)"]]},
+  ],
+};
+
+// ── Feature flags ──────────────────────────────────────────────────────────
+let FEATURES={};
+async function loadFeatures(){
+  try{
+    const r=await fetch(`${API}/features`);
+    if(r.ok) FEATURES=await r.json();
+  }catch{}
+}
+function featureEnabled(key){
+  if(!key) return true;
+  return FEATURES[key]!==false;
+}
+function applyFeatureFlags(){
+  document.querySelectorAll("[data-feature]").forEach(el=>{
+    const key=el.dataset.feature;
+    el.style.display=featureEnabled(key)?"":"none";
+  });
+}
+
+// Перезагружать флаги когда вкладка снова в фокусе (после изменений в админке)
+document.addEventListener("visibilitychange", async()=>{
+  if(document.visibilityState==="visible"){
+    const prev=JSON.stringify(FEATURES);
+    await loadFeatures();
+    if(JSON.stringify(FEATURES)!==prev){ buildModels(); applyFeatureFlags(); }
+  }
+});
+
+// ── init ───────────────────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded",async()=>{
+  await loadFeatures();
+  buildModels();
+  applyFeatureFlags();
+  if(authToken) await fetchMe();
+  updateAuthUI();
+  setModel("gpt");
+  renderWelcome();
+
+  document.getElementById("sendBtn").onclick=sendMessage;
+  document.getElementById("newChatBtn").onclick=()=>{
+    currentChat=null;currentChatInit=false;
+    renderWelcome();if(authToken)loadChats();
+  };
+  document.getElementById("fileInput").addEventListener("change",handleFileSelect);
+
+  // Drag & drop files onto chat area
+  const chatArea = document.getElementById("chatContainer");
+  const inputBar  = document.querySelector(".main-area");
+  [chatArea, inputBar].forEach(el=>{
+    if(!el)return;
+    el.addEventListener("dragover", e=>{
+      e.preventDefault();
+      document.getElementById("dropOverlay").classList.remove("hidden");
+    });
+    el.addEventListener("dragleave", e=>{
+      if(!el.contains(e.relatedTarget))
+        document.getElementById("dropOverlay").classList.add("hidden");
+    });
+    el.addEventListener("drop", e=>{
+      e.preventDefault();
+      document.getElementById("dropOverlay").classList.add("hidden");
+      const file = e.dataTransfer.files[0];
+      if(file){
+        const fakeEvent = {target:{files:[file]}};
+        handleFileSelect(fakeEvent);
+      }
+    });
+  });
+  const ta=document.getElementById("messageInput");
+  ta.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}});
+  ta.addEventListener("input",()=>{ta.style.height="auto";ta.style.height=Math.min(ta.scrollHeight,128)+"px";updateSendBtn();});
+
+  setupCodes(".code-cell");
+  setupCodes(".fg-code-cell");
+
+  document.querySelectorAll(".overlay").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)m.classList.add("hidden");}));
+  document.getElementById("renameModal").addEventListener("click",e=>{if(e.target===document.getElementById("renameModal"))closeM("renameModal");});
+  document.addEventListener("click",e=>{
+    if(!e.target.closest(".menu-dropdown")&&!e.target.closest(".menu-btn"))
+      document.querySelectorAll(".menu-dropdown").forEach(d=>d.classList.add("hidden"));
+    if(!e.target.closest("#modelMenuWrapper"))
+      document.getElementById("modelDropdown").classList.add("hidden");
+  });
+  document.getElementById("runInput").addEventListener("keydown",e=>{if(e.key==="Enter"&&e.ctrlKey)continueRun();});
+  updateSendBtn();
+});
+
+// ── welcome screen ─────────────────────────────────────────────────────────
+function showChat(){
+  document.body.classList.remove("welcome");
+  // Clear welcome screen if still showing
+  const container = document.getElementById("chatContainer");
+  if(container.querySelector(".welcome-screen")){
+    container.innerHTML="";
+  }
+}
+
+function startChatOrLogin(){
+  if(!currentUser){
+    openM("loginModal");
+    return;
+  }
+  showChat();
+  document.getElementById("messageInput").focus();
+}
+function showWelcome(){
+  document.body.classList.add("welcome");
+  currentChat=null;currentChatInit=false;
+}
+
+// ── models ─────────────────────────────────────────────────────────────────
+function buildModels(){
+  const drop=document.getElementById("modelDropdownList");
+  const tabs=document.getElementById("modelTabs");
+  drop.innerHTML="";tabs.innerHTML="";
+  let lastGrp=null;
+  MODELS.filter(m=>featureEnabled(m.feature||null)).forEach((m,idx)=>{
+    if(m.group!==lastGrp){
+      lastGrp=m.group;
+      const s=document.createElement("div");
+      s.className="px-3 pt-2 pb-0.5 text-[9px] uppercase tracking-widest text-on-surface-dim/50 font-bold";
+      s.textContent=m.group;drop.appendChild(s);
+    }
+    const el=document.createElement("div");
+    el.dataset.mDrop=m.id;
+    el.className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-surface3 transition text-on-surface-dim text-sm";
+    el.innerHTML=`<span style="display:inline-block;width:16px;height:16px;vertical-align:middle">${getSvgIcon(m.icon,16)}</span><span>${m.label}</span>`;
+    el.onclick=()=>setModel(m.id);
+    drop.appendChild(el);
+
+    // Показываем таб только если у модели задан tab
+    if(m.tab){
+      const t=document.createElement("button");
+      t.dataset.mTab=m.id;t.dataset.mtg=m.group;
+      t.className="tab-btn flex-shrink-0 font-headline text-[11px] tracking-widest cursor-pointer transition whitespace-nowrap font-bold px-2 py-1 rounded-md text-on-surface-dim/60 hover:text-primary hover:bg-primary/8 border border-transparent";
+      t.textContent=m.tab;t.onclick=()=>setModel(m.id);
+      tabs.appendChild(t);
+    }
+  });
+}
+
+function setModel(id){
+  currentModel=id;currentChat=null;currentChatInit=false;
+  const m=MODELS.find(x=>x.id===id);
+  document.getElementById("modelLabel").textContent=m?.label||id;
+  document.querySelectorAll("[data-m-drop]").forEach(el=>{
+    el.classList.toggle("text-primary",el.dataset.mDrop===id);
+    el.classList.toggle("bg-primary/10",el.dataset.mDrop===id);
+  });
+  const curGrp=MODELS.find(x=>x.id===id)?.group||"";
+  document.querySelectorAll("[data-mtg]").forEach(el=>{
+    const active = el.dataset.mtg===curGrp;
+    el.classList.toggle("tab-on", active);
+    el.classList.toggle("text-primary", active);
+    el.classList.toggle("border-primary/30", active);
+    el.classList.toggle("bg-primary/8", active);
+    el.classList.toggle("text-on-surface-dim/60", !active);
+  });
+  document.getElementById("modelDropdown").classList.add("hidden");
+  renderWelcome();if(authToken)loadChats();toggleVideoPanel(id);
+}
+
+document.getElementById("modelMenuBtn").onclick=e=>{e.stopPropagation();document.getElementById("modelDropdown").classList.toggle("hidden");};
+
+// ── video params ───────────────────────────────────────────────────────────
+function toggleVideoPanel(model){
+  const panel=document.getElementById("videoParamsPanel");
+  const grid=document.getElementById("videoParamsGrid");
+  videoUrls={};  // reset all slots
+  if(!VIDEO_MODELS.includes(model)){panel.classList.add("hidden");return;}
+  panel.classList.remove("hidden");
+  document.getElementById("videoParamsTitle").textContent=`Параметры ${model.toUpperCase()}`;
+  grid.innerHTML="";
+  (VIDEO_PARAMS[model]||[]).forEach(p=>{
+    const w=document.createElement("div");
+    w.className=p.type==="textarea"?"col-span-2":"";
+    if(p.type==="textarea")
+      w.innerHTML=`<textarea id="vp_${p.id}" rows="2" placeholder="${p.label}" class="inp resize-none text-xs">${p.default}</textarea>`;
+    else if(p.type==="select"){
+      const opts=(p.options||[]).map(o=>{const[v,l]=Array.isArray(o)?o:[o,o];return`<option value="${v}"${v===p.default?" selected":""}>${l}</option>`;}).join("");
+      w.innerHTML=`<label class="block text-[10px] text-on-dim/60 mb-1">${p.label}</label><select id="vp_${p.id}" class="inp text-xs" style="padding:8px 12px" onchange="onVidParamChange('${p.id}',this.value,'${model}')">${opts}</select>`;
+    }else if(p.type==="range")
+      w.innerHTML=`<label class="block text-[10px] text-on-dim/60 mb-1">${p.label}: <span id="vp_${p.id}_v">${p.default}</span></label><input type="range" id="vp_${p.id}" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.default}" class="w-full accent-primary" oninput="document.getElementById('vp_${p.id}_v').textContent=this.value"/>`;
+    else if(p.type==="toggle")
+      w.innerHTML=`<label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="vp_${p.id}"${p.default?" checked":""} class="accent-primary"/><span class="text-xs text-on-dim">${p.label}</span></label>`;
+    else
+      w.innerHTML=`<label class="block text-[10px] text-on-dim/60 mb-1">${p.label}</label><input type="text" id="vp_${p.id}" value="${p.default||""}" class="inp text-xs" style="padding:8px 12px"/>`;
+    grid.appendChild(w);
+  });
+  // Image upload zone for video models
+  const imgZoneW = document.createElement("div");
+  imgZoneW.className="col-span-2";
+  imgZoneW.id="videoImgZoneWrap";
+  imgZoneW.innerHTML=`
+    <!-- Стартовый кадр (image2video) -->
+    <div id="videoImgZone" class="hidden mt-1 border-2 border-dashed border-outline/35 rounded-xl p-4 text-center hover:border-primary/50 transition cursor-pointer" onclick="document.getElementById('videoImgInput').click()">
+      <input type="file" id="videoImgInput" class="hidden" accept="image/*" onchange="handleVidImg(event,'${model}','start')"/>
+      <div id="videoImgPreview" class="hidden mb-2">
+        <img id="videoImgThumb" class="max-h-28 mx-auto rounded-lg object-contain"/>
+        <button onclick="event.stopPropagation();clearVidImg('start')" class="mt-1 text-xs text-error hover:underline block mx-auto">Удалить</button>
+      </div>
+      <div id="videoImgPlaceholder" class="py-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="mx-auto mb-1 opacity-40"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+        <p class="text-xs text-on-dim/60" id="videoImgHint">Стартовое фото (оживить)</p>
+      </div>
+    </div>
+
+    <!-- Финальный кадр (только для image2video_frames / kling-pro) -->
+    <div id="videoTailZone" class="hidden mt-1 border-2 border-dashed border-outline/30 rounded-xl p-4 text-center hover:border-primary/40 transition cursor-pointer" onclick="document.getElementById('videoTailInput').click()">
+      <input type="file" id="videoTailInput" class="hidden" accept="image/*" onchange="handleVidImg(event,'${model}','tail')"/>
+      <div id="videoTailPreview" class="hidden mb-2">
+        <img id="videoTailThumb" class="max-h-24 mx-auto rounded-lg object-contain"/>
+        <button onclick="event.stopPropagation();clearVidImg('tail')" class="mt-1 text-xs text-error hover:underline block mx-auto">Удалить</button>
+      </div>
+      <div id="videoTailPlaceholder" class="py-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="mx-auto mb-1 opacity-30"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+        <p class="text-xs text-on-dim/50">Финальный кадр (опционально)</p>
+      </div>
+    </div>
+
+    <!-- Motion Control: видео-референс движения -->
+    <div id="videoMotionZone" class="hidden mt-1 border-2 border-dashed border-primary/25 rounded-xl p-4 text-center hover:border-primary/50 transition cursor-pointer" onclick="document.getElementById('videoMotionInput').click()">
+      <input type="file" id="videoMotionInput" class="hidden" accept="video/*" onchange="handleVidMotion(event)"/>
+      <div id="videoMotionPreview" class="hidden mb-2 text-xs text-on-surface">
+        <p id="videoMotionName" class="font-medium truncate mb-1"></p>
+        <video id="videoMotionThumb" class="max-h-24 mx-auto rounded-lg" controls muted></video>
+        <button onclick="event.stopPropagation();clearVidMotion()" class="mt-1 text-xs text-error hover:underline block mx-auto">Удалить</button>
+      </div>
+      <div id="videoMotionPlaceholder" class="py-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="mx-auto mb-1 opacity-40"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+        <p class="text-xs text-on-dim/60">Видео-референс движения (3–30 сек)</p>
+        <p class="text-[10px] text-on-dim/40 mt-0.5">Движение из этого видео наложится на ваше фото</p>
+      </div>
+    </div>
+
+    <!-- Avatar: TTS текст + голос -->
+    <div id="videoAvatarZone" class="hidden mt-1 space-y-2">
+      <!-- Фото аватара -->
+      <div class="border-2 border-dashed border-outline/35 rounded-xl p-4 text-center hover:border-primary/50 transition cursor-pointer" onclick="document.getElementById('videoAvatarPhotoInput').click()">
+        <input type="file" id="videoAvatarPhotoInput" class="hidden" accept="image/*" onchange="handleVidImg(event,'${model}','avatar')"/>
+        <div id="videoAvatarPhotoPreview" class="hidden mb-2">
+          <img id="videoAvatarThumb" class="max-h-24 mx-auto rounded-lg object-contain"/>
+          <button onclick="event.stopPropagation();clearVidImg('avatar')" class="mt-1 text-xs text-error hover:underline block mx-auto">Удалить фото</button>
+        </div>
+        <div id="videoAvatarPhotoPlaceholder" class="py-1">
+          <p class="text-xs text-on-dim/60">📸 Фото лица для аватара</p>
+          <p class="text-[10px] text-on-dim/40 mt-0.5">Лицо должно быть чётко видно</p>
+        </div>
+      </div>
+      <!-- Текст для озвучки -->
+      <textarea id="videoAvatarText" rows="3" placeholder="Введите текст, который скажет аватар..." class="inp resize-none text-xs"></textarea>
+      <!-- Голос -->
+      <div>
+        <label class="block text-[10px] text-on-dim/60 mb-1">Голос TTS</label>
+        <select id="videoAvatarVoice" class="inp text-xs" style="padding:7px 10px">
+          <option value="male-1">Мужской 1 (рус)</option>
+          <option value="female-1">Женский 1 (рус)</option>
+          <option value="male-2">Мужской 2 (нейтральный)</option>
+          <option value="female-2">Женский 2 (мягкий)</option>
+          <option value="narrator">Диктор (официальный)</option>
+        </select>
+        <p class="text-[10px] text-on-dim/40 mt-0.5">Голоса загружаются из Kling TTS API при наличии ключа</p>
+      </div>
+    </div>
+  `;
+  imgZoneW.querySelector("#videoImgZone").addEventListener("dragover",e=>e.preventDefault());
+  imgZoneW.querySelector("#videoImgZone").addEventListener("drop",e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)processVidImg(f,model);});
+  grid.appendChild(imgZoneW);
+}
+
+// videoUrls declared above
+
+function onVidParamChange(paramId,value,model){
+  if(paramId==="generation_mode") updateKlingZones(value, model);
+}
+
+function updateKlingZones(mode, model){
+  const zones = {
+    img:    document.getElementById("videoImgZone"),
+    tail:   document.getElementById("videoTailZone"),
+    motion: document.getElementById("videoMotionZone"),
+    avatar: document.getElementById("videoAvatarZone"),
+  };
+  // Hide all first
+  Object.values(zones).forEach(z=>z&&z.classList.add("hidden"));
+
+  const hint = document.getElementById("videoImgHint");
+
+  if(mode==="image2video"){
+    zones.img?.classList.remove("hidden");
+    if(hint) hint.textContent="Фото → Видео (оживить изображение)";
+  } else if(mode==="image2video_frames"){
+    zones.img?.classList.remove("hidden");
+    zones.tail?.classList.remove("hidden");
+    if(hint) hint.textContent="Стартовый кадр";
+  } else if(mode==="motion_control"){
+    zones.img?.classList.remove("hidden");
+    zones.motion?.classList.remove("hidden");
+    if(hint) hint.textContent="Ваше фото (чел. с видимой позой)";
+  } else if(mode==="avatar"){
+    zones.avatar?.classList.remove("hidden");
+  }
+  // text2video — ничего не показываем
+}
+
+// videoUrls: { start, tail, motion, avatar }
+let videoUrls = {};
+
+async function handleVidImg(e, model, slot){
+  const f=e.target.files[0]; if(!f) return;
+  processVidImg(f, model, slot);
+}
+
+async function processVidImg(file, model, slot){
+  if(!file.type.startsWith("image/")) return;
+  // Для veo — кропим под выбранный формат; для kling — передаём как есть (API сам обрабатывает)
+  const aspectSel=document.getElementById("vp_aspect_ratio");
+  const aspect=aspectSel?aspectSel.value:"16:9";
+  const processed = model==="veo" ? await cropToAspect(file,aspect) : file;
+  const fd=new FormData(); fd.append("file",processed);
+  try{
+    const r=await fetch(API+"/upload",{method:"POST",body:fd});
+    const d=await r.json();
+    videoUrls[slot||"start"] = d.url;
+
+    const slotMap = {
+      start:  {prev:"videoImgPreview",   thumb:"videoImgThumb",   ph:"videoImgPlaceholder"},
+      tail:   {prev:"videoTailPreview",  thumb:"videoTailThumb",  ph:"videoTailPlaceholder"},
+      avatar: {prev:"videoAvatarPhotoPreview", thumb:"videoAvatarThumb", ph:"videoAvatarPhotoPlaceholder"},
+    };
+    const ids = slotMap[slot||"start"];
+    if(ids){
+      document.getElementById(ids.prev)?.classList.remove("hidden");
+      const th = document.getElementById(ids.thumb);
+      if(th) th.src = API+d.url;
+      document.getElementById(ids.ph)?.classList.add("hidden");
+    }
+  }catch(e){alert("Ошибка загрузки: "+e.message);}
+}
+
+async function handleVidMotion(e){
+  const f=e.target.files[0]; if(!f) return;
+  const fd=new FormData(); fd.append("file",f);
+  try{
+    const r=await fetch(API+"/upload",{method:"POST",body:fd});
+    const d=await r.json();
+    videoUrls["motion"]=d.url;
+    document.getElementById("videoMotionPreview")?.classList.remove("hidden");
+    document.getElementById("videoMotionPlaceholder")?.classList.add("hidden");
+    document.getElementById("videoMotionName").textContent=f.name;
+    const vid=document.getElementById("videoMotionThumb");
+    if(vid){vid.src=API+d.url;}
+  }catch(e){alert("Ошибка загрузки: "+e.message);}
+}
+
+function clearVidImg(slot){
+  delete videoUrls[slot||"start"];
+  const slotMap = {
+    start:  {prev:"videoImgPreview",   ph:"videoImgPlaceholder",   inp:"videoImgInput"},
+    tail:   {prev:"videoTailPreview",  ph:"videoTailPlaceholder",  inp:"videoTailInput"},
+    avatar: {prev:"videoAvatarPhotoPreview", ph:"videoAvatarPhotoPlaceholder", inp:"videoAvatarPhotoInput"},
+  };
+  const ids=slotMap[slot||"start"];
+  if(ids){
+    document.getElementById(ids.prev)?.classList.add("hidden");
+    document.getElementById(ids.ph)?.classList.remove("hidden");
+    const inp=document.getElementById(ids.inp); if(inp) inp.value="";
+  }
+}
+
+function clearVidMotion(){
+  delete videoUrls["motion"];
+  document.getElementById("videoMotionPreview")?.classList.add("hidden");
+  document.getElementById("videoMotionPlaceholder")?.classList.remove("hidden");
+  const inp=document.getElementById("videoMotionInput"); if(inp) inp.value="";
+}
+
+async function cropToAspect(file,aspect){
+  return new Promise(res=>{
+    const img=new Image(),url=URL.createObjectURL(file);
+    img.onload=()=>{
+      const[aw,ah]=aspect.split(":").map(Number);
+      const tr=aw/ah,ir=img.width/img.height;
+      let sx=0,sy=0,sw=img.width,sh=img.height;
+      if(ir>tr){sw=Math.round(img.height*tr);sx=Math.round((img.width-sw)/2);}
+      else{sh=Math.round(img.width/tr);sy=Math.round((img.height-sh)/2);}
+      const c=document.createElement("canvas");
+      c.width=aw===16?1280:aw===9?720:1024;
+      c.height=aw===16?720:aw===9?1280:576;
+      c.getContext("2d").drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b=>res(new File([b],"cropped.jpg",{type:"image/jpeg"})),"image/jpeg",0.92);
+    };img.src=url;
+  });
+}
+
+function collectVideoParams(){
+  const params=VIDEO_PARAMS[currentModel]||[];
+  const r={};
+  params.forEach(p=>{const el=document.getElementById(`vp_${p.id}`);if(!el)return;r[p.id]=p.type==="toggle"?el.checked:el.value;});
+  // Attach uploaded files by slot
+  if(videoUrls.start)  r.image_url  = API+videoUrls.start;
+  if(videoUrls.tail)   r.tail_image_url = API+videoUrls.tail;
+  if(videoUrls.motion) r.motion_url = API+videoUrls.motion;
+  if(videoUrls.avatar) r.avatar_image_url = API+videoUrls.avatar;
+  // Avatar TTS text & voice
+  const avatarText=document.getElementById("videoAvatarText");
+  if(avatarText?.value) r.avatar_text=avatarText.value;
+  const avatarVoice=document.getElementById("videoAvatarVoice");
+  if(avatarVoice?.value) r.avatar_voice=avatarVoice.value;
+  return Object.keys(r).length?r:null;
+}
+
+// ── auth ───────────────────────────────────────────────────────────────────
+async function fetchMe(){
+  try{const r=await api("/auth/me");currentUser=r;}
+  catch{authToken=null;localStorage.removeItem("obs_token");}
+}
+
+function updateAuthUI(){
+  const li=!!currentUser;
+  document.getElementById("sidebarUser").classList.toggle("hidden",!li);
+  document.getElementById("sidebarAuth").classList.toggle("hidden",li);
+  document.getElementById("navLoginBtn").classList.toggle("hidden",li);
+  document.getElementById("navCabinetBtn").classList.toggle("hidden",!li);
+  document.getElementById("navCabinetBtn").classList.toggle("flex",li);
+
+  // Admin switch button
+  const ADMIN_EMAILS_CLIENT=[];// будет сравниваться по признаку is_admin из /auth/me
+  const adminBar=document.getElementById("adminSwitchBar");
+  if(li&&currentUser){
+    // Показываем кнопку только если email в списке — проверяем через отдельный запрос
+    checkIsAdmin();
+  } else {
+    adminBar.classList.add("hidden");
+  }
+
+  if(li&&currentUser){
+    const ini=(currentUser.name||"U").charAt(0).toUpperCase();
+    document.getElementById("sidebarAvatar").textContent=ini;
+    document.getElementById("sidebarName").textContent=currentUser.name||currentUser.email;
+    document.getElementById("sidebarBalance").textContent=fmtT(currentUser.tokens_balance)+" токенов";
+    document.getElementById("navBalance").textContent=fmtT(currentUser.tokens_balance)+" T";
+  }
+}
+
+async function checkIsAdmin(){
+  try{
+    await api("/admin/stats");
+    document.getElementById("adminSwitchBar").classList.remove("hidden");
+  }catch{
+    document.getElementById("adminSwitchBar").classList.add("hidden");
+  }
+}
+
+async function doLogin(){
+  const email=document.getElementById("li_email").value.trim();
+  const pass=document.getElementById("li_pass").value;
+  const err=document.getElementById("li_err");
+  err.style.display="none";
+  try{
+    const r=await apiPost("/auth/login",{email,password:pass});
+    if(r.status==="pending_verification"){
+      pendingVerifyUserId=r.user_id;pendingVerifyEmail=email;
+      document.getElementById("verifyEmailDisplay").textContent=email;
+      closeM("loginModal");openM("verifyModal");
+    }else{
+      authToken=r.token;localStorage.setItem("obs_token",authToken);
+      currentUser=r.user;closeM("loginModal");updateAuthUI();loadChats();
+    }
+  }catch(e){err.textContent=e.message||"Ошибка входа";err.style.display="block";}
+}
+
+async function doRegister(){
+  const name=document.getElementById("rg_name").value.trim();
+  const email=document.getElementById("rg_email").value.trim();
+  const pass=document.getElementById("rg_pass").value;
+  const ref=document.getElementById("rg_ref").value.trim();
+  const agree=document.getElementById("rg_agree").checked;
+  const err=document.getElementById("rg_err");
+  err.style.display="none";
+  if(!agree){err.textContent="Необходимо принять условия";err.style.display="block";return;}
+  const promo=document.getElementById("rg_promo")?.value.trim()||"";
+  try{
+    const r=await apiPost("/auth/register",{name,email,password:pass,agreed_to_terms:true,referral_code:ref||undefined});
+    pendingVerifyUserId=r.user_id;pendingVerifyEmail=email;
+    if(promo) sessionStorage.setItem("pending_promo",promo);
+    document.getElementById("verifyEmailDisplay").textContent=email;
+    closeM("registerModal");openM("verifyModal");
+  }catch(e){err.textContent=e.message||"Ошибка";err.style.display="block";}
+}
+
+async function doVerify(){
+  const code=getCode(".code-cell");
+  const err=document.getElementById("verify_err");
+  const ok=document.getElementById("verify_ok");
+  err.style.display="none";ok.style.display="none";
+  if(code.length<6){err.textContent="Введите все 6 цифр";err.style.display="block";return;}
+  try{
+    const r=await apiPost("/auth/verify-email",{user_id:pendingVerifyUserId,code});
+    authToken=r.token;localStorage.setItem("obs_token",authToken);
+    currentUser=r.user;closeM("verifyModal");clearCodes(".code-cell");
+    updateAuthUI();loadChats();
+    ok.textContent="✅ Email подтверждён! Начислено 50 токенов.";ok.style.display="block";
+    // Apply pending promo code
+    const pendingPromo=sessionStorage.getItem("pending_promo");
+    if(pendingPromo){
+      sessionStorage.removeItem("pending_promo");
+      try{const pr=await apiPost("/promo/apply",{code:pendingPromo});
+        ok.textContent+=" 🎁 Промокод применён: "+pr.message;}catch{}
+    }
+  }catch(e){err.textContent=e.message||"Неверный код";err.style.display="block";}
+}
+async function doResendVerify(){
+  try{await apiPost("/auth/resend-verify",{user_id:pendingVerifyUserId});
+    document.getElementById("verify_ok").textContent="Код отправлен повторно";
+    document.getElementById("verify_ok").style.display="block";}catch{}
+}
+function showVerifyFromCabinet(){
+  closeM("cabinetModal");pendingVerifyEmail=currentUser?.email||"";
+  document.getElementById("verifyEmailDisplay").textContent=pendingVerifyEmail;
+  openM("verifyModal");
+}
+function switchForgot(){closeM("loginModal");openM("forgotModal");}
+async function doForgotStep1(){
+  const email=document.getElementById("fg_email").value.trim();
+  const err=document.getElementById("fg_err1");err.style.display="none";
+  try{const r=await apiPost("/auth/forgot-password",{email});
+    pendingForgotUserId=r.user_id;
+    document.getElementById("forgot_step1").classList.add("hidden");
+    document.getElementById("forgot_step2").classList.remove("hidden");
+  }catch(e){err.textContent=e.message||"Ошибка";err.style.display="block";}
+}
+async function doForgotStep2(){
+  const code=getCode(".fg-code-cell");
+  const newpass=document.getElementById("fg_newpass").value;
+  const err=document.getElementById("fg_err2");err.style.display="none";
+  try{
+    const r=await apiPost("/auth/reset-password",{user_id:pendingForgotUserId,code,new_password:newpass});
+    authToken=r.token;localStorage.setItem("obs_token",authToken);currentUser=r.user;
+    closeM("forgotModal");clearCodes(".fg-code-cell");
+    document.getElementById("forgot_step1").classList.remove("hidden");
+    document.getElementById("forgot_step2").classList.add("hidden");
+    updateAuthUI();
+  }catch(e){err.textContent=e.message||"Неверный код";err.style.display="block";}
+}
+function doLogout(){
+  authToken=null;currentUser=null;localStorage.removeItem("obs_token");
+  document.getElementById("chatList").innerHTML="";
+  currentChat=null;currentModel="gpt";
+  closeM("cabinetModal");updateAuthUI();renderWelcome();
+}
+
+// ── code inputs ─────────────────────────────────────────────────────────────
+function setupCodes(sel){
+  document.querySelectorAll(sel).forEach((inp,i,all)=>{
+    inp.addEventListener("input",()=>{
+      inp.value=inp.value.replace(/\D/g,"").slice(-1);
+      if(inp.value&&i<all.length-1)all[i+1].focus();
+    });
+    inp.addEventListener("keydown",e=>{if(e.key==="Backspace"&&!inp.value&&i>0)all[i-1].focus();});
+    inp.addEventListener("paste",e=>{
+      const txt=(e.clipboardData||window.clipboardData).getData("text").replace(/\D/g,"");
+      if(txt.length===6){e.preventDefault();all.forEach((c,j)=>c.value=txt[j]||"");all[5].focus();}
+    });
+  });
+}
+function getCode(sel){return Array.from(document.querySelectorAll(sel)).map(i=>i.value).join("");}
+function clearCodes(sel){document.querySelectorAll(sel).forEach(i=>i.value="");}
+
+// ── cabinet ────────────────────────────────────────────────────────────────
+async function openCabinet(){
+  if(!currentUser){openM("loginModal");return;}
+  openM("cabinetModal");
+  const r=await api("/cabinet/stats");
+  cabinetData=r;currentUser=r.user;updateAuthUI();
+  document.getElementById("cabAvatar").textContent=(r.user.name||"U").charAt(0).toUpperCase();
+  document.getElementById("cabName").textContent=r.user.name||"—";
+  document.getElementById("cabEmail").textContent=r.user.email;
+  document.getElementById("cabBalance").textContent=fmtT(r.user.tokens_balance);
+  document.getElementById("cabVerBadge").classList.toggle("hidden",!r.user.is_verified);
+  document.getElementById("cabUnverBadge").classList.toggle("hidden",r.user.is_verified);
+  cabTab("plans");
+}
+function cabTab(tab){
+  document.querySelectorAll(".cab-tab").forEach(b=>b.classList.toggle("tab-on",b.dataset.tab===tab));
+  const el=document.getElementById("cabContent");
+  if(tab==="plans")    renderPlansTab(el);
+  if(tab==="tokens")   renderBuyTokensTab(el);
+  if(tab==="history")  renderHistoryTab(el);
+  if(tab==="usage")    renderUsageTab(el);
+  if(tab==="referral") renderReferralTab(el);
+  if(tab==="settings") renderSettingsTab(el);
+}
+
+async function renderPlansTab(el){
+  const plans=await fetch(`${API}/plans`).then(r=>r.json());
+  const s=cabinetData?.subscription;
+  const icons={starter:"🌱",pro:"⚡",ultra:"🔥"};
+  const pct=s?Math.round((1-s.tokens_used/s.tokens_total)*100):0;
+  el.innerHTML=`<div class="space-y-4">
+    ${s?`<div class="p-4 bg-primary/10 rounded-xl border border-primary/20">
+      <p class="text-[10px] text-primary uppercase tracking-wider font-bold mb-1">Активная подписка · ${s.plan.toUpperCase()}</p>
+      <p class="text-on-surface font-semibold mb-2">${fmtT(s.tokens_left)} / ${fmtT(s.tokens_total)} токенов</p>
+      <div class="h-2 bg-surface3 rounded-full overflow-hidden"><div class="h-full sig rounded-full" style="width:${pct}%"></div></div>
+      <p class="text-xs text-on-surface-dim/60 mt-1">Истекает: ${s.expires_at?new Date(s.expires_at).toLocaleDateString("ru"):"—"}</p>
+    </div>`:
+    `<p class="text-sm text-on-surface-dim">Активной подписки нет. Баланс: <strong class="text-primary">${fmtT(cabinetData?.user?.tokens_balance||0)} токенов</strong></p>`}
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      ${plans.map(p=>`<div class="p-4 bg-surface2 rounded-xl border border-outline/20 hover:border-primary/40 transition flex flex-col gap-2">
+        <div class="text-2xl">${icons[p.id]||"✨"}</div>
+        <h3 class="font-bold text-on-surface font-headline">${p.name}</h3>
+        <p class="text-xs text-on-surface-dim">${fmtT(p.tokens)} токенов</p>
+        <p class="text-xl font-bold text-primary font-headline mt-auto">${p.price_rub}₽<span class="text-xs text-on-surface-dim font-normal">/мес</span></p>
+        <button onclick="buyPlan('${p.id}')" class="py-2 rounded-lg sig text-[#1e1a14] text-sm font-bold hover:opacity-88 transition">Купить</button>
+      </div>`).join("")}
+    </div>
+  </div>`;
+}
+async function buyPlan(plan){
+  if(!authToken){openM("loginModal");return;}
+  if(!currentUser?.is_verified){alert("Подтвердите email для оплаты");return;}
+  try{
+    const r=await apiPost("/payment/create",{plan,return_url:window.location.href+"?payment=success"});
+    if(r.confirmation_url){window.open(r.confirmation_url,"_blank");pollPayment(r.payment_id);}
+  }catch(e){alert("Ошибка оплаты: "+e.message);}
+}
+async function pollPayment(pid){
+  let n=0;const iv=setInterval(async()=>{
+    if(n++>60){clearInterval(iv);return;}
+    try{const r=await api(`/payment/confirm/${pid}`);
+      if(r.status==="activated"){clearInterval(iv);await fetchMe();await openCabinet();alert("✅ Подписка активирована!");}}catch{}
+  },5000);
+}
+
+function renderHistoryTab(el){
+  const txs=cabinetData?.transactions||[];
+  if(!txs.length){el.innerHTML='<p class="text-sm text-on-surface-dim">История пуста</p>';return;}
+  const icons={payment:"💳",usage:"🤖",bonus:"🎁",refund:"↩️"};
+  el.innerHTML=`<div class="space-y-2">${txs.map(t=>`
+    <div class="flex items-center justify-between p-3 bg-surface2 rounded-xl border border-outline/10">
+      <div class="flex items-center gap-3">
+        <span class="text-lg">${icons[t.type]||"•"}</span>
+        <div>
+          <p class="text-sm text-on-surface font-medium">${esc(t.description||t.type)}</p>
+          <p class="text-xs text-on-surface-dim/50">${t.created_at?new Date(t.created_at).toLocaleString("ru"):""}</p>
+        </div>
+      </div>
+      <div class="text-right">
+        <p class="text-sm font-bold ${t.tokens_delta>0?"text-green-400":"text-error"}">${t.tokens_delta>0?"+":""}${fmtT(t.tokens_delta)} T</p>
+        ${t.amount_rub?`<p class="text-xs text-on-surface-dim/60">${t.amount_rub}₽</p>`:""}
+      </div>
+    </div>`).join("")}</div>`;
+}
+function renderUsageTab(el){
+  const usage=cabinetData?.model_usage||{};
+  const entries=Object.entries(usage).sort((a,b)=>b[1]-a[1]);
+  if(!entries.length){el.innerHTML='<p class="text-sm text-on-surface-dim">Нет данных</p>';return;}
+  const max=entries[0][1];
+  el.innerHTML=`<div class="space-y-3"><p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold">Расход токенов по моделям</p>
+    ${entries.map(([m,t])=>`<div>
+      <div class="flex justify-between text-xs mb-1"><span class="text-on-surface-dim">${esc(m)}</span><span class="text-primary font-bold">${fmtT(t)} T</span></div>
+      <div class="h-1.5 bg-surface3 rounded-full overflow-hidden"><div class="h-full sig rounded-full" style="width:${Math.round(t/max*100)}%"></div></div>
+    </div>`).join("")}</div>`;
+}
+function renderReferralTab(el){
+  const code=cabinetData?.user?.referral_code||"—";
+  el.innerHTML=`<div class="space-y-4">
+    <div class="p-4 bg-surface2 rounded-xl border border-outline/20">
+      <p class="text-sm font-bold mb-1">Ваш реферальный код</p>
+      <p class="text-xs text-on-surface-dim/70 mb-3">За каждого приглашённого — <strong class="text-primary">10% от оплаты</strong></p>
+      <div class="flex items-center gap-3 bg-surface3 rounded-xl px-4 py-3 border border-outline/20">
+        <code class="flex-1 text-primary font-mono font-bold text-lg tracking-[0.2em]">${code}</code>
+        <button onclick="copyRef('${code}')" id="copyRefBtn" class="btn-g text-xs">Копировать</button>
+      </div>
+    </div>
+    <div class="p-4 bg-surface2 rounded-xl border border-outline/20 space-y-2">
+      ${[["1","Поделитесь реферальным кодом с другом"],["2","Друг регистрируется по вашему коду"],["3","При каждой оплате друга — вам начисляется 10% от суммы в токенах"]].map(([n,t])=>
+        `<div class="flex items-center gap-3 text-sm text-on-surface-dim"><span class="w-6 h-6 rounded-full sig flex items-center justify-center text-xs font-bold text-[#1e1a14] flex-shrink-0">${n}</span>${t}</div>`
+      ).join("")}
+    </div>
+  </div>`;
+}
+function copyRef(code){
+  navigator.clipboard.writeText(code);
+  const btn=document.getElementById("copyRefBtn");
+  btn.textContent="Скопировано!";btn.style.color="#6bff9e";
+  setTimeout(()=>{btn.textContent="Копировать";btn.style.color="";},2000);
+}
+function renderSettingsTab(el){
+  el.innerHTML=`<div class="space-y-6">
+    <div><p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Сменить пароль</p>
+      <div class="space-y-2">
+        <input id="s_oldp" type="password" placeholder="Текущий пароль" class="inp"/>
+        <input id="s_newp" type="password" placeholder="Новый пароль (мин. 8 символов)" class="inp"/>
+        <button onclick="doChangePass()" class="btn-g">Сменить пароль</button>
+        <div id="s_pmsg" style="display:none" class="text-xs mt-1"></div>
+      </div>
+    </div>
+    <div class="border-t border-outline/20 pt-5"><p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Изменить email</p>
+      <div id="s_email_form" class="space-y-2">
+        <p class="text-sm text-on-surface-dim">Текущий: <strong class="text-on-surface">${esc(cabinetData?.user?.email||"")}</strong></p>
+        <input id="s_newemail" type="email" placeholder="Новый email" class="inp"/>
+        <input id="s_epass"    type="password" placeholder="Текущий пароль" class="inp"/>
+        <button onclick="doChangeEmailReq()" class="btn-g">Отправить код</button>
+        <div id="s_emsg" style="display:none" class="text-xs mt-1"></div>
+      </div>
+      <div id="s_email_code" class="hidden space-y-3">
+        <p class="text-sm text-on-surface-dim">Код отправлен на новый адрес</p>
+        <div class="flex gap-2">
+          <input maxlength="1" class="em-code-cell code-cell" type="text" inputmode="numeric"/>
+          <input maxlength="1" class="em-code-cell code-cell" type="text" inputmode="numeric"/>
+          <input maxlength="1" class="em-code-cell code-cell" type="text" inputmode="numeric"/>
+          <input maxlength="1" class="em-code-cell code-cell" type="text" inputmode="numeric"/>
+          <input maxlength="1" class="em-code-cell code-cell" type="text" inputmode="numeric"/>
+          <input maxlength="1" class="em-code-cell code-cell" type="text" inputmode="numeric"/>
+        </div>
+        <button onclick="doChangeEmailConf()" class="btn-g">Подтвердить</button>
+        <div id="s_emsg2" style="display:none" class="text-xs"></div>
+      </div>
+    </div>
+    <div class="border-t border-outline/20 pt-5">
+      <p class="text-[10px] text-on-dim/60 uppercase tracking-wider font-bold mb-3">Промокод</p>
+      <div class="flex gap-2 mb-1">
+        <input id="s_promo" type="text" placeholder="Введите промокод" class="inp flex-1" style="font-size:13px;padding:8px 12px"/>
+        <button onclick="applyPromoCabinet()" class="btn-g px-3 text-sm rounded-lg">Применить</button>
+      </div>
+      <div id="s_promo_msg" class="text-xs hidden"></div>
+    </div>
+    <div class="border-t border-outline/20 pt-5">
+      <button onclick="doLogout()" class="px-5 py-2.5 rounded-xl bg-error/10 text-error hover:bg-error/20 transition font-medium text-sm">Выйти из аккаунта</button>
+    </div>
+  </div>`;
+  setupCodes(".em-code-cell");
+  window.applyPromoCabinet=async function(){
+    const code=document.getElementById("s_promo")?.value.trim();
+    const msg=document.getElementById("s_promo_msg");if(!code||!msg)return;
+    msg.classList.remove("hidden");msg.style.color="#a89880";msg.textContent="Проверяем...";
+    try{const r=await apiPost("/promo/apply",{code});
+      msg.textContent="✅ "+r.message;msg.style.color="#6bff9e";
+      await fetchMe();updateAuthUI();}
+    catch(e){msg.textContent="❌ "+(e.message||"Ошибка");msg.style.color="#ff6b6b";}
+  };
+}
+async function doChangePass(){
+  const old=document.getElementById("s_oldp").value;
+  const nw=document.getElementById("s_newp").value;
+  const msg=document.getElementById("s_pmsg");msg.style.display="none";
+  try{await apiPost("/auth/change-password",{old_password:old,new_password:nw});
+    msg.textContent="✅ Пароль изменён";msg.style.color="#6bff9e";msg.style.display="block";
+    document.getElementById("s_oldp").value="";document.getElementById("s_newp").value="";
+  }catch(e){msg.textContent="❌ "+(e.message||"Ошибка");msg.style.color="#ff6b6b";msg.style.display="block";}
+}
+async function doChangeEmailReq(){
+  const ne=document.getElementById("s_newemail").value.trim();
+  const p=document.getElementById("s_epass").value;
+  const msg=document.getElementById("s_emsg");msg.style.display="none";
+  try{await apiPost("/auth/change-email/request",{new_email:ne,password:p});
+    document.getElementById("s_email_form").classList.add("hidden");
+    document.getElementById("s_email_code").classList.remove("hidden");
+    setupCodes(".em-code-cell");
+  }catch(e){msg.textContent="❌ "+(e.message||"Ошибка");msg.style.color="#ff6b6b";msg.style.display="block";}
+}
+async function doChangeEmailConf(){
+  const code=getCode(".em-code-cell");
+  const msg=document.getElementById("s_emsg2");msg.style.display="none";
+  try{const r=await apiPost("/auth/change-email/confirm",{code});
+    authToken=r.token;localStorage.setItem("obs_token",authToken);currentUser=r.user;
+    updateAuthUI();await openCabinet();
+  }catch(e){msg.textContent="❌ "+(e.message||"Неверный код");msg.style.color="#ff6b6b";msg.style.display="block";}
+}
+
+// ── file ───────────────────────────────────────────────────────────────────
+async function handleFileSelect(e){
+  const file=e.target.files[0];if(!file)return;
+  clearAttachment();
+  const isImg=file.type.startsWith("image/");
+  const prev=buildPrev(file,isImg,null,true);showStrip(prev);
+  const fd=new FormData();fd.append("file",file);
+  try{
+    const r=await fetch(`${API}/upload`,{method:"POST",body:fd});
+    if(!r.ok)throw new Error();
+    const d=await r.json();finishPrev(prev,d.url,isImg);
+    pendingAttachment={url:d.url,name:file.name,isImg};
+    document.getElementById("messageInput").focus();updateSendBtn();
+  }catch{clearAttachment();addMsg("Ошибка загрузки файла","ai");}
+  e.target.value="";
+}
+function buildPrev(file,isImg,url,loading){
+  const el=document.createElement("div");
+  el.className="relative flex items-center gap-2 bg-surface2 rounded-xl px-3 py-2 border border-outline/25 max-w-[200px]";
+  const ext=file.name.split(".").pop().toUpperCase();
+  el.innerHTML=`<div class="w-10 h-10 rounded-lg overflow-hidden bg-surface3 flex items-center justify-center flex-shrink-0">
+    ${loading?`<div class="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>`
+             :isImg?`<img src="${API}${url}" class="w-full h-full object-cover"/>`:`<span class="text-[10px] font-bold text-primary">${ext}</span>`}
+  </div>
+  <div class="flex-1 min-w-0"><p class="text-xs text-on-surface truncate font-medium">${esc(file.name)}</p><p class="text-[10px] text-on-surface-dim/50">${isImg?"Изображение":"Файл"}</p></div>
+  <button class="rm-attach absolute -top-1.5 -right-1.5 w-5 h-5 bg-surface3 rounded-full border border-outline/30 flex items-center justify-center hover:bg-error/20 transition">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:12px;height:12px" class="text-on-surface-dim"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+  </button>`;
+  el.querySelector(".rm-attach").onclick=clearAttachment;return el;
+}
+function finishPrev(el,url,isImg){
+  const t=el.querySelector(".w-10.h-10");if(!t)return;
+  if(isImg)t.innerHTML=`<img src="${API}${url}" class="w-full h-full object-cover"/>`;
+  else{const ext=url.split(".").pop().toUpperCase();t.innerHTML=`<span class="text-[10px] font-bold text-primary">${ext}</span>`;}
+}
+function showStrip(el){document.getElementById("attachmentPreview").classList.remove("hidden");document.getElementById("attachmentList").innerHTML="";document.getElementById("attachmentList").appendChild(el);}
+function clearAttachment(){pendingAttachment=null;document.getElementById("attachmentPreview").classList.add("hidden");document.getElementById("attachmentList").innerHTML="";updateSendBtn();}
+
+// ── send ───────────────────────────────────────────────────────────────────
+async function sendMessage(){
+  const ta=document.getElementById("messageInput");
+  const text=ta.value.trim();
+  if(!text&&!pendingAttachment)return;
+  const btn=document.getElementById("sendBtn");
+  btn.disabled=true;btn.classList.add("opacity-50","cursor-not-allowed");
+  const att=pendingAttachment;clearAttachment();
+  try{
+    if(!currentChat)await createChat();
+    showChat();
+    addUserMsg(text,att?.url||null,att?.isImg||false);
+    addTyping();ta.value="";ta.style.height="auto";updateSendBtn();
+    const body={chat_id:currentChat,message:text,model:currentModel};
+    if(att)body.file_url=att.url;
+    if(VIDEO_MODELS.includes(currentModel))body.extra=collectVideoParams();
+    const hdrs={"Content-Type":"application/json"};
+    if(authToken)hdrs["Authorization"]="Bearer "+authToken;
+    const res=await fetch(`${API}/message`,{method:"POST",headers:hdrs,body:JSON.stringify(body)});
+    const data=await res.json();
+    removeTyping();
+    if(data.error)addMsg(data.error,"ai","error");
+    else{
+      const r=data.response;
+      if(r.type==="video_task"||r.type==="video_base64")addVideoMsg(r);
+      else addMsg(r.content||"Ошибка","ai");
+      if(authToken)fetchMe();
+      await loadChats();
+    }
+  }catch(e){removeTyping();addMsg("Ошибка сети или сервера","ai");}
+  btn.disabled=false;btn.classList.remove("opacity-50","cursor-not-allowed");
+}
+
+async function createChat(){
+  const r=await apiPost("/chat/create",{model:currentModel});currentChat=r.chat_id;
+}
+
+async function loadChats(){
+  const hdrs={};if(authToken)hdrs["Authorization"]="Bearer "+authToken;
+  const r=await fetch(`${API}/chats/${currentModel}`,{headers:hdrs});
+  if(!r.ok)return;
+  const chats=await r.json();
+  const list=document.getElementById("chatList");list.innerHTML="";
+  if(!Array.isArray(chats))return;
+  [...chats].reverse().forEach(chat=>{
+    const el=document.createElement("div");
+    el.className="group flex items-center justify-between px-3 py-2 rounded-lg text-on-surface-dim/70 hover:text-on-surface hover:bg-surface2 transition cursor-pointer text-sm";
+    el.innerHTML=`<span class="truncate">${esc(chat.title||"Новый чат")}</span>
+      <div class="relative">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:14px;height:14px" class="opacity-0 group-hover:opacity-100 cursor-pointer menu-btn"><path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+        <div class="hidden absolute right-0 mt-1 w-40 bg-surface2 rounded-lg shadow-xl border border-outline/30 z-50 menu-dropdown">
+          <button class="w-full text-left px-4 py-2 text-sm hover:bg-surface3 rename-action">Переименовать</button>
+          <button class="w-full text-left px-4 py-2 text-sm text-error hover:bg-surface3 delete-action">Удалить</button>
+        </div>
+      </div>`;
+    const mb=el.querySelector(".menu-btn"),dr=el.querySelector(".menu-dropdown");
+    mb.onclick=e=>{e.stopPropagation();dr.classList.toggle("hidden");};
+    dr.onclick=e=>e.stopPropagation();
+    el.querySelector(".rename-action").onclick=async e=>{
+      e.stopPropagation();dr.classList.add("hidden");
+      const m=document.getElementById("renameModal"),inp=document.getElementById("renameInput");
+      m.classList.remove("hidden");inp.value=chat.title||"";inp.focus();
+      document.getElementById("confirmRename").onclick=async()=>{
+        const t=inp.value.trim();if(!t)return;
+        await apiPost("/chat/rename",{chat_id:chat.id,title:t});m.classList.add("hidden");loadChats();
+      };
+    };
+    el.querySelector(".delete-action").onclick=async e=>{
+      e.stopPropagation();dr.classList.add("hidden");
+      if(!confirm("Удалить чат?"))return;
+      await fetch(`${API}/chat/${chat.id}`,{method:"DELETE"});
+      if(currentChat===chat.id){currentChat=null;renderWelcome();}
+      loadChats();
+    };
+    el.onclick=async()=>{
+      currentChat=chat.id;currentChatInit=true;
+      await loadMessages(chat.id);showChat();
+      document.querySelectorAll("#chatList>div").forEach(x=>x.classList.remove("bg-surface2","text-on-surface"));
+      el.classList.add("bg-surface2","text-on-surface");
+    };
+    list.appendChild(el);
+  });
+}
+
+async function loadMessages(chatId){
+  const hdrs={};if(authToken)hdrs["Authorization"]="Bearer "+authToken;
+  const r=await fetch(`${API}/chat/${chatId}`,{headers:hdrs});
+  const msgs=await r.json();
+  document.getElementById("chatContainer").innerHTML="";
+  msgs.forEach(m=>addMsg(m.content,m.role==="assistant"?"ai":"user"));
+}
+
+// ── render ─────────────────────────────────────────────────────────────────
+function renderWelcome(){
+  showWelcome();
+  const m=MODELS.find(x=>x.id===currentModel);
+  document.getElementById("chatContainer").innerHTML=`
+    <div class="welcome-screen flex flex-col items-center justify-center min-h-[70vh] text-center px-6">
+      <div class="w-20 h-20 rounded-3xl sig flex items-center justify-center mb-6 shadow-[0_0_60px_rgba(255,140,66,0.25)]">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:38px;height:38px;color:#1e1a14"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
+      </div>
+      <h1 class="text-4xl font-extrabold font-headline mb-2 tracking-tight">AI Студия Че</h1>
+      <p class="sig-text text-lg font-bold font-headline mb-5">${m?.label||currentModel}</p>
+      <p class="text-on-surface-dim/70 max-w-sm text-sm leading-relaxed mb-8">Задайте вопрос, загрузите файл или выберите готовое решение</p>
+      <div class="flex flex-wrap gap-3 justify-center">
+        <button onclick="startChatOrLogin()" class="px-5 py-2.5 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>Начать диалог
+        </button>
+        <button onclick="openSolutions('prompts')" class="px-5 py-2.5 rounded-xl bg-surface2 border border-outline/25 text-sm hover:border-primary/40 hover:text-primary transition flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>Готовые решения
+        </button>
+      </div>
+    </div>`;
+}
+
+function promptExample(text){
+  document.body.classList.remove("welcome"); // показываем инпут
+  const ta=document.getElementById("messageInput");
+  ta.value=text;ta.focus();updateSendBtn();
+  // Не отправляем автоматически — пользователь сам нажмёт
+}
+
+function addUserMsg(text,fileUrl,isImg){
+  const c=document.getElementById("chatContainer");
+  const w=document.createElement("div");
+  w.className="flex flex-col items-end space-y-1.5 max-w-[85%] self-end";
+  w.innerHTML=`<div class="bg-surface2 px-5 py-3.5 rounded-2xl rounded-br-sm shadow-lg border border-outline/15">${buildUserHTML(text,fileUrl,isImg)}</div>`;
+  c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
+}
+
+function addMsg(content,role,type){
+  let text=content,fileUrl=null,isImg=false;
+  try{const p=JSON.parse(content);if(p&&"file_url" in p){text=p.text||"";fileUrl=p.file_url;isImg=/\.(png|jpg|jpeg|gif|webp)$/i.test(fileUrl);}}catch{}
+  const c=document.getElementById("chatContainer");
+  const w=document.createElement("div");
+  if(role==="user"){
+    w.className="flex flex-col items-end space-y-1.5 max-w-[85%] self-end";
+    w.innerHTML=`<div class="bg-surface2 px-5 py-3.5 rounded-2xl rounded-br-sm shadow-lg border border-outline/15">${buildUserHTML(text,fileUrl,isImg)}</div>`;
+  }else{
+    w.className="flex flex-col items-start space-y-1.5 max-w-[90%] self-start";
+    const ebdr=type==="error"?"border border-error/30":"";
+    w.innerHTML=`<div class="flex items-center gap-2 mb-1">
+      <div class="w-5 h-5 rounded-md sig flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:12px;height:12px;color:#1e1a14"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg></div>
+      <span class="text-[10px] uppercase tracking-widest text-primary font-bold">AI Студия Че</span>
+    </div>
+    <div class="glass ghost px-5 py-4 rounded-2xl rounded-bl-sm shadow-xl ${ebdr}">
+      <p class="text-on-surface text-sm leading-relaxed whitespace-pre-wrap">${esc(text)}</p>
+    </div>`;
+  }
+  c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
+}
+
+function addVideoMsg(r){
+  const c=document.getElementById("chatContainer");
+  const w=document.createElement("div");
+  w.className="flex flex-col items-start space-y-1.5 max-w-[90%] self-start";
+  const inner=r.type==="video_task"
+    ?`<div class="flex items-center gap-3 p-4 bg-surface2 rounded-xl border border-outline/20">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px" class="text-primary animate-spin"><path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"/></svg>
+        <div><p class="text-sm font-medium">Видео генерируется</p><p class="text-xs text-on-surface-dim/60 font-mono mt-0.5">${esc(r.content)}</p></div></div>`
+    :`<video controls class="rounded-xl max-w-xs border border-outline/20"><source src="data:video/mp4;base64,${r.content}" type="video/mp4"/></video>`;
+  w.innerHTML=`<div class="flex items-center gap-2 mb-1">
+    <div class="w-5 h-5 rounded-md sig flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:12px;height:12px;color:#1e1a14"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg></div>
+    <span class="text-[10px] uppercase tracking-widest text-primary font-bold">AI Студия Че</span>
+  </div>
+  <div class="glass ghost p-4 rounded-2xl rounded-bl-sm shadow-xl">${inner}</div>`;
+  c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
+}
+
+function addTyping(){
+  const c=document.getElementById("chatContainer");
+  const w=document.createElement("div");w.id="typing";
+  w.className="flex flex-col items-start space-y-1.5 max-w-[90%] self-start";
+  w.innerHTML=`<div class="glass ghost px-5 py-4 rounded-2xl rounded-bl-sm shadow"><div class="flex gap-1.5">
+    <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce"></div>
+    <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay:150ms"></div>
+    <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay:300ms"></div>
+  </div></div>`;
+  c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
+}
+function removeTyping(){const e=document.getElementById("typing");if(e)e.remove();}
+
+function buildUserHTML(text,fileUrl,isImg){
+  let h="";
+  if(fileUrl){
+    if(isImg)h=`<div class="mb-2 rounded-lg overflow-hidden max-w-[260px] border border-outline/15"><img src="${API}${fileUrl}" class="w-full object-cover"/></div>`;
+    else{const n=fileUrl.split("/").pop().replace(/^[^_]+_/,""),ext=n.split(".").pop().toUpperCase();
+      h=`<div class="mb-2 flex items-center gap-2 bg-surface3 rounded-lg px-3 py-2 w-fit border border-outline/15">
+        <div class="w-8 h-8 rounded-md bg-primary/15 flex items-center justify-center"><span class="text-[10px] font-bold text-primary">${ext}</span></div>
+        <span class="text-xs text-on-surface-dim truncate max-w-[140px]">${esc(n)}</span></div>`;}
+  }
+  if(text)h+=`<p class="text-on-surface text-sm leading-relaxed whitespace-pre-wrap">${esc(text)}</p>`;
+  return h;
+}
+
+// ── solutions ──────────────────────────────────────────────────────────────
+async function openSolutions(tab){openM("solutionsModal");switchSolTab(tab||"prompts");}
+
+async function switchSolTab(tab){
+  currentSolTab=tab;
+  document.querySelectorAll(".sol-stab").forEach(b=>b.classList.toggle("tab-on",b.id==="stab_"+tab));
+  const grid=document.getElementById("solsGrid");
+  grid.innerHTML=`<div class="col-span-3 text-center text-on-surface-dim/40 py-12 text-sm">Загрузка...</div>`;
+  try{
+    const sols=await fetch(`${API}/solutions?category=${tab}`).then(r=>r.json());
+    if(!sols.length){grid.innerHTML=`<div class="col-span-3 text-center text-on-surface-dim/40 py-12 text-sm">Решений пока нет</div>`;return;}
+    grid.innerHTML=sols.map(s=>`
+      <div class="bg-surface2 rounded-xl border border-outline/20 hover:border-primary/35 transition overflow-hidden flex flex-col cursor-pointer group" onclick="launchSolution(${s.id},'${esc(s.title)}',${s.steps_count})">
+        ${s.image_url?`<img src="${esc(s.image_url)}" class="w-full h-32 object-cover group-hover:opacity-88 transition"/>`:`<div class="w-full h-32 bg-surface3 flex items-center justify-center text-4xl">✨</div>`}
+        <div class="p-3 flex flex-col gap-1.5 flex-1">
+          <p class="font-bold text-sm font-headline">${esc(s.title)}</p>
+          ${s.description?`<p class="text-xs text-on-surface-dim/70 line-clamp-2">${esc(s.description)}</p>`:""}
+          <div class="mt-auto pt-2 flex items-center justify-between">
+            <span class="text-xs text-on-surface-dim/50">${s.steps_count} шагов</span>
+            <span class="text-sm font-bold ${s.price_tokens?"text-primary":"text-green-400"}">${s.price_tokens?fmtT(s.price_tokens)+" T":"Бесплатно"}</span>
+          </div>
+        </div>
+      </div>`).join("");
+  }catch(e){grid.innerHTML=`<div class="col-span-3 text-center text-error py-12 text-sm">Ошибка: ${esc(e.message)}</div>`;}
+}
+
+async function launchSolution(id,title,stepsCount){
+  if(!currentUser&&stepsCount>0){closeM("solutionsModal");openM("loginModal");return;}
+  closeM("solutionsModal");
+  document.getElementById("runTitle").textContent=title;
+  document.getElementById("runErr").classList.add("hidden");
+  document.getElementById("runResult").classList.add("hidden");
+  document.getElementById("runChatBtn").classList.add("hidden");
+  document.getElementById("runInput").value="";
+  openM("runModal");
+  try{
+    const hdrs={"Content-Type":"application/json"};
+    if(authToken)hdrs["Authorization"]="Bearer "+authToken;
+    const r=await fetch(`${API}/solutions/${id}/run`,{method:"POST",headers:hdrs});
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.detail||"Ошибка запуска");
+    activeRun={run_id:data.run_id,chat_id:data.chat_id,solution_id:id,steps_count:stepsCount,current_step:0};
+    updateRunUI(data);
+  }catch(e){document.getElementById("runErr").textContent=e.message;document.getElementById("runErr").classList.remove("hidden");}
+}
+
+async function continueRun(){
+  if(!activeRun)return;
+  const input=document.getElementById("runInput").value.trim();
+  document.getElementById("runErr").classList.add("hidden");
+  const btn=document.getElementById("runContinueBtn");
+  btn.disabled=true;document.getElementById("runBtnLabel").textContent="Выполняется...";
+  try{
+    const hdrs={"Content-Type":"application/json"};if(authToken)hdrs["Authorization"]="Bearer "+authToken;
+    const r=await fetch(`${API}/solutions/runs/${activeRun.run_id}/continue`,{method:"POST",headers:hdrs,body:JSON.stringify({input})});
+    const data=await r.json();if(!r.ok)throw new Error(data.detail||"Ошибка");
+    activeRun.chat_id=data.chat_id||activeRun.chat_id;activeRun.current_step++;
+    document.getElementById("runInput").value="";updateRunUI(data);
+  }catch(e){document.getElementById("runErr").textContent=e.message;document.getElementById("runErr").classList.remove("hidden");}
+  btn.disabled=false;document.getElementById("runBtnLabel").textContent="Продолжить";
+}
+
+function updateRunUI(data){
+  const prog=document.getElementById("runProgress");
+  const total=activeRun?.steps_count||1,cur=activeRun?.current_step||0;
+  prog.innerHTML=Array.from({length:total},(_,i)=>
+    `<div class="h-1.5 flex-1 rounded-full ${i<cur?"sig":i===cur?"bg-primary/30":"bg-surface3"}"></div>`).join("");
+  const hintEl=document.getElementById("runHint");
+  const inputArea=document.getElementById("runInputArea");
+  const resultEl=document.getElementById("runResult");
+  const resultTxt=document.getElementById("runResultText");
+  const stepLbl=document.getElementById("runStepLabel");
+  const chatBtn=document.getElementById("runChatBtn");
+  const contBtn=document.getElementById("runContinueBtn");
+  if(data.status==="done"){
+    stepLbl.textContent="✅ Завершено";hintEl.textContent="Решение выполнено! Результат в чате.";
+    inputArea.classList.add("hidden");contBtn.classList.add("hidden");chatBtn.classList.remove("hidden");
+    if(data.result?.content){resultTxt.textContent=data.result.content;resultEl.classList.remove("hidden");}
+    if(authToken)fetchMe();
+  }else if(data.status==="waiting_input"){
+    const step=data.step;
+    stepLbl.textContent=`Шаг ${step?.step_number||"?"}${step?.title?": "+step.title:""}`;
+    hintEl.textContent=step?.user_hint||"Введите данные:";
+    inputArea.classList.remove("hidden");contBtn.classList.remove("hidden");chatBtn.classList.add("hidden");
+    document.getElementById("runInput").focus();
+    if(data.current_result?.content){resultTxt.textContent=data.current_result.content;resultEl.classList.remove("hidden");}
+    document.getElementById("runBtnLabel").textContent="Продолжить";
+  }
+}
+
+function openRunChat(){if(!activeRun?.chat_id)return;closeM("runModal");currentChat=activeRun.chat_id;loadMessages(activeRun.chat_id);showChat();}
+function closeRun(){closeM("runModal");activeRun=null;}
+
+// ── utils ──────────────────────────────────────────────────────────────────
+function updateSendBtn(){
+  const ta=document.getElementById("messageInput");
+  const btn=document.getElementById("sendBtn");
+  const a=ta.value.trim().length>0||!!pendingAttachment;
+  btn.disabled=!a;btn.classList.toggle("opacity-50",!a);btn.classList.toggle("cursor-not-allowed",!a);
+}
+function fmtT(n){if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1000)return(n/1000).toFixed(0)+"к";return String(n||0);}
+function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function openM(id){document.getElementById(id).classList.remove("hidden");}
+function closeM(id){document.getElementById(id).classList.add("hidden");}
+function switchM(a,b){closeM(a);openM(b);}
+async function api(path){
+  const h={};if(authToken)h["Authorization"]="Bearer "+authToken;
+  const r=await fetch(API+path,{headers:h});
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
+  return r.json();
+}
+async function apiPost(path,body){
+  const h={"Content-Type":"application/json"};if(authToken)h["Authorization"]="Bearer "+authToken;
+  const r=await fetch(API+path,{method:"POST",headers:h,body:JSON.stringify(body)});
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
+  return r.json();
+}
+
+
+// ── FAQ ────────────────────────────────────────────────────────────────────
+async function openFaq(){
+  openM('faqModal');
+  const el=document.getElementById('faqContent');
+  el.innerHTML='<p class="text-on-surface-dim text-sm">Загрузка...</p>';
+  try{
+    const [faqs, settings] = await Promise.all([
+      fetch(`${API}/faq`).then(r=>r.json()),
+      fetch(`${API}/pricing/settings`).then(r=>r.json())
+    ]);
+    const supportUrl = settings.support_url || '';
+    el.innerHTML=`
+      <div class="space-y-3 mb-6">
+        ${faqs.map(f=>`
+          <details class="bg-surface2 rounded-xl border border-outline/20 group">
+            <summary class="px-4 py-3 cursor-pointer text-sm font-medium flex items-center justify-between list-none hover:text-primary transition">
+              ${esc(f.question)}
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px" class="text-on-surface-dim group-open:rotate-180 transition-transform"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41z"/></svg>
+            </summary>
+            <div class="px-4 pb-4 text-sm text-on-surface-dim leading-relaxed">${esc(f.answer)}</div>
+          </details>`).join('')}
+      </div>
+      ${supportUrl ? `<div class="pt-4 border-t border-outline/20 text-center">
+        <a href="${esc(supportUrl)}" target="_blank" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px"><path d="M21 12.22C21 6.73 16.74 3 12 3c-4.69 0-9 3.65-9 9.28-.6.34-1 .98-1 1.72v2c0 1.1.9 2 2 2h1v-6.1c0-3.87 3.13-7 7-7s7 3.13 7 7V19h-8v2h8c1.1 0 2-.9 2-2v-1.22c.59-.31 1-.92 1-1.64v-2.3c0-.7-.41-1.31-1-1.62z"/><circle cx="9" cy="13" r="1"/><circle cx="15" cy="13" r="1"/><path d="M18 11.03C17.52 8.18 15.04 6 12.05 6c-3.03 0-6.29 2.51-6.03 6.45 2.47-1.01 4.33-3.21 4.86-5.89 1.31 2.63 4 4.44 7.12 4.47z"/></svg>Написать в поддержку
+        </a>
+      </div>` : ''}`;
+  }catch(e){el.innerHTML='<p class="text-error text-sm">Ошибка загрузки</p>';}
+}
+
+// ── Cabinet: buy tokens tab ────────────────────────────────────────────────
+async function renderBuyTokensTab(el){
+  try{
+    const pkgs = await fetch(`${API}/pricing/packages`).then(r=>r.json());
+    el.innerHTML=`<div class="space-y-4">
+      <p class="text-sm text-on-surface-dim">Докупить токены CH — действуют бессрочно</p>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        ${pkgs.map(p=>`<div class="p-4 bg-surface2 rounded-xl border border-outline/20 hover:border-primary/40 transition flex flex-col gap-2">
+          <h3 class="font-bold font-headline">${esc(p.name)}</h3>
+          <p class="text-xs text-on-surface-dim">${fmtT(p.tokens)} CH</p>
+          <p class="text-xl font-bold text-primary font-headline mt-auto">${p.price_rub}₽</p>
+          <button onclick="buyTokenPackage(${p.id})" class="py-2 rounded-lg sig text-[#1e1a14] text-sm font-bold hover:opacity-88 transition">Купить</button>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }catch(e){el.innerHTML='<p class="text-error text-sm">Ошибка загрузки пакетов</p>';}
+}
+
+async function buyTokenPackage(pkgId){
+  if(!authToken){openM('loginModal');return;}
+  try{
+    const r=await apiPost('/payment/buy-tokens',{package_id:pkgId,return_url:window.location.href+'?payment=success'});
+    if(r.confirmation_url){window.open(r.confirmation_url,'_blank');pollTokenPayment(r.payment_id);}
+  }catch(e){alert('Ошибка оплаты: '+e.message);}
+}
+
+async function pollTokenPayment(pid){
+  let n=0;const iv=setInterval(async()=>{
+    if(n++>60){clearInterval(iv);return;}
+    try{const r=await api(`/payment/confirm-tokens/${pid}`);
+      if(r.status==='credited'){clearInterval(iv);await fetchMe();await openCabinet();alert(`✅ Начислено ${fmtT(r.tokens_added)} CH!`);}}catch{}
+  },5000);
+}
+
+// ── Solution prompt editor ─────────────────────────────────────────────────
+let pendingSolution = null;
+
+async function launchSolution(id,title,stepsCount){
+  if(!currentUser&&stepsCount>0){closeM('solutionsModal');openM('loginModal');return;}
+  
+  // Load solution to get first step prompt
+  try{
+    const sol = await fetch(`${API}/solutions/${id}`).then(r=>r.json());
+    const firstStep = sol.steps?.[0];
+    
+    // If solution has editable prompt (simple type) — show editor
+    if(firstStep && firstStep.user_prompt && !firstStep.wait_for_user && sol.steps.length === 1){
+      pendingSolution = {sol, title};
+      document.getElementById('promptEditorTitle').textContent = title;
+      document.getElementById('promptEditorText').value = firstStep.user_prompt;
+      document.getElementById('promptEditorHint').textContent = firstStep.user_hint || 'Отредактируйте промпт под свои нужды';
+      document.getElementById('promptEditorCost').textContent = sol.price_tokens ? `${fmtT(sol.price_tokens)} CH` : 'Бесплатно';
+      closeM('solutionsModal');
+      openM('promptEditorModal');
+      return;
+    }
+  }catch(e){}
+  
+  // Otherwise launch chain as before
+  closeM('solutionsModal');
+  _launchSolutionChain(id, title, stepsCount);
+}
+
+async function sendEditedPrompt(){
+  if(!pendingSolution) return;
+  const prompt = document.getElementById('promptEditorText').value.trim();
+  if(!prompt) return;
+  
+  const sol = pendingSolution.sol;
+  closeM('promptEditorModal');
+  pendingSolution = null;
+  
+  // Set model and send to chat
+  if(sol.steps?.[0]?.model){
+    setModel(sol.steps[0].model);
+  }
+  if(!currentChat) await createChat();
+  showChat();
+  
+  const ta = document.getElementById('messageInput');
+  ta.value = prompt;
+  await sendMessage();
+}
+
+async function _launchSolutionChain(id,title,stepsCount){
+  document.getElementById('runTitle').textContent=title;
+  document.getElementById('runErr').classList.add('hidden');
+  document.getElementById('runResult').classList.add('hidden');
+  document.getElementById('runChatBtn').classList.add('hidden');
+  document.getElementById('runInput').value='';
+  openM('runModal');
+  try{
+    const hdrs={'Content-Type':'application/json'};
+    if(authToken)hdrs['Authorization']='Bearer '+authToken;
+    const r=await fetch(`${API}/solutions/${id}/run`,{method:'POST',headers:hdrs});
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.detail||'Ошибка запуска');
+    activeRun={run_id:data.run_id,chat_id:data.chat_id,solution_id:id,steps_count:stepsCount,current_step:0};
+    updateRunUI(data);
+  }catch(e){document.getElementById('runErr').textContent=e.message;document.getElementById('runErr').classList.remove('hidden');}
+}
+
+
+</script>
+
+<!-- FAQ Modal -->
+<div id="faqModal" class="fixed inset-0 overlay flex items-start justify-center z-50 hidden overflow-y-auto py-6">
+  <div class="bg-surface rounded-2xl w-full max-w-xl mx-4 border border-outline/25 shadow-2xl overflow-hidden">
+    <div class="sig px-5 py-4 flex items-center justify-between">
+      <h2 class="text-lg font-bold font-headline text-[#1e1a14]">Частые вопросы и поддержка</h2>
+      <button onclick="closeM('faqModal')" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div id="faqContent" class="p-5">
+      <p class="text-on-surface-dim text-sm">Загрузка...</p>
+    </div>
+  </div>
+</div>
+
+<!-- Prompt Editor Modal -->
+<div id="promptEditorModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+  <div class="bg-surface rounded-2xl w-full max-w-lg mx-4 border border-outline/25 shadow-2xl overflow-hidden">
+    <div class="sig px-5 py-4 flex items-center justify-between">
+      <div>
+        <h3 class="font-bold font-headline text-[#1e1a14] text-sm" id="promptEditorTitle">Редактировать запрос</h3>
+        <p class="text-[10px] text-[#1e1a14]/70 mt-0.5" id="promptEditorHint">Отредактируйте промпт под свои нужды</p>
+      </div>
+      <button onclick="closeM('promptEditorModal')" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div class="p-5 space-y-4">
+      <p class="text-xs text-on-surface-dim/70">Подправьте текст запроса — замените названия, данные и детали под вашу ситуацию:</p>
+      <textarea id="promptEditorText" rows="6" class="inp resize-none text-sm leading-relaxed" placeholder="Промпт загружается..."></textarea>
+      <div class="flex items-center justify-between">
+        <span class="text-xs text-on-surface-dim">Стоимость: <strong class="text-primary" id="promptEditorCost">—</strong></span>
+        <div class="flex gap-3">
+          <button onclick="closeM('promptEditorModal')" class="btn-g px-4 py-2 rounded-lg text-sm">Отмена</button>
+          <button onclick="sendEditedPrompt()" class="px-4 py-2 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>Отправить
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
