@@ -1557,3 +1557,25 @@ def serve_workflows(): return FileResponse(os.path.join(_BASE, "workflows.html")
 
 @app.get("/", include_in_schema=False)
 def serve_root(): return FileResponse(os.path.join(_BASE, "index.html"))
+
+# ── Deploy endpoint ─────────────────────────────────────────────────────
+import subprocess as _subprocess
+
+DEPLOY_TOKEN = os.getenv("DEPLOY_TOKEN", "dev_token_123")
+
+@app.post("/internal/deploy")
+async def deploy_endpoint(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "No token")
+    if authorization[7:] != DEPLOY_TOKEN:
+        raise HTTPException(403, "Invalid token")
+    try:
+        r = _subprocess.run(
+            ["/root/AI-CHE/scripts/deploy.sh"],
+            capture_output=True, text=True, timeout=120
+        )
+        return {"status": "ok", "output": r.stdout[:1000]}
+    except _subprocess.TimeoutExpired:
+        return {"status": "timeout"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
