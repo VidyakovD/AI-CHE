@@ -96,9 +96,11 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{
 .sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .glass{background:rgba(39,32,24,0.75);backdrop-filter:blur(20px)}
 .ghost{border-top:1px solid rgba(74,63,47,0.3);border-left:1px solid rgba(74,63,47,0.3)}
-#messageInput,#chatScroll{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.3) transparent}
-#messageInput::-webkit-scrollbar,#chatScroll::-webkit-scrollbar{width:5px}
-#messageInput::-webkit-scrollbar-thumb,#chatScroll::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.3);border-radius:999px}
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
+*::-webkit-scrollbar{width:4px;height:4px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+*::-webkit-scrollbar-thumb:hover{background:rgba(255,140,66,0.5)}
 .tab-on{color:#ff8c42 !important;background:rgba(255,140,66,0.08) !important;border-color:rgba(255,140,66,0.3) !important}
 .tab-btn{display:inline-block}
 #modelTabs{scrollbar-width:none}
@@ -187,8 +189,8 @@ body.welcome #inputArea{display:none!important}
 <!-- ══ MAIN ══════════════════════════════════════════════════════════════════ -->
 <main class="lg:ml-[272px] h-screen flex flex-col overflow-hidden">
   <!-- Topnav -->
-  <nav class="fixed top-0 right-0 left-0 lg:left-[272px] z-30 flex items-center justify-between px-5 bg-surface/85 backdrop-blur-xl h-14 border-b border-outline/15 relative">
-    <div class="flex items-center gap-3 z-10">
+  <nav class="fixed top-0 right-0 left-0 lg:left-[272px] z-30 flex items-center justify-between px-5 bg-surface/85 backdrop-blur-xl h-14 border-b border-outline/15">
+    <div class="flex items-center gap-3">
       <div class="relative" id="modelMenuWrapper">
         <button id="modelMenuBtn" class="flex items-center gap-2 bg-surface2 px-3 py-1.5 rounded-full text-on-surface hover:bg-surface3 transition active:scale-95 border border-outline/20">
           <span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
@@ -199,9 +201,9 @@ body.welcome #inputArea{display:none!important}
           <div class="p-2 space-y-0.5" id="modelDropdownList"></div>
         </div>
       </div>
+      <div class="flex items-center gap-4 overflow-x-auto" id="modelTabs"></div>
     </div>
-    <div class="absolute left-1/2 -translate-x-1/2 flex items-center gap-4 overflow-x-auto max-w-[50vw]" id="modelTabs" style="scrollbar-width:none"></div>
-    <div class="flex items-center gap-2 z-10">
+    <div class="flex items-center gap-2">
       <button id="navCabinetBtn" onclick="openCabinet()" class="hidden items-center gap-2 px-3 py-1.5 rounded-full bg-surface2 hover:bg-surface3 transition text-sm border border-outline/20">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
         <span id="navBalance" class="text-primary font-bold text-xs">0 T</span>
@@ -688,7 +690,7 @@ function buildModels(){
     // Показываем таб только если у модели задан tab
     if(m.tab){
       const t=document.createElement("button");
-      t.dataset.mTab=m.id;t.dataset.mtg=m.group;
+      t.dataset.mTab=m.id;t.dataset.mtg=m.id;
       t.className="tab-btn flex-shrink-0 font-headline text-[11px] tracking-widest cursor-pointer transition whitespace-nowrap font-bold px-2 py-1 rounded-md text-on-surface-dim/60 hover:text-primary hover:bg-primary/8 border border-transparent";
       t.textContent=m.tab;t.onclick=()=>setModel(m.id);
       tabs.appendChild(t);
@@ -704,15 +706,10 @@ function setModel(id){
     el.classList.toggle("text-primary",el.dataset.mDrop===id);
     el.classList.toggle("bg-primary/10",el.dataset.mDrop===id);
   });
-  // Подсвечиваем таб точно по model ID или по первому табу в группе
-  const curModel=MODELS.find(x=>x.id===id);
-  // Найдём какой tab-id должен быть активен: если у модели есть tab — её ID,
-  // иначе ищем первую модель в той же группе у которой есть tab
-  const activeTabId = curModel?.tab
-    ? id
-    : MODELS.find(x=>x.group===curModel?.group && x.tab)?.id || null;
-  document.querySelectorAll("[data-m-tab]").forEach(el=>{
-    const active = el.dataset.mTab===activeTabId;
+  const cur=MODELS.find(x=>x.id===id);
+  const activeTabId=cur?.tab ? id : MODELS.find(x=>x.group===cur?.group&&x.tab)?.id||null;
+  document.querySelectorAll("[data-mtg]").forEach(el=>{
+    const active = el.dataset.mtg===activeTabId;
     el.classList.toggle("tab-on", active);
     el.classList.toggle("text-primary", active);
     el.classList.toggle("border-primary/30", active);
