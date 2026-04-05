@@ -299,7 +299,10 @@ def _last_text(messages: list) -> str:
     for m in reversed(messages):
         c = m.get("content", "")
         if isinstance(c, dict):
-            return c.get("text", "")
+            text = c.get("text", "")
+            if text:
+                return text
+            continue
         if isinstance(c, str) and not c.startswith("/uploads/"):
             return c
     return ""

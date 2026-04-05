@@ -6,7 +6,7 @@ Set in .env:
   SMTP_PORT=587
   SMTP_USER=you@gmail.com
   SMTP_PASS=app_password
-  SMTP_FROM=Obsidian AI <you@gmail.com>
+  SMTP_FROM=AI Студия Че <you@gmail.com>
   APP_URL=https://yourdomain.com
 
 If SMTP_HOST is not set, codes are only printed to console (dev mode).
@@ -21,7 +21,7 @@ SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
-SMTP_FROM = os.getenv("SMTP_FROM", "Obsidian AI <noreply@obsidian.ai>")
+SMTP_FROM = os.getenv("SMTP_FROM", "AI Студия Че <noreply@ai-che.ru>")
 APP_URL   = os.getenv("APP_URL", "http://localhost:8000")
 
 
@@ -71,12 +71,12 @@ def _base_template(title: str, body: str) -> str:
   .footer{{padding:20px 32px;border-top:1px solid rgba(70,69,84,0.2);font-size:11px;color:rgba(199,196,215,0.4);text-align:center}}
 </style></head><body>
 <div class="wrap">
-  <div class="header"><h1>🔮 Obsidian AI</h1></div>
+  <div class="header"><h1>🤖 AI Студия Че</h1></div>
   <div class="body">
     <h2 style="margin:0 0 8px;font-size:20px;font-weight:700">{title}</h2>
     {body}
   </div>
-  <div class="footer">© Obsidian AI · Это письмо отправлено автоматически, не отвечайте на него</div>
+  <div class="footer">© AI Студия Че · Это письмо отправлено автоматически, не отвечайте на него</div>
 </div>
 </body></html>"""
 
@@ -86,7 +86,7 @@ def send_verification(to: str, code: str) -> None:
     <p style="color:rgba(199,196,215,0.8);line-height:1.6">Для подтверждения email введите код на странице регистрации:</p>
     <div style="text-align:center"><div class="code">{code}</div></div>
     <p class="note">Код действителен 15 минут. Если вы не регистрировались — просто проигнорируйте это письмо.</p>"""
-    _send(to, "Подтвердите email — Obsidian AI", _base_template("Подтверждение email", body))
+    _send(to, "Подтвердите email — AI Студия Че", _base_template("Подтверждение email", body))
 
 
 def send_password_reset(to: str, code: str) -> None:
@@ -94,7 +94,7 @@ def send_password_reset(to: str, code: str) -> None:
     <p style="color:rgba(199,196,215,0.8);line-height:1.6">Вы запросили сброс пароля. Введите код ниже:</p>
     <div style="text-align:center"><div class="code">{code}</div></div>
     <p class="note">Код действителен 15 минут. Если вы не запрашивали сброс — смените пароль немедленно.</p>"""
-    _send(to, "Сброс пароля — Obsidian AI", _base_template("Сброс пароля", body))
+    _send(to, "Сброс пароля — AI Студия Че", _base_template("Сброс пароля", body))
 
 
 def send_welcome(to: str, name: str) -> None:

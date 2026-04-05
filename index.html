@@ -885,7 +885,8 @@ async function processVidImg(file, model, slot){
   const processed = model==="veo" ? await cropToAspect(file,aspect) : file;
   const fd=new FormData(); fd.append("file",processed);
   try{
-    const r=await fetch(API+"/upload",{method:"POST",body:fd});
+    const hdrs={};if(authToken)hdrs["Authorization"]="Bearer "+authToken;
+    const r=await fetch(API+"/upload",{method:"POST",headers:hdrs,body:fd});
     const d=await r.json();
     videoUrls[slot||"start"] = d.url;
 
@@ -908,7 +909,8 @@ async function handleVidMotion(e){
   const f=e.target.files[0]; if(!f) return;
   const fd=new FormData(); fd.append("file",f);
   try{
-    const r=await fetch(API+"/upload",{method:"POST",body:fd});
+    const hdrs={};if(authToken)hdrs["Authorization"]="Bearer "+authToken;
+    const r=await fetch(API+"/upload",{method:"POST",headers:hdrs,body:fd});
     const d=await r.json();
     videoUrls["motion"]=d.url;
     document.getElementById("videoMotionPreview")?.classList.remove("hidden");
@@ -977,13 +979,13 @@ function collectVideoParams(){
   return Object.keys(r).length?r:null;
 }
 
-function collectImageParams(){
+function collectImageParams(att){
   const params=VIDEO_PARAMS.nano||[];
   const r={};
   params.forEach(p=>{const el=document.getElementById(`vp_${p.id}`);if(!el)return;r[p.id]=el.value;});
   // If image was attached, pass as reference image
-  if(pendingAttachment?.isImg){
-    r.image_url = API + pendingAttachment.url;
+  if(att?.isImg){
+    r.image_url = API + att.url;
   }
   return Object.keys(r).length?r:null;
 }
@@ -1392,7 +1394,9 @@ async function sendMessage(){
   if(!text&&!pendingAttachment)return;
   const btn=document.getElementById("sendBtn");
   btn.disabled=true;btn.classList.add("opacity-50","cursor-not-allowed");
-  const att=pendingAttachment;clearAttachment();
+  const text=ta.value.trim();
+  const att=pendingAttachment;
+  clearAttachment();
   try{
     if(!currentChat)await createChat();
     showChat();
@@ -1400,7 +1404,7 @@ async function sendMessage(){
     addTyping();ta.value="";ta.style.height="auto";updateSendBtn();
     const body={chat_id:currentChat,message:text,model:currentModel};
     if(att)body.file_url=att.url;
-    if(currentModel==="nano")body.extra=collectImageParams();
+    if(currentModel==="nano")body.extra=collectImageParams(att);
     else if(VIDEO_MODELS.includes(currentModel))body.extra=collectVideoParams();
     const hdrs={"Content-Type":"application/json"};
     if(authToken)hdrs["Authorization"]="Bearer "+authToken;
@@ -1794,13 +1798,10 @@ let pendingSolution = null;
 
 async function launchSolution(id,title,stepsCount){
   if(!currentUser&&stepsCount>0){closeM('solutionsModal');openM('loginModal');return;}
-  
-  // Load solution to get first step prompt
+  // Load solution to check if it's a simple single-step (show prompt editor)
   try{
     const sol = await fetch(`${API}/solutions/${id}`).then(r=>r.json());
     const firstStep = sol.steps?.[0];
-    
-    // If solution has editable prompt (simple type) — show editor
     if(firstStep && firstStep.user_prompt && !firstStep.wait_for_user && sol.steps.length === 1){
       pendingSolution = {sol, title};
       document.getElementById('promptEditorTitle').textContent = title;
@@ -1811,29 +1812,22 @@ async function launchSolution(id,title,stepsCount){
       openM('promptEditorModal');
       return;
     }
-  }catch(e){}
-  
-  // Otherwise launch chain as before
+  }catch{}
+  // Otherwise launch chain
   closeM('solutionsModal');
-  _launchSolutionChain(id, title, stepsCount);
+  _launchSolutionChain(id,title,stepsCount);
 }
 
 async function sendEditedPrompt(){
   if(!pendingSolution) return;
   const prompt = document.getElementById('promptEditorText').value.trim();
   if(!prompt) return;
-  
   const sol = pendingSolution.sol;
   closeM('promptEditorModal');
   pendingSolution = null;
-  
-  // Set model and send to chat
-  if(sol.steps?.[0]?.model){
-    setModel(sol.steps[0].model);
-  }
+  if(sol.steps?.[0]?.model) setModel(sol.steps[0].model);
   if(!currentChat) await createChat();
   showChat();
-  
   const ta = document.getElementById('messageInput');
   ta.value = prompt;
   await sendMessage();

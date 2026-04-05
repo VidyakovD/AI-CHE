@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Obsidian AI")
+app = FastAPI(title="AI Студия Че")
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -369,6 +369,17 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
     except Exception:
         raise HTTPException(400, "Invalid JSON")
 
+    # Проверка HMAC подписи от ЮKassa
+    hmac_header = request.headers.get("X-Content-Signature")
+    secret = os.getenv("YOOKASSA_SECRET_KEY", "")
+    if hmac_header and secret:
+        import hashlib, hmac
+        raw_body = await request.body()
+        expected = "sha256=" + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(hmac_header, expected):
+            log.warning("Webhook HMAC mismatch — rejected")
+            raise HTTPException(403, "Invalid signature")
+
     event = body.get("event", "")
     obj = body.get("object", {})
     if event != "payment.succeeded":
@@ -378,14 +389,25 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
     if not payment_id:
         raise HTTPException(400, "No payment id")
 
+    # Перечитываем платёж из ЮKassa для проверки реальных данных
+    from yookassa import Payment as YKP
+    try:
+        p = YKP.find_one(payment_id)
+        if p.status != "succeeded":
+            return {"status": "not_yet_paid"}
+        yk_meta = p.metadata or {}
+        amount = float(p.amount.value) if p.amount else 0
+    except Exception:
+        # fallback: берём из тела (старый формат)
+        yk_meta = obj.get("metadata", {})
+        amount = float(obj.get("amount", {}).get("value", 0))
+
     # Идемпотентность — не зачислять дважды
     existing = db.query(Subscription).filter_by(yookassa_payment_id=payment_id).first()
     if existing:
         return {"status": "already_activated"}
 
-    metadata = obj.get("metadata", {})
-    user_id = metadata.get("user_id")
-    plan = metadata.get("plan", "starter")
+    user_id = yk_meta.get("user_id")
     if not user_id:
         return {"status": "no_user_id"}
 
@@ -393,15 +415,40 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
     if not db_user:
         return {"status": "user_not_found"}
 
+    # Различаем подписку и докупку токенов
+    pay_type = yk_meta.get("type", "subscription")
+    plan = yk_meta.get("plan", "starter")
+
+    if pay_type == "tokens":
+        # Докупка токенов
+        pkg_id = int(yk_meta.get("package_id", 0))
+        pkg = db.query(models.TokenPackage).filter_by(id=pkg_id).first()
+        if not pkg:
+            return {"status": "package_not_found"}
+        db_user.tokens_balance += pkg.tokens
+        db.add(Transaction(user_id=db_user.id, type="payment", amount_rub=amount,
+                           tokens_delta=pkg.tokens,
+                           description=f"Докупка токенов: {pkg.name} (webhook)",
+                           yookassa_payment_id=payment_id))
+        db.commit()
+        log.info(f"Webhook: credited {pkg.tokens} tokens for user {user_id}")
+        return {"status": "ok"}
+
+    # Подписка
     plan_cfg = get_plan(plan)
+    # Сверяем сумму — защита от подмены цены
+    expected_price = plan_cfg["price_rub"]
+    if abs(amount - expected_price) > 0.01:
+        log.warning(f"Webhook: price mismatch for user {user_id}, got {amount}, expected {expected_price}")
+        # Всё равно зачисляем по факту, но логируем аномалию
+
     db_user.tokens_balance += plan_cfg["tokens"]
-    amount_rub = float(obj.get("amount", {}).get("value", plan_cfg["price_rub"]))
     sub = Subscription(user_id=db_user.id, plan=plan, tokens_total=plan_cfg["tokens"],
-                       price_rub=amount_rub, status="active",
+                       price_rub=amount, status="active",
                        yookassa_payment_id=payment_id,
                        expires_at=datetime.utcnow() + timedelta(days=30))
     db.add(sub)
-    db.add(Transaction(user_id=db_user.id, type="payment", amount_rub=amount_rub,
+    db.add(Transaction(user_id=db_user.id, type="payment", amount_rub=amount,
                        tokens_delta=plan_cfg["tokens"],
                        description=f"Подписка «{plan_cfg['name']}» (webhook)",
                        yookassa_payment_id=payment_id))
@@ -515,18 +562,23 @@ def _execute_step(run: SolutionRun, step: SolutionStep, user_input,
     content = answer.get("content", "") if isinstance(answer, dict) else str(answer)
     resp_type = answer.get("type", "text") if isinstance(answer, dict) else "text"
 
+    # Списываем токены за шаг — до сохранения, чтобы при ошибке запрос не прошёл
+    if user:
+        cost = get_token_cost(resolve_model(step.model)["real_model"] if resolve_model(step.model) else step.model)
+        db_user = db.query(User).filter_by(id=user.id).first()
+        if db_user.tokens_balance < cost:
+            run.status = "error"; db.commit()
+            return {"status": "error", "error": "Недостаточно токенов для выполнения шага"}
+        db_user.tokens_balance -= cost
+        db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+                           description=f"Решение: {step.title or step.step_number}", model=step.model))
+
     # Сохраняем в чат
     if user_input:
         db.add(Message(chat_id=run.chat_id, role="user", content=user_input,
                        model=step.model, user_id=user.id if user else None))
     db.add(Message(chat_id=run.chat_id, role="assistant", content=content,
                    model=step.model, user_id=user.id if user else None))
-
-    # Списываем токены за шаг
-    if user:
-        cost = get_token_cost(resolve_model(step.model)["real_model"] if resolve_model(step.model) else step.model)
-        try: _deduct(db, user, cost, f"Решение: {step.title or step.step_number}", step.model)
-        except: pass
 
     # Обновляем контекст
     ctx["prev_result"] = content
@@ -541,8 +593,13 @@ def _execute_step(run: SolutionRun, step: SolutionStep, user_input,
         run.status = "done"
         # Списываем фиксированную цену решения (если есть)
         if user and solution.price_tokens > 0:
-            try: _deduct(db, user, solution.price_tokens, f"Готовое решение: {solution.title}")
-            except: pass
+            db_user = db.query(User).filter_by(id=user.id).first()
+            if db_user.tokens_balance < solution.price_tokens:
+                run.status = "error"; db.commit()
+                return {"status": "error", "error": "Недостаточно токенов для завершения решения"}
+            db_user.tokens_balance -= solution.price_tokens
+            db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-solution.price_tokens,
+                               description=f"Готовое решение: {solution.title}"))
         db.commit()
         return {"status": "done", "chat_id": run.chat_id,
                 "result": {"type": resp_type, "content": content}}
@@ -812,6 +869,12 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db),
         answer = generate_response(req.model, formatted, req.extra)
     except Exception as e:
         log.error(f"AI error [{req.model}]: {e}")
+        # Refund tokens on AI failure
+        if user:
+            db_user = db.query(User).filter_by(id=user.id).first()
+            if db_user:
+                db_user.tokens_balance += cost
+                log.info(f"Refunded {cost} CH to user {user.id} (AI error)")
         return {"error": "Сервис временно недоступен. Попробуйте ещё раз."}
 
     content   = answer.get("content", "") if isinstance(answer, dict) else answer
@@ -822,13 +885,37 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db),
     db.commit()
     return {"response": {"type": resp_type, "content": content}}
 
+UPLOAD_MAX_IMAGE = 10 * 1024 * 1024   # 10 MB
+UPLOAD_MAX_VIDEO = 50 * 1024 * 1024   # 50 MB
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".tiff"}
+VIDEO_EXTS = {".mp4", ".webm", ".mov", ".avi", ".mkv"}
+
 @app.post("/upload")
-def upload_file(file: UploadFile = File(...)):
+def upload_file(file: UploadFile = File(...), user=Depends(optional_user)):
+    if not user:
+        raise HTTPException(401, "Нужна авторизация для загрузки файлов")
     validate_upload_filename(file.filename)
+
+    # Размер
+    data = file.file.read()
+    file.file.seek(0)
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext in IMAGE_EXTS:
+        limit = UPLOAD_MAX_IMAGE
+        label = "10 МБ"
+    elif ext in VIDEO_EXTS:
+        limit = UPLOAD_MAX_VIDEO
+        label = "50 МБ"
+    else:
+        raise HTTPException(400, f"Неподдерживаемый тип файла: {ext}")
+
+    if len(data) > limit:
+        raise HTTPException(413, f"Файл слишком большой (макс. {label})")
+
     fid  = str(uuid.uuid4())
     path = f"{UPLOAD_DIR}/{fid}_{file.filename}"
     with open(path, "wb") as buf:
-        shutil.copyfileobj(file.file, buf)
+        buf.write(data)
     return {"url": f"/uploads/{fid}_{file.filename}"}
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -1042,7 +1129,7 @@ DEFAULT_MODEL_PRICING = [
     {"model_id":"claude-sonnet",   "label":"Claude Sonnet",    "cost_per_req":25,  "usd_per_req":0.006, "markup":1.8},
     {"model_id":"perplexity",      "label":"Perplexity Small", "cost_per_req":6,   "usd_per_req":0.0002,"markup":1.8},
     {"model_id":"perplexity-large","label":"Perplexity Large", "cost_per_req":15,  "usd_per_req":0.001, "markup":1.8},
-    {"model_id":"nano",            "label":"Nano Banana",      "cost_per_req":3,   "usd_per_req":0.0001,"markup":2.0},
+    {"model_id":"nano",            "label":"Imagen",           "cost_per_req":3,   "usd_per_req":0.0001,"markup":2.0},
     {"model_id":"kling",           "label":"Kling v1",         "cost_per_req":200, "usd_per_req":0.14,  "markup":1.5},
     {"model_id":"kling-pro",       "label":"Kling Pro",        "cost_per_req":400, "usd_per_req":0.28,  "markup":1.5},
     {"model_id":"veo",             "label":"Veo 3",            "cost_per_req":300, "usd_per_req":0.20,  "markup":1.5},
@@ -1090,7 +1177,7 @@ DEFAULT_FEATURES = [
     {"key": "workflows",  "label": "Воркфлоу",                            "description": "Конструктор автоматических цепочек задач",       "enabled": True},
     {"key": "chatbots",   "label": "Чат-боты",                            "description": "Настройка и деплой пользовательских чат-ботов",  "enabled": True},
     {"key": "solutions",  "label": "Готовые решения",                     "description": "Каталог готовых AI решений и бизнес-шаблонов",   "enabled": True},
-    {"key": "nano",       "label": "Nano Banana",                         "description": "Модель Nano Banana в списке моделей",            "enabled": True},
+    {"key": "nano",       "label": "Imagen",                              "description": "Модель Imagen в списке моделей",                   "enabled": True},
     {"key": "dalle",      "label": "DALL-E (генерация изображений)",      "description": "Модель DALL-E в списке моделей",                 "enabled": True},
 ]
 

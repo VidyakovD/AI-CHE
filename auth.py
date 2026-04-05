@@ -4,7 +4,25 @@ from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 
-SECRET_KEY = os.getenv("JWT_SECRET", secrets.token_hex(32))
+def _get_jwt_secret() -> str:
+    """Стабильный JWT-секрет: из env или сохранённый файл (генерируется один раз)."""
+    env_secret = os.getenv("JWT_SECRET")
+    if env_secret:
+        return env_secret
+    secret_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".jwt_secret")
+    if os.path.exists(secret_path):
+        with open(secret_path) as f:
+            return f.read().strip()
+    new_secret = secrets.token_hex(32)
+    try:
+        with open(secret_path, "w") as f:
+            f.write(new_secret)
+    except Exception:
+        pass
+    return new_secret
+
+
+SECRET_KEY = _get_jwt_secret()
 ALGORITHM  = "HS256"
 ACCESS_TTL = 60 * 24 * 30   # 30 days in minutes
 
