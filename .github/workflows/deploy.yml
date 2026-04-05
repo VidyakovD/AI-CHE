@@ -12,16 +12,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          fingerprint: ${{ secrets.SSH_KNOWN_HOSTS }}
           script: |
             cd /root/AI-CHE
-            git reset --hard HEAD
+            git reset --hard origin/main
             git pull origin main
-            echo "Restarting AI service..."
             systemctl restart ai-che
-            echo "Deploy complete!"
