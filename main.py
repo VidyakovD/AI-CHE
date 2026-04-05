@@ -738,17 +738,13 @@ def get_chats(model: str, db: Session = Depends(get_db), user=Depends(optional_u
     if not user:
         return []
     from sqlalchemy import or_
-    gpt_models = ["gpt", "gpt-4o", "gpt-4o-mini"]
-    # Берём только сообщения с заголовком (первые в чате) — исключает ответы ассистента
-    q = db.query(Message.chat_id, Message.title).filter(Message.title.isnot(None))
-    if model == "gpt":
-        q = q.filter(Message.model.in_(gpt_models))
-    else:
-        q = q.filter_by(model=model)
-    # Показываем чаты пользователя + анонимные (созданные до регистрации)
-    q = q.filter(or_(Message.user_id == user.id, Message.user_id == None))
+    # Показываем все чаты пользователя, независимо от модели
+    q = db.query(Message.chat_id, Message.title, Message.created_at)\
+        .filter(Message.title.isnot(None))\
+        .filter(or_(Message.user_id == user.id, Message.user_id == None))\
+        .order_by(Message.created_at.desc())
     result = {}
-    for cid, title in q.all():
+    for cid, title, _ in q.all():
         if cid not in result:
             result[cid] = title
     return [{"id": k, "title": v} for k, v in result.items()]
@@ -758,10 +754,8 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db),
                  user=Depends(optional_user)):
     cfg = resolve_model(req.model)
     cost = get_token_cost(cfg["real_model"] if cfg else req.model)
-    if user:
-        if not user.is_verified:
-            raise HTTPException(403, "Подтвердите email для отправки сообщений")
-        _deduct(db, user, cost, f"Запрос к {req.model}", req.model)
+    if user and not user.is_verified:
+        raise HTTPException(403, "Подтвердите email для отправки сообщений")
 
     existing = db.query(Message).filter_by(chat_id=req.chat_id).first()
     title = None
@@ -770,6 +764,15 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db),
 
     stored = json.dumps({"text": req.message, "file_url": req.file_url}) \
              if req.file_url else req.message
+
+    # Списываем токены ДО сохранения сообщений — если ошибка, ничего не сохранится
+    if user:
+        db_user = db.query(User).filter_by(id=user.id).first()
+        if db_user.tokens_balance < cost:
+            raise HTTPException(402, "Недостаточно токенов. Пополните баланс в личном кабинете.")
+        db_user.tokens_balance -= cost
+        db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+                           description=f"Запрос к {req.model}", model=req.model))
 
     db.add(Message(chat_id=req.chat_id, role="user", content=stored,
                    model=req.model, title=title,
