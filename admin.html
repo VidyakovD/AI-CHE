@@ -447,7 +447,7 @@ select.inp option{background:#272018;color:#f0e6d8}
 </template>
 
 <script>
-const API="http://127.0.0.1:8000";
+const API=localStorage.getItem("obs_api")||window.location.origin;
 let adminToken=localStorage.getItem("obs_admin_token")||null;
 let categories=[];
 let editingSolId=null;

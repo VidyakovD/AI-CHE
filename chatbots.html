@@ -216,7 +216,7 @@ select.inp option{background:#272018;color:#f0e6d8}
 </div>
 
 <script>
-const API = localStorage.getItem('obs_api')||'http://127.0.0.1:8000';
+const API = localStorage.getItem('obs_api')||window.location.origin;
 let bots = JSON.parse(localStorage.getItem('obs_chatbots')||'[]');
 let editingId = null;
 

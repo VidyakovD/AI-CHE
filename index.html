@@ -471,7 +471,7 @@ body.welcome #inputArea{display:none!important}
 
 <!-- ══ SCRIPT ════════════════════════════════════════════════════════════════ -->
 <script>
-const API="http://127.0.0.1:8000";
+const API=localStorage.getItem("obs_api")||window.location.origin;
 let currentChat=null,currentChatInit=false,currentModel="gpt";
 let pendingAttachment=null;
 let authToken=localStorage.getItem("obs_token")||null;

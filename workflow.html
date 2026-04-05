@@ -162,7 +162,7 @@ select.inp option{background:#231d16;color:#f0e6d8}
 <div id="ctx-menu" class="ctx" style="display:none"></div>
 
 <script>
-const API = localStorage.getItem('obs_api')||'http://127.0.0.1:8000';
+const API = localStorage.getItem('obs_api')||window.location.origin;
 const authToken = localStorage.getItem('obs_token');
 
 // ── Port type definitions (what can connect to what) ───────────────────────
