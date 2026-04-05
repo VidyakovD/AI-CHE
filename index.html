@@ -1414,7 +1414,7 @@ async function sendMessage(){
       else if(r.type==="image"){addMsg(r.content||"","ai","image");}
       else addMsg(r.content||"Ошибка","ai");
       if(authToken)fetchMe();
-      await loadChats();
+      loadChats(); // без await — не блокировать
     }
   }catch(e){removeTyping();addMsg("Ошибка сети или сервера","ai");}
   btn.disabled=false;btn.classList.remove("opacity-50","cursor-not-allowed");

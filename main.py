@@ -990,6 +990,15 @@ def _rebuild_env_keys(provider: str, db: Session):
             YKConf.account_id = shop_id.strip()
             YKConf.secret_key = secret.strip()
 
+def _load_all_apikeys_from_db():
+    """При старте загружаем ВСЕ API ключи из БД в env."""
+    db = SessionLocal()
+    try:
+        for provider in PROVIDERS_LIST:
+            _rebuild_env_keys(provider, db)
+    finally:
+        db.close()
+
 # ── Admin: users with balance ─────────────────────────────────────────────────
 
 @app.get("/admin/users/full")
@@ -1099,6 +1108,8 @@ def startup():
         _seed_pricing(db)
         _seed_features(db)
     finally: db.close()
+    # Загружаем все API ключи из БД в env
+    _load_all_apikeys_from_db()
 
 
 # ── Feature Flags — публичный эндпоинт ───────────────────────────────────────
