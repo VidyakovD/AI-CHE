@@ -342,7 +342,7 @@ def _last_text(messages: list) -> str:
 MODEL_REGISTRY = {
     "gpt":             {"provider": "openai",      "real_model": "gpt-4o-mini"},
     "gpt-4o":          {"provider": "openai",      "real_model": "gpt-4o"},
-    "claude":          {"provider": "anthropic",   "real_model": "claude-haiku-3-5-20241022"},
+    "claude":          {"provider": "anthropic",   "real_model": "claude-haiku-4.5"},
     "claude-sonnet":   {"provider": "anthropic",   "real_model": "claude-sonnet-4-20250514"},
     "gemini":          {"provider": "gemini",      "real_model": "gemini-1.5-flash"},
     "gemini-pro":      {"provider": "gemini",      "real_model": "gemini-1.5-pro"},
