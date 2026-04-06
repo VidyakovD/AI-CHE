@@ -21,7 +21,8 @@
       "WebFetch(domain:yookassa.ru)",
       "Bash(python3 -c \"import main\")",
       "WebFetch(domain:docs.anthropic.com)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(scp scripts/check_google_keys.py root@194.104.9.219:/root/AI-CHE/scripts/)"
     ]
   }
 }
