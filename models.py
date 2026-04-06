@@ -15,6 +15,7 @@ class User(Base):
     tokens_balance   = Column(Integer, default=0)
     is_active        = Column(Boolean, default=True)
     is_verified      = Column(Boolean, default=False)       # email verified
+    is_banned        = Column(Boolean, default=False)        # заблокирован по оферте (п. 10.1)
     agreed_to_terms  = Column(Boolean, default=False)
     referral_code    = Column(String, unique=True, nullable=True)
     referred_by      = Column(String, nullable=True)
@@ -268,6 +269,22 @@ class FeatureFlag(Base):
 
 
 # ── Site Creation ─────────────────────────────────────────────────────────────
+
+class SupportRequest(Base):
+    """Обращения пользователей (возврат, удаление данных, жалобы)."""
+    __tablename__ = "support_requests"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    user_id       = Column(Integer, ForeignKey("users.id"), nullable=False)
+    type          = Column(String, nullable=False)       # refund / delete_data / complaint
+    description   = Column(Text, nullable=True)
+    status        = Column(String, default="open")       # open / resolved / rejected
+    admin_response= Column(Text, nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", backref="support_requests")
+
 
 class SiteProject(Base):
     __tablename__ = "site_projects"

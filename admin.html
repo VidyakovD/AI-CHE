@@ -85,6 +85,10 @@ select.inp option{background:#272018;color:#f0e6d8}
       <button onclick="showSec('users')" data-sec="users" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>Пользователи
       </button>
+      <button onclick="showSec('support')" data-sec="support" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/></svg>Обращения
+        <span id="supportBadge" class="ml-auto hidden bg-error/20 text-error text-[10px] px-1.5 py-0.5 rounded-full font-bold">0</span>
+      </button>
       <button onclick="showSec('apikeys')" data-sec="apikeys" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>API Ключи
       </button>
@@ -143,6 +147,21 @@ select.inp option{background:#272018;color:#f0e6d8}
             <tbody id="usersTable"></tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Support Requests -->
+      <div id="sec-support" class="sec hidden space-y-5">
+        <div class="mb-4">
+          <h2 class="text-lg font-bold font-headline">Обращения пользователей</h2>
+          <p class="text-xs text-on-dim mt-1">Возвраты, удаление данных, жалобы</p>
+        </div>
+        <div class="flex gap-2 mb-4">
+          <button onclick="filterSupport(null)" data-sf="" class="sf-btn btn btn-p text-xs">Все</button>
+          <button onclick="filterSupport('open')" data-sf="open" class="sf-btn btn btn-g text-xs">Открытые</button>
+          <button onclick="filterSupport('resolved')" data-sf="resolved" class="sf-btn btn btn-g text-xs">Решённые</button>
+          <button onclick="filterSupport('rejected')" data-sf="rejected" class="sf-btn btn btn-g text-xs">Отклонённые</button>
+        </div>
+        <div id="supportList" class="space-y-3"></div>
       </div>
 
       <!-- API Keys -->
@@ -531,6 +550,7 @@ function showSec(sec){
   if(sec==="faq")        loadFaq();
   if(sec==="promos")     loadPromos();
   if(sec==="features")   loadFeatures();
+  if(sec==="support")    loadSupport();
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
@@ -600,7 +620,7 @@ function filterUsers(){
 
 function renderUsers(users){
   document.getElementById("usersTable").innerHTML=users.map(u=>`
-    <tr class="border-b border-outline/10 hover:bg-surface2/40 transition">
+    <tr class="border-b border-outline/10 hover:bg-surface2/40 transition ${u.is_banned?'bg-error/5':''}">
       <td class="py-2 px-3 text-xs font-mono text-on-dim">${esc(u.email)}</td>
       <td class="py-2 px-3 text-xs">${esc(u.name||"—")}</td>
       <td class="py-2 px-3 text-xs text-primary font-bold text-right">${fmtT(u.tokens_balance)} T</td>
@@ -608,9 +628,90 @@ function renderUsers(users){
       <td class="py-2 px-3 text-center">${u.is_verified?'<span class="text-green-400 text-xs">✓</span>':'<span class="text-error text-xs">✗</span>'}</td>
       <td class="py-2 px-3 text-xs text-on-dim">${u.created_at?new Date(u.created_at).toLocaleDateString("ru"):"—"}</td>
       <td class="py-2 px-3">
+        <button onclick="toggleBan(${u.id},'${esc(u.email)}')" class="btn text-xs py-1 ${u.is_banned?'text-green-400 border-green-400/30 btn-g':'text-error border-error/30 btn-d'}">${u.is_banned?'Разбан':'Бан'}</button>
+      </td>
+      <td class="py-2 px-3">
         <button onclick="openBalanceModal(${u.id},'${esc(u.email)}')" class="btn btn-g text-xs py-1">Баланс</button>
       </td>
     </tr>`).join("");
+}
+
+async function toggleBan(userId,email){
+  const act=confirm(`Заблокировать ${email}?`);
+  if(!act)return;
+  try{
+    const r=await post(`/admin/users/${userId}/toggle-ban`,{ban:true});
+    alert(r.is_banned?`${email} заблокирован`:`${email} разбанен`);
+    await loadUsers();
+  }catch(e){alert("Ошибка: "+e.message);}
+}
+async function respondSupportReq(id){
+  const resp=prompt("Ответ пользователю:");
+  if(!resp)return;
+  try{
+    await post(`/admin/support-requests/${id}`,{admin_response:resp,status:"resolved"});
+    await loadSupport();
+  }catch(e){alert("Ошибка: "+e.message);}
+}
+async function rejectSupportReq(id){
+  try{
+    await post(`/admin/support-requests/${id}`,{status:"rejected"});
+    await loadSupport();
+  }catch(e){alert("Ошибка: "+e.message);}
+}
+
+// ── Support Requests ───────────────────────────────────────────────────────
+let allSupportRequests=[];
+let supportFilter=null;
+
+async function loadSupport(){
+  try{
+    allSupportRequests=await get("/admin/support-requests");
+    // update badge
+    const openCount=allSupportRequests.filter(r=>r.status==="open").length;
+    const badge=document.getElementById("supportBadge");
+    if(openCount>0){badge.textContent=openCount;badge.classList.remove("hidden");}
+    else{badge.classList.add("hidden");}
+    renderSupport();
+  }catch(e){document.getElementById("supportList").innerHTML=`<p class="text-error text-sm">Ошибка: ${esc(e.message)}</p>`;}
+}
+
+function filterSupport(status){
+  supportFilter=status;
+  document.querySelectorAll(".sf-btn").forEach(b=>{
+    const active=b.dataset.sf===status;
+    b.classList.toggle("btn-p",active);b.classList.toggle("btn-g",!active);
+  });
+  renderSupport();
+}
+
+function renderSupport(){
+  const el=document.getElementById("supportList");
+  const filtered=supportFilter?allSupportRequests.filter(r=>r.status===supportFilter):allSupportRequests;
+  if(!filtered.length){el.innerHTML=`<p class="text-on-dim text-center py-8 text-sm">Нет обращений</p>`;return;}
+  const typeLabels={refund:"Возврат средств",delete_data:"Удаление данных",complaint:"Жалоба"};
+  const statusColors={open:"bg-yellow-500/15 text-yellow-400",resolved:"bg-green-500/15 text-green-400",rejected:"bg-error/15 text-error"};
+  const statusLabels={open:"Открыт",resolved:"Решён",rejected:"Отклонён"};
+  el.innerHTML=filtered.map(r=>`
+    <div class="card" id="sr_${r.id}">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs font-mono text-on-dim">#${r.id}</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold ${statusColors[r.status]||''}">${statusLabels[r.status]||r.status}</span>
+            <span class="text-[10px] bg-surface3 text-on-dim px-2 py-0.5 rounded-full">${typeLabels[r.type]||r.type}</span>
+          </div>
+          <p class="text-sm font-medium">${esc(r.user_email||"")}</p>
+          <p class="text-xs text-on-dim mt-1">${esc(r.description||"—")}</p>
+          ${r.admin_response?`<p class="text-xs text-on-dim mt-2 bg-surface2 rounded-lg px-3 py-2 border border-outline/15">Ответ: ${esc(r.admin_response)}</p>`:""}
+          <p class="text-[10px] text-on-dim/40 mt-1">${r.created_at?new Date(r.created_at).toLocaleString("ru"):""}</p>
+        </div>
+        ${r.status==="open"?`<div class="flex flex-col gap-1.5 flex-shrink-0">
+          <button onclick="respondSupportReq(${r.id})" class="btn btn-p text-xs py-1 px-3 whitespace-nowrap">Ответить</button>
+          <button onclick="rejectSupportReq(${r.id})" class="btn btn-d text-xs py-1 px-3 whitespace-nowrap">Отклонить</button>
+        </div>`:""}
+      </div>
+    </div>`).join("");
 }
 
 function openBalanceModal(userId,email){
@@ -641,7 +742,7 @@ async function doAdjustBalance(){
 const PROVIDER_LABELS={
   openai:"OpenAI",anthropic:"Anthropic",gemini:"Gemini (Google)",grok:"xAI / Grok",
   perplexity:"Perplexity",kling:"Kling AI",google:"Google API (Gemini/Veo/Imagen)",
-  nano:"Google API (Gemini/Veo/Imagen)",veo:"Google API (Gemini/Veo/Imagen)",
+  nano:"Nano Banana",veo:"Veo (Google)",
   veo_project_id:"Veo Project ID (Google Cloud)",yookassa:"ЮKassa"
 };
 

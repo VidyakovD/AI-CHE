@@ -293,21 +293,76 @@ body.welcome #inputArea{display:none!important}
       <input id="rg_ref"   type="text"     placeholder="Реферальный код (необязательно)" class="inp"/>
       <input id="rg_promo" type="text"     placeholder="Промокод (необязательно)" class="inp"/>
       <div class="bg-surface2 rounded-xl p-4 text-xs text-on-surface-dim/70 max-h-28 overflow-y-auto border border-outline/20 leading-relaxed">
-        <strong class="text-on-surface">Пользовательское соглашение</strong><br/><br/>
-        1. Соглашение регулирует использование платформы AI Студия Че.<br/>
-        2. Запрещается создавать незаконный или вредоносный контент.<br/>
-        3. Токены — внутренняя расчётная единица, не возвращаются после использования.<br/>
-        4. Платежи через ЮKassa. Возврат только до активации подписки.<br/>
-        5. Администрация вправе заблокировать аккаунт при нарушении правил.<br/>
-        6. Данные обрабатываются согласно ФЗ-152.
+        <strong class="text-on-surface">Пользовательское соглашение AIche</strong><br/><br/>
+        1. Оферта регулирует использование сервиса AIche (ст. 435, 437 ГК РФ).<br/>
+        2. Регистрация на сайте = акцепт оферты (ст. 438 ГК РФ).<br/>
+        3. Токены CH — внутренние расчётные единицы, не денежные средства.<br/>
+        4. Оплата через ЮKassa. Чеки на email (ФЗ-54).<br/>
+        5. Возврат в течение 14 дней, если услуги не оказаны (ст. 32 ЗоЗПП).<br/>
+        6. Контент принадлежит пользователю. Исполнитель не использует его третьим лицам.<br/>
+        7. Споры — г. Челябинск. Данные на территории РФ (ФЗ-152).<br/>
+        <a class="text-primary hover:underline cursor-pointer" onclick="openTerms()" title="Читать полностью">Читать полностью &rarr;</a>
       </div>
       <label class="flex items-start gap-3 cursor-pointer">
         <input type="checkbox" id="rg_agree" class="mt-0.5 w-4 h-4 accent-primary"/>
-        <span class="text-sm text-on-surface-dim">Принимаю условия пользовательского соглашения</span>
+        <span class="text-sm text-on-surface-dim"><a class="text-primary hover:underline cursor-pointer" onclick="openTerms()">Принимаю условия оферты</a></span>
       </label>
       <div id="rg_err" class="err"></div>
       <button onclick="doRegister()" class="btn-p">Зарегистрироваться</button>
       <p class="text-center text-sm text-on-surface-dim">Уже есть аккаунт? <a class="text-primary cursor-pointer hover:underline" onclick="switchM('registerModal','loginModal')">Войти</a></p>
+    </div>
+  </div>
+</div>
+
+<!-- Terms Modal -->
+<div id="termsModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+  <div class="bg-surface rounded-2xl w-full max-w-2xl shadow-2xl border border-outline/25 mx-4 max-h-[90vh] flex flex-col">
+    <div class="flex items-center justify-between px-7 py-5 border-b border-outline/20">
+      <h2 class="text-lg font-bold font-headline">Пользовательское соглашение (Оферта)</h2>
+      <button onclick="closeM('termsModal')" class="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center hover:bg-surface3 transition"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px;color:#f0e6d8"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </div>
+    <div class="px-7 py-5 overflow-y-auto flex-1 text-sm leading-relaxed space-y-5 text-on-surface-dim">
+      <section>
+        <h3 class="font-bold text-on-surface mb-2">1. Общие положения</h3>
+        <p>1.1. Настоящее Соглашение регулирует порядок использования платформы «AI Студия Че» (далее — «Сервис»).</p>
+        <p>1.2. Использование Сервиса возможно только после принятия условий настоящего Соглашения.</p>
+        <p>1.3. Администрация вправе вносить изменения. Новая редакция вступает в силу с момента публикации.</p>
+      </section>
+      <section>
+        <h3 class="font-bold text-on-surface mb-2">2. Регистрация и аккаунт</h3>
+        <p>2.1. Для использования Сервиса необходимо создать аккаунт, указав действительный email и пароль.</p>
+        <p>2.2. Пользователь несёт ответственность за сохранность учётных данных.</p>
+        <p>2.3. Администрация вправе заблокировать аккаунт при нарушении условий Соглашения.</p>
+      </section>
+      <section>
+        <h3 class="font-bold text-on-surface mb-2">3. Использование Сервиса</h3>
+        <p>3.1. Сервис предоставляет доступ к AI-ассистентам, генераторам изображений, видео и другим инструментам.</p>
+        <p>3.2. Запрещается использовать Сервис для создания незаконного или вредоносного контента.</p>
+        <p>3.3. Администрация не несёт ответственности за результаты, сгенерированные AI-моделями.</p>
+      </section>
+      <section>
+        <h3 class="font-bold text-on-surface mb-2">4. Оплата и токены</h3>
+        <p>4.1. Внутренняя единица — токены CH (Che).</p>
+        <p>4.2. Стоимость зависит от модели и курса валют.</p>
+        <p>4.3. Оплата через ЮKassa.</p>
+        <p>4.4. Токены не подлежат возврату после использования.</p>
+        <p>4.5. Возврат возможен только до активации подписки или зачисления токенов.</p>
+      </section>
+      <section>
+        <h3 class="font-bold text-on-surface mb-2">5. Персональные данные</h3>
+        <p>5.1. Обработка данных согласно ФЗ-152 «О персональных данных».</p>
+        <p>5.2. Данные не передаются третьим лицам, кроме случаев по законодательству РФ.</p>
+      </section>
+      <section>
+        <h3 class="font-bold text-on-surface mb-2">6. Интеллектуальная собственность</h3>
+        <p>6.1. Все права на Сервис принадлежат владельцу платформы.</p>
+        <p>6.2. Контент, сгенерированный пользователем с помощью AI, принадлежит пользователю.</p>
+      </section>
+      <p class="text-on-surface-dim/50 text-xs pt-2">Дата последней редакции: 6 апреля 2026 г.</p>
+    </div>
+    <div class="px-7 py-4 border-t border-outline/20 flex gap-3">
+      <button onclick="acceptTerms()" class="btn-p flex-1">Принять</button>
+      <button onclick="closeM('termsModal')" class="btn-g flex-1">Отмена</button>
     </div>
   </div>
 </div>
@@ -393,6 +448,7 @@ body.welcome #inputArea{display:none!important}
       <button onclick="cabTab('usage')"    class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="usage">Расход</button>
       <button onclick="cabTab('referral')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="referral">Реферал</button>
       <button onclick="cabTab('settings')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="settings">Настройки</button>
+      <button onclick="cabTab('support')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="support">Поддержка</button>
     </div>
     <div id="cabContent" class="p-6 min-h-52"></div>
   </div>
@@ -499,7 +555,7 @@ const MODELS=[
   {id:"perplexity",      label:"Perplexity",       group:"Perplexity", tab:"Perplexity", icon:"travel_explore"},
   {id:"perplexity-large",label:"Perplexity Large", group:"Perplexity", tab:null,         icon:"travel_explore"},
   {id:"grok",            label:"Grok 3 Mini",      group:"xAI",        tab:"xAI",        icon:"bolt"},
-  {id:"nano",            label:"Imagen",           group:"Imagen",     tab:"Imagen",     icon:"image"},
+  {id:"nano",            label:"Nano Banana",      group:"Nano",       tab:"Nano",       icon:"image"},
   {id:"kling",           label:"Kling v1",         group:"Видео",      tab:"Kling",      icon:"videocam", feature:"video_gen"},
   {id:"kling-pro",       label:"Kling Pro",        group:"Видео",      tab:null,         icon:"videocam", feature:"video_gen"},
   {id:"veo",             label:"Veo 3",            group:"Видео",      tab:"Veo 3",      icon:"movie",    feature:"video_gen"},
@@ -560,7 +616,6 @@ const VIDEO_PARAMS={
     {id:"image_mode",       label:"Режим изображения",   type:"select",   default:"",     options:[["","Только текст"],["i2v","Image→Video (обрезка авто)"]]},
   ],
   nano:[
-    {id:"prompt",           label:"Описание изображения",type:"textarea", default:""},
     {id:"aspect_ratio",     label:"Соотношение сторон",  type:"select",   default:"1:1",  options:["1:1","16:9","9:16","4:3","3:4"]},
     {id:"sample_count",     label:"Количество вариантов",type:"select",   default:"1",    options:["1","2","3","4"]},
   ],
@@ -1173,6 +1228,7 @@ function cabTab(tab){
   if(tab==="usage")    renderUsageTab(el);
   if(tab==="referral") renderReferralTab(el);
   if(tab==="settings") renderSettingsTab(el);
+  if(tab==="support")  renderSupportTab(el);
 }
 
 async function renderPlansTab(el){
@@ -1351,6 +1407,85 @@ async function doChangeEmailConf(){
     updateAuthUI();await openCabinet();
   }catch(e){msg.textContent="❌ "+(e.message||"Неверный код");msg.style.color="#ff6b6b";msg.style.display="block";}
 }
+
+// ── support tab ─────────────────────────────────────────────────────────────
+async function renderSupportTab(el){
+  const s=cabinetData?.subscription;
+  const myReq=cabinetData?.user?.support_requests||[];
+  el.innerHTML=`<div class="space-y-6">
+    ${s && s.status==="active"?`
+    <div>
+      <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Подписка</p>
+      <div class="p-4 bg-surface2 rounded-xl border border-outline/20 flex items-center justify-between">
+        <div>
+          <p class="text-sm text-on-surface">Активна: <strong class="text-primary">${s.plan.toUpperCase()}</strong></p>
+          <p class="text-xs text-on-surface-dim/60">Истекает: ${s.expires_at?new Date(s.expires_at).toLocaleDateString("ru"):"—"}</p>
+        </div>
+        <button onclick="cancelSubscription()" class="px-4 py-2 rounded-lg bg-error/10 text-error text-xs font-medium hover:bg-error/20 transition">Отменить</button>
+      </div>
+    </div>`:
+    `<p class="text-sm text-on-surface-dim">Нет активной подписки</p>`}
+
+    <div class="border-t border-outline/20 pt-5">
+      <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Запрос на возврат средств</p>
+      <p class="text-xs text-on-surface-dim mb-3">Возврат в течение 14 дней, если услуги не оказаны (ст. 32 ЗоЗПП)</p>
+      <textarea id="sup_refund_desc" rows="2" class="inp resize-none text-sm" placeholder="Причина возврата..."></textarea>
+      <button onclick="submitRefund()" class="btn-g mt-2 text-sm">Отправить запрос</button>
+      <div id="sup_refund_msg" style="display:none" class="text-xs mt-1"></div>
+    </div>
+
+    <div class="border-t border-outline/20 pt-5">
+      <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Запрос на удаление данных</p>
+      <p class="text-xs text-on-surface-dim mb-3">Персональные данные будут удалены в течение 30 дней (ст. 18 ФЗ-152)</p>
+      <textarea id="sup_del_desc" rows="2" class="inp resize-none text-sm" placeholder="Подтвердите удаление..."></textarea>
+      <button onclick="submitDeleteData()" class="btn-g mt-2 text-sm">Отправить запрос</button>
+      <div id="sup_del_msg" style="display:none" class="text-xs mt-1"></div>
+    </div>
+
+    ${myReq.length?`
+    <div class="border-t border-outline/20 pt-5">
+      <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Мои обращения</p>
+      <div class="space-y-2">${myReq.map(r=>`
+        <div class="p-3 bg-surface2 rounded-lg border border-outline/10 text-sm">
+          <div class="flex items-center justify-between">
+            <span class="font-medium">${r.type==="refund"?"↩️ Возврат":r.type==="delete_data"?"🗑️ Удаление данных":"❓ Обращение"}</span>
+            <span class="text-xs px-2 py-0.5 rounded-full ${r.status==="open"?"bg-yellow-500/15 text-yellow-400":r.status==="resolved"?"bg-green-500/15 text-green-400":"bg-error/15 text-error"}">${r.status==="open"?"Открыт":r.status==="resolved"?"Решено":"Отклонён"}</span>
+          </div>
+          ${r.admin_response?`<p class="text-xs text-on-surface-dim mt-1"><strong>Ответ:</strong> ${esc(r.admin_response)}</p>`:""}
+          <p class="text-xs text-on-surface-dim/50 mt-1">${r.created_at?new Date(r.created_at).toLocaleDateString("ru"):""}</p>
+        </div>`).join("")}</div>
+    </div>`:""}
+  </div>`;
+}
+async function cancelSubscription(){
+  if(!confirm("Отменить подписку? Доступ сохранится до конца оплаченного периода."))return;
+  try{
+    const r=await apiPost("/user/subscription/cancel",{});
+    if(r.status==="cancelled"){await openCabinet();alert("Подписка отменена. Доступ до конца периода.");}
+  }catch(e){alert("Ошибка: "+e.message);}
+}
+async function submitRefund(){
+  const desc=document.getElementById("sup_refund_desc")?.value.trim();
+  const msg=document.getElementById("sup_refund_msg");msg.style.display="none";
+  if(!desc){msg.textContent="Опишите причину";msg.style.color="#ff6b6b";msg.style.display="block";return;}
+  try{const r=await apiPost("/user/support/refund",{type:"refund",description:desc});
+    msg.textContent="✅ "+r.message;msg.style.color="#6bff9e";msg.style.display="block";
+    document.getElementById("sup_refund_desc").value="";
+    await openCabinet();
+  }catch(e){msg.textContent="❌ "+e.message;msg.style.color="#ff6b6b";msg.style.display="block";}
+}
+async function submitDeleteData(){
+  const desc=document.getElementById("sup_del_desc")?.value.trim();
+  const msg=document.getElementById("sup_del_msg");msg.style.display="none";
+  if(!desc){msg.textContent="Подтвердите запрос";msg.style.color="#ff6b6b";msg.style.display="block";return;}
+  try{const r=await apiPost("/user/support/delete-data",{type:"delete_data",description:desc});
+    msg.textContent="✅ "+r.message;msg.style.color="#6bff9e";msg.style.display="block";
+    document.getElementById("sup_del_desc").value="";
+    await openCabinet();
+  }catch(e){msg.textContent="❌ "+e.message;msg.style.color="#ff6b6b";msg.style.display="block";}
+}
+}
+
 
 // ── file ───────────────────────────────────────────────────────────────────
 async function handleFileSelect(e){
@@ -1717,6 +1852,8 @@ function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").
 function openM(id){document.getElementById(id).classList.remove("hidden");}
 function closeM(id){document.getElementById(id).classList.add("hidden");}
 function switchM(a,b){closeM(a);openM(b);}
+function openTerms(){openM('termsModal');}
+function acceptTerms(){document.getElementById('rg_agree').checked=true;closeM('termsModal');}
 async function api(path){
   const h={};if(authToken)h["Authorization"]="Bearer "+authToken;
   const r=await fetch(API+path,{headers:h});

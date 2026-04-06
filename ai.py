@@ -273,8 +273,8 @@ def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
     if not keys:
         return {"type": "text", "content": "Imagen: добавьте Google API ключ в Админке → API Ключи."}
     prompt = _last_text(messages)
-    if not prompt and not extra.get("image_url"):
-        return {"type": "text", "content": "Опишите изображение или загрузите фото-референс."}
+    if not prompt:
+        return {"type": "text", "content": "Опишите изображение в сообщении чата."}
 
     params = {"sampleCount": int(extra.get("sample_count", 1))}
     # Aspect ratio mapping

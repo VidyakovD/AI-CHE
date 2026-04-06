@@ -11,7 +11,8 @@ from db import SessionLocal, engine
 import models
 from models import (User, Message, Subscription, Transaction, VerifyToken,
                     Solution, SolutionCategory, SolutionStep, SolutionRun,
-                    SiteProject, SiteTemplate, PresentationProject, PresentationTemplate)
+                    SiteProject, SiteTemplate, PresentationProject, PresentationTemplate,
+                    SupportRequest)
 from auth import (hash_password, verify_password, create_token, decode_token,
                   generate_code, VERIFY_TTL_MINUTES)
 from ai import generate_response, get_token_cost, resolve_model
@@ -57,6 +58,8 @@ def current_user(authorization: str = Header(None), db: Session = Depends(get_db
     user = db.query(User).filter_by(id=int(payload["sub"])).first()
     if not user:
         raise HTTPException(401, "User not found")
+    if getattr(user, 'is_banned', False):
+        raise HTTPException(403, "Аккаунт заблокирован. Обратитесь в поддержку.")
     return user
 
 def optional_user(authorization: str = Header(None), db: Session = Depends(get_db)):
@@ -65,14 +68,18 @@ def optional_user(authorization: str = Header(None), db: Session = Depends(get_d
     payload = decode_token(authorization[7:])
     if not payload:
         return None
-    return db.query(User).filter_by(id=int(payload["sub"])).first()
+    user = db.query(User).filter_by(id=int(payload["sub"])).first()
+    if user and getattr(user, 'is_banned', False):
+        return None
+    return user
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
 def _user_dict(u):
     return {"id": u.id, "email": u.email, "name": u.name,
             "avatar_url": u.avatar_url, "tokens_balance": u.tokens_balance,
-            "is_verified": u.is_verified, "referral_code": u.referral_code,
+            "is_verified": u.is_verified, "is_banned": getattr(u, 'is_banned', False),
+            "referral_code": u.referral_code,
             "created_at": u.created_at.isoformat() if u.created_at else None}
 
 def _sub_dict(s):
@@ -310,7 +317,15 @@ def cabinet_stats(user: User = Depends(current_user), db: Session = Depends(get_
     model_usage = {}
     for m, t in usage:
         model_usage[m] = model_usage.get(m, 0) + (t or 0)
-    return {"user": _user_dict(db_user),
+    reqs = db.query(SupportRequest).filter_by(user_id=user.id)\
+             .order_by(SupportRequest.created_at.desc()).all()
+    u = _user_dict(db_user)
+    u["support_requests"] = [
+        {"id": r.id, "type": r.type, "description": r.description,
+         "status": r.status, "admin_response": r.admin_response,
+         "created_at": r.created_at.isoformat(), "updated_at": r.updated_at.isoformat() if r.updated_at else None}
+        for r in reqs]
+    return {"user": u,
             "subscription": _sub_dict(sub) if sub else None,
             "transactions": [_tx_dict(t) for t in txs],
             "model_usage": model_usage}
@@ -333,7 +348,7 @@ class BuyPlanRequest(BaseModel):
 def payment_create(req: BuyPlanRequest, user: User = Depends(current_user)):
     if not user.is_verified: raise HTTPException(403, "Подтвердите email для оплаты")
     if req.plan not in PLANS: raise HTTPException(400, f"Неизвестный план: {req.plan}")
-    try: return create_payment(req.plan, user.id, req.return_url)
+    try: return create_payment(req.plan, user.id, req.return_url, user.email)
     except Exception as e: raise HTTPException(500, f"Ошибка платежа: {e}")
 
 @app.get("/payment/confirm/{payment_id}")
@@ -489,7 +504,7 @@ def buy_tokens(req: BuyTokenRequest, user: User = Depends(current_user),
         from yookassa import Payment as YKP
         from uuid import uuid4 as _uuid
 
-        p = YKP.create({
+        payment_data = {
             "amount": {"value": str(float(pkg.price_rub)), "currency": "RUB"},
             "confirmation": {"type": "redirect", "return_url": req.return_url},
             "capture": True,
@@ -499,7 +514,19 @@ def buy_tokens(req: BuyTokenRequest, user: User = Depends(current_user),
                 "type": "tokens",
                 "package_id": str(pkg.id),
             },
-        }, str(uuid.uuid4()))
+        }
+        # Электронный чек (54-ФЗ)
+        if user.email:
+            payment_data["receipt"] = {
+                "customer_email": user.email,
+                "items": [{
+                    "description": f"Пакет токенов: {pkg.name}",
+                    "quantity": "1",
+                    "amount": {"value": str(float(pkg.price_rub)), "currency": "RUB"},
+                    "vat_code": "1",
+                }],
+            }
+        p = YKP.create(payment_data, str(uuid.uuid4()))
         return {
             "payment_id": p.id,
             "confirmation_url": p.confirmation.confirmation_url,
@@ -507,6 +534,56 @@ def buy_tokens(req: BuyTokenRequest, user: User = Depends(current_user),
         }
     except Exception as e:
         raise HTTPException(500, f"Ошибка платежа: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# USER — отмена подписки, обращения (оферта п. 4.4, 6.2, 11.4)
+# ═══════════════════════════════════════════════════════════════════════════════
+from models import SupportRequest
+
+@app.post("/user/subscription/cancel")
+def cancel_subscription(user: User = Depends(current_user),
+                        db: Session = Depends(get_db)):
+    """Отмена подписки (п. 4.4 оферты). Доступ сохраняется до конца периода."""
+    sub = db.query(Subscription).filter_by(user_id=user.id, status="active")\
+            .order_by(Subscription.id.desc()).first()
+    if not sub:
+        raise HTTPException(404, "Активная подписка не найдена")
+    sub.status = "cancelled"
+    db.add(sub)
+    db.commit()
+    return {"status": "cancelled", "subscription": _sub_dict(sub)}
+
+
+class SupportRequestRequest(BaseModel):
+    type: str          # refund / delete_data / complaint
+    description: str
+
+@app.post("/user/support/refund")
+def create_refund_request(body: SupportRequestRequest,
+                          user: User = Depends(current_user),
+                          db: Session = Depends(get_db)):
+    """Заявка на возврат средств (п. 6.2 — 14 календарных дней)."""
+    req = SupportRequest(user_id=user.id, type="refund", description=body.description)
+    db.add(req); db.commit(); db.refresh(req)
+    return {"id": req.id, "status": "open", "message": "Заявка принята. Срок рассмотрения — 10 рабочих дней."}
+
+@app.post("/user/support/delete-data")
+def create_delete_data_request(body: SupportRequestRequest,
+                               user: User = Depends(current_user),
+                               db: Session = Depends(get_db)):
+    """Запрос на удаление персональных данных (п. 11.4 — 30 дней)."""
+    req = SupportRequest(user_id=user.id, type="delete_data", description=body.description)
+    db.add(req); db.commit(); db.refresh(req)
+    return {"id": req.id, "status": "open", "message": "Запрос принят. Данные будут удалены в течение 30 дней."}
+
+@app.get("/user/support/requests")
+def list_support_requests(user: User = Depends(current_user),
+                          db: Session = Depends(get_db)):
+    return [{"id": r.id, "type": r.type, "description": r.description,
+             "status": r.status, "admin_response": r.admin_response,
+             "created_at": r.created_at.isoformat(), "updated_at": r.updated_at.isoformat() if r.updated_at else None}
+            for r in db.query(SupportRequest).filter_by(user_id=user.id).order_by(SupportRequest.created_at.desc()).all()]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SOLUTIONS — публичные эндпоинты
@@ -1119,9 +1196,8 @@ def _rebuild_env_keys(provider: str, db: Session):
     ENV_MAP = {
         "openai":         "OPENAI_API_KEYS",
         "anthropic":      "ANTHROPIC_API_KEYS",
+        "google":         "GOOGLE_API_KEYS",   # unified: gemini/veo/nano/imagen
         "gemini":         "GOOGLE_API_KEYS",
-        "perplexity":     "PERPLEXITY_API_KEYS",
-        "kling":          "KLING_API_KEYS",
         "veo":            "GOOGLE_API_KEYS",     # shared with gemini/nano
         "nano":           "GOOGLE_API_KEYS",     # shared with gemini/veo
         "grok":           "GROK_API_KEYS",
@@ -1181,6 +1257,44 @@ def admin_adjust_balance(user_id: int, body: dict,
                        tokens_delta=delta, description=reason))
     db.commit()
     return {"tokens_balance": target.tokens_balance}
+
+@app.post("/admin/users/{user_id}/toggle-ban")
+def admin_toggle_ban(user_id: int, body: dict,
+                     user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    """Бан / разбан пользователя (п. 10.1 оферты)."""
+    require_admin(user)
+    target = db.query(User).filter_by(id=user_id).first()
+    if not target: raise HTTPException(404)
+    target.is_banned = not target.is_banned
+    db.commit()
+    return {"user_id": target.id, "is_banned": target.is_banned}
+
+# ── Admin: Support Requests ──────────────────────────────────────────────────
+
+@app.get("/admin/support-requests")
+def admin_list_support_requests(user: User = Depends(current_user),
+                                 db: Session = Depends(get_db)):
+    require_admin(user)
+    requests = db.query(SupportRequest).order_by(SupportRequest.created_at.desc()).all()
+    return [{"id": r.id, "user_id": r.user_id, "type": r.type,
+             "description": r.description, "status": r.status,
+             "admin_response": r.admin_response,
+             "created_at": r.created_at.isoformat(),
+             "updated_at": r.updated_at.isoformat() if r.updated_at else None}
+            for r in requests]
+
+@app.post("/admin/support-requests/{request_id}")
+def admin_respond_support(request_id: int, body: dict,
+                           user: User = Depends(current_user),
+                           db: Session = Depends(get_db)):
+    require_admin(user)
+    req = db.query(SupportRequest).filter_by(id=request_id).first()
+    if not req: raise HTTPException(404)
+    if body.get("status"): req.status = body["status"]
+    if body.get("admin_response"): req.admin_response = body["admin_response"]
+    db.commit(); db.refresh(req)
+    return {"id": req.id, "status": req.status, "admin_response": req.admin_response}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PRICING — публичные + admin
@@ -1433,13 +1547,24 @@ def buy_tokens(req: BuyPackageRequest, user: User = Depends(current_user),
     try:
         from yookassa import Configuration, Payment as YKP
         import uuid as _uuid
-        p = YKP.create({
+        payment_data = {
             "amount": {"value": str(float(pkg.price_rub)), "currency": "RUB"},
             "confirmation": {"type": "redirect", "return_url": req.return_url},
             "capture": True,
             "description": f"AI Студия Че — {pkg.name} ({pkg.tokens//1000}к CH)",
             "metadata": {"user_id": user.id, "package_id": pkg.id, "type": "tokens"},
-        }, str(_uuid.uuid4()))
+        }
+        if user.email:
+            payment_data["receipt"] = {
+                "customer_email": user.email,
+                "items": [{
+                    "description": f"Пакет токенов: {pkg.name}",
+                    "quantity": "1",
+                    "amount": {"value": str(float(pkg.price_rub)), "currency": "RUB"},
+                    "vat_code": "1",
+                }],
+            }
+        p = YKP.create(payment_data, str(_uuid.uuid4()))
         return {"payment_id": p.id, "confirmation_url": p.confirmation.confirmation_url}
     except Exception as e:
         raise HTTPException(500, f"Ошибка платежа: {e}")
