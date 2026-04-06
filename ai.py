@@ -50,17 +50,21 @@ def get_token_cost(model: str) -> int:
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def _image_to_base64(file_url: str) -> tuple[str, str]:
-    """Read image from disk by /uploads/... path, return (base64_data, media_type)."""
+def _file_to_base64(file_url: str) -> tuple[str, str]:
+    """Read any file from disk by /uploads/... path, return (base64_data, media_type)."""
     import mimetypes
     local_path = os.path.join(_BASE_DIR, file_url.lstrip("/"))
     try:
         with open(local_path, "rb") as f:
             data = f.read()
-        mime = mimetypes.guess_type(local_path)[0] or "image/jpeg"
+        mime = mimetypes.guess_type(local_path)[0] or "application/octet-stream"
         return base64.b64encode(data).decode(), mime
     except Exception as e:
-        raise RuntimeError(f"Failed to read image: {e}")
+        raise RuntimeError(f"Failed to read file: {e}")
+
+
+# backward compat
+_image_to_base64 = _file_to_base64
 
 
 # ── OpenAI ────────────────────────────────────────────────────────────────────
@@ -359,23 +363,58 @@ MODEL_REGISTRY = {
 
 
 # ── ANTHROPIC (Claude) ────────────────────────────────────────────────────────
+def _prepare_claude_content(content):
+    """Convert file_url dict to Claude-compatible content blocks."""
+    import mimetypes
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+
+    if isinstance(content, dict) and "file_url" in content:
+        file_url = content.get("file_url", "")
+        text = content.get("text", "")
+        try:
+            b64, mime = _file_to_base64(file_url)
+            is_pdf = mime == "application/pdf"
+            if is_pdf:
+                blocks = [{"type": "document",
+                           "source": {"type": "base64", "media_type": "application/pdf",
+                                      "data": b64}}]
+            else:
+                blocks = [{"type": "image",
+                           "source": {"type": "base64", "media_type": mime, "data": b64}}]
+            if text:
+                blocks = [{"type": "text", "text": text}] + blocks
+            return blocks
+        except Exception as e:
+            return [{"type": "text", "text": f"[Ошибка загрузки файла: {e}]"}]
+
+    if isinstance(content, dict):
+        return [{"type": "text", "text": str(content)}]
+    if isinstance(content, list):
+        return content
+    return [{"type": "text", "text": str(content)}]
+
+
 def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
     keys = _shuffle(_keys("ANTHROPIC_API_KEYS"))
     if not keys:
         _notify_admin("Anthropic: ANTHROPIC_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
     base_url = os.getenv("ANTHROPIC_BASE_URL")
+    system = next((m["content"] for m in messages if m["role"]=="system"), "Ты полезный ассистент.")
+    user_msgs = [m for m in messages if m["role"]!="system"]
+    # Convert messages to Claude-compatible content blocks
+    claude_msgs = []
+    for m in user_msgs:
+        claude_msgs.append({"role": m["role"], "content": _prepare_claude_content(m["content"])})
     for key in keys:
         try:
             if base_url:
-                # Use httpx for proxy/redirect (SDK doesn't work well with all proxies)
-                system = next((m["content"] for m in messages if m["role"]=="system"), "Ты полезный ассистент.")
-                user_msgs = [m for m in messages if m["role"]!="system"]
                 r = httpx.post(
                     f"{base_url.rstrip('/')}/v1/messages",
                     json={"model": model, "max_tokens": 1024, "stream": False,
-                          "system": system,
-                          "messages": [{"role":m["role"],"content":m["content"]} for m in user_msgs]},
+                          "system": system if isinstance(system, str) else "Ты полезный ассистент.",
+                          "messages": claude_msgs},
                     headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
                     timeout=120
                 )
@@ -385,14 +424,11 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
                 else:
                     raise RuntimeError(data.get("error", {}).get("message", str(data.get("error")))[:300])
             else:
-                # Official endpoint — use SDK
                 import anthropic as _ant
-                system = next((m["content"] for m in messages if m["role"]=="system"), "Ты полезный ассистент.")
-                user_msgs = [m for m in messages if m["role"]!="system"]
                 resp = _ant.Anthropic(api_key=key).messages.create(
                     model=model, max_tokens=1024,
-                    messages=[{"role":m["role"],"content":m["content"]} for m in user_msgs],
-                    system=system if system else "Ты полезный ассистент.",
+                    messages=claude_msgs,
+                    system=system if isinstance(system, str) else "Ты полезный ассистент.",
                 )
                 return {"type":"text","content":resp.content[0].text}
         except:

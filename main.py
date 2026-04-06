@@ -1016,7 +1016,7 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db),
 
 UPLOAD_MAX_IMAGE = 10 * 1024 * 1024   # 10 MB
 UPLOAD_MAX_VIDEO = 50 * 1024 * 1024   # 50 MB
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".tiff"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".tiff", ".pdf"}
 VIDEO_EXTS = {".mp4", ".webm", ".mov", ".avi", ".mkv"}
 
 @app.post("/upload")
