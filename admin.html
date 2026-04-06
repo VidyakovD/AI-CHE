@@ -170,6 +170,7 @@ select.inp option{background:#272018;color:#f0e6d8}
                 <option value="perplexity">Perplexity</option>
                 <option value="kling">Kling</option>
                 <option value="veo">Veo (Google)</option>
+                <option value="veo_project_id">Veo Project ID (Google Cloud)</option>
                 <option value="nano">Nano Banana</option>
                 <option value="yookassa">ЮKassa (формат: shop_id:secret_key)</option>
               </select>
@@ -641,7 +642,7 @@ async function doAdjustBalance(){
 const PROVIDER_LABELS={
   openai:"OpenAI",anthropic:"Anthropic",gemini:"Gemini (Google)",grok:"xAI / Grok",
   perplexity:"Perplexity",kling:"Kling AI",veo:"Veo (Google)",
-  nano:"Nano Banana",yookassa:"ЮKassa"
+  nano:"Nano Banana",veo_project_id:"Veo Project ID",yookassa:"ЮKassa"
 };
 
 async function loadApiKeys(){

@@ -936,7 +936,7 @@ def kling_status(task_id: str, user: User = Depends(current_user)):
 
 from models import ApiKey
 
-PROVIDERS_LIST = ["openai","anthropic","gemini","perplexity","kling","veo","nano","yookassa"]
+PROVIDERS_LIST = ["openai","anthropic","gemini","perplexity","kling","veo","nano","yookassa","veo_project_id"]
 
 class ApiKeyBody(BaseModel):
     provider: str
@@ -1054,14 +1054,15 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
 def _rebuild_env_keys(provider: str, db: Session):
     """Пересобирает env-переменную из БД ключей."""
     ENV_MAP = {
-        "openai":    "OPENAI_API_KEYS",
-        "anthropic": "ANTHROPIC_API_KEYS",
-        "gemini":    "GEMINI_API_KEYS",
-        "perplexity":"PERPLEXITY_API_KEYS",
-        "kling":     "KLING_API_KEYS",
-        "veo":       "VEO_API_KEYS",
-        "nano":      "NANO_API_KEYS",
-        "grok":      "GROK_API_KEYS",
+        "openai":         "OPENAI_API_KEYS",
+        "anthropic":      "ANTHROPIC_API_KEYS",
+        "gemini":         "GEMINI_API_KEYS",
+        "perplexity":     "PERPLEXITY_API_KEYS",
+        "kling":          "KLING_API_KEYS",
+        "veo":            "VEO_API_KEYS",
+        "nano":           "NANO_API_KEYS",
+        "grok":           "GROK_API_KEYS",
+        "veo_project_id": "VEO_PROJECT_ID",
     }
     env_var = ENV_MAP.get(provider)
     if env_var:
