@@ -1390,11 +1390,10 @@ function clearAttachment(){pendingAttachment=null;document.getElementById("attac
 // ── send ───────────────────────────────────────────────────────────────────
 async function sendMessage(){
   const ta=document.getElementById("messageInput");
-  const text=ta.value.trim();
+  let text=ta.value.trim();
   if(!text&&!pendingAttachment)return;
   const btn=document.getElementById("sendBtn");
   btn.disabled=true;btn.classList.add("opacity-50","cursor-not-allowed");
-  const text=ta.value.trim();
   const att=pendingAttachment;
   clearAttachment();
   try{
