@@ -1148,11 +1148,10 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
             c.messages.create(model="claude-3-haiku-20240307",
                 max_tokens=1, messages=[{"role":"user","content":"hi"}])
             return "ok", None
-        elif provider in ("gemini", "nano", "veo", "google"):
-            # Google API ключ проверяем через Gemini endpoint (быстрый и бесплатный)
+        elif provider in ("gemini", "google", "nano", "veo"):
             import httpx
             r = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key_value}",
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key_value}",
                 json={"contents":[{"parts":[{"text":"hi"}]}]}, timeout=10)
             return ("ok", None) if r.status_code < 400 else ("error", f"HTTP {r.status_code}: {r.text[:100]}")
         elif provider == "perplexity":
