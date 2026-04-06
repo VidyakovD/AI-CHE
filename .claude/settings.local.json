@@ -9,7 +9,19 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(curl -s \"http://localhost:8000/chats/gpt\" --no-keepalive)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/index.html)",
-      "Bash(curl -s http://localhost:8000/chat/c5522860-5545-4cb2-af45-2e96c771b475)"
+      "Bash(curl -s http://localhost:8000/chat/c5522860-5545-4cb2-af45-2e96c771b475)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://aiche.ru/internal/deploy -X POST -H \"Authorization: Bearer test\")",
+      "Bash(git push:*)",
+      "Bash(python:*)",
+      "Bash(git commit:*)",
+      "Bash(ssh:*)",
+      "Bash(git status:*)",
+      "WebFetch(domain:yookassa.ru)",
+      "Bash(python3 -c \"import main\")",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebSearch"
     ]
   }
 }

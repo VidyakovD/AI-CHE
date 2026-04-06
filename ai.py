@@ -231,7 +231,8 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
         return {"type": "text", "content": str(data)}
 
     except Exception as e:
-        return {"type": "text", "content": f"[Kling] Ошибка: {e}"}
+        _notify_admin(f"Kling ошибка: {e}")
+        return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
 
 def veo_response(model: str, messages: list, extra: dict = None) -> dict:
@@ -280,7 +281,7 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
         except Exception as e:
             last_error = e
             continue
-    return {"type": "text", "content": f"[Veo] Ошибка: {last_error}"}
+    return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
 
 # ── NanoBanana ────────────────────────────────────────────────────────────────
@@ -303,17 +304,22 @@ def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
     if ar in ar_map:
         params["aspectRatio"] = ar_map[ar]
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={keys[0]}"
     payload = {"instances": [{"prompt": prompt or ""}], "parameters": params}
-    try:
-        resp = httpx.post(url, json=payload, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
-        b64 = data["predictions"][0]["bytesBase64Encoded"]
-        mime = data["predictions"][0].get("mimeType", "image/png")
-        return {"type": "image", "content": f"data:{mime};base64,{b64}"}
-    except Exception as e:
-        return {"type": "text", "content": f"Imagen ошибка: {e}"}
+    for key in keys:
+        try:
+            resp = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={key}",
+                json=payload, timeout=60
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            b64 = data["predictions"][0]["bytesBase64Encoded"]
+            mime = data["predictions"][0].get("mimeType", "image/png")
+            return {"type": "image", "content": f"data:{mime};base64,{b64}"}
+        except:
+            if key == keys[-1]:
+                _notify_admin(f"Nano Banana: все ключи исчерпаны")
+                return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -360,16 +366,18 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
     system = next((m["content"] for m in messages if m["role"]=="system"), "Ты полезный ассистент.")
     user_msgs = [m for m in messages if m["role"]!="system"]
-    try:
-        import anthropic as _ant
-        client = _ant.Anthropic(api_key=keys[0])
-        resp = client.messages.create(
-            model=model, max_tokens=1024, system=system,
-            messages=[{"role":m["role"],"content":m["content"]} for m in user_msgs]
-        )
-        return {"type":"text","content":resp.content[0].text}
-    except Exception as e:
-        return {"type":"text","content":f"[Claude] Ошибка: {e}"}
+    import anthropic as _ant
+    for key in keys:
+        try:
+            resp = _ant.Anthropic(api_key=key).messages.create(
+                model=model, max_tokens=1024, system=system,
+                messages=[{"role":m["role"],"content":m["content"]} for m in user_msgs]
+            )
+            return {"type":"text","content":resp.content[0].text}
+        except:
+            if key == keys[-1]:
+                _notify_admin(f"Anthropic: все ключи исчерпаны (модель {model})")
+                return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
 
 # ── GEMINI ────────────────────────────────────────────────────────────────────
 def gemini_response(model: str, messages: list, extra: dict = None) -> dict:
@@ -378,18 +386,20 @@ def gemini_response(model: str, messages: list, extra: dict = None) -> dict:
         _notify_admin("Gemini: GOOGLE_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
     prompt = _last_text(messages)
-    try:
-        import httpx
-        resp = httpx.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={keys[0]}",
-            json={"contents":[{"parts":[{"text":prompt}]}]},
-            timeout=30
-        )
-        data = resp.json()
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
-        return {"type":"text","content":text}
-    except Exception as e:
-        return {"type":"text","content":f"[Gemini] Ошибка: {e}"}
+    for key in keys:
+        try:
+            resp = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
+                json={"contents":[{"parts":[{"text":prompt}]}]},
+                timeout=30
+            )
+            data = resp.json()
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+            return {"type":"text","content":text}
+        except:
+            if key == keys[-1]:
+                _notify_admin(f"Gemini: все ключи исчерпаны (модель {model})")
+                return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
 
 # ── GROK (xAI) ───────────────────────────────────────────────────────────────
 def grok_response(model: str, messages: list, extra: dict = None) -> dict:
@@ -397,13 +407,16 @@ def grok_response(model: str, messages: list, extra: dict = None) -> dict:
     if not keys:
         _notify_admin("Grok: GROK_API_KEYS пуст")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=keys[0], base_url="https://api.x.ai/v1")
-        resp = client.chat.completions.create(model=model, messages=messages)
-        return {"type": "text", "content": resp.choices[0].message.content}
-    except Exception as e:
-        return {"type": "text", "content": f"[Grok] Ошибка: {e}"}
+    from openai import OpenAI
+    for key in keys:
+        try:
+            client = OpenAI(api_key=key, base_url="https://api.x.ai/v1")
+            resp = client.chat.completions.create(model=model, messages=messages)
+            return {"type": "text", "content": resp.choices[0].message.content}
+        except:
+            if key == keys[-1]:
+                _notify_admin(f"Grok: все ключи исчерпаны (модель {model})")
+                return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
 # ── PERPLEXITY ────────────────────────────────────────────────────────────────
 def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
@@ -411,13 +424,16 @@ def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
     if not keys:
         _notify_admin("Perplexity: PERPLEXITY_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=keys[0], base_url="https://api.perplexity.ai")
-        resp = client.chat.completions.create(model=model or "sonar-small-chat", messages=messages)
-        return {"type":"text","content":resp.choices[0].message.content}
-    except Exception as e:
-        return {"type":"text","content":f"[Perplexity] Ошибка: {e}"}
+    from openai import OpenAI
+    for key in keys:
+        try:
+            client = OpenAI(api_key=key, base_url="https://api.perplexity.ai")
+            resp = client.chat.completions.create(model=model or "sonar-small-chat", messages=messages)
+            return {"type":"text","content":resp.choices[0].message.content}
+        except:
+            if key == keys[-1]:
+                _notify_admin(f"Perplexity: все ключи исчерпаны")
+                return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
 
 # ── OPENAI IMAGE (DALL-E) ─────────────────────────────────────────────────────
 def openai_image_response(model: str, messages: list, extra: dict = None) -> dict:
@@ -428,13 +444,16 @@ def openai_image_response(model: str, messages: list, extra: dict = None) -> dic
     prompt = _last_text(messages) or (extra or {}).get("prompt","")
     size   = (extra or {}).get("size","1024x1024")
     style  = (extra or {}).get("style","vivid")
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=keys[0])
-        resp = client.images.generate(model="dall-e-3", prompt=prompt, n=1, size=size, style=style)
-        return {"type":"image","url":resp.data[0].url,"content":resp.data[0].url}
-    except Exception as e:
-        return {"type":"text","content":f"[DALL-E] Ошибка: {e}"}
+    from openai import OpenAI
+    for key in keys:
+        try:
+            client = OpenAI(api_key=key)
+            resp = client.images.generate(model="dall-e-3", prompt=prompt, n=1, size=size, style=style)
+            return {"type":"image","url":resp.data[0].url,"content":resp.data[0].url}
+        except:
+            if key == keys[-1]:
+                _notify_admin(f"DALL-E: все ключи исчерпаны")
+                return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
 
 
 PROVIDERS = {
@@ -469,4 +488,5 @@ def generate_response(model: str, messages: list, extra: dict = None) -> dict:
             return handler(real, messages, extra or {})
         return handler(real, messages)
     except Exception as e:
-        return {"type": "text", "content": f"Ошибка: {e}"}
+        _notify_admin(f"{cfg['provider']} ({real}): {e}")
+        return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
