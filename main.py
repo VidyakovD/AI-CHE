@@ -1143,8 +1143,13 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
                 messages=[{"role":"user","content":"hi"}], max_tokens=1)
             return "ok", None
         elif provider == "anthropic":
+            import os
             import anthropic as _ant
-            c = _ant.Anthropic(api_key=key_value)
+            base_url = os.getenv("ANTHROPIC_BASE_URL")
+            kwargs = {"api_key": key_value}
+            if base_url:
+                kwargs["base_url"] = base_url
+            c = _ant.Anthropic(**kwargs)
             c.messages.create(model="claude-3-haiku-20240307",
                 max_tokens=1, messages=[{"role":"user","content":"hi"}])
             return "ok", None
@@ -1234,7 +1239,7 @@ def _load_all_apikeys_from_db():
             _rebuild_env_keys(provider, db)
         # TG bot settings for error notifications
         for setting in db.query(PricingSetting).filter(
-            PricingSetting.key.in_(["tg_bot_token", "tg_admin_chat_id"])
+            PricingSetting.key.in_(["tg_bot_token", "tg_admin_chat_id", "anthropic_base_url"])
         ).all():
             os.environ[setting.key.upper()] = setting.value
     finally:
@@ -1339,6 +1344,7 @@ def _seed_pricing(db: Session):
             ("support_url",    "",     "Ссылка поддержки"),
             ("tg_bot_token",   "",     "Токен Telegram бота (для уведомлений об ошибках)"),
             ("tg_admin_chat_id","",     "Chat ID админа в Telegram (куда приходят уведомления)"),
+            ("anthropic_base_url","",   "Базовый URL для Anthropic API (если используете прокси, напр. https://api.aws-us-east-3.com)"),
         ]:
             db.add(PricingSetting(key=k, value=v, description=d))
     if db.query(TokenPackage).count() == 0:
