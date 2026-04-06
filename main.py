@@ -1064,7 +1064,7 @@ def kling_status(task_id: str, user: User = Depends(current_user)):
 
 from models import ApiKey
 
-PROVIDERS_LIST = ["openai","anthropic","gemini","perplexity","kling","google","veo_project_id","grok","yookassa"]
+PROVIDERS_LIST = ["openai","anthropic","gemini","perplexity","kling","google","veo_project_id","grok","yookassa","youtube"]
 
 class ApiKeyBody(BaseModel):
     provider: str
@@ -1186,6 +1186,10 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
             YKConf.account_id = shop_id.strip()
             YKConf.secret_key = secret.strip()
             return "ok", None
+        elif provider == "youtube":
+            import httpx
+            r = httpx.get(f"https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true&key={key_value}", timeout=10)
+            return ("ok", None) if r.status_code == 200 else ("error", f"HTTP {r.status_code}: {r.text[:100]}")
         else:
             return "unknown", "Проверка не реализована"
     except Exception as e:
@@ -1198,15 +1202,20 @@ def _rebuild_env_keys(provider: str, db: Session):
         "anthropic":      "ANTHROPIC_API_KEYS",
         "google":         "GOOGLE_API_KEYS",   # unified: gemini/veo/nano/imagen
         "gemini":         "GOOGLE_API_KEYS",
-        "veo":            "GOOGLE_API_KEYS",     # shared with gemini/nano
-        "nano":           "GOOGLE_API_KEYS",     # shared with gemini/veo
+        "nano":           "GOOGLE_API_KEYS",
+        "veo":            "GOOGLE_API_KEYS",
         "grok":           "GROK_API_KEYS",
         "veo_project_id": "VEO_PROJECT_ID",
+        "youtube":        "YOUTUBE_API_KEYS",
     }
     env_var = ENV_MAP.get(provider)
     if env_var:
-        keys = db.query(ApiKey).filter_by(provider=provider).all()
-        value = ",".join(k.key_value for k in keys)
+        # Для GOOGLE_API_KEYS собираем ВСЕ google-совместимые ключи (gemini+google+nano+veo)
+        if env_var == "GOOGLE_API_KEYS":
+            all_keys = db.query(ApiKey).filter(ApiKey.provider.in_(["gemini","google","nano","veo"])).all()
+        else:
+            all_keys = db.query(ApiKey).filter_by(provider=provider).all()
+        value = ",".join(k.key_value for k in all_keys)
         os.environ[env_var] = value
 
     # YooKassa: ключ хранится как "shop_id:secret_key"
