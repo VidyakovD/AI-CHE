@@ -364,20 +364,37 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
     if not keys:
         _notify_admin("Anthropic: ANTHROPIC_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
-    system = next((m["content"] for m in messages if m["role"]=="system"), "Ты полезный ассистент.")
-    user_msgs = [m for m in messages if m["role"]!="system"]
-    import anthropic as _ant
     base_url = os.getenv("ANTHROPIC_BASE_URL")
     for key in keys:
         try:
-            kwargs = {"api_key": key}
             if base_url:
-                kwargs["base_url"] = base_url
-            resp = _ant.Anthropic(**kwargs).messages.create(
-                model=model, max_tokens=1024, system=system,
-                messages=[{"role":m["role"],"content":m["content"]} for m in user_msgs]
-            )
-            return {"type":"text","content":resp.content[0].text}
+                # Use httpx for proxy/redirect (SDK doesn't work well with all proxies)
+                system = next((m["content"] for m in messages if m["role"]=="system"), "Ты полезный ассистент.")
+                user_msgs = [m for m in messages if m["role"]!="system"]
+                r = httpx.post(
+                    f"{base_url.rstrip('/')}/v1/messages",
+                    json={"model": model, "max_tokens": 1024, "stream": False,
+                          "system": system,
+                          "messages": [{"role":m["role"],"content":m["content"]} for m in user_msgs]},
+                    headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+                    timeout=120
+                )
+                data = r.json()
+                if data.get("content"):
+                    return {"type":"text","content":data["content"][0]["text"]}
+                else:
+                    raise RuntimeError(data.get("error", {}).get("message", str(data.get("error")))[:300])
+            else:
+                # Official endpoint — use SDK
+                import anthropic as _ant
+                system = next((m["content"] for m in messages if m["role"]=="system"), "Ты полезный ассистент.")
+                user_msgs = [m for m in messages if m["role"]!="system"]
+                resp = _ant.Anthropic(api_key=key).messages.create(
+                    model=model, max_tokens=1024,
+                    messages=[{"role":m["role"],"content":m["content"]} for m in user_msgs],
+                    system=system if system else "Ты полезный ассистент.",
+                )
+                return {"type":"text","content":resp.content[0].text}
         except:
             if key == keys[-1]:
                 _notify_admin(f"Anthropic: все ключи исчерпаны (модель {model})")
