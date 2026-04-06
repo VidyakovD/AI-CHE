@@ -223,16 +223,16 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
       prompt, aspect_ratio (16:9|9:16|1:1), duration_seconds (5-8),
       sample_count (1-4), enhance_prompt (bool)
     """
-    keys = _shuffle(_keys("VEO_API_KEYS"))
+    keys = _shuffle(_keys("GOOGLE_API_KEYS"))
     project_id = os.getenv("VEO_PROJECT_ID", "")
     extra = extra or {}
 
     if not keys:
-        return {"type": "text", "content": "[Veo] Нет API ключей. Добавьте ключ в Админке → API Ключи."}
+        return {"type": "text", "content": "[Veo] Нет API ключей. Добавьте ключ Google API в Админке → API Ключи."}
     if not project_id:
-        return {"type": "text", "content": "[Veo] Не задан Project ID. Добавьте ключ типа 'Veo Project ID' в Админке → API Ключи."}
+        return {"type": "text", "content": "[Veo] Не задан Project ID. Добавьте ключ типа 'Veo Project ID (Google Cloud)' в Админке → API Ключи."}
 
-    prompt = extra.get("prompt") or _last_text(messages)
+    prompt = extra.get("prompt") or _last_text(messages) or ""
     payload = {
         "instances": [{"prompt": prompt}],
         "parameters": {
@@ -268,7 +268,7 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
 
 def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
     """Google Imagen 3 — генерация изображений."""
-    keys = _shuffle(_keys("NANO_API_KEYS"))
+    keys = _shuffle(_keys("GOOGLE_API_KEYS"))
     extra = extra or {}
     if not keys:
         return {"type": "text", "content": "Imagen: добавьте Google API ключ в Админке → API Ключи."}
@@ -352,7 +352,7 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
 
 # ── GEMINI ────────────────────────────────────────────────────────────────────
 def gemini_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_keys("GEMINI_API_KEYS"))
+    keys = _shuffle(_keys("GOOGLE_API_KEYS"))
     if not keys:
         return {"type":"text","content":"[Gemini] Нет API ключей"}
     prompt = _last_text(messages)

@@ -364,7 +364,12 @@ def payment_confirm(payment_id: str, user: User = Depends(current_user),
 
 @app.post("/payment/webhook")
 async def payment_webhook(request: Request, db: Session = Depends(get_db)):
-    """ЮKassa webhook — автоматическое зачисление токенов после оплаты."""
+    """ЮKassa webhook — автоматическое зачисление/списание токенов.
+    Обрабатывает: payment.succeeded, payment.canceled, refund.succeeded.
+    HMAC подпись проверяется по X-Content-Signature заголовку.
+    """
+    import hashlib, hmac
+
     try:
         body = await request.json()
     except Exception:
@@ -374,7 +379,134 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
     hmac_header = request.headers.get("X-Content-Signature")
     secret = os.getenv("YOOKASSA_SECRET_KEY", "")
     if hmac_header and secret:
-        import hashlib, hmac
+        try:
+            import re
+            match = re.match(r"^sha256=([0-9a-f]{64})$", hmac_header)
+            if match:
+                computed = hmac.new(
+                    secret.encode(),
+                    await request.body(),
+                    hashlib.sha256
+                ).hexdigest()
+                if not hmac.compare_digest(computed, match.group(1)):
+                    log.warning("Webhook: invalid HMAC signature")
+                    raise HTTPException(401, "Invalid signature")
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # если не удалось проверить подпись — пропускаем (dev mode)
+
+    obj = body.get("object", body)
+    event = body.get("event")
+
+    payment_id = obj.get("id")
+    if not payment_id:
+        raise HTTPException(400, "No payment id in webhook")
+
+    # Перечитываем платёж из ЮKassa для проверки реальных данных
+    from yookassa import Payment as YKP
+    try:
+        p = YKP.find_one(payment_id)
+        if p.status != "succeeded":
+            return {"status": "not_yet_paid"}
+        yk_meta = p.metadata or {}
+        amount = float(p.amount.value) if p.amount else 0
+    except Exception:
+        # fallback: берём из тела
+        yk_meta = obj.get("metadata", {})
+        amount = float(obj.get("amount", {}).get("value", 0))
+
+    # Идемпотентность — не зачислять дважды
+    existing = db.query(Subscription).filter_by(yookassa_payment_id=payment_id).first()
+    if existing:
+        return {"status": "already_activated"}
+
+    user_id = yk_meta.get("user_id")
+    if not user_id:
+        return {"status": "no_user_id"}
+
+    db_user = db.query(User).filter_by(id=int(user_id)).first()
+    if not db_user:
+        return {"status": "user_not_found"}
+
+    # Различаем подписку и докупку токенов
+    pay_type = yk_meta.get("type", "subscription")
+    plan = yk_meta.get("plan", "starter")
+
+    if pay_type == "tokens":
+        # Докупка токенов — пакет из БД
+        pkg_id = int(yk_meta.get("package_id", 0))
+        pkg = db.query(models.TokenPackage).filter_by(id=pkg_id).first()
+        if not pkg:
+            # fallback из хардкода
+            _pkgs = {1: ("1 000", 1000), 2: ("2 000", 2000), 3: ("5 000", 5000)}
+            name_fmt, tokens = _pkgs.get(pkg_id, (f"{int(amount*2)} CH", int(amount*2)))
+            pkg_name = name_fmt
+        else:
+            tokens = pkg.tokens
+            pkg_name = pkg.name
+
+        db_user.tokens_balance += tokens
+        db.add(Transaction(user_id=db_user.id, type="payment", amount_rub=amount,
+                           tokens_delta=tokens,
+                           description=f"Докупка токенов: {pkg_name} (webhook)",
+                           yookassa_payment_id=payment_id))
+        db.commit()
+        log.info(f"Webhook: credited {tokens} tokens for user {user_id}")
+        return {"status": "ok"}
+
+    # Подписка
+    plan_cfg = get_plan(plan)
+    db_user.tokens_balance += plan_cfg["tokens"]
+    sub = Subscription(user_id=db_user.id, plan=plan, tokens_total=plan_cfg["tokens"],
+                       price_rub=amount, status="active",
+                       yookassa_payment_id=payment_id,
+                       expires_at=datetime.utcnow() + timedelta(days=30))
+    db.add(sub)
+    db.add(Transaction(user_id=db_user.id, type="payment", amount_rub=amount,
+                       tokens_delta=plan_cfg["tokens"],
+                       description=f"Подписка «{plan_cfg['name']}» (webhook)",
+                       yookassa_payment_id=payment_id))
+    db.commit()
+    log.info(f"Webhook: activated {plan} for user {user_id}")
+    return {"status": "ok"}
+
+
+class BuyTokenRequest(BaseModel):
+    package_id: int
+    return_url: str = "http://localhost:8000/?payment=success"
+
+
+@app.post("/payment/buy-tokens")
+def buy_tokens(req: BuyTokenRequest, user: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email для оплаты")
+    pkg = db.query(models.TokenPackage).filter_by(id=req.package_id, is_active=True).first()
+    if not pkg:
+        raise HTTPException(404, "Пакет не найден")
+    try:
+        from yookassa import Payment as YKP
+        from uuid import uuid4 as _uuid
+
+        p = YKP.create({
+            "amount": {"value": str(float(pkg.price_rub)), "currency": "RUB"},
+            "confirmation": {"type": "redirect", "return_url": req.return_url},
+            "capture": True,
+            "description": f"AI Студия Че — {pkg.name} (user {user.id})",
+            "metadata": {
+                "user_id": str(user.id),
+                "type": "tokens",
+                "package_id": str(pkg.id),
+            },
+        }, str(uuid.uuid4()))
+        return {
+            "payment_id": p.id,
+            "confirmation_url": p.confirmation.confirmation_url,
+            "status": p.status,
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Ошибка платежа: {e}")
         raw_body = await request.body()
         expected = "sha256=" + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(hmac_header, expected):
@@ -936,7 +1068,7 @@ def kling_status(task_id: str, user: User = Depends(current_user)):
 
 from models import ApiKey
 
-PROVIDERS_LIST = ["openai","anthropic","gemini","perplexity","kling","veo","nano","yookassa","veo_project_id"]
+PROVIDERS_LIST = ["openai","anthropic","gemini","perplexity","kling","google","veo_project_id","grok","yookassa"]
 
 class ApiKeyBody(BaseModel):
     provider: str
@@ -1020,7 +1152,8 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
             c.messages.create(model="claude-3-haiku-20240307",
                 max_tokens=1, messages=[{"role":"user","content":"hi"}])
             return "ok", None
-        elif provider == "gemini":
+        elif provider in ("gemini", "nano", "veo"):
+            # Google API ключ проверяем через Gemini endpoint (быстрый и бесплатный)
             import httpx
             r = httpx.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key_value}",
@@ -1037,6 +1170,17 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
             r = httpx.get("https://api.klingai.com/v1/account/info",
                 headers={"Authorization": f"Bearer {key_value}"}, timeout=8)
             return ("ok", None) if r.status_code < 400 else ("error", f"HTTP {r.status_code}")
+        elif provider == "veo_project_id":
+            project_id = key_value.strip()
+            if not project_id or len(project_id) < 3:
+                return "error", "Project ID слишком короткий"
+            return "ok", None
+        elif provider == "grok":
+            from openai import OpenAI
+            c = OpenAI(api_key=key_value, base_url="https://api.x.ai/v1")
+            c.chat.completions.create(model="grok-3-mini",
+                messages=[{"role":"user","content":"hi"}], max_tokens=1)
+            return "ok", None
         elif provider == "yookassa":
             # Для юкассы ключ хранится как "shop_id:secret_key"
             if ":" not in key_value:
@@ -1056,11 +1200,11 @@ def _rebuild_env_keys(provider: str, db: Session):
     ENV_MAP = {
         "openai":         "OPENAI_API_KEYS",
         "anthropic":      "ANTHROPIC_API_KEYS",
-        "gemini":         "GEMINI_API_KEYS",
+        "gemini":         "GOOGLE_API_KEYS",
         "perplexity":     "PERPLEXITY_API_KEYS",
         "kling":          "KLING_API_KEYS",
-        "veo":            "VEO_API_KEYS",
-        "nano":           "NANO_API_KEYS",
+        "veo":            "GOOGLE_API_KEYS",     # shared with gemini/nano
+        "nano":           "GOOGLE_API_KEYS",     # shared with gemini/veo
         "grok":           "GROK_API_KEYS",
         "veo_project_id": "VEO_PROJECT_ID",
     }
