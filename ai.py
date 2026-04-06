@@ -10,6 +10,21 @@ def _keys(env): return [k.strip() for k in os.getenv(env, "").split(",") if k.st
 
 def _shuffle(lst): random.shuffle(lst); return lst
 
+
+def _notify_admin(error_msg: str):
+    """Отправляет ошибку в Telegram админу."""
+    token = os.getenv("TG_BOT_TOKEN")
+    chat_id = os.getenv("TG_ADMIN_CHAT_ID")
+    if not token or not chat_id:
+        return
+    try:
+        text = f"⚠️ AI-CHE Error\n\nОшибка: {error_msg}"
+        httpx.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                   json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+                   timeout=10)
+    except:
+        pass
+
 # ── token cost map (tokens per 1 request unit) ───────────────────────────────
 # used for balance deduction — adjust multipliers to your pricing
 TOKEN_COST = {
@@ -53,7 +68,8 @@ def _image_to_base64(file_url: str) -> tuple[str, str]:
 def openai_response(model: str, messages: list, extra: dict = None) -> dict:
     keys = _shuffle(_keys("OPENAI_API_KEYS"))
     if not keys:
-        return {"type": "text", "content": "Нет API ключей OpenAI"}
+        _notify_admin("OpenAI: OPENAI_API_KEYS пуст")
+        return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
     formatted = []
     for m in messages:
@@ -121,7 +137,8 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
     extra = extra or {}
 
     if not keys:
-        return {"type": "text", "content": "[Kling] Нет API ключей. Добавьте KLING_API_KEYS в .env"}
+        _notify_admin("Kling: KLING_API_KEYS пуст")
+        return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
     KLING_MODEL_MAP = {"kling": "kling-v1-6", "kling-pro": "kling-v1-6"}
     prompt    = extra.get("prompt") or _last_text(messages) or ""
@@ -228,9 +245,11 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
     extra = extra or {}
 
     if not keys:
-        return {"type": "text", "content": "[Veo] Нет API ключей. Добавьте ключ Google API в Админке → API Ключи."}
+        _notify_admin("Veo: GOOGLE_API_KEYS пуст")
+        return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
     if not project_id:
-        return {"type": "text", "content": "[Veo] Не задан Project ID. Добавьте ключ типа 'Veo Project ID (Google Cloud)' в Админке → API Ключи."}
+        _notify_admin("Veo: VEO_PROJECT_ID пуст")
+        return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
     prompt = extra.get("prompt") or _last_text(messages) or ""
     payload = {
@@ -271,7 +290,8 @@ def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
     keys = _shuffle(_keys("GOOGLE_API_KEYS"))
     extra = extra or {}
     if not keys:
-        return {"type": "text", "content": "Imagen: добавьте Google API ключ в Админке → API Ключи."}
+        _notify_admin("Nano Banana: GOOGLE_API_KEYS пуст")
+        return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
     prompt = _last_text(messages)
     if not prompt:
         return {"type": "text", "content": "Опишите изображение в сообщении чата."}
@@ -336,7 +356,8 @@ MODEL_REGISTRY = {
 def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
     keys = _shuffle(_keys("ANTHROPIC_API_KEYS"))
     if not keys:
-        return {"type":"text","content":"[Claude] Нет API ключей"}
+        _notify_admin("Anthropic: ANTHROPIC_API_KEYS пуст")
+        return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
     system = next((m["content"] for m in messages if m["role"]=="system"), "Ты полезный ассистент.")
     user_msgs = [m for m in messages if m["role"]!="system"]
     try:
@@ -354,7 +375,8 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
 def gemini_response(model: str, messages: list, extra: dict = None) -> dict:
     keys = _shuffle(_keys("GOOGLE_API_KEYS"))
     if not keys:
-        return {"type":"text","content":"[Gemini] Нет API ключей"}
+        _notify_admin("Gemini: GOOGLE_API_KEYS пуст")
+        return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
     prompt = _last_text(messages)
     try:
         import httpx
@@ -373,7 +395,8 @@ def gemini_response(model: str, messages: list, extra: dict = None) -> dict:
 def grok_response(model: str, messages: list, extra: dict = None) -> dict:
     keys = _shuffle(_keys("GROK_API_KEYS"))
     if not keys:
-        return {"type": "text", "content": "[Grok] Нет API ключей"}
+        _notify_admin("Grok: GROK_API_KEYS пуст")
+        return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
     try:
         from openai import OpenAI
         client = OpenAI(api_key=keys[0], base_url="https://api.x.ai/v1")
@@ -386,7 +409,8 @@ def grok_response(model: str, messages: list, extra: dict = None) -> dict:
 def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
     keys = _shuffle(_keys("PERPLEXITY_API_KEYS"))
     if not keys:
-        return {"type":"text","content":"[Perplexity] Нет API ключей"}
+        _notify_admin("Perplexity: PERPLEXITY_API_KEYS пуст")
+        return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
     try:
         from openai import OpenAI
         client = OpenAI(api_key=keys[0], base_url="https://api.perplexity.ai")
@@ -399,7 +423,8 @@ def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
 def openai_image_response(model: str, messages: list, extra: dict = None) -> dict:
     keys = _shuffle(_keys("OPENAI_API_KEYS"))
     if not keys:
-        return {"type":"text","content":"[DALL-E] Нет API ключей"}
+        _notify_admin("DALL-E: OPENAI_API_KEYS пуст")
+        return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
     prompt = _last_text(messages) or (extra or {}).get("prompt","")
     size   = (extra or {}).get("size","1024x1024")
     style  = (extra or {}).get("style","vivid")

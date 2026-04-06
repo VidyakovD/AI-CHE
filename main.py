@@ -1224,6 +1224,11 @@ def _load_all_apikeys_from_db():
     try:
         for provider in PROVIDERS_LIST:
             _rebuild_env_keys(provider, db)
+        # TG bot settings for error notifications
+        for setting in db.query(PricingSetting).filter(
+            PricingSetting.key.in_(["tg_bot_token", "tg_admin_chat_id"])
+        ).all():
+            os.environ[setting.key.upper()] = setting.value
     finally:
         db.close()
 
@@ -1324,6 +1329,8 @@ def _seed_pricing(db: Session):
             ("usd_to_rub",     "90",   "Курс доллара к рублю"),
             ("ch_to_rub",      "0.10", "Стоимость 1 CH в рублях"),
             ("support_url",    "",     "Ссылка поддержки"),
+            ("tg_bot_token",   "",     "Токен Telegram бота (для уведомлений об ошибках)"),
+            ("tg_admin_chat_id","",     "Chat ID админа в Telegram (куда приходят уведомления)"),
         ]:
             db.add(PricingSetting(key=k, value=v, description=d))
     if db.query(TokenPackage).count() == 0:

@@ -955,9 +955,11 @@ async function loadPricing(){
   // Global settings
   const gsGrid = document.getElementById("globalSettingsGrid");
   gsGrid.innerHTML = [
-    {key:"usd_to_rub", label:"Курс $ → ₽", val:settings.usd_to_rub, hint:"Обновите при изменении курса"},
-    {key:"ch_to_rub",  label:"Стоимость 1 CH (₽)", val:settings.ch_to_rub, hint:"Базовая стоимость токена"},
-    {key:"support_url",label:"Ссылка поддержки", val:settings.support_url, hint:"URL для кнопки поддержки"},
+    {key:"usd_to_rub",     label:"Курс $ → ₽", val:settings.usd_to_rub, hint:"Обновите при изменении курса", grid:"md:grid-cols-3"},
+    {key:"ch_to_rub",      label:"Стоимость 1 CH (₽)", val:settings.ch_to_rub, hint:"Базовая стоимость токена", grid:""},
+    {key:"support_url",    label:"Ссылка поддержки", val:settings.support_url, hint:"URL для кнопки поддержки", grid:""},
+    {key:"tg_bot_token",   label:"Токен Telegram бота", val:settings.tg_bot_token, hint:"Для уведомлений об ошибках (бот через BotFather)", grid:""},
+    {key:"tg_admin_chat_id",label:"Chat ID админа (TG)", val:settings.tg_admin_chat_id, hint:"Ваш ID — узнать у @userinfobot", grid:""},
   ].map(s=>`
     <div class="space-y-1">
       <label class="block text-[10px] text-on-dim uppercase tracking-wider">${s.label}</label>
