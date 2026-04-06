@@ -367,9 +367,13 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
     system = next((m["content"] for m in messages if m["role"]=="system"), "Ты полезный ассистент.")
     user_msgs = [m for m in messages if m["role"]!="system"]
     import anthropic as _ant
+    base_url = os.getenv("ANTHROPIC_BASE_URL")
     for key in keys:
         try:
-            resp = _ant.Anthropic(api_key=key).messages.create(
+            kwargs = {"api_key": key}
+            if base_url:
+                kwargs["base_url"] = base_url
+            resp = _ant.Anthropic(**kwargs).messages.create(
                 model=model, max_tokens=1024, system=system,
                 messages=[{"role":m["role"],"content":m["content"]} for m in user_msgs]
             )
