@@ -217,6 +217,8 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
         return {"type": "text", "content": f"[Kling] Ошибка: {e}"}
 
 
+VEO_PROJECT_ID = os.getenv("VEO_PROJECT_ID", "")
+
 def veo_response(model: str, messages: list, extra: dict = None) -> dict:
     """
     extra params:
@@ -228,6 +230,8 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
 
     if not keys:
         return {"type": "text", "content": "[Veo] Нет API ключей. Добавьте VEO_API_KEYS в .env"}
+    if not VEO_PROJECT_ID:
+        return {"type": "text", "content": "[Veo] Не задан VEO_PROJECT_ID. Укажите Google Cloud Project ID в .env или через админку."}
 
     prompt = extra.get("prompt") or _last_text(messages)
     payload = {
@@ -245,7 +249,7 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
         try:
             headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
             resp = httpx.post(
-                f"https://us-central1-aiplatform.googleapis.com/v1/projects/PROJECT_ID/locations/us-central1/publishers/google/models/{model}:predict",
+                f"https://us-central1-aiplatform.googleapis.com/v1/projects/{VEO_PROJECT_ID}/locations/us-central1/publishers/google/models/{model}:predict",
                 json=payload, headers=headers, timeout=60
             )
             resp.raise_for_status()
