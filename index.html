@@ -1493,8 +1493,9 @@ async function handleFileSelect(e){
   const isImg=file.type.startsWith("image/");
   const prev=buildPrev(file,isImg,null,true);showStrip(prev);
   const fd=new FormData();fd.append("file",file);
+  const hdrsU={};if(authToken)hdrsU["Authorization"]="Bearer "+authToken;
   try{
-    const r=await fetch(`${API}/upload`,{method:"POST",body:fd});
+    const r=await fetch(`${API}/upload`,{method:"POST",headers:hdrsU,body:fd});
     if(!r.ok)throw new Error();
     const d=await r.json();finishPrev(prev,d.url,isImg);
     pendingAttachment={url:d.url,name:file.name,isImg};
