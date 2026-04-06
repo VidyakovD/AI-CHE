@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Презентации и КП</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#0d0096","secondary":"#ddb7ff","bg":"#1C1C1C","surface":"#2A2A2A","surface2":"#333333","surface3":"#444444","on-surface":"#f0e6d8","on-dim":"#9a9a9a","outline":"#555555","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
+<style>
+body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:100vh}
+.sig{background:linear-gradient(135deg,#c0c1ff,#ddb7ff)}
+.sig-text{background:linear-gradient(135deg,#c0c1ff,#ddb7ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#333333;color:#f0e6d8;border:1px solid rgba(85,85,85,0.5);outline:none;font-size:13px;font-family:inherit;transition:border-color .2s}
+.inp:focus{border-color:#0d0096}
+.inp::placeholder{color:#9a9a9a}
+select.inp option{background:#333333;color:#f0e6d8}
+.btn-p{background:linear-gradient(135deg,#c0c1ff,#ddb7ff);color:#1C1C1C;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}
+.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{background:#333;color:#9a9a9a;border:1px solid rgba(85,85,85,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#c0c1ff}
+.btn-d{background:rgba(255,107,107,0.08);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer}
+.card{background:#2A2A2A;border:1.5px solid rgba(85,85,85,0.25);border-radius:16px}
+.project-card{cursor:pointer;transition:all .15s}
+.project-card:hover{border-color:rgba(192,193,255,0.4);transform:translateY(-1px)}
+/* Modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
+.modal-bg.show{display:flex}
+/* Status badges */
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:3px 10px;border-radius:9999px}
+.badge-draft{background:#555;color:#ccc}
+.badge-generated{background:rgba(59,130,246,0.15);color:#60a5fa}
+.badge-done{background:rgba(221,183,255,0.15);color:#ddb7ff}
+</style>
+</head>
+<body class="dark">
+
+<div class="max-w-6xl mx-auto px-5 py-8">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div class="flex items-center gap-4">
+      <a href="index.html" class="btn-g text-xs">← Назад</a>
+      <div>
+        <h1 class="text-2xl font-extrabold font-headline">Презентации и <span class="sig-text">КП</span></h1>
+        <p class="text-sm text-on-dim">Генерация коммерческих предложений и презентаций с помощью AI</p>
+      </div>
+    </div>
+    <button onclick="openCreate()" class="btn-p">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+      Создать
+    </button>
+  </div>
+
+  <!-- Status filter -->
+  <div class="flex gap-2 mb-4" id="statusFilters">
+    <button onclick="filterStatus='all';render()" class="badge badge-draft cursor-pointer hover:opacity-80" id="filter-all">Все</button>
+    <button onclick="filterStatus='draft';render()" class="badge badge-draft cursor-pointer hover:opacity-80" id="filter-draft">Черновик</button>
+    <button onclick="filterStatus='generated';render()" class="badge badge-generated cursor-pointer hover:opacity-80" id="filter-generated">Сгенерирован</button>
+    <button onclick="filterStatus='done';render()" class="badge badge-done cursor-pointer hover:opacity-80" id="filter-done">Готово</button>
+  </div>
+
+  <!-- Project grid -->
+  <div id="projectGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+
+  <!-- Empty state -->
+  <div id="emptyState" class="hidden text-center py-24">
+    <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="#1C1C1C"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6z"/></svg>
+    </div>
+    <h2 class="text-xl font-bold font-headline mb-2">Нет проектов</h2>
+    <p class="text-on-dim text-sm mb-6">Создайте первую презентацию или КП — выберите шаблон или начните с нуля</p>
+    <button onclick="openCreate()" class="btn-p">Создать первый проект</button>
+  </div>
+</div>
+
+<!-- ── Create Modal ── -->
+<div id="createModal" class="modal-bg">
+  <div class="bg-surface rounded-2xl w-full max-w-2xl border border-outline/25 shadow-2xl overflow-hidden">
+    <div class="sig px-6 py-4 flex items-center justify-between">
+      <h2 class="font-headline font-bold text-[#1C1C1C] text-lg" id="modalTitle">Новый проект</h2>
+      <button onclick="closeCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none">&#10005;</button>
+    </div>
+
+    <div class="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+      <!-- Project name -->
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Название проекта</label>
+        <input id="proj_name" type="text" placeholder="Например: КП для ООО «Ромашка»" class="inp"/>
+      </div>
+
+      <!-- Template selection -->
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Шаблон</label>
+        <select id="proj_template" class="inp" onchange="onTemplateChange()">
+          <option value="">С нуля</option>
+        </select>
+        <p class="text-[10px] text-on-dim/40 mt-1" id="tmplLoadMsg">Загрузка шаблонов...</p>
+      </div>
+
+      <!-- Template-specific dynamic fields -->
+      <div id="templateFields" class="hidden space-y-4"></div>
+
+      <!-- Brief description -->
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Описание</label>
+        <textarea id="proj_desc" rows="3" class="inp resize-none text-sm leading-relaxed"
+          placeholder="Опишите цель презентации, целевую аудиторию, ключевые сообщения..."></textarea>
+      </div>
+
+      <div id="proj_err" class="text-error text-xs hidden"></div>
+      <div class="flex gap-3 pt-2">
+        <button onclick="closeCreate()" class="btn-g flex-1">Отмена</button>
+        <button onclick="saveProject()" class="btn-p flex-1 justify-center">Создать проект</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Project Detail Modal ── -->
+<div id="detailModal" class="modal-bg">
+  <div class="bg-surface rounded-2xl w-full max-w-4xl border border-outline/25 shadow-2xl overflow-hidden">
+    <!-- Header -->
+    <div class="sig px-6 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="font-headline font-bold text-[#1C1C1C] text-lg" id="detailTitle">Проект</h2>
+        <p class="text-xs text-[#1C1C1C]/60" id="detailMeta"></p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="genBtn" onclick="generatePresentation(currentProjectId)" class="btn-p text-xs py-1.5 px-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2z"/></svg>
+          Сгенерировать
+        </button>
+        <button onclick="deleteCurrentProject()" class="btn-d text-xs py-1.5 px-3">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+        </button>
+        <button onclick="closeDetail()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none">&#10005;</button>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tab-bar" style="display:flex;border-bottom:1px solid rgba(85,85,85,0.3)">
+      <button class="tab-btn active" style="padding:10px 18px;font-size:13px;font-weight:600;color:#9a9a9a;cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;transition:all .15s" onclick="switchTab('input',this)">Входные данные</button>
+      <button class="tab-btn" style="padding:10px 18px;font-size:13px;font-weight:600;color:#9a9a9a;cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;transition:all .15s" onclick="switchTab('result',this)">Результат</button>
+    </div>
+
+    <!-- Tab 1: Input data -->
+    <div id="tab-input" class="tab-pane" style="display:block">
+      <div class="p-6">
+        <div id="inputEmpty" class="text-center py-8">
+          <p class="text-on-dim text-sm">Нет входных данных</p>
+        </div>
+        <div id="inputContent" class="hidden">
+          <div class="bg-surface2 rounded-xl p-5 border border-outline/20">
+            <pre id="inputText" class="text-sm leading-relaxed whitespace-pre-wrap text-on-surface font-mono"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Generated content -->
+    <div id="tab-result" class="tab-pane" style="display:none">
+      <div class="p-6 space-y-4">
+        <!-- Empty -->
+        <div id="resultEmpty" class="text-center py-8">
+          <p class="text-on-dim text-sm mb-4">Презентация ещё не сгенерирована</p>
+          <button onclick="generatePresentation(currentProjectId)" class="btn-p">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2z"/></svg>
+            Сгенерировать
+          </button>
+        </div>
+        <!-- Loading -->
+        <div id="resultLoading" class="hidden text-center py-8">
+          <div class="inline-flex items-center gap-3 text-on-dim">
+            <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-dasharray="31.4 31.4" stroke-dashoffset="10"/></svg>
+            Генерация презентации...
+          </div>
+        </div>
+        <!-- Content -->
+        <div id="resultContent" class="hidden">
+          <div class="bg-surface2 rounded-xl border border-outline/20 overflow-hidden mb-3">
+            <div class="flex items-center justify-between px-4 py-2 border-b border-outline/20">
+              <span class="text-xs text-on-dim">Сгенерированный контент</span>
+              <button onclick="copyContent(currentProjectId)" class="btn-g text-xs py-1 px-3">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                Копировать текст
+              </button>
+            </div>
+            <textarea id="resultText" class="w-full bg-transparent text-sm leading-relaxed text-on-surface font-mono resize-none p-4 outline-none" rows="20" spellcheck="false"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = localStorage.getItem('obs_api')||window.location.origin;
+const authToken = localStorage.getItem('obs_token');
+let projects = [];
+let templates = [];
+let currentProjectId = null;
+let filterStatus = 'all';
+let generating = {};
+
+// ── Auth headers helper ──
+function authHeaders(extra={}){
+  const h = {'Content-Type':'application/json',...extra};
+  if(authToken) h['Authorization'] = 'Bearer ' + authToken;
+  return h;
+}
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', async ()=>{
+  await loadTemplates();
+  await loadProjects();
+});
+
+// ── Templates ──
+async function loadTemplates(){
+  try{
+    const r = await fetch(`${API}/presentations/templates`,{headers:authHeaders()});
+    if(!r.ok) throw new Error('Failed');
+    templates = await r.json();
+    const sel = document.getElementById('proj_template');
+    templates.forEach(t=>{
+      const opt = document.createElement('option');
+      opt.value = t.id || t.name;
+      opt.textContent = t.name || t.title;
+      sel.appendChild(opt);
+    });
+    const msg = document.getElementById('tmplLoadMsg');
+    if(msg) msg.remove();
+  }catch(e){
+    const msg = document.getElementById('tmplLoadMsg');
+    if(msg){ msg.textContent = 'Не удалось загрузить шаблоны — создайте с нуля'; }
+  }
+}
+
+function onTemplateChange(){
+  const val = document.getElementById('proj_template').value;
+  const wrap = document.getElementById('templateFields');
+  if(!val){ wrap.classList.add('hidden'); wrap.innerHTML=''; return; }
+  const tmpl = templates.find(t=>(t.id||t.name)===val);
+  if(!tmpl){ wrap.classList.add('hidden'); return; }
+
+  // Determine fields from template config or use standard presentation fields
+  let fields = tmpl.fields || [];
+  if(!fields.length){
+    fields = [
+      {name:'company_name',label:'Название компании',type:'text',placeholder:'ООО «Название»'},
+      {name:'client_name',label:'Имя клиента / компании клиента',type:'text',placeholder:'АО «Клиент»'},
+      {name:'description',label:'Описание проекта / предложения',type:'textarea',placeholder:'Суть предложения...'},
+      {name:'price_list',label:'Прайс-лист / стоимость (структурированно)',type:'textarea',placeholder:'Услуга — цена\nУслуга 2 — цена'},
+      {name:'logo_url',label:'URL логотипа',type:'text',placeholder:'https://example.com/logo.png'},
+      {name:'contact_info',label:'Контактная информация',type:'text',placeholder:'Телефон, email, адрес'},
+    ];
+  }
+
+  wrap.classList.remove('hidden');
+  wrap.innerHTML = fields.map(f=>`
+    <div>
+      <label class="block text-xs text-on-dim mb-1">${f.label||f.name}${f.required?' *':''}</label>
+      ${f.type==='textarea'
+        ? `<textarea id="tmpl_${f.name}" rows="3" class="inp resize-none text-sm" placeholder="${f.placeholder||''}"></textarea>`
+        : f.type==='select'
+          ? `<select id="tmpl_${f.name}" class="inp">${(f.options||[]).map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select>`
+          : `<input id="tmpl_${f.name}" type="text" class="inp" placeholder="${f.placeholder||''}"/>`
+      }
+    </div>`).join('');
+}
+
+// ── Load / Render Projects ──
+async function loadProjects(){
+  try{
+    const r = await fetch(`${API}/presentations/projects`,{headers:authHeaders()});
+    if(!r.ok) throw new Error(r.statusText);
+    projects = await r.json();
+    render();
+  }catch(e){
+    projects = [];
+    render();
+  }
+}
+
+function render(){
+  const grid = document.getElementById('projectGrid');
+  const empty = document.getElementById('emptyState');
+  let list = projects;
+  if(filterStatus!=='all') list = list.filter(p=>p.status===filterStatus);
+
+  // Update filter buttons
+  ['all','draft','generated','done'].forEach(s=>{
+    const el = document.getElementById('filter-'+s);
+    if(el) el.style.outline = (filterStatus===s)?'2px solid #0d0096':'';
+  });
+
+  if(!list.length){
+    grid.innerHTML='';
+    empty.classList.toggle('hidden', projects.length>0);
+    if(projects.length>0) grid.innerHTML = '<p class="col-span-full text-center text-on-dim py-8">Нет проектов с таким статусом</p>';
+    return;
+  }
+  empty.classList.add('hidden');
+
+  const statusLabels = {draft:'Черновик',generated:'Сгенерирован',done:'Готово'};
+
+  grid.innerHTML = list.map(p=>{
+    const statusClass = 'badge-'+(p.status||'draft');
+    const statusLabel = statusLabels[p.status]||'Черновик';
+    const date = p.created_at ? new Date(p.created_at).toLocaleDateString('ru-RU') : '\u2014';
+    const tokens = p.token_cost ? `${p.token_cost} CH` : '\u2014';
+
+    return `
+      <div class="card project-card p-4" onclick="openProject('${p.id}')">
+        <div class="flex items-start justify-between gap-2 mb-3">
+          <div class="flex-1 min-w-0">
+            <p class="font-bold font-headline truncate text-sm">${esc(p.name||'Без названия')}</p>
+            <p class="text-xs text-on-dim mt-0.5">${date}</p>
+          </div>
+          <span class="badge ${statusClass} flex-shrink-0">${statusLabel}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-on-dim/50">${p.template_name||'С нуля'}</span>
+          <span class="text-xs text-on-dim/50">${tokens}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── Create Project ──
+function openCreate(){
+  document.getElementById('modalTitle').textContent = 'Новый проект';
+  document.getElementById('proj_name').value = '';
+  document.getElementById('proj_desc').value = '';
+  document.getElementById('proj_template').value = '';
+  document.getElementById('templateFields').classList.add('hidden');
+  document.getElementById('templateFields').innerHTML = '';
+  document.getElementById('proj_err').classList.add('hidden');
+  document.getElementById('createModal').classList.add('show');
+}
+
+function closeCreate(){ document.getElementById('createModal').classList.remove('show'); }
+
+async function saveProject(){
+  const name = document.getElementById('proj_name').value.trim();
+  const err = document.getElementById('proj_err');
+  err.classList.add('hidden');
+  if(!name){ err.textContent='Введите название проекта'; err.classList.remove('hidden'); return; }
+
+  const templateVal = document.getElementById('proj_template').value;
+  const tmpl = templates.find(t=>(t.id||t.name)===templateVal);
+
+  // Collect template fields
+  const input_data = {};
+  if(tmpl && tmpl.fields && tmpl.fields.length){
+    tmpl.fields.forEach(f=>{
+      const el = document.getElementById('tmpl_'+f.name);
+      if(el) input_data[f.name] = el.value.trim();
+    });
+  }
+
+  const body = {
+    name,
+    description: document.getElementById('proj_desc').value.trim() || null,
+    template_id: templateVal || null,
+    input_data: Object.keys(input_data).length ? input_data : null,
+  };
+
+  try{
+    const r = await fetch(`${API}/presentations/projects`,{
+      method:'POST',
+      headers:authHeaders(),
+      body:JSON.stringify(body),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'Ошибка создания проекта');
+    }
+    closeCreate();
+    await loadProjects();
+  }catch(e){
+    err.textContent = e.message;
+    err.classList.remove('hidden');
+  }
+}
+
+// ── Generate Presentation ──
+async function generatePresentation(id){
+  const emptyEl = document.getElementById('resultEmpty');
+  const loadingEl = document.getElementById('resultLoading');
+  const contentEl = document.getElementById('resultContent');
+  const genBtn = document.getElementById('genBtn');
+
+  emptyEl.classList.add('hidden');
+  contentEl.classList.add('hidden');
+  loadingEl.classList.remove('hidden');
+  genBtn.disabled = true;
+  genBtn.innerHTML = `<svg width="14" height="14" class="animate-spin" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-dasharray="31.4 31.4" stroke-dashoffset="10"/></svg> Генерация...`;
+  generating[id] = true;
+
+  try{
+    const r = await fetch(`${API}/presentations/projects/${id}/generate`,{
+      method:'POST',
+      headers:authHeaders(),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail||'Ошибка генерации');
+    }
+    const data = await r.json();
+
+    // Switch to result tab
+    switchTab('result', document.querySelectorAll('.tab-btn')[1]);
+
+    loadingEl.classList.add('hidden');
+    contentEl.classList.remove('hidden');
+    document.getElementById('resultText').value = data.content || data.generated_content || '';
+    await loadProjects();
+  }catch(e){
+    loadingEl.classList.add('hidden');
+    emptyEl.classList.remove('hidden');
+    alert('Ошибка: '+e.message);
+  }finally{
+    genBtn.disabled = false;
+    genBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2z"/></svg> Сгенерировать`;
+    generating[id] = false;
+  }
+}
+
+// ── Open Project Detail ──
+async function openProject(id){
+  currentProjectId = id;
+  const proj = projects.find(p=>p.id===id);
+  if(!proj) return;
+
+  document.getElementById('detailTitle').textContent = proj.name||'Проект';
+  const date = proj.created_at ? new Date(proj.created_at).toLocaleDateString('ru-RU') : '';
+  document.getElementById('detailMeta').textContent = [date, proj.template_name||'С нуля', proj.status==='done'?'Готово':proj.status==='generated'?'Сгенерирован':'Черновик'].filter(Boolean).join(' \u2022 ');
+
+  // Reset to input tab
+  switchTab('input', document.querySelectorAll('.tab-btn')[0]);
+
+  // Input data tab
+  const inputEmpty = document.getElementById('inputEmpty');
+  const inputContent = document.getElementById('inputContent');
+  if(proj.input_data){
+    inputEmpty.classList.add('hidden');
+    inputContent.classList.remove('hidden');
+    document.getElementById('inputText').textContent = JSON.stringify(proj.input_data, null, 2);
+  } else {
+    inputContent.classList.add('hidden');
+    inputEmpty.classList.remove('hidden');
+  }
+
+  // Result tab
+  const resultEmpty = document.getElementById('resultEmpty');
+  const resultContent = document.getElementById('resultContent');
+  const resultLoading = document.getElementById('resultLoading');
+  resultLoading.classList.add('hidden');
+
+  if(proj.generated_content){
+    resultEmpty.classList.add('hidden');
+    resultContent.classList.remove('hidden');
+    document.getElementById('resultText').value = proj.generated_content;
+  } else {
+    resultContent.classList.add('hidden');
+    resultEmpty.classList.remove('hidden');
+  }
+
+  document.getElementById('detailModal').classList.add('show');
+}
+
+function closeDetail(){ document.getElementById('detailModal').classList.remove('show'); }
+
+// ── Delete Project ──
+async function deleteCurrentProject(){
+  if(!currentProjectId) return;
+  if(!confirm('Удалить проект? Это действие нельзя отменить.')) return;
+  try{
+    const r = await fetch(`${API}/presentations/projects/${currentProjectId}`,{
+      method:'DELETE',
+      headers:authHeaders(),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail||'Ошибка удаления');
+    }
+    closeDetail();
+    await loadProjects();
+  }catch(e){
+    alert('Ошибка: '+e.message);
+  }
+}
+
+// ── Copy Content ──
+function copyContent(id){
+  const text = document.getElementById('resultText').value;
+  navigator.clipboard.writeText(text);
+  const btn = event.target.closest('button');
+  const orig = btn.innerHTML;
+  btn.textContent = 'Скопировано!';
+  setTimeout(()=>btn.innerHTML=orig, 2000);
+}
+
+// ── Tabs ──
+function switchTab(tab, btn){
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    b.classList.remove('active');
+    b.style.color = '#9a9a9a';
+    b.style.borderBottomColor = 'transparent';
+  });
+  document.querySelectorAll('[id^="tab-"]').forEach(p=>p.classList.remove('tab-pane'));
+  if(btn){
+    btn.classList.add('active');
+    btn.style.color = '#c0c1ff';
+    btn.style.borderBottomColor = '#c0c1ff';
+  }
+  const pane = document.getElementById('tab-'+tab);
+  if(pane) pane.classList.add('tab-pane');
+}
+
+// ── Utils ──
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// Close modals on backdrop click
+document.getElementById('createModal').addEventListener('click',e=>{ if(e.target===e.currentTarget)closeCreate(); });
+document.getElementById('detailModal').addEventListener('click',e=>{ if(e.target===e.currentTarget)closeDetail(); });
+</script>
+</body>
+</html>

@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 from db import SessionLocal, engine
 import models
 from models import (User, Message, Subscription, Transaction, VerifyToken,
-                    Solution, SolutionCategory, SolutionStep, SolutionRun)
+                    Solution, SolutionCategory, SolutionStep, SolutionRun,
+                    SiteProject, SiteTemplate, PresentationProject, PresentationTemplate)
 from auth import (hash_password, verify_password, create_token, decode_token,
                   generate_code, VERIFY_TTL_MINUTES)
 from ai import generate_response, get_token_cost, resolve_model
@@ -1179,6 +1180,8 @@ DEFAULT_FEATURES = [
     {"key": "solutions",  "label": "Готовые решения",                     "description": "Каталог готовых AI решений и бизнес-шаблонов",   "enabled": True},
     {"key": "nano",       "label": "Imagen",                              "description": "Модель Imagen в списке моделей",                   "enabled": True},
     {"key": "dalle",      "label": "DALL-E (генерация изображений)",      "description": "Модель DALL-E в списке моделей",                 "enabled": True},
+    {"key": "sites",      "label": "Создание сайтов",                     "description": "Модуль создания сайтов с ИИ",                   "enabled": True},
+    {"key": "presentations", "label": "Презентации и КП",                 "description": "Генерация презентаций и коммерческих предложений", "enabled": True},
 ]
 
 def _seed_features(db):
@@ -1655,6 +1658,241 @@ def get_plans_v2():
 def get_packages_v2():
     return TOKEN_PACKAGES_V2
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Sites Module
+# ═══════════════════════════════════════════════════════════════════════════
+
+SPEC_CH_COST = 15
+CODE_CH_COST = 50
+
+class CreateSiteRequest(BaseModel):
+    name: str
+    template_id: int | None = None
+    template_fields: str | None = None  # JSON
+
+@app.get("/sites/templates")
+def list_site_templates(db: Session = Depends(get_db)):
+    items = db.query(SiteTemplate).filter_by(is_active=True).order_by(SiteTemplate.sort_order).all()
+    return [{"id": t.id, "title": t.title, "description": t.description,
+             "price_tokens": t.price_tokens,
+             "input_fields": json.loads(t.input_fields) if t.input_fields else []} for t in items]
+
+@app.post("/admin/sites/templates")
+def admin_create_template(body: dict, user: User = Depends(current_user),
+                           db: Session = Depends(get_db)):
+    require_admin(user)
+    t = SiteTemplate(title=body.get("title",""), description=body.get("description",""),
+                     spec_prompt=body.get("spec_prompt",""), code_prompt=body.get("code_prompt",""),
+                     input_fields=json.dumps(body.get("input_fields",[])),
+                     price_tokens=body.get("price_tokens", 0),
+                     is_active=body.get("is_active", True),
+                     sort_order=body.get("sort_order", 0))
+    db.add(t); db.commit(); db.refresh(t)
+    return {"id": t.id, "status": "created"}
+
+@app.get("/sites/projects")
+def list_sites(db: Session = Depends(get_db), user=Depends(optional_user)):
+    if not user: return []
+    projects = db.query(SiteProject).filter_by(user_id=user.id).order_by(SiteProject.updated_at.desc()).all()
+    return [{"id": p.id, "name": p.name, "status": p.status,
+             "price_tokens": p.price_tokens, "template_id": p.template_id,
+             "created_at": p.created_at.isoformat() if p.created_at else None,
+             "updated_at": p.updated_at.isoformat() if p.updated_at else None} for p in projects]
+
+@app.post("/sites/projects")
+def create_site_project(req: CreateSiteRequest, db: Session = Depends(get_db),
+                        user: User = Depends(current_user)):
+    p = SiteProject(user_id=user.id, name=req.name, template_id=req.template_id,
+                    template_fields=req.template_fields, status="draft")
+    db.add(p); db.commit(); db.refresh(p)
+    return {"id": p.id, "status": "created"}
+
+@app.get("/sites/projects/{project_id}")
+def get_site_project(project_id: int, db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p: raise HTTPException(404, "Проект не найден")
+    return {"id": p.id, "name": p.name, "status": p.status,
+            "spec_text": p.spec_text, "code_html": p.code_html,
+            "price_tokens": p.price_tokens, "template_id": p.template_id,
+            "template_fields": p.template_fields,
+            "created_at": p.created_at.isoformat() if p.created_at else None}
+
+@app.delete("/sites/projects/{project_id}")
+def delete_site_project(project_id: int, db: Session = Depends(get_db),
+                        user: User = Depends(current_user)):
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p: raise HTTPException(404, "Проект не найден")
+    db.delete(p); db.commit()
+    return {"status": "deleted"}
+
+@app.post("/sites/projects/{project_id}/generate-spec")
+def generate_site_spec(project_id: int, body: dict = None,
+                       db: Session = Depends(get_db), user=Depends(optional_user)):
+    if not user: raise HTTPException(401, "Нужна авторизация")
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p: raise HTTPException(404, "Проект не найден")
+    if db.query(User).filter_by(id=user.id).first().tokens_balance < SPEC_CH_COST:
+        raise HTTPException(402, "Недостаточно токенов")
+    db_user = db.query(User).filter_by(id=user.id).first()
+    db_user.tokens_balance -= SPEC_CH_COST
+    p.price_tokens += SPEC_CH_COST
+    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-SPEC_CH_COST,
+                       description="Генерация ТЗ для сайта"))
+
+    prompt = "Составь подробное техническое задание для создания веб-сайта. "
+    tf = {}
+    try:
+        tf = json.loads(p.template_fields) if p.template_fields else {}
+    except: pass
+    if tf:
+        prompt += f"\nДанные от пользователя:\n" + "\n".join(f"- {k}: {v}" for k,v in tf.items())
+    if p.spec_text:
+        prompt += f"\nТекущее ТЗ (обнови его с учётом новых данных):\n{p.spec_text}"
+    else:
+        prompt += "\nЕсли данных мало — задай уточняющие вопросы."
+
+    answer = generate_response("gpt", [{"role": "system", "content": prompt}], None)
+    content = answer.get("content", "") if isinstance(answer, dict) else ""
+    p.spec_text = content
+    p.status = "has_spec"
+    db.commit()
+    return {"spec_text": content, "status": p.status}
+
+@app.post("/sites/projects/{project_id}/generate-code")
+def generate_site_code(project_id: int, body: dict = None,
+                       db: Session = Depends(get_db), user=Depends(optional_user)):
+    if not user: raise HTTPException(401, "Нужна авторизация")
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p: raise HTTPException(404, "Проект не найден")
+    if not p.spec_text: raise HTTPException(400, "Сначала сгенерируйте ТЗ")
+    if db.query(User).filter_by(id=user.id).first().tokens_balance < CODE_CH_COST:
+        raise HTTPException(402, "Недостаточно токенов")
+    db_user = db.query(User).filter_by(id=user.id).first()
+    db_user.tokens_balance -= CODE_CH_COST
+    p.price_tokens += CODE_CH_COST
+    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-CODE_CH_COST,
+                       description="Генерация кода для сайта"))
+
+    prompt = f"Сгенерируй полный HTML-код одностраничного сайта по следующему ТЗ:\n\n{p.spec_text}\n\n"
+    prompt += "Ответ должен содержать ТОЛЬКО HTML-код (без markdown-обёрток). Код должен быть готов к использованию — полностью рабочий, с CSS стилями, адаптивный."
+
+    answer = generate_response("claude", [{"role": "system", "content": prompt}], None)
+    content = answer.get("content", "") if isinstance(answer, dict) else ""
+    # Clean markdown if present
+    if content.startswith("```html"):
+        content = content.split("\n", 1)[1]
+        content = content.rsplit("```", 1)[0] if "```" in content else content
+    elif content.startswith("```"):
+        content = content.split("\n", 1)[1]
+        content = content.rsplit("```", 1)[0] if "```" in content else content
+    p.code_html = content
+    p.status = "done"
+    if "has_code" not in p.status:
+        p.status = "has_code"
+    db.commit()
+    return {"code_html": content, "status": p.status}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Presentations Module
+# ═══════════════════════════════════════════════════════════════════════════
+
+PRES_CH_COST = 30
+
+class CreatePresentationRequest(BaseModel):
+    name: str
+    template_id: int | None = None
+    input_data: str | None = None  # JSON
+    description: str | None = None
+
+@app.get("/presentations/templates")
+def list_pres_templates(db: Session = Depends(get_db)):
+    items = db.query(PresentationTemplate).filter_by(is_active=True).order_by(PresentationTemplate.sort_order).all()
+    return [{"id": t.id, "title": t.title, "description": t.description,
+             "input_fields": json.loads(t.input_fields) if t.input_fields else [],
+             "header_html": t.header_html} for t in items]
+
+@app.post("/admin/presentations/templates")
+def admin_create_pres_template(body: dict, user: User = Depends(current_user),
+                                db: Session = Depends(get_db)):
+    require_admin(user)
+    t = PresentationTemplate(title=body.get("title",""), description=body.get("description",""),
+                             header_html=body.get("header_html",""),
+                             pricing_json=json.dumps(body.get("pricing", {})),
+                             spec_prompt=body.get("spec_prompt",""),
+                             style_css=body.get("style_css",""),
+                             input_fields=json.dumps(body.get("input_fields",[])),
+                             is_active=body.get("is_active", True),
+                             sort_order=body.get("sort_order", 0))
+    db.add(t); db.commit(); db.refresh(t)
+    return {"id": t.id, "status": "created"}
+
+@app.get("/presentations/projects")
+def list_presentations(db: Session = Depends(get_db), user=Depends(optional_user)):
+    if not user: return []
+    projects = db.query(PresentationProject).filter_by(user_id=user.id).order_by(PresentationProject.created_at.desc()).all()
+    return [{"id": p.id, "name": p.name, "status": p.status,
+             "price_tokens": p.price_tokens, "template_id": p.template_id,
+             "created_at": p.created_at.isoformat() if p.created_at else None} for p in projects]
+
+@app.post("/presentations/projects")
+def create_presentation_project(req: CreatePresentationRequest,
+                                db: Session = Depends(get_db),
+                                user: User = Depends(current_user)):
+    p = PresentationProject(user_id=user.id, name=req.name, template_id=req.template_id,
+                            input_data=req.input_data, status="draft")
+    db.add(p); db.commit(); db.refresh(p)
+    return {"id": p.id, "status": "created"}
+
+@app.get("/presentations/projects/{project_id}")
+def get_presentation_project(project_id: int, db: Session = Depends(get_db),
+                              user: User = Depends(current_user)):
+    p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p: raise HTTPException(404, "Проект не найден")
+    return {"id": p.id, "name": p.name, "status": p.status,
+            "input_data": p.input_data, "generated_content": p.generated_content,
+            "price_tokens": p.price_tokens, "template_id": p.template_id,
+            "created_at": p.created_at.isoformat() if p.created_at else None}
+
+@app.delete("/presentations/projects/{project_id}")
+def delete_presentation_project(project_id: int, db: Session = Depends(get_db),
+                                 user: User = Depends(current_user)):
+    p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p: raise HTTPException(404, "Проект не найден")
+    db.delete(p); db.commit()
+    return {"status": "deleted"}
+
+@app.post("/presentations/projects/{project_id}/generate")
+def generate_presentation(project_id: int, body: dict = None,
+                          db: Session = Depends(get_db), user=Depends(optional_user)):
+    if not user: raise HTTPException(401, "Нужна авторизация")
+    p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p: raise HTTPException(404, "Проект не найден")
+    if db.query(User).filter_by(id=user.id).first().tokens_balance < PRES_CH_COST:
+        raise HTTPException(402, "Недостаточно токенов")
+    db_user = db.query(User).filter_by(id=user.id).first()
+    db_user.tokens_balance -= PRES_CH_COST
+    p.price_tokens += PRES_CH_COST
+    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-PRES_CH_COST,
+                       description="Генерация презентации/КП"))
+
+    tf = {}
+    try: tf = json.loads(p.input_data) if p.input_data else {}
+    except: pass
+    tpl = db.query(PresentationTemplate).filter_by(id=p.template_id).first()
+    prompt = tpl.spec_prompt if tpl else "Создай коммерческое предложение / презентацию"
+    if tf:
+        prompt += f"\n\nДанные от клиента:\n" + "\n".join(f"- {k}: {v}" for k,v in tf.items())
+
+    answer = generate_response("claude", [{"role": "system", "content": prompt}], None)
+    content = answer.get("content", "") if isinstance(answer, dict) else ""
+    p.generated_content = content
+    p.status = "done"
+    db.commit()
+    return {"generated_content": content, "status": p.status}
+
+
 # Раздача HTML-файлов из корня проекта
 from fastapi.responses import FileResponse
 _BASE = os.path.dirname(os.path.abspath(__file__))
@@ -1673,6 +1911,15 @@ def serve_chatbots(): return FileResponse(os.path.join(_BASE, "chatbots.html"))
 
 @app.get("/workflows.html", include_in_schema=False)
 def serve_workflows(): return FileResponse(os.path.join(_BASE, "workflows.html"))
+
+@app.get("/workflow.html", include_in_schema=False)
+def serve_workflow_editor(): return FileResponse(os.path.join(_BASE, "workflow.html"))
+
+@app.get("/sites.html", include_in_schema=False)
+def serve_sites(): return FileResponse(os.path.join(_BASE, "sites.html"))
+
+@app.get("/presentations.html", include_in_schema=False)
+def serve_presentations(): return FileResponse(os.path.join(_BASE, "presentations.html"))
 
 @app.get("/", include_in_schema=False)
 def serve_root(): return FileResponse(os.path.join(_BASE, "index.html"))

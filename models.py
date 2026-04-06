@@ -265,3 +265,74 @@ class FeatureFlag(Base):
     label       = Column(String, nullable=False)       # название для UI
     description = Column(String, nullable=True)
     updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ── Site Creation ─────────────────────────────────────────────────────────────
+
+class SiteProject(Base):
+    __tablename__ = "site_projects"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    name         = Column(String, nullable=False)
+    status       = Column(String, default="draft")   # draft / has_spec / has_code / done
+    spec_text    = Column(Text, nullable=True)
+    code_html    = Column(Text, nullable=True)
+    price_tokens = Column(Integer, default=0)
+    template_id  = Column(Integer, nullable=True)
+    template_fields = Column(Text, nullable=True)    # JSON: user input fields
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", backref="site_projects")
+
+
+class SiteTemplate(Base):
+    """Шаблон для генерации ТЗ и кода сайта."""
+    __tablename__ = "site_templates"
+
+    id           = Column(Integer, primary_key=True)
+    title        = Column(String, nullable=False)
+    description  = Column(String, nullable=True)
+    spec_prompt  = Column(Text, nullable=False)       # промпт для формирования ТЗ
+    code_prompt  = Column(Text, nullable=False)       # промпт для генерации кода
+    input_fields = Column(Text, nullable=True)         # JSON: список полей для ввода
+    price_tokens = Column(Integer, default=0)
+    is_active    = Column(Boolean, default=True)
+    sort_order   = Column(Integer, default=0)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Presentations & Commercial Proposals ──────────────────────────────────────
+
+class PresentationProject(Base):
+    __tablename__ = "presentation_projects"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    user_id           = Column(Integer, ForeignKey("users.id"), nullable=True)
+    name              = Column(String, nullable=False)
+    template_id       = Column(Integer, nullable=True)
+    input_data        = Column(Text, nullable=True)          # JSON введённых данных
+    generated_content = Column(Text, nullable=True)
+    status            = Column(String, default="draft")      # draft / generated / done
+    price_tokens      = Column(Integer, default=0)
+    created_at        = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", backref="presentation_projects")
+
+
+class PresentationTemplate(Base):
+    """Шаблон для генерации презентаций/КП."""
+    __tablename__ = "presentation_templates"
+
+    id           = Column(Integer, primary_key=True)
+    title        = Column(String, nullable=False)
+    description  = Column(String, nullable=True)
+    header_html  = Column(Text, nullable=True)           # шапка оформления
+    pricing_json = Column(Text, nullable=True)           # данные о ценах/позициях
+    spec_prompt  = Column(Text, nullable=False)           # промпт для генерации
+    style_css    = Column(Text, nullable=True)            # CSS стили
+    input_fields = Column(Text, nullable=True)            # JSON: список полей
+    is_active    = Column(Boolean, default=True)
+    sort_order   = Column(Integer, default=0)
+    created_at   = Column(DateTime, default=datetime.utcnow)

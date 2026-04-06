@@ -57,7 +57,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 </div>
 
 <script>
-let workflows = JSON.parse(localStorage.getItem('obs_workflows_v2')||'[]');
+let workflows = JSON.parse(localStorage.getItem('obs_wf_v3')||'[]');
 let renamingId = null;
 
 function render(){
@@ -145,7 +145,7 @@ function deleteWf(id){
   workflows=workflows.filter(w=>w.id!==id);save();render();
 }
 
-function save(){localStorage.setItem('obs_workflows_v2',JSON.stringify(workflows));}
+function save(){localStorage.setItem('obs_wf_v3',JSON.stringify(workflows));}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;');}
 
 document.addEventListener('click',e=>{
