@@ -1150,7 +1150,7 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
             if base_url:
                 kwargs["base_url"] = base_url
             c = _ant.Anthropic(**kwargs)
-            c.messages.create(model="claude-3-haiku-20240307",
+            c.messages.create(model="claude-sonnet-4-20250514",
                 max_tokens=1, messages=[{"role":"user","content":"hi"}])
             return "ok", None
         elif provider in ("gemini", "google", "nano", "veo"):
