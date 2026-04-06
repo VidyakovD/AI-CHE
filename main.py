@@ -1145,10 +1145,10 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
         elif provider == "anthropic":
             import anthropic as _ant
             c = _ant.Anthropic(api_key=key_value)
-            c.messages.create(model="claude-3-haiku-20240307",
+            c.messages.create(model="claude-3-5-haiku-20241022",
                 max_tokens=1, messages=[{"role":"user","content":"hi"}])
             return "ok", None
-        elif provider in ("gemini", "nano", "veo"):
+        elif provider in ("gemini", "nano", "veo", "google"):
             # Google API ключ проверяем через Gemini endpoint (быстрый и бесплатный)
             import httpx
             r = httpx.post(
