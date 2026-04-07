@@ -1,41 +1,38 @@
-import sqlite3, os, httpx
+import httpx, json
 
-db_path = os.path.join(os.path.dirname(__file__), '..', 'chat.db')
-conn = sqlite3.connect(db_path)
-c = conn.cursor()
-rows = c.execute("SELECT provider, key_value FROM api_keys WHERE provider IN ('gemini','google','nano','veo','veo_project_id')").fetchall()
+GOOGLE_KEY = "AIzaSyAIHS_VwcqtPJn7pO5CrDBfFMpKXa-FIIM"
 
-for provider, key_value in rows:
-    print(f"\n=== provider={provider} key={key_value[:20]}... ===")
+models_to_test = [
+    # Gemini models
+    ("gemini-2.5-flash", "generateContent"),
+    ("gemini-2.5-pro", "generateContent"),
+    ("gemini-2.0-flash", "generateContent"),
+    ("gemini-2.0-flash-lite", "generateContent"),
+    ("gemini-1.5-flash", "generateContent"),
+    ("gemini-1.5-pro", "generateContent"),
+    ("gemini-2.0-flash-exp", "generateContent"),
+    ("gemini-2.0-flash-thinking-exp", "generateContent"),
+    # Imagen
+    ("imagen-3.0-generate-001", "predict"),
+    ("imagen-3.0-generate-002", "predict"),
+    ("imagen-4.0-generate-001", "predict"),
+]
 
-    if provider == 'veo_project_id':
-        print(f"  Project ID: {key_value}")
-        continue
-
-    # Test 1: v1beta gemini-2.0-flash
-    url1 = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+for model_name, method in models_to_test:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:{method}"
+    if method == "generateContent":
+        payload = {"contents": [{"parts": [{"text": "hello"}]}]}
+    else:
+        payload = {"instances": [{"prompt": "test"}]}
     try:
-        r = httpx.post(url1, json={"contents":[{"parts":[{"text":"hi"}]}]}, timeout=10)
-        print(f"  gemini-2.0-flash (v1beta): {r.status_code}")
+        r = httpx.post(url, json=payload, timeout=15)
+        status = "OK" if r.status_code < 400 else f"FAIL {r.status_code}"
+        print(f"  {method:20s}  {model_name:35s} -> {status}")
+        if r.status_code == 400 or r.status_code == 403:
+            try:
+                detail = r.json().get("error", {}).get("message", "")[:120]
+                print(f"      detail: {detail}")
+            except:
+                pass
     except Exception as e:
-        print(f"  gemini-2.0-flash (v1beta): ERR {e}")
-
-    # Test 2: v1 gemini-pro
-    url2 = "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent"
-    try:
-        r = httpx.post(url2, json={"contents":[{"parts":[{"text":"hi"}]}]}, timeout=10)
-        print(f"  gemini-pro (v1): {r.status_code}")
-    except Exception as e:
-        print(f"  gemini-pro (v1): ERR {e}")
-
-    # Test 3: imagen-3.0-generate-001
-    url3 = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict"
-    try:
-        r = httpx.post(url3, json={"instances":[{"prompt":"test"}]}, timeout=10)
-        print(f"  imagen-3.0-generate-001 (v1beta): {r.status_code}")
-        if r.status_code != 200:
-            print(f"    {r.text[:150]}")
-    except Exception as e:
-        print(f"  imagen-3.0-generate-001 (v1beta): ERR {e}")
-
-conn.close()
+        print(f"  {method:20s}  {model_name:35s} -> ERR {e}")

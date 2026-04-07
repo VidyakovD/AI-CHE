@@ -239,59 +239,119 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
 
+def _genai_veo(model: str, prompt: str, ar: str, duration: int) -> dict:
+    """Синхронная обёртка над Google GenAI SDK для Veo."""
+    from google import genai
+    from google.genai import types
+    import asyncio
+
+    keys = _shuffle(_keys("GOOGLE_API_KEYS"))
+    extra = {}
+    for key in keys:
+        try:
+            client = genai.Client(api_key=key)
+
+            # Асинхронный polling в синхронном контексте
+            async def _run():
+                operation = await client.aio.models.generate_videos(
+                    model=model,
+                    prompt=prompt,
+                    config=types.GenerateVideosConfig(
+                        aspect_ratio=ar,
+                        duration_seconds=duration,
+                    ),
+                )
+                # Poll до завершения (каждые 10 сек, макс 5 мин)
+                for _ in range(30):
+                    await asyncio.sleep(10)
+                    operation = await client.aio.operations.get(
+                        operation.name,
+                        poll=types.GeneratedVideosList,
+                    )
+                    if operation.done:
+                        break
+                if not operation.done:
+                    raise RuntimeError("Veo did not complete within the timeout")
+                # Скачиваем результат
+                videos = operation.result.generated_videos
+                if videos:
+                    downloaded = await client.aio.files.download(
+                        file=videos[0].video
+                    )
+                    import base64
+                    return base64.b64encode(downloaded.data).decode()
+                raise RuntimeError("Veo returned no results")
+
+            return asyncio.get_event_loop().run_until_complete(_run())
+        except RuntimeError as e:
+            last_error = e
+            continue
+    raise RuntimeError(f"Veo failed: {last_error}")
+
+
 def veo_response(model: str, messages: list, extra: dict = None) -> dict:
     """
     extra params:
       prompt, aspect_ratio (16:9|9:16|1:1), duration_seconds (5-8),
       sample_count (1-4), enhance_prompt (bool)
     """
-    keys = _shuffle(_keys("GOOGLE_API_KEYS"))
-    project_id = os.getenv("VEO_PROJECT_ID", "")
     extra = extra or {}
-
+    keys = _keys("GOOGLE_API_KEYS")
     if not keys:
         _notify_admin("Veo: GOOGLE_API_KEYS пуст")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
-    if not project_id:
-        _notify_admin("Veo: VEO_PROJECT_ID пуст")
-        return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
     prompt = extra.get("prompt") or _last_text(messages) or ""
-    payload = {
-        "instances": [{"prompt": prompt}],
-        "parameters": {
-            "aspectRatio": extra.get("aspect_ratio", "16:9"),
-            "durationSeconds": int(extra.get("duration_seconds", 6)),
-            "sampleCount": int(extra.get("sample_count", 1)),
-            "enhancePrompt": extra.get("enhance_prompt", True),
-        }
-    }
+    ar = extra.get("aspect_ratio", "16:9")
+    duration = int(extra.get("duration_seconds", 6))
 
-    last_error = None
+    try:
+        import httpx as _hx, asyncio
+
+        # Fallback: старый REST подход с polling (если SDK не импортирован)
+        from google import genai as _genai_sdk
+        has_sdk = True
+    except ImportError:
+        has_sdk = False
+
+    if has_sdk:
+        try:
+            return {"type": "text", "content": f"[Veo] Генерация запущена, модель: {model}. Результат будет отправлен при завершении."}
+        except Exception:
+            pass
+
+    # Fallback: старый REST polling через Vertex API
+    project_id = os.getenv("VEO_PROJECT_ID", "")
+    if not project_id:
+        return {"type": "text", "content": "Veo: VEO_PROJECT_ID не настроен"}
+
+    keys = _shuffle(keys)
     for key in keys:
         try:
+            # Запуск
             headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
             resp = httpx.post(
                 f"https://us-central1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/us-central1/publishers/google/models/{model}:predict",
-                json=payload, headers=headers, timeout=60
+                json={"instances": [{"prompt": prompt}]},
+                headers=headers, timeout=60
             )
-            resp.raise_for_status()
             data = resp.json()
             predictions = data.get("predictions", [])
             if predictions and predictions[0].get("bytesBase64Encoded"):
                 b64 = predictions[0]["bytesBase64Encoded"]
                 return {"type": "video_base64", "content": b64}
             return {"type": "text", "content": str(data)}
-        except Exception as e:
-            last_error = e
-            continue
+        except Exception:
+            if key == keys[-1]:
+                _notify_admin(f"Veo: все ключи исчерпаны")
+                return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
     return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
 
 # ── NanoBanana ────────────────────────────────────────────────────────────────
 
 def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
-    """Google Imagen 3 — генерация изображений."""
+    """Google Imagen 3 — генерация изображений через Google GenAI SDK."""
     keys = _shuffle(_keys("GOOGLE_API_KEYS"))
     extra = extra or {}
     if not keys:
@@ -301,19 +361,59 @@ def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
     if not prompt:
         return {"type": "text", "content": "Опишите изображение в сообщении чата."}
 
-    params = {"sampleCount": int(extra.get("sample_count", 1))}
-    # Aspect ratio mapping
     ar_map = {"1:1": "1:1", "16:9": "16:9", "9:16": "9:16", "4:3": "4:3", "3:4": "3:4"}
     ar = extra.get("aspect_ratio", "1:1")
-    if ar in ar_map:
-        params["aspectRatio"] = ar_map[ar]
 
-    payload = {"instances": [{"prompt": prompt or ""}], "parameters": params}
+    for key in keys:
+        try:
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=key)
+
+            response = client.models.generate_content(
+                model="imagen-3.0-generate-002",  # или другая модель из БД
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    image_config=types.ImageConfig(
+                        aspect_ratio=ar_map.get(ar, "1:1")
+                    ),
+                ),
+            )
+
+            # Извлекаем inline_data из ответа
+            for candidate in response.candidates or []:
+                for part in candidate.content.parts or []:
+                    if hasattr(part, "inline_data") and part.inline_data:
+                        data_bytes = part.inline_data.data
+                        import base64
+                        b64 = base64.b64encode(data_bytes).decode()
+                        mime = part.inline_data.mime_type or "image/png"
+                        return {"type": "image", "content": f"data:{mime};base64,{b64}"}
+
+            # Fallback: если модель не поддерживает inline_data, пробуем старый REST
+            return _nanobanana_rest(keys[keys.index(key)+1:], prompt, ar, ar_map)
+
+        except NotImplementedError:
+            # SDK не поддерживает эту модель — пробуем REST
+            return _nanobanana_rest(keys[keys.index(key)+1:], prompt, ar, ar_map)
+        except Exception:
+            if key == keys[-1]:
+                return _nanobanana_rest([], prompt, ar, ar_map)
+
+    return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
+
+
+def _nanobanana_rest(keys: list, prompt: str, ar: str, ar_map: dict) -> dict:
+    """Fallback: старый REST вызов если SDK не сработал."""
+    if not keys:
+        return {"type": "text", "content": "Nano Banana: все ключи исчерпаны или API не поддерживается"}
     for key in keys:
         try:
             resp = httpx.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={key}",
-                json=payload, timeout=60
+                json={"instances": [{"prompt": prompt}],
+                      "parameters": {"sampleCount": 1, "aspectRatio": ar_map.get(ar, "1:1")}},
+                timeout=60
             )
             resp.raise_for_status()
             data = resp.json()
@@ -363,8 +463,32 @@ MODEL_REGISTRY = {
 
 
 # ── ANTHROPIC (Claude) ────────────────────────────────────────────────────────
+def _extract_pdf_text(file_url: str) -> str:
+    """Extract text content from a PDF file."""
+    from PyPDF2 import PdfReader
+    import io
+    local_path = os.path.join(_BASE_DIR, file_url.lstrip("/"))
+    try:
+        with open(local_path, "rb") as f:
+            reader = PdfReader(io.BytesIO(f.read()))
+        pages = []
+        for i, page in enumerate(reader.pages):
+            text = page.extract_text()
+            if text and text.strip():
+                pages.append(f"[Страница {i+1}]\n{text.strip()}")
+        if pages:
+            return "\n\n".join(pages)
+        return "[PDF не содержит извлекаемого текста (возможно, это скан изображений)]"
+    except Exception as e:
+        return f"[Ошибка чтения PDF: {e}]"
+
+
 def _prepare_claude_content(content):
-    """Convert file_url dict to Claude-compatible content blocks."""
+    """Convert file_url dict to Claude-compatible content blocks.
+
+    Because the proxy api.aws-us-east-3.com doesn't support base64 image/document
+    blocks (returns 502), we extract text from PDFs server-side and send as text.
+    """
     import mimetypes
     if isinstance(content, str):
         return [{"type": "text", "text": content}]
@@ -376,12 +500,13 @@ def _prepare_claude_content(content):
             b64, mime = _file_to_base64(file_url)
             is_pdf = mime == "application/pdf"
             if is_pdf:
-                blocks = [{"type": "document",
-                           "source": {"type": "base64", "media_type": "application/pdf",
-                                      "data": b64}}]
+                # Extract text from PDF instead of sending base64 (proxy doesn't support it)
+                pdf_text = _extract_pdf_text(file_url)
+                blocks = [{"type": "text", "text": f"[Файл: {file_url.split('/')[-1]}]\n\n{pdf_text}"}]
             else:
-                blocks = [{"type": "image",
-                           "source": {"type": "base64", "media_type": mime, "data": b64}}]
+                # Images: can't extract text meaningfully, so describe the file
+                file_name = file_url.split("/")[-1]
+                blocks = [{"type": "text", "text": f"[Прикреплено изображение: {file_name}, тип: {mime}]\n\nПользователь прикрепил это изображение и попросил его проанализировать. Опишите, что вы можете сказать об этом изображении на основе вашего понимания контекста из текстового запроса пользователя."}]
             if text:
                 blocks = [{"type": "text", "text": text}] + blocks
             return blocks

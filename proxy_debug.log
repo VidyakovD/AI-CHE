@@ -1,0 +1,10 @@
+http {
+    underscores_in_headers on;
+
+    log_format debug_headers '[$remote_addr] x_api_key: "$http_x_api_key" | X-API-Key: "$http_x_api_key"';
+
+    access_log /var/log/nginx/proxy_access.log debug_headers;
+
+    include /etc/nginx/mime.types;
+    include /etc/nginx/sites-enabled/*;
+}

@@ -22,7 +22,21 @@
       "Bash(python3 -c \"import main\")",
       "WebFetch(domain:docs.anthropic.com)",
       "WebSearch",
-      "Bash(scp scripts/check_google_keys.py root@194.104.9.219:/root/AI-CHE/scripts/)"
+      "Bash(scp scripts/check_google_keys.py root@194.104.9.219:/root/AI-CHE/scripts/)",
+      "Bash(python3 scripts/check_google_keys.py)",
+      "Bash(curl -s \"https://generativelanguage.googleapis.com/v1beta/models?key=AIzaSyAIHS_VwcqtPJn7pO5CrDBfFMpKXa-FIIM\")",
+      "Bash(scp \"C:\\\\Users\\\\Денис\\\\Desktop\\\\ai-service\\\\scripts\\\\test_pdf.py\" root@194.104.9.219:/tmp/test_pdf.py)",
+      "Bash(scp \"C:\\\\Users\\\\Денис\\\\Desktop\\\\ai-service\\\\scripts\\\\test_pdf_claude.py\" root@194.104.9.219:/tmp/test_pdf_claude.py)",
+      "Bash(scp \"C:\\\\Users\\\\Денис\\\\Desktop\\\\ai-service\\\\scripts\\\\debug_pdf.py\" root@194.104.9.219:/tmp/debug_pdf.py)",
+      "Bash(scp \"C:\\\\Users\\\\Денис\\\\Desktop\\\\ai-service\\\\scripts\\\\test_small_pdf.py\" root@194.104.9.219:/tmp/test_small_pdf.py)",
+      "Bash(scp \"C:\\\\Users\\\\Денис\\\\Desktop\\\\ai-service\\\\scripts\\\\test_image_claude.py\" root@194.104.9.219:/tmp/test_image_claude.py)",
+      "Bash(scp \"C:\\\\Users\\\\Денис\\\\Desktop\\\\ai-service\\\\scripts\\\\anthropic_proxy.py\" root@194.104.9.219:/root/AI-CHE/anthropic_proxy.py)",
+      "Bash(pip list:*)",
+      "Bash(pip install:)",
+      "Bash(pip install:*)",
+      "Bash(python3:*)",
+      "Bash(grep -i \"proxy\\\\|PROXY\\\\|http_proxy\\\\|HTTP_PROXY\" .env*)",
+      "Bash(grep -rn \"PROXY\\\\|proxy\\\\|http_proxy\" *.py)"
     ]
   }
 }
