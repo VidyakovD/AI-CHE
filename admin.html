@@ -181,13 +181,13 @@ select.inp option{background:#272018;color:#f0e6d8}
           <div class="grid grid-cols-3 gap-3">
             <div>
               <label class="block text-[10px] text-on-dim mb-1">Провайдер</label>
-              <select id="newKeyProvider" class="inp">
+              <select id="newKeyProvider" class="inp" onchange="onProviderChange()">
                 <option value="openai">OpenAI (GPT / DALL-E)</option>
                 <option value="anthropic">Anthropic (Claude)</option>
                 <option value="gemini">Gemini (Google)</option>
                 <option value="grok">xAI (Grok)</option>
                 <option value="perplexity">Perplexity</option>
-                <option value="kling">Kling AI</option>
+                <option value="kling">Kling AI (Access Key + Secret Key)</option>
                 <option value="google">Google API (Gemini / Nano Banana / Veo)</option>
                 <option value="veo_project_id">Veo Project ID (Google Cloud)</option>
                 <option value="youtube">YouTube Data API</option>
@@ -195,12 +195,23 @@ select.inp option{background:#272018;color:#f0e6d8}
               </select>
             </div>
             <div>
-              <label class="block text-[10px] text-on-dim mb-1">API Ключ</label>
+              <label class="block text-[10px] text-on-dim mb-1" id="keyLabel">API Ключ</label>
               <input id="newKeyValue" type="password" placeholder="sk-..." class="inp"/>
             </div>
             <div>
               <label class="block text-[10px] text-on-dim mb-1">Метка (необязательно)</label>
               <input id="newKeyLabel" type="text" placeholder="Основной" class="inp"/>
+            </div>
+          </div>
+          <!-- Extra field for Kling -->
+          <div id="klingSecretRow" class="grid grid-cols-3 gap-3 mt-3 hidden">
+            <div>
+              <label class="block text-[10px] text-on-dim mb-1">Access Key</label>
+              <input id="klingAccessKey" type="password" placeholder="AGM..." class="inp"/>
+            </div>
+            <div>
+              <label class="block text-[10px] text-on-dim mb-1">Secret Key</label>
+              <input id="klingSecretKey" type="password" placeholder="pFH8..." class="inp"/>
             </div>
           </div>
           <div id="addKeyErr" class="text-error text-xs mt-2 hidden"></div>
@@ -787,18 +798,55 @@ async function loadApiKeys(){
     </div>`).join("");
 }
 
-async function addKey(){
-  const provider=document.getElementById("newKeyProvider").value;
-  const key_value=document.getElementById("newKeyValue").value.trim();
-  const label=document.getElementById("newKeyLabel").value.trim();
-  const err=document.getElementById("addKeyErr");err.classList.add("hidden");
-  if(!key_value){err.textContent="Введите ключ";err.classList.remove("hidden");return;}
-  try{
-    await post("/admin/apikeys",{provider,key_value,label:label||null});
-    document.getElementById("newKeyValue").value="";
-    document.getElementById("newKeyLabel").value="";
-    await loadApiKeys();
-  }catch(e){err.textContent=e.message||"Ошибка";err.classList.remove("hidden");}
+function onProviderChange(){
+  const prov=document.getElementById("newKeyProvider").value;
+  const klingRow=document.getElementById("klingSecretRow");
+  if(prov==="kling"){
+    klingRow.classList.remove("hidden");
+  }else{
+    klingRow.classList.add("hidden");
+  }
+}
+
+async function loadApiKeys(){
+  const keys=await get("/admin/apikeys");
+  const content=document.getElementById("keysContent");
+  if(!keys.length){content.innerHTML=`<div class="card text-on-dim text-sm">Ключей нет. Добавьте первый ключ ниже.</div>`;onProviderChange();return;}
+
+  // Группируем по провайдеру
+  const grouped={};
+  keys.forEach(k=>{if(!grouped[k.provider])grouped[k.provider]=[];grouped[k.provider].push(k);});
+
+  content.innerHTML=Object.entries(grouped).map(([prov,pkeys])=>`
+    <div class="card">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-headline font-bold text-sm">${PROVIDER_LABELS[prov]||prov}</h3>
+        <div class="flex gap-1.5">
+          ${pkeys.some(k=>k.status==="error")?`<span class="text-[10px] bg-error/15 text-error px-2 py-0.5 rounded-full font-bold">⚠ Есть ошибки</span>`:""}
+          ${pkeys.every(k=>k.status==="ok")?`<span class="text-[10px] bg-green-500/15 text-green-400 px-2 py-0.5 rounded-full font-bold">✓ Всё ОК</span>`:""}
+        </div>
+      </div>
+      <div class="space-y-2">
+        ${pkeys.map(k=>`
+          <div class="flex items-center justify-between bg-surface2 rounded-lg px-3 py-2.5 border ${k.status==="ok"?"border-green-500/20":k.status==="error"?"border-error/30":"border-outline/20"}">
+            <div class="flex items-center gap-3 flex-1 min-w-0">
+              <div class="w-2 h-2 rounded-full flex-shrink-0 ${k.status==="ok"?"bg-green-400":k.status==="error"?"bg-error animate-pulse":"bg-on-dim/40"}"></div>
+              <div class="min-w-0">
+                <p class="text-xs font-mono text-on-dim truncate">${esc(k.key_preview)}</p>
+                ${k.status==="unknown"&&k.last_check?'<p class="text-[10px] text-on-dim/40">Тест не реализован для этого провайдера</p>':''}
+                ${k.label?`<p class="text-[10px] text-on-dim/50">${esc(k.label)}</p>`:""}
+                ${k.status==="error"&&k.last_error?`<p class="text-[10px] text-error mt-0.5 truncate max-w-xs">${esc(k.last_error)}</p>`:""}
+                ${k.last_check?`<p class="text-[10px] text-on-dim/40">Проверен: ${new Date(k.last_check).toLocaleString("ru")}</p>`:""}
+              </div>
+            </div>
+            <div class="flex items-center gap-2 ml-3">
+              <button onclick="checkKey(${k.id})" class="btn btn-g text-[10px] py-1 px-2">Проверить</button>
+              <button onclick="deleteKey(${k.id})" class="btn btn-d text-[10px] py-1 px-2">✕</button>
+            </div>
+          </div>`).join("")}
+      </div>
+    </div>`).join("");
+  onProviderChange();
 }
 
 async function deleteKey(id){

@@ -434,7 +434,7 @@ body.welcome #inputArea{display:none!important}
           <h2 class="text-xl font-bold text-[#1e1a14] font-headline" id="cabName">—</h2>
           <p class="text-[#1e1a14]/70 text-sm" id="cabEmail">—</p>
           <div class="flex items-center gap-2 mt-1">
-            <p class="text-[#1e1a14] font-bold">Баланс: <span id="cabBalance">0</span> токенов</p>
+            <p class="text-[#1e1a14] font-bold">Баланс: <span id="cabBalance">0.00</span> CH</p>
             <span id="cabVerBadge"   class="hidden text-[10px] bg-green-500/25 text-green-700 px-2 py-0.5 rounded-full font-bold">✓ Подтверждён</span>
             <span id="cabUnverBadge" class="hidden text-[10px] bg-yellow-500/25 text-yellow-700 px-2 py-0.5 rounded-full font-bold cursor-pointer" onclick="showVerifyFromCabinet()">⚠ Не подтверждён</span>
           </div>
@@ -1076,7 +1076,7 @@ function updateAuthUI(){
     const ini=(currentUser.name||"U").charAt(0).toUpperCase();
     document.getElementById("sidebarAvatar").textContent=ini;
     document.getElementById("sidebarName").textContent=currentUser.name||currentUser.email;
-    document.getElementById("sidebarBalance").textContent=fmtT(currentUser.tokens_balance)+" токенов";
+    document.getElementById("sidebarBalance").textContent=fmtT(currentUser.tokens_balance)+" CH";
     document.getElementById("navBalance").textContent=fmtT(currentUser.tokens_balance)+" T";
   }
 }
@@ -1239,16 +1239,17 @@ async function renderPlansTab(el){
   el.innerHTML=`<div class="space-y-4">
     ${s?`<div class="p-4 bg-primary/10 rounded-xl border border-primary/20">
       <p class="text-[10px] text-primary uppercase tracking-wider font-bold mb-1">Активная подписка · ${s.plan.toUpperCase()}</p>
-      <p class="text-on-surface font-semibold mb-2">${fmtT(s.tokens_left)} / ${fmtT(s.tokens_total)} токенов</p>
+      <p class="text-on-surface font-semibold mb-2">${fmtT(s.tokens_left)} / ${fmtT(s.tokens_total)} CH</p>
       <div class="h-2 bg-surface3 rounded-full overflow-hidden"><div class="h-full sig rounded-full" style="width:${pct}%"></div></div>
       <p class="text-xs text-on-surface-dim/60 mt-1">Истекает: ${s.expires_at?new Date(s.expires_at).toLocaleDateString("ru"):"—"}</p>
     </div>`:
-    `<p class="text-sm text-on-surface-dim">Активной подписки нет. Баланс: <strong class="text-primary">${fmtT(cabinetData?.user?.tokens_balance||0)} токенов</strong></p>`}
+    `<p class="text-sm text-on-surface-dim">Активной подписки нет. Баланс: <strong class="text-primary">${fmtT(cabinetData?.user?.tokens_balance||0)} CH
+</strong></p>`}
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
       ${plans.map(p=>`<div class="p-4 bg-surface2 rounded-xl border border-outline/20 hover:border-primary/40 transition flex flex-col gap-2">
         <div class="text-2xl">${icons[p.id]||"✨"}</div>
         <h3 class="font-bold text-on-surface font-headline">${p.name}</h3>
-        <p class="text-xs text-on-surface-dim">${fmtT(p.tokens)} токенов</p>
+        <p class="text-xs text-on-surface-dim">${fmtT(p.tokens)} CH</p>
         <p class="text-xl font-bold text-primary font-headline mt-auto">${p.price_rub}₽<span class="text-xs text-on-surface-dim font-normal">/мес</span></p>
         <button onclick="buyPlan('${p.id}')" class="py-2 rounded-lg sig text-[#1e1a14] text-sm font-bold hover:opacity-88 transition">Купить</button>
       </div>`).join("")}
@@ -1847,7 +1848,7 @@ function updateSendBtn(){
   const a=ta.value.trim().length>0||!!pendingAttachment;
   btn.disabled=!a;btn.classList.toggle("opacity-50",!a);btn.classList.toggle("cursor-not-allowed",!a);
 }
-function fmtT(n){if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1000)return(n/1000).toFixed(0)+"к";return String(n||0);}
+function fmtT(n){let v=n||0;return v.toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 function openM(id){document.getElementById(id).classList.remove("hidden");}
 function closeM(id){document.getElementById(id).classList.add("hidden");}

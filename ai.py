@@ -132,19 +132,43 @@ def openai_response(model: str, messages: list, extra: dict = None) -> dict:
 # ── Claude / Anthropic ────────────────────────────────────────────────────────
 
 
+def _kling_jwt_token(access_key: str, secret_key: str) -> str:
+    """Generate JWT token for Kling API auth."""
+    import time, jwt
+    return jwt.encode(
+        {"iss": access_key, "exp": int(time.time()) + 1800, "nbf": int(time.time()) - 5},
+        secret_key,
+        headers={"alg": "HS256", "typ": "JWT"}
+    )
+
+
+def _get_kling_jwt() -> str | None:
+    """Get a fresh JWT token from available Kling key pairs."""
+    raw_keys = _keys("KLING_API_KEYS")
+    for pair in raw_keys:
+        if "," in pair:
+            ak, sk = pair.split(",", 1)
+            try:
+                return _kling_jwt_token(ak.strip(), sk.strip())
+            except Exception:
+                continue
+    return None
+
+
 def kling_response(model: str, messages: list, extra: dict = None) -> dict:
     """
-    Полная реализация Kling API.
+    Полная реализация Kling API с JWT auth.
     generation_mode: text2video | image2video | image2video_frames | motion_control | avatar
+    KLING_API_KEYS format: ak_XXXXX,sk_YYYYY  (access_key,secret_key pairs, comma-separated for multiple)
     """
-    keys = _shuffle(_keys("KLING_API_KEYS"))
     extra = extra or {}
 
-    if not keys:
-        _notify_admin("Kling: KLING_API_KEYS пуст")
+    token = _get_kling_jwt()
+    if not token:
+        _notify_admin("Kling: KLING_API_KEYS пуст или невалиден")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
-    KLING_MODEL_MAP = {"kling": "kling-v1-6", "kling-pro": "kling-v1-6"}
+    KLING_MODEL_MAP = {"kling": "kling-v1", "kling-pro": "kling-v1-6"}
     prompt    = extra.get("prompt") or _last_text(messages) or ""
     neg       = extra.get("negative_prompt", "")
     aspect    = extra.get("aspect_ratio", "16:9")
@@ -159,7 +183,7 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
     cam_val   = float(extra.get("camera_value", 0))
     camera    = {"type": cam_type, cam_type: cam_val} if cam_type and cam_val != 0 else None
 
-    h = {"Authorization": f"Bearer {keys[0]}", "Content-Type": "application/json"}
+    h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     base = "https://api.klingai.com/v1"
 
     try:

@@ -1166,10 +1166,21 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
                 messages=[{"role":"user","content":"hi"}], max_tokens=1)
             return "ok", None
         elif provider == "kling":
-            import httpx
-            r = httpx.get("https://api.klingai.com/v1/account/info",
-                headers={"Authorization": f"Bearer {key_value}"}, timeout=8)
-            return ("ok", None) if r.status_code < 400 else ("error", f"HTTP {r.status_code}")
+            import httpx, time, jwt as _jwt
+            if "," in key_value:
+                ak, sk = key_value.split(",", 1)
+                token = _jwt.encode(
+                    {"iss": ak.strip(), "exp": int(time.time()) + 1800, "nbf": int(time.time()) - 5},
+                    sk.strip(),
+                    headers={"alg": "HS256", "typ": "JWT"}
+                )
+                r = httpx.get("https://api.klingai.com/v1/account/info",
+                    headers={"Authorization": f"Bearer {token}"}, timeout=8)
+                data = r.json()
+                if r.status_code < 400 and data.get("code") == 0:
+                    return "ok", None
+                return "error", f"HTTP {r.status_code}: {data.get('message', r.text[:100])}"
+            return "error", "Формат Kling: ak_XXX,sk_YYY"
         elif provider == "veo_project_id":
             project_id = key_value.strip()
             if not project_id or len(project_id) < 3:
