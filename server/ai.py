@@ -586,12 +586,13 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
             if base_url:
                 r = httpx.post(
                     f"{base_url.rstrip('/')}/v1/messages",
-                    json={"model": model, "max_tokens": 1024, "stream": False,
+                    json={"model": model, "max_tokens": 8192, "stream": False,
                           "system": system if isinstance(system, str) else "Ты полезный ассистент.",
                           "messages": claude_msgs},
                     headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
                     timeout=120
                 )
+                log.info(f"[Anthropic] status={r.status_code} content-type={r.headers.get('content-type','')}")
                 # Прокси может игнорировать stream:false и отдавать SSE
                 if r.headers.get("content-type", "").startswith("text/event-stream"):
                     text_parts = []
@@ -610,25 +611,27 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
                             except:
                                 pass
                     if text_parts:
-                        return {"type":"text","content":" ".join(text_parts)}
-                    raise RuntimeError(f"SSE response без текстовых блоков: {r.text[:200]}")
+                        return {"type":"text","content":"".join(text_parts)}
+                    raise RuntimeError(f"SSE без текста: {r.text[:300]}")
                 else:
                     data = r.json()
                     if data.get("content"):
                         return {"type":"text","content":data["content"][0]["text"]}
                     else:
-                        raise RuntimeError(data.get("error", {}).get("message", str(data.get("error")))[:300])
+                        err_msg = data.get("error", {}).get("message") or str(data)
+                        raise RuntimeError(err_msg[:300])
             else:
                 import anthropic as _ant
                 resp = _ant.Anthropic(api_key=key).messages.create(
-                    model=model, max_tokens=1024,
+                    model=model, max_tokens=8192,
                     messages=claude_msgs,
                     system=system if isinstance(system, str) else "Ты полезный ассистент.",
                 )
                 return {"type":"text","content":resp.content[0].text}
-        except:
+        except Exception as e:
+            log.error(f"[Anthropic] key=...{key[-6:]} model={model} error={e}")
             if key == keys[-1]:
-                _notify_admin(f"Anthropic: все ключи исчерпаны (модель {model})")
+                _notify_admin(f"Anthropic: все ключи исчерпаны (модель {model}): {e}")
                 return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
 
 # ── GEMINI ────────────────────────────────────────────────────────────────────
