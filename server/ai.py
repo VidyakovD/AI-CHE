@@ -615,11 +615,18 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
                     raise RuntimeError(f"SSE без текста: {r.text[:300]}")
                 else:
                     data = r.json()
-                    if data.get("content"):
-                        return {"type":"text","content":data["content"][0]["text"]}
-                    else:
-                        err_msg = data.get("error", {}).get("message") or str(data)
-                        raise RuntimeError(err_msg[:300])
+                    blocks = data.get("content", [])
+                    text_block = next((b for b in blocks if b.get("type") == "text"), None)
+                    if text_block:
+                        return {"type":"text","content":text_block["text"]}
+                    elif blocks:
+                        # fallback: any block with text
+                        for b in blocks:
+                            if b.get("text"):
+                                return {"type":"text","content":b["text"]}
+                    err = data.get("error")
+                    err_msg = (err.get("message") if isinstance(err, dict) else str(err)) if err else str(data)
+                    raise RuntimeError(err_msg[:300])
             else:
                 import anthropic as _ant
                 resp = _ant.Anthropic(api_key=key).messages.create(
