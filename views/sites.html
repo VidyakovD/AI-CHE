@@ -287,6 +287,8 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <script>
 const API = localStorage.getItem('obs_api')||window.location.origin;
 const authToken = localStorage.getItem('obs_token');
+const CODE_GEN_CH_COST = 30;
+const CODE_ITER_CH_COST = 15;
 let projects = [];
 let filterTab = 'draft';         // 'draft' | 'done'
 let currentProject = null;
@@ -304,6 +306,10 @@ function authHeaders(extra={}){
 
 // ── Init ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async ()=>{
+  if(!authToken){
+    window.location.href = 'index.html';
+    return;
+  }
   await loadProjects();
 });
 
@@ -505,10 +511,8 @@ async function loadChatHistory(){
   }
 
   if(!chatMessages.length){
-    // Show welcome message
-    addChatMessage('system', 'Claude поможет собрать ТЗ для сайта. Опишите, какой сайт вы хотите, или ответьте на первый вопрос.');
-    // Send initial system message to prompt AI
-    await sendChatToBackend('');
+    // Show local welcome — no API call, no token charge
+    addChatMessage('ai', 'Привет! Я помогу вам создать сайт. Расскажите, какой сайт вы хотите сделать — тип (лендинг, магазин, портфолио), тематику и основную цель.');
   } else {
     for(const msg of chatMessages){
       if(msg.role==='user'){
@@ -589,26 +593,6 @@ async function sendChat(){
   isGenerating = false;
   document.getElementById('chatSendBtn').disabled = false;
   input.focus();
-}
-
-// Send empty message to trigger initial AI greeting
-async function sendChatToBackend(userMessage){
-  isGenerating = true;
-  document.getElementById('chatSendBtn').disabled = true;
-
-  try{
-    const r = await fetch(`${API}/sites/projects/${currentProjectId}/chat`,{
-      method:'POST', headers:authHeaders(), body:JSON.stringify({message: userMessage || 'Начни задавать вопросы'}),
-    });
-    if(!r.ok) throw new Error('');
-    const data = await r.json();
-    if(data.response){
-      addChatMessage('ai', data.response);
-    }
-  }catch(e){ /* silent */ }
-
-  isGenerating = false;
-  document.getElementById('chatSendBtn').disabled = false;
 }
 
 // ── Phase 2: Spec approve ─────────────────────────────────────────────────
@@ -788,12 +772,20 @@ async function iterateCode(){
 
 async function saveCode(){
   const code = document.getElementById('codeEditor').value;
-  currentProject.code_html = code;  // locally
-  // Refresh preview if showing
-  const activeTab = document.querySelector('#phaseDone .tab-btn.active');
-  if(activeTab && activeTab.textContent.trim()==='Превью'){
-    refreshPreview();
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/save-code`,{
+      method:'PUT', headers:authHeaders(), body:JSON.stringify({code_html:code}),
+    });
+    if(!r.ok) throw new Error('Ошибка сохранения');
+    currentProject.code_html = code;
+    const btn = document.querySelector('#dtab-code button');
+    const orig = btn?.textContent;
+    if(btn){ btn.textContent='Сохранено ✓'; setTimeout(()=>btn.textContent=orig,2000); }
+  }catch(e){
+    alert('Ошибка: '+e.message);
   }
+  const activeTab = document.querySelector('#phaseDone .tab-btn.active');
+  if(activeTab && activeTab.textContent.trim()==='Превью') refreshPreview();
 }
 
 function copyCode(){
@@ -815,32 +807,34 @@ function refreshPreview(){
 
 // ── Host / Download ───────────────────────────────────────────────────────
 async function hostSite(){
+  const btn = document.getElementById('hostBtn');
+  btn.disabled = true;
   try{
     const r = await fetch(`${API}/sites/projects/${currentProjectId}/host`,{
       method:'POST', headers:authHeaders(),
     });
-    if(!r.ok) throw new Error('Ошибка');
+    if(!r.ok) throw new Error('Ошибка публикации');
     const data = await r.json();
     currentProject.hosted_path = data.url;
     updateDoneBottomBar();
-    alert('Сайт опубликован!');
   }catch(e){
     alert('Ошибка: '+e.message);
   }
+  btn.disabled = false;
 }
 
 async function downloadSite(){
-  try{
-    const r = await fetch(`${API}/sites/projects/${currentProjectId}/download`,{
-      method:'POST', headers:authHeaders(),
-    });
-    if(!r.ok) throw new Error('Ошибка');
-    const data = await r.json();
-    // Open in new tab
-    window.open(API + data.url, '_blank');
-  }catch(e){
-    alert('Ошибка: '+e.message);
-  }
+  const code = currentProject.code_html;
+  if(!code){ alert('Сначала сгенерируйте код сайта'); return; }
+  const blob = new Blob([code], {type:'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (currentProject.name||'site').replace(/[^a-zA-Zа-яА-Я0-9_-]/g,'_') + '.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ── Rename ────────────────────────────────────────────────────────────────

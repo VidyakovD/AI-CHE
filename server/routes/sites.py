@@ -161,8 +161,11 @@ def site_project_chat(project_id: int, body: dict, db: Session = Depends(get_db)
     p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
-    if p.conversation_phase not in ("gathering_spec", "collecting_images"):
+    if p.conversation_phase not in ("gathering_spec", "spec_ready", "collecting_images"):
         raise HTTPException(400, "Неверная фаза проекта")
+    # Reset phase when user goes back to chat from spec_ready
+    if p.conversation_phase == "spec_ready":
+        p.conversation_phase = "gathering_spec"
 
     user_message = body.get("message", "").strip()
     if not user_message:
@@ -327,6 +330,21 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
     p.status = "done"
     db.commit()
     return {"code_html": content, "status": p.status, "phase": p.conversation_phase}
+
+
+@router.put("/sites/projects/{project_id}/save-code")
+def site_project_save_code(project_id: int, body: dict, db: Session = Depends(get_db),
+                            user: User = Depends(current_user)):
+    """Save manually edited code back to the project."""
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    p.code_html = body.get("code_html", p.code_html)
+    if p.conversation_phase not in ("done", "generating_code"):
+        p.conversation_phase = "done"
+        p.status = "done"
+    db.commit()
+    return {"status": "ok"}
 
 
 @router.post("/sites/projects/{project_id}/iterate")
