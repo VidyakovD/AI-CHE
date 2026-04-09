@@ -1,6 +1,9 @@
-venv/
-__pycache__/
+*.db
 *.pyc
+__pycache__/
 .env
-chat.db
+venv/
+.venv/
 uploads/
+server/.jwt_secret
+*.log
