@@ -537,7 +537,7 @@ body.welcome #inputArea{display:none!important}
 <!-- ══ SCRIPT ════════════════════════════════════════════════════════════════ -->
 <script>
 const API=localStorage.getItem("obs_api")||window.location.origin;
-let currentChat=null,currentChatInit=false,currentModel="gpt";
+let currentChat=null,currentChatInit=false,currentChatTitle="",currentModel="gpt";
 let pendingAttachment=null;
 let authToken=localStorage.getItem("obs_token")||null;
 let currentUser=null,cabinetData=null;
@@ -545,6 +545,24 @@ let pendingVerifyUserId=null,pendingVerifyEmail=null;
 let pendingForgotUserId=null;
 let activeRun=null;
 let currentSolTab="prompts";
+
+// ── Browser Notifications ───────────────────────────────────────────────────
+// Запрашиваем разрешение при первом действии пользователя
+function requestNotifyPermission(){
+  if(!("Notification" in window)) return;
+  if(Notification.permission==="granted") return;
+  Notification.requestPermission();
+}
+
+function showNotify(title, body){
+  if(!("Notification" in window)) return;
+  if(Notification.permission!=="granted") return;
+  if(document.hasFocus()) return; // не спамим когда пользователь на вкладке
+  new Notification(title, {
+    body: body,
+    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>",
+  });
+}
 
 const MODELS=[
   {id:"gpt",             label:"GPT-4o mini",     group:"OpenAI",     tab:"GPT",        icon:"auto_awesome"},
@@ -1077,7 +1095,7 @@ function updateAuthUI(){
     document.getElementById("sidebarAvatar").textContent=ini;
     document.getElementById("sidebarName").textContent=currentUser.name||currentUser.email;
     document.getElementById("sidebarBalance").textContent=fmtT(currentUser.tokens_balance)+" CH";
-    document.getElementById("navBalance").textContent=fmtT(currentUser.tokens_balance)+" T";
+    document.getElementById("navBalance").textContent=fmtT(currentUser.tokens_balance)+" CH";
   }
 }
 
@@ -1528,6 +1546,7 @@ function clearAttachment(){pendingAttachment=null;document.getElementById("attac
 
 // ── send ───────────────────────────────────────────────────────────────────
 async function sendMessage(){
+  requestNotifyPermission();
   const ta=document.getElementById("messageInput");
   let text=ta.value.trim();
   if(!text&&!pendingAttachment)return;
@@ -1549,6 +1568,10 @@ async function sendMessage(){
     const res=await fetch(`${API}/message`,{method:"POST",headers:hdrs,body:JSON.stringify(body)});
     const data=await res.json();
     removeTyping();
+    if(res.status===402){
+      addInsufficientBalanceMsg();
+      return;
+    }
     if(data.error)addMsg(data.error,"ai","error");
     else{
       const r=data.response;
@@ -1557,13 +1580,37 @@ async function sendMessage(){
       else addMsg(r.content||"Ошибка","ai");
       if(authToken)fetchMe();
       loadChats(); // без await — не блокировать
+      // Уведомление когда ответ готов
+      const chatTitle = getChatTitle();
+      const preview = (r.content||"").substring(0, 80).replace(/\n/g, " ");
+      showNotify(chatTitle, preview);
     }
   }catch(e){removeTyping();addMsg("Ошибка сети или сервера","ai");}
   btn.disabled=false;btn.classList.remove("opacity-50","cursor-not-allowed");
 }
 
+async function addInsufficientBalanceMsg(){
+  removeTyping();
+  const container=document.getElementById("chatContainer");
+  const wrap=document.createElement("div");
+  wrap.className="flex items-center justify-center my-6";
+  wrap.innerHTML=`
+    <div class="rounded-2xl px-8 py-6 text-center shadow-xl" style="background:var(--md-sys-color-surface-container-high);max-width:360px;width:100%">
+      <div class="text-2xl mb-2">💎</div>
+      <div class="text-base font-semibold mb-2" style="color:var(--md-sys-color-on-surface)">Недостаточно средств</div>
+      <div class="text-sm mb-4" style="color:var(--md-sys-color-on-surface-dim)">Пополните баланс или смените тариф</div>
+      <button onclick="openCabinet()" class="px-6 py-2.5 rounded-full text-sm font-semibold transition hover:opacity-90" style="background:#FFD700;color:#1a1a1a">
+        Пополнить баланс
+      </button>
+    </div>
+  `;
+  container.appendChild(wrap);
+  container.scrollTop=container.scrollHeight;
+}
+
 async function createChat(){
   const r=await apiPost("/chat/create",{model:currentModel});currentChat=r.chat_id;
+  currentChatTitle="Новый чат";
 }
 
 async function loadChats(){
@@ -1606,7 +1653,7 @@ async function loadChats(){
       loadChats();
     };
     el.onclick=async()=>{
-      currentChat=chat.id;currentChatInit=true;
+      currentChat=chat.id;currentChatInit=true;currentChatTitle=chat.title||"Новый чат";
       await loadMessages(chat.id);showChat();
       document.querySelectorAll("#chatList>div").forEach(x=>x.classList.remove("bg-surface2","text-on-surface"));
       el.classList.add("bg-surface2","text-on-surface");

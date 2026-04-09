@@ -36,7 +36,23 @@
       "Bash(pip install:*)",
       "Bash(python3:*)",
       "Bash(grep -i \"proxy\\\\|PROXY\\\\|http_proxy\\\\|HTTP_PROXY\" .env*)",
-      "Bash(grep -rn \"PROXY\\\\|proxy\\\\|http_proxy\" *.py)"
+      "Bash(grep -rn \"PROXY\\\\|proxy\\\\|http_proxy\" *.py)",
+      "Bash(mkdir -p \"C:/Users/Дeнис/.ssh\")",
+      "Bash(ssh-keyscan -H 194.104.9.219)",
+      "Bash(curl -s http://194.104.9.219:8000/pricing/models)",
+      "Bash(curl -s http://194.104.9.219:8000/features)",
+      "Bash(scp:*)",
+      "WebFetch(domain:kling.ai)",
+      "Bash(sed 's/.*\\\\.//')",
+      "Read(//usr/**)",
+      "Bash(py -3.12 -c \"print\\('ok'\\)\")",
+      "Bash(py -3.13 -c \"print\\('ok'\\)\")",
+      "Bash(py --list)",
+      "Bash(py:*)",
+      "Bash(curl:*)",
+      "Bash(grep -l \"admin/apikeys\\\\|/admin/promos\\\\|/admin/faq\\\\|/admin/solutions\\\\|/admin/pricing/packages\\\\|/admin/presentations/templates\\\\|/sites/projects\\\\|/presentations/projects\\\\|/chat/{chat_id}\\\\|/admin/steps\\\\|/admin/features\" server/routes/*.py)",
+      "Bash(grep -n \"race\\\\|lock\\\\|transaction\\\\|PRAGMA\" /c/Users/Денис/Desktop/ai-service/server/*.py)",
+      "Bash(grep -n \"Subscription.*filter.*first\\\\|Transaction.*filter.*first\" /c/Users/Денис/Desktop/ai-service/server/routes/*.py)"
     ]
   }
 }

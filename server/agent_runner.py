@@ -151,6 +151,7 @@ AGENT_SYSTEM = f"""Ты автономный ИИ-агент AI Студии Ч�
 # ── TASK STORE (in-memory + optional DB) ─────────────────────────────────────
 
 tasks: dict[str, dict] = {}   # task_id → task state
+task_subscribers: dict[str, list] = {}  # task_id → [WebSocket connections]
 
 def create_task(user_id, goal: str, context: dict = None) -> str:
     tid = str(uuid.uuid4())
@@ -172,10 +173,31 @@ def update_task(tid: str, **kwargs):
     if tid in tasks:
         tasks[tid].update(kwargs)
         tasks[tid]["updated_at"] = datetime.utcnow().isoformat()
+        # Notify WebSocket subscribers
+        _notify_task(tid)
 
 def add_step(tid: str, step: dict):
     if tid in tasks:
         tasks[tid]["steps"].append({**step, "ts": datetime.utcnow().isoformat()})
+        # Notify subscribers about new step
+        _notify_task(tid)
+
+def subscribe_task(tid: str, ws) -> None:
+    """Register a WebSocket connection for task updates."""
+    task_subscribers.setdefault(tid, []).append(ws)
+
+def _notify_task(tid: str) -> None:
+    """Send current task state to all WebSocket subscribers."""
+    import asyncio
+    t = tasks.get(tid)
+    if not t:
+        return
+    msg = json.dumps({"type": "update", "task": t}, ensure_ascii=False)
+    for ws in list(task_subscribers.get(tid, [])):
+        try:
+            asyncio.create_task(ws.send_text(msg))
+        except Exception:
+            pass  # will be cleaned up on next check
 
 # ── TOOL IMPLEMENTATIONS ──────────────────────────────────────────────────────
 
@@ -250,7 +272,7 @@ async def tool_run_llm(params: dict, context: dict) -> str:
     system = params.get("system", "Ты полезный ассистент.")
     log.info(f"[tool] run_llm: model={model}, prompt[:80]={prompt[:80]}")
 
-    from ai import generate_response
+    from server.ai import generate_response
     messages = [{"role":"system","content":system}, {"role":"user","content":prompt}]
     try:
         result = generate_response(model, messages)
@@ -411,7 +433,7 @@ async def run_agent(task_id: str, goal: str, context: dict, max_steps: int = 15)
 
         # Call planner LLM
         try:
-            from ai import generate_response
+            from server.ai import generate_response
             planner_messages = [
                 {"role": "system", "content": AGENT_SYSTEM},
                 {"role": "user",   "content": planner_prompt}

@@ -1,16 +1,15 @@
 """
-Запусти один раз: python create_admin.py
+Запусти один раз: python -m server.create_admin
 Создаёт администратора Vidyakov с паролем 28371988
 """
 import sys, os
-sys.path.insert(0, os.path.dirname(__file__))
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from db import SessionLocal, engine
-import models
-from auth import hash_password
+from server.db import SessionLocal, engine
+from server import models
+from server.auth import hash_password
 import uuid
 
 models.Base.metadata.create_all(bind=engine)

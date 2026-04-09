@@ -1,12 +1,30 @@
-import os, random, time, base64, httpx
+import os, random, time, base64, httpx, logging
 from openai import OpenAI
 import anthropic as AnthropicSDK
 from dotenv import load_dotenv
 load_dotenv()
+log = logging.getLogger(__name__)
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _keys(env): return [k.strip() for k in os.getenv(env, "").split(",") if k.strip()]
+def _get_api_keys(provider: str, sep=","):
+    """Читает ключи из БД напрямую. Работает во всех воркерах без env."""
+    from server.db import SessionLocal
+    from server.models import ApiKey
+    db = SessionLocal()
+    try:
+        # Kling ключ один и содержит запятую внутри: "ak_XXX,sk_YYY"
+        if provider == "kling":
+            rows = db.query(ApiKey).filter_by(provider="kling").all()
+            return [r.key_value.strip() for r in rows if r.key_value.strip()]
+        # Для остальных провайдеров: можно несколько ключей через запятую в одной записи
+        rows = db.query(ApiKey).filter_by(provider=provider).all()
+        result = []
+        for r in rows:
+            result.extend(k.strip() for k in r.key_value.split(sep) if k.strip())
+        return result
+    finally:
+        db.close()
 
 def _shuffle(lst): random.shuffle(lst); return lst
 
@@ -30,8 +48,9 @@ def _notify_admin(error_msg: str):
 TOKEN_COST = {
     "gpt-4o-mini":            50,
     "gpt-4o":                100,
-    "claude-3-haiku-20240307": 40,
-    "claude-3-5-sonnet-20241022": 120,
+    "claude-haiku-4-5-20251001": 40,
+    "claude-sonnet-4-6": 120,
+    "claude-opus-4-6": 300,
     "sonar-small-chat":        30,
     "sonar-large-chat":        80,
     "nano-v1":                 10,
@@ -70,7 +89,7 @@ _image_to_base64 = _file_to_base64
 # ── OpenAI ────────────────────────────────────────────────────────────────────
 
 def openai_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_keys("OPENAI_API_KEYS"))
+    keys = _shuffle(_get_api_keys("openai"))
     if not keys:
         _notify_admin("OpenAI: OPENAI_API_KEYS пуст")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
@@ -144,7 +163,7 @@ def _kling_jwt_token(access_key: str, secret_key: str) -> str:
 
 def _get_kling_jwt() -> str | None:
     """Get a fresh JWT token from available Kling key pairs."""
-    raw_keys = _keys("KLING_API_KEYS")
+    raw_keys = _get_api_keys("kling")
     for pair in raw_keys:
         if "," in pair:
             ak, sk = pair.split(",", 1)
@@ -162,11 +181,14 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
     KLING_API_KEYS format: ak_XXXXX,sk_YYYYY  (access_key,secret_key pairs, comma-separated for multiple)
     """
     extra = extra or {}
+    log.info(f"[Kling] model={model}, extra={extra}")
 
     token = _get_kling_jwt()
     if not token:
+        log.error("[Kling] KLING_API_KEYS пуст или невалиден")
         _notify_admin("Kling: KLING_API_KEYS пуст или невалиден")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
+    log.info("[Kling] JWT сгенерирован успешно")
 
     KLING_MODEL_MAP = {"kling": "kling-v1", "kling-pro": "kling-v1-6"}
     prompt    = extra.get("prompt") or _last_text(messages) or ""
@@ -177,6 +199,8 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
     cfg       = float(extra.get("cfg_scale", 0.5))
     gen_mode  = extra.get("generation_mode", "text2video")
     api_model = KLING_MODEL_MAP.get(model, "kling-v1-6")
+
+    log.info(f"[Kling] prompt={prompt[:50]}... gen_mode={gen_mode} model={api_model}")
 
     # Camera control
     cam_type  = extra.get("camera_type", "")
@@ -259,6 +283,7 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
         return {"type": "text", "content": str(data)}
 
     except Exception as e:
+        log.error(f"[Kling] Ошибка: {type(e).__name__}: {e}")
         _notify_admin(f"Kling ошибка: {e}")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
@@ -269,7 +294,7 @@ def _genai_veo(model: str, prompt: str, ar: str, duration: int) -> dict:
     from google.genai import types
     import asyncio
 
-    keys = _shuffle(_keys("GOOGLE_API_KEYS"))
+    keys = _shuffle(_get_api_keys("google"))
     extra = {}
     for key in keys:
         try:
@@ -320,7 +345,7 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
       sample_count (1-4), enhance_prompt (bool)
     """
     extra = extra or {}
-    keys = _keys("GOOGLE_API_KEYS")
+    keys = _get_api_keys("google")
     if not keys:
         _notify_admin("Veo: GOOGLE_API_KEYS пуст")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
@@ -376,7 +401,7 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
 
 def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
     """Google Imagen 3 — генерация изображений через Google GenAI SDK."""
-    keys = _shuffle(_keys("GOOGLE_API_KEYS"))
+    keys = _shuffle(_get_api_keys("google"))
     extra = extra or {}
     if not keys:
         _notify_admin("Nano Banana: GOOGLE_API_KEYS пуст")
@@ -470,8 +495,8 @@ def _last_text(messages: list) -> str:
 MODEL_REGISTRY = {
     "gpt":             {"provider": "openai",      "real_model": "gpt-4o-mini"},
     "gpt-4o":          {"provider": "openai",      "real_model": "gpt-4o"},
-    "claude":          {"provider": "anthropic",   "real_model": "claude-sonnet-4.6"},
-    "claude-sonnet":   {"provider": "anthropic",   "real_model": "claude-sonnet-4-20250514"},
+    "claude":          {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
+    "claude-sonnet":   {"provider": "anthropic",   "real_model": "claude-opus-4-6"},
     "gemini":          {"provider": "gemini",      "real_model": "gemini-1.5-flash"},
     "gemini-pro":      {"provider": "gemini",      "real_model": "gemini-1.5-pro"},
     "perplexity":      {"provider": "perplexity",  "real_model": "sonar-small-chat"},
@@ -545,7 +570,7 @@ def _prepare_claude_content(content):
 
 
 def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_keys("ANTHROPIC_API_KEYS"))
+    keys = _shuffle(_get_api_keys("anthropic"))
     if not keys:
         _notify_admin("Anthropic: ANTHROPIC_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
@@ -567,11 +592,32 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
                     headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
                     timeout=120
                 )
-                data = r.json()
-                if data.get("content"):
-                    return {"type":"text","content":data["content"][0]["text"]}
+                # Прокси может игнорировать stream:false и отдавать SSE
+                if r.headers.get("content-type", "").startswith("text/event-stream"):
+                    text_parts = []
+                    for line in r.text.split("\n"):
+                        if line.startswith("data: "):
+                            try:
+                                d = json.loads(line[6:])
+                                if d.get("type") == "content_block_start":
+                                    block = d.get("content_block", {})
+                                    if block.get("type") == "text":
+                                        text_parts.append(block.get("text", ""))
+                                elif d.get("type") == "content_block_delta":
+                                    delta = d.get("delta", {})
+                                    if delta.get("type") == "text_delta":
+                                        text_parts.append(delta.get("text", ""))
+                            except:
+                                pass
+                    if text_parts:
+                        return {"type":"text","content":" ".join(text_parts)}
+                    raise RuntimeError(f"SSE response без текстовых блоков: {r.text[:200]}")
                 else:
-                    raise RuntimeError(data.get("error", {}).get("message", str(data.get("error")))[:300])
+                    data = r.json()
+                    if data.get("content"):
+                        return {"type":"text","content":data["content"][0]["text"]}
+                    else:
+                        raise RuntimeError(data.get("error", {}).get("message", str(data.get("error")))[:300])
             else:
                 import anthropic as _ant
                 resp = _ant.Anthropic(api_key=key).messages.create(
@@ -587,7 +633,7 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
 
 # ── GEMINI ────────────────────────────────────────────────────────────────────
 def gemini_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_keys("GOOGLE_API_KEYS"))
+    keys = _shuffle(_get_api_keys("google"))
     if not keys:
         _notify_admin("Gemini: GOOGLE_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
@@ -609,7 +655,7 @@ def gemini_response(model: str, messages: list, extra: dict = None) -> dict:
 
 # ── GROK (xAI) ───────────────────────────────────────────────────────────────
 def grok_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_keys("GROK_API_KEYS"))
+    keys = _shuffle(_get_api_keys("grok"))
     if not keys:
         _notify_admin("Grok: GROK_API_KEYS пуст")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
@@ -626,7 +672,7 @@ def grok_response(model: str, messages: list, extra: dict = None) -> dict:
 
 # ── PERPLEXITY ────────────────────────────────────────────────────────────────
 def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_keys("PERPLEXITY_API_KEYS"))
+    keys = _shuffle(_get_api_keys("perplexity"))
     if not keys:
         _notify_admin("Perplexity: PERPLEXITY_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
@@ -643,7 +689,7 @@ def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
 
 # ── OPENAI IMAGE (DALL-E) ─────────────────────────────────────────────────────
 def openai_image_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_keys("OPENAI_API_KEYS"))
+    keys = _shuffle(_get_api_keys("openai"))
     if not keys:
         _notify_admin("DALL-E: OPENAI_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
@@ -682,11 +728,24 @@ def resolve_model(model: str):
 def generate_response(model: str, messages: list, extra: dict = None) -> dict:
     cfg = resolve_model(model)
     if not cfg:
+        log.error(f"[AI] Модель не найдена: {model}")
         return {"type": "text", "content": f"Модель не найдена: {model}"}
 
     handler = PROVIDERS.get(cfg["provider"])
     if not handler:
+        log.error(f"[AI] Провайдер не найден: {cfg['provider']}")
         return {"type": "text", "content": f"Провайдер не найден: {cfg['provider']}"}
+
+    # Проверка ключей перед вызовом (из БД)
+    db_key_map = {"openai": "openai", "anthropic": "anthropic",
+                   "kling": "kling", "grok": "grok",
+                   "gemini": "google", "perplexity": "perplexity"}
+    db_provider = db_key_map.get(cfg["provider"])
+    if db_provider:
+        keys = _get_api_keys(db_provider)
+        log.info(f"[AI] {cfg['provider']}: real_model={cfg['real_model']} db_keys={len(keys)}")
+        if not keys:
+            log.error(f"[AI] {cfg['provider']}: НЕТ ключей в БД!")
 
     real = cfg["real_model"]
     try:
@@ -694,5 +753,6 @@ def generate_response(model: str, messages: list, extra: dict = None) -> dict:
             return handler(real, messages, extra or {})
         return handler(real, messages)
     except Exception as e:
+        log.error(f"[AI] Ошибка {cfg['provider']} ({real}): {type(e).__name__}: {e}")
         _notify_admin(f"{cfg['provider']} ({real}): {e}")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}

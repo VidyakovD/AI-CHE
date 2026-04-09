@@ -24,7 +24,8 @@ def _get_jwt_secret() -> str:
 
 SECRET_KEY = _get_jwt_secret()
 ALGORITHM  = "HS256"
-ACCESS_TTL = 60 * 24 * 30   # 30 days in minutes
+ACCESS_TTL  = 60 * 24        # 1 day in minutes (short-lived access token)
+REFRESH_TTL = 60 * 24 * 30   # 30 days in minutes (long-lived refresh token)
 
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -36,15 +37,27 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_ctx.verify(plain, hashed)
 
 def create_token(user_id: int, email: str) -> str:
+    """Create short-lived access token (1 day)."""
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TTL)
     return jwt.encode(
-        {"sub": str(user_id), "email": email, "exp": expire},
+        {"sub": str(user_id), "email": email, "exp": expire, "type": "access"},
         SECRET_KEY, algorithm=ALGORITHM
     )
 
-def decode_token(token: str) -> dict | None:
+def create_refresh_token(user_id: int, email: str) -> str:
+    """Create long-lived refresh token (30 days)."""
+    expire = datetime.utcnow() + timedelta(minutes=REFRESH_TTL)
+    return jwt.encode(
+        {"sub": str(user_id), "email": email, "exp": expire, "type": "refresh"},
+        SECRET_KEY, algorithm=ALGORITHM
+    )
+
+def decode_token(token: str, require_type: str = None) -> dict | None:
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if require_type and payload.get("type") != require_type:
+            return None
+        return payload
     except JWTError:
         return None
 

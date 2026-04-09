@@ -215,7 +215,7 @@ select.inp option{background:#272018;color:#f0e6d8}
             </div>
           </div>
           <div id="addKeyErr" class="text-error text-xs mt-2 hidden"></div>
-          <button onclick="addKey()" class="btn btn-p mt-3">Добавить ключ</button>
+          <button onclick="addKey()" class="btn btn-p mt-3">Сохранить</button>
         </div>
       </div>
 
@@ -597,7 +597,7 @@ async function loadSolutions(cat){
           <p class="text-xs text-on-dim mt-0.5">${cat?.title||"—"} · ${s.steps_count} шагов</p>
         </div>
         <div class="text-right flex-shrink-0">
-          <p class="text-primary font-bold text-sm">${s.price_tokens?fmtT(s.price_tokens)+" T":"Бесплатно"}</p>
+          <p class="text-primary font-bold text-sm">${s.price_tokens?fmtT(s.price_tokens)+" CH":"Бесплатно"}</p>
           <span class="text-[10px] px-1.5 py-0.5 rounded-full ${s.is_active?"bg-green-500/15 text-green-400":"bg-error/15 text-error"}">${s.is_active?"Активно":"Скрыто"}</span>
         </div>
       </div>
@@ -635,7 +635,7 @@ function renderUsers(users){
     <tr class="border-b border-outline/10 hover:bg-surface2/40 transition ${u.is_banned?'bg-error/5':''}">
       <td class="py-2 px-3 text-xs font-mono text-on-dim">${esc(u.email)}</td>
       <td class="py-2 px-3 text-xs">${esc(u.name||"—")}</td>
-      <td class="py-2 px-3 text-xs text-primary font-bold text-right">${fmtT(u.tokens_balance)} T</td>
+      <td class="py-2 px-3 text-xs text-primary font-bold text-right">${fmtT(u.tokens_balance)} CH</td>
       <td class="py-2 px-3 text-xs text-on-dim">${u.subscription?u.subscription.plan.toUpperCase():"—"}</td>
       <td class="py-2 px-3 text-center">${u.is_verified?'<span class="text-green-400 text-xs">✓</span>':'<span class="text-error text-xs">✗</span>'}</td>
       <td class="py-2 px-3 text-xs text-on-dim">${u.created_at?new Date(u.created_at).toLocaleDateString("ru"):"—"}</td>
@@ -800,10 +800,23 @@ async function loadApiKeys(){
 
 function onProviderChange(){
   const prov=document.getElementById("newKeyProvider").value;
+  const keyRow=document.getElementById("newKeyValue").closest("div");
+  const label=document.getElementById("keyLabel");
   const klingRow=document.getElementById("klingSecretRow");
   if(prov==="kling"){
+    keyRow.classList.add("hidden");
     klingRow.classList.remove("hidden");
+  }else if(prov==="yookassa"){
+    keyRow.classList.remove("hidden");
+    label.textContent="Магазин:Секрет (shop_id:secret_key)";
+    klingRow.classList.add("hidden");
+  }else if(prov==="veo_project_id"){
+    keyRow.classList.remove("hidden");
+    label.textContent="Project ID";
+    klingRow.classList.add("hidden");
   }else{
+    keyRow.classList.remove("hidden");
+    label.textContent="API Ключ";
     klingRow.classList.add("hidden");
   }
 }
@@ -961,7 +974,7 @@ async function saveSolution(){
 }
 
 // ── utils ──────────────────────────────────────────────────────────────────
-function fmtT(n){if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1000)return(n/1000).toFixed(0)+"к";return String(n||0);}
+function fmtT(n){return(n||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 
 async function get(path){
@@ -1233,6 +1246,34 @@ async function deletePromoItem(id){
 // Patch showSec to load promos
 const _origShowSec2 = showSec;
 
+
+async function addKey(){
+  const prov=document.getElementById("newKeyProvider").value;
+  const err=document.getElementById("addKeyErr");err.classList.add("hidden");
+  let keyVal="",label="";
+
+  if(prov==="kling"){
+    const ak=document.getElementById("klingAccessKey").value.trim();
+    const sk=document.getElementById("klingSecretKey").value.trim();
+    if(!ak||!sk){err.textContent="Заполните Access Key и Secret Key";err.classList.remove("hidden");return;}
+    keyVal=ak+","+sk;
+    label=document.getElementById("newKeyLabel").value.trim();
+  }else{
+    keyVal=document.getElementById("newKeyValue").value.trim();
+    if(!keyVal){err.textContent="Введите ключ";err.classList.remove("hidden");return;}
+    label=document.getElementById("newKeyLabel").value.trim();
+  }
+
+  try{
+    await post("/admin/apikeys",{provider:prov,key_value:keyVal,label});
+    // clear form
+    document.getElementById("newKeyValue").value="";
+    document.getElementById("klingAccessKey").value="";
+    document.getElementById("klingSecretKey").value="";
+    document.getElementById("newKeyLabel").value="";
+    loadApiKeys();
+  }catch(e){err.textContent=e.message;err.classList.remove("hidden");}
+}
 
 checkAutoLogin();
 </script>

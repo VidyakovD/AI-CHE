@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Создание сайтов</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","primary-dim":"#ff6b00","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
+<style>
+body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:100vh}
+.sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
+.sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;font-family:inherit;transition:border-color .2s}
+.inp:focus{border-color:#ff8c42}
+.inp::placeholder{color:#a89880}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}
+.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.btn-d{background:rgba(255,107,107,0.08);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer}
+.btn-yellow{background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#1C1C1C;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-yellow:hover{opacity:.88}
+.card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px;transition:all .15s}
+.project-card{cursor:pointer}
+.project-card:hover{border-color:rgba(255,140,66,0.4);transform:translateY(-1px)}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
+.modal-bg.show{display:flex}
+/* Tabs */
+.tab-bar{display:flex;border-bottom:1px solid rgba(85,85,85,0.3)}
+.tab-btn{padding:10px 18px;font-size:13px;font-weight:600;color:#9a9a9a;cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;transition:all .15s}
+.tab-btn:hover{color:#f0e6d8}
+.tab-btn.active{color:#c0c1ff;border-bottom-color:#c0c1ff}
+.tab-pane{display:none}
+.tab-pane.active{display:block}
+/* Chat */
+.chat-box{flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:12px}
+.chat-msg{max-width:85%;border-radius:14px;padding:10px 14px;font-size:14px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.chat-user{background:#ff8c42;color:#1C1C1C;align-self:flex-end;border-bottom-right-radius:4px}
+.chat-ai{background:#272018;color:#f0e6d8;align-self:flex-start;border:1px solid rgba(74,63,47,0.3)}
+.chat-system{align-self:center;color:#a89880;font-size:12px;text-align:center}
+/* Spec display */
+.spec-box{background:#272018;border:1px solid rgba(74,63,47,0.3);border-radius:12px;padding:16px;font-size:13px;line-height:1.7;white-space:pre-wrap;max-height:60vh;overflow-y:auto}
+/* Code editor */
+.code-editor{width:100%;min-height:400px;background:#1a1810;color:#b8d4a0;font-family:'Fira Code',monospace;font-size:13px;line-height:1.5;border:1px solid rgba(74,63,47,0.3);border-radius:12px;padding:14px;resize:vertical;outline:none;tab-size:2}
+.code-editor:focus{border-color:#ff8c42}
+/* Cost badge */
+.cost-badge{display:inline-flex;align-items:center;gap:4px;background:rgba(255,140,66,0.1);border:1px solid rgba(255,140,66,0.2);border-radius:9999px;padding:4px 12px;font-size:12px;color:#ff8c42;font-weight:600}
+/* Image thumbnails */
+.img-thumb{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid rgba(74,63,47,0.3);cursor:pointer;transition:opacity .15s}
+.img-thumb:hover{opacity:.7}
+/* Preview iframe */
+.preview-frame{width:100%;height:550px;border:none;border-radius:12px;background:#fff}
+/* Scrollbar */
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(74,63,47,0.5);border-radius:3px}
+</style>
+</head>
+<body class="dark">
+
+<div class="max-w-6xl mx-auto px-5 py-8">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div class="flex items-center gap-4">
+      <a href="index.html" class="btn-g text-xs">← Назад</a>
+      <div>
+        <h1 class="text-2xl font-extrabold font-headline">Создание <span class="sig-text">сайтов</span></h1>
+        <p class="text-sm text-on-dim">Генерация сайтов с помощью AI — от ТЗ до готового кода</p>
+      </div>
+    </div>
+    <button onclick="openCreate()" class="btn-p">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+      Создать проект
+    </button>
+  </div>
+
+  <!-- Two filters: Черновики / Готовые -->
+  <div class="flex gap-2 mb-4" id="statusFilters">
+    <button onclick="filterTab='draft';render()" id="filter-draft" class="px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer bg-primary text-[#1C1C1C]">Черновики</button>
+    <button onclick="filterTab='done';render()" id="filter-done" class="px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer bg-surface2 text-on-dim border border-outline/25">Готовые</button>
+  </div>
+
+  <!-- Project grid -->
+  <div id="projectGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+
+  <!-- Empty state -->
+  <div id="emptyState" class="hidden text-center py-24">
+    <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="#1C1C1C"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6v-2zm0 4h8v2H6v-2zm10 0h2v2h-2v-2zm-6-4h8v2h-8v-2z"/></svg>
+    </div>
+    <h2 class="text-xl font-bold font-headline mb-2">Нет проектов</h2>
+    <p class="text-on-dim text-sm mb-6">Создайте первый проект — с готовым ТЗ или соберём вместе</p>
+    <button onclick="openCreate()" class="btn-p">Создать первый проект</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- CREATE MODAL — two modes -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="createModal" class="modal-bg">
+  <div class="bg-surface rounded-2xl w-full max-w-lg border border-outline/25 shadow-2xl overflow-hidden">
+    <div class="sig px-6 py-4 flex items-center justify-between">
+      <h2 class="font-headline font-bold text-[#1C1C1C] text-lg">Новый проект</h2>
+      <button onclick="closeCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none">✕</button>
+    </div>
+    <div class="p-6 space-y-5">
+      <!-- Project name -->
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Название проекта</label>
+        <input id="proj_name" type="text" placeholder="Например: Лендинг кофейни" class="inp"/>
+      </div>
+
+      <!-- Mode selection -->
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-3">Как создаём?</label>
+        <div class="space-y-3">
+          <label id="mode_together_label" class="flex items-start gap-3 p-4 rounded-xl border-2 border-primary/50 bg-primary/5 cursor-pointer transition-all" onclick="selectMode('create_together')">
+            <input type="radio" name="creation_mode" value="create_together" checked class="mt-1 accent-[#ff8c42]"/>
+            <div>
+              <p class="font-semibold text-sm text-on-surface">Создать ТЗ вместе</p>
+              <p class="text-xs text-on-dim mt-0.5">Claude задаст вопросы, соберёт требования и сформирует ТЗ</p>
+            </div>
+          </label>
+          <label id="mode_spec_label" class="flex items-start gap-3 p-4 rounded-xl border border-outline/25 cursor-pointer transition-all" onclick="selectMode('have_spec')">
+            <input type="radio" name="creation_mode" value="have_spec" class="mt-1 accent-[#ff8c42]"/>
+            <div>
+              <p class="font-semibold text-sm text-on-surface">У меня есть ТЗ</p>
+              <p class="text-xs text-on-dim mt-0.5">Загрузите или вставьте готовое техническое задание</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Spec text (shown when have_spec selected) -->
+      <div id="specInputWrap" class="hidden">
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Техническое задание</label>
+        <textarea id="proj_spec" rows="5" class="inp resize-none text-sm leading-relaxed"
+          placeholder="Вставьте или напишите ТЗ сюда..."></textarea>
+      </div>
+
+      <div id="proj_err" class="text-error text-xs hidden"></div>
+      <div class="flex gap-3 pt-2">
+        <button onclick="closeCreate()" class="btn-g flex-1">Отмена</button>
+        <button onclick="saveProject()" class="btn-p flex-1 justify-center">Создать проект</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- PROJECT DETAIL MODAL — multi-phase interface -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="detailModal" class="modal-bg">
+  <div class="bg-surface rounded-2xl w-full max-w-5xl border border-outline/25 shadow-2xl overflow-hidden flex flex-col" style="max-height:92vh">
+    <!-- Header -->
+    <div class="sig px-6 py-4 flex items-center justify-between flex-shrink-0">
+      <div class="flex items-center gap-3">
+        <h2 class="font-headline font-bold text-[#1C1C1C] text-lg" id="detailTitle">Проект</h2>
+        <button onclick="startRename()" class="w-6 h-6 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-xs" title="Переименовать">✎</button>
+        <div class="cost-badge text-[#1C1C1C]/70 bg-black/10 border-black/10" id="detailCost">0 CH</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="deleteCurrentProject()" class="btn-d text-xs py-1.5 px-3">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+        </button>
+        <button onclick="closeDetail()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none">✕</button>
+      </div>
+    </div>
+
+    <!-- ── PHASE 1: Conversational spec building / Chat ──
+         Shown when conversation_phase == "gathering_spec" -->
+    <div id="phaseChat" class="hidden flex-col flex-1 min-h-0" style="min-height:500px">
+      <div class="px-6 py-2 bg-surface2 border-b border-outline/20 flex-shrink-0">
+        <p class="text-xs text-on-dim">Собеседование: Claude соберёт требования для вашего сайта</p>
+      </div>
+      <div id="chatBox" class="chat-box flex-1 px-6 py-4">
+        <!-- messages go here -->
+      </div>
+      <div class="px-6 py-3 bg-surface2 border-t border-outline/20 flex-shrink-0 flex gap-2">
+        <input id="chatInput" type="text" class="inp flex-1" placeholder="Ответьте на вопрос..." onkeydown="if(event.key==='Enter')sendChat()"/>
+        <button onclick="sendChat()" class="btn-p" id="chatSendBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── PHASE 2: Spec ready — review & approve ──
+         Shown when conversation_phase == "spec_ready" -->
+    <div id="phaseSpecReady" class="hidden flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
+      <div class="bg-primary/10 border border-primary/20 rounded-xl px-5 py-4">
+        <p class="text-sm font-semibold text-primary mb-1">ТЗ готово!</p>
+        <p class="text-xs text-on-dim">Просмотрите техническое задание. Если всё устраивает — нажмите «Подтвердить» для перехода к загрузке изображений.</p>
+      </div>
+      <div id="specDisplay" class="spec-box"></div>
+      <div class="flex gap-3">
+        <button onclick="approveSpec()" class="btn-p flex-1 justify-center">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+          Подтвердить и продолжить
+        </button>
+        <button onclick="backToChat()" class="btn-g">Вернуться к чату</button>
+      </div>
+    </div>
+
+    <!-- ── PHASE 3: Collecting images ──
+         Shown when conversation_phase == "collecting_images" -->
+    <div id="phaseImages" class="hidden flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
+      <div class="bg-surface2 rounded-xl p-5 border border-outline/20">
+        <h3 class="font-semibold text-sm mb-1">Изображения и логотипы</h3>
+        <p class="text-xs text-on-dim mb-3">Загрузите изображения, логотипы или фото, которые нужно разместить на сайте (необязательно)</p>
+        <div id="imageList" class="flex gap-2 flex-wrap mb-3"></div>
+        <div class="flex gap-2">
+          <button onclick="triggerImageUpload()" class="btn-g text-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+            Загрузить изображение
+          </button>
+          <input type="file" id="imageFileInput" accept="image/*" class="hidden" onchange="handleImageUpload(event)"/>
+        </div>
+      </div>
+      <button onclick="generateCode()" class="btn-p w-full justify-center" id="genCodeBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
+        Сгенерировать код сайта
+      </button>
+    </div>
+
+    <!-- ── PHASE 4+: Code generated — tabs: Код / Превью / ТЗ ──
+         Shown when conversation_phase == "done" -->
+    <div id="phaseDone" class="hidden flex-1 min-h-0 flex flex-col">
+      <div class="tab-bar flex-shrink-0">
+        <button class="tab-btn active" onclick="switchDetailTab('code',this)">Код</button>
+        <button class="tab-btn" onclick="switchDetailTab('preview',this)">Превью</button>
+        <button class="tab-btn" onclick="switchDetailTab('dSpec',this)">ТЗ</button>
+      </div>
+      <!-- Code tab -->
+      <div id="dtab-code" class="tab-pane active flex-1 min-h-0 flex flex-col p-4 space-y-3 overflow-y-auto">
+        <!-- Iteration input -->
+        <div class="flex gap-2 flex-shrink-0">
+          <input id="iterInput" type="text" class="inp flex-1" placeholder="Что изменить? Например: добавь тёмную тему, измени цвет шапки..." onkeydown="if(event.key==='Enter')iterateCode()"/>
+          <button onclick="iterateCode()" class="btn-p" id="iterBtn">Применить</button>
+        </div>
+        <textarea id="codeEditor" class="code-editor flex-1" spellcheck="false"></textarea>
+        <div class="flex gap-2 flex-shrink-0">
+          <button onclick="saveCode()" class="btn-p">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
+            Сохранить
+          </button>
+          <button onclick="copyCode()" class="btn-g text-xs">Копировать</button>
+        </div>
+      </div>
+      <!-- Preview tab -->
+      <div id="dtab-preview" class="tab-pane flex-1 min-h-0 flex flex-col p-4">
+        <iframe id="previewFrame" class="preview-frame flex-1"></iframe>
+      </div>
+      <!-- Spec tab -->
+      <div id="dtab-dSpec" class="tab-pane flex-1 min-h-0 overflow-y-auto p-4">
+        <div id="dSpecBox" class="spec-box"></div>
+      </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="phaseLoading" class="hidden absolute inset-0 bg-surface/90 flex items-center justify-center z-10">
+      <div class="text-center">
+        <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-3" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-dasharray="31.4 31.4" stroke-dashoffset="10"/></svg>
+        <p id="loadingText" class="text-on-dim text-sm">Думаю...</p>
+      </div>
+    </div>
+
+    <!-- Bottom bar: host + download (shown when code exists) -->
+    <div id="doneBottomBar" class="hidden bg-surface2 border-t border-outline/20 px-6 py-3 flex-shrink-0 flex items-center gap-3">
+      <button onclick="hostSite()" class="btn-p text-sm" id="hostBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-6 10H10v-2h4v2zm4-4H6v-2h12v2z"/></svg>
+        Опубликовать
+      </button>
+      <button onclick="downloadSite()" class="btn-yellow text-sm">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+        Скачать
+      </button>
+      <div id="hostedUrl" class="hidden flex-1 min-w-0">
+        <p class="text-xs text-on-dim mb-0.5">Сайт опубликован:</p>
+        <a id="hostedLink" href="#" target="_blank" class="text-xs text-primary underline truncate block"></a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = localStorage.getItem('obs_api')||window.location.origin;
+const authToken = localStorage.getItem('obs_token');
+let projects = [];
+let filterTab = 'draft';         // 'draft' | 'done'
+let currentProject = null;
+let currentProjectId = null;
+let chatMessages = [];           // local chat state for spec building
+let imagePaths = [];             // uploaded images
+let isGenerating = false;
+
+// ── Auth headers ──────────────────────────────────────────────────────────
+function authHeaders(extra={}){
+  const h = {'Content-Type':'application/json',...extra};
+  if(authToken) h['Authorization'] = 'Bearer ' + authToken;
+  return h;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async ()=>{
+  await loadProjects();
+});
+
+// ── Load / Render Projects ───────────────────────────────────────────────
+async function loadProjects(){
+  try{
+    const r = await fetch(`${API}/sites/projects`,{headers:authHeaders()});
+    if(!r.ok) throw new Error(r.statusText);
+    projects = await r.json();
+    render();
+  }catch(e){ projects=[]; render(); }
+}
+
+function render(){
+  const grid = document.getElementById('projectGrid');
+  const empty = document.getElementById('emptyState');
+
+  // Update filter buttons
+  const draftBtn = document.getElementById('filter-draft');
+  const doneBtn = document.getElementById('filter-done');
+  if(filterTab==='draft'){
+    draftBtn.className='px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer bg-primary text-[#1C1C1C]';
+    doneBtn.className='px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer bg-surface2 text-on-dim border border-outline/25';
+  } else {
+    doneBtn.className='px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer bg-primary text-[#1C1C1C]';
+    draftBtn.className='px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer bg-surface2 text-on-dim border border-outline/25';
+  }
+
+  // Filter: draft = not done status, done = done status
+  let list;
+  if(filterTab==='draft'){
+    list = projects.filter(p=>p.status!=='done');
+  } else {
+    list = projects.filter(p=>p.status==='done');
+  }
+
+  if(!list.length){
+    grid.innerHTML='';
+    empty.classList.toggle('hidden', projects.length>0);
+    if(projects.length>0) grid.innerHTML = '<p class="col-span-full text-center text-on-dim py-8">Нет проектов в этой категории</p>';
+    return;
+  }
+  empty.classList.add('hidden');
+
+  grid.innerHTML = list.map(p=>{
+    const date = p.created_at ? new Date(p.created_at).toLocaleDateString('ru-RU') : '—';
+    const tokens = p.price_tokens ? `${p.price_tokens} CH` : '';
+    const mode = (p.creation_mode==='have_spec') ? 'По ТЗ' : 'Вместе';
+    const phase = phaseLabel(p.conversation_phase);
+
+    return `
+      <div class="card project-card p-4" onclick="openProject(${p.id})">
+        <div class="flex items-start justify-between gap-2 mb-3">
+          <div class="flex-1 min-w-0">
+            <p class="font-bold font-headline truncate text-sm">${esc(p.name||'Без названия')}</p>
+            <p class="text-xs text-on-dim mt-0.5">${date}</p>
+          </div>
+          <span class="text-[10px] text-on-dim/50 bg-surface2 px-2 py-0.5 rounded-full">${phase}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-on-dim/50">${mode}</span>
+          ${tokens ? `<span class="cost-badge">${tokens}</span>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function phaseLabel(phase){
+  const map = {idle:'Старт',gathering_spec:'Сбор ТЗ',spec_ready:'ТЗ готово',collecting_images:'Фото',generating_code:'Генерация',done:'Готово'};
+  return map[phase]||'Черновик';
+}
+
+// ── Create Modal ──────────────────────────────────────────────────────────
+let creationMode = 'create_together';
+
+function selectMode(mode){
+  creationMode = mode;
+  const togetherLabel = document.getElementById('mode_together_label');
+  const specLabel = document.getElementById('mode_spec_label');
+  const specWrap = document.getElementById('specInputWrap');
+
+  if(mode==='create_together'){
+    togetherLabel.className='flex items-start gap-3 p-4 rounded-xl border-2 border-primary/50 bg-primary/5 cursor-pointer transition-all';
+    specLabel.className='flex items-start gap-3 p-4 rounded-xl border border-outline/25 cursor-pointer transition-all';
+    specWrap.classList.add('hidden');
+  } else {
+    specLabel.className='flex items-start gap-3 p-4 rounded-xl border-2 border-primary/50 bg-primary/5 cursor-pointer transition-all';
+    togetherLabel.className='flex items-start gap-3 p-4 rounded-xl border border-outline/25 cursor-pointer transition-all';
+    specWrap.classList.remove('hidden');
+  }
+}
+
+function openCreate(){
+  document.getElementById('proj_name').value = '';
+  document.getElementById('proj_spec').value = '';
+  document.getElementById('proj_err').classList.add('hidden');
+  selectMode('create_together');
+  document.getElementById('createModal').classList.add('show');
+}
+
+function closeCreate(){ document.getElementById('createModal').classList.remove('show'); }
+
+async function saveProject(){
+  const name = document.getElementById('proj_name').value.trim();
+  const err = document.getElementById('proj_err');
+  err.classList.add('hidden');
+
+  if(!name){ err.textContent='Введите название проекта'; err.classList.remove('hidden'); return; }
+
+  const body = { name, creation_mode: creationMode };
+  if(creationMode==='have_spec'){
+    body.spec_text = document.getElementById('proj_spec').value.trim();
+    if(!body.spec_text){ err.textContent='Вставьте или напишите ТЗ'; err.classList.remove('hidden'); return; }
+  }
+
+  try{
+    const r = await fetch(`${API}/sites/projects`,{
+      method:'POST', headers:authHeaders(), body:JSON.stringify(body),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'Ошибка создания проекта');
+    }
+    const data = await r.json();
+    closeCreate();
+    await loadProjects();
+    // Open project immediately
+    openProject(data.id);
+  }catch(e){
+    err.textContent = e.message;
+    err.classList.remove('hidden');
+  }
+}
+
+// ── Open Project Detail ───────────────────────────────────────────────────
+async function openProject(id){
+  currentProjectId = id;
+  try{
+    const r = await fetch(`${API}/sites/projects/${id}`,{headers:authHeaders()});
+    if(!r.ok) throw new Error(r.statusText);
+    currentProject = await r.json();
+  }catch(e){ alert('Ошибка загрузки проекта: '+e.message); return; }
+
+  const proj = currentProject;
+  document.getElementById('detailTitle').textContent = proj.name || 'Проект';
+  document.getElementById('detailCost').textContent = (proj.price_tokens||0) + ' CH';
+
+  // Hide all phases, show relevant one
+  hideAllPhases();
+
+  const phase = proj.conversation_phase || 'idle';
+
+  if(phase === 'gathering_spec'){
+    // Phase 1: Conversational spec building
+    document.getElementById('phaseChat').classList.remove('hidden');
+    document.getElementById('phaseChat').classList.add('flex');
+    await loadChatHistory();
+  } else if(phase === 'spec_ready'){
+    // Phase 2: Spec ready for review
+    document.getElementById('phaseSpecReady').classList.remove('hidden');
+    document.getElementById('specDisplay').textContent = proj.spec_text || '';
+  } else if(phase === 'collecting_images'){
+    // Phase 2.5: Image collection
+    document.getElementById('phaseImages').classList.remove('hidden');
+    await loadProjectImages();
+  } else if(phase === 'done' || phase === 'generating_code'){
+    // Phase 3+: Code generated
+    showDonePhase();
+  } else {
+    // Idle — start spec building chat
+    document.getElementById('phaseChat').classList.remove('hidden');
+    document.getElementById('phaseChat').classList.add('flex');
+    await loadChatHistory();
+  }
+
+  document.getElementById('detailModal').classList.add('show');
+}
+
+function hideAllPhases(){
+  ['phaseChat','phaseSpecReady','phaseImages','phaseDone','phaseLoading'].forEach(id=>{
+    const el = document.getElementById(id);
+    el.classList.add('hidden');
+    el.classList.remove('flex');
+  });
+  document.getElementById('doneBottomBar').classList.add('hidden');
+}
+
+function closeDetail(){ document.getElementById('detailModal').classList.remove('show'); }
+
+// ── Phase 1: Chat (conversational spec building) ──────────────────────────
+async function loadChatHistory(){
+  chatMessages = [];
+  const box = document.getElementById('chatBox');
+  box.innerHTML = '';
+
+  const proj = currentProject;
+  if(proj.chat_history){
+    try{ chatMessages = JSON.parse(proj.chat_history); }catch(e){ chatMessages = []; }
+  }
+
+  if(!chatMessages.length){
+    // Show welcome message
+    addChatMessage('system', 'Claude поможет собрать ТЗ для сайта. Опишите, какой сайт вы хотите, или ответьте на первый вопрос.');
+    // Send initial system message to prompt AI
+    await sendChatToBackend('');
+  } else {
+    for(const msg of chatMessages){
+      if(msg.role==='user'){
+        addChatMessage('user', msg.content);
+      } else if(msg.role==='assistant'){
+        addChatMessage('ai', msg.content);
+      }
+    }
+  }
+  scrollChat();
+}
+
+function addChatMessage(type, text){
+  const box = document.getElementById('chatBox');
+  const div = document.createElement('div');
+  if(type==='system'){
+    div.className = 'chat-system';
+    div.textContent = text;
+  } else if(type==='user'){
+    div.className = 'chat-msg chat-user';
+    div.textContent = text;
+  } else {
+    div.className = 'chat-msg chat-ai';
+    div.textContent = text;
+  }
+  box.appendChild(div);
+  scrollChat();
+  return div;
+}
+
+function scrollChat(){
+  const box = document.getElementById('chatBox');
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendChat(){
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if(!text || isGenerating) return;
+  input.value = '';
+  isGenerating = true;
+  document.getElementById('chatSendBtn').disabled = true;
+
+  addChatMessage('user', text);
+
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/chat`,{
+      method:'POST', headers:authHeaders(), body:JSON.stringify({message:text}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      if(r.status===402){
+        addChatMessage('system', 'Недостаточно токенов. Пополните баланс.');
+        isGenerating = false;
+        document.getElementById('chatSendBtn').disabled = false;
+        return;
+      }
+      throw new Error(d.detail || 'Ошибка');
+    }
+    const data = await r.json();
+    addChatMessage('ai', data.response || '');
+
+    // Update project
+    currentProject = await getProjectDetail();
+    document.getElementById('detailCost').textContent = (currentProject.price_tokens||0) + ' CH';
+
+    // Check if spec is ready
+    if(data.phase === 'spec_ready'){
+      setTimeout(()=>{
+        closeDetail();
+        openProject(currentProjectId);
+      }, 1000);
+    }
+  }catch(e){
+    addChatMessage('system', 'Ошибка: '+e.message);
+  }
+
+  isGenerating = false;
+  document.getElementById('chatSendBtn').disabled = false;
+  input.focus();
+}
+
+// Send empty message to trigger initial AI greeting
+async function sendChatToBackend(userMessage){
+  isGenerating = true;
+  document.getElementById('chatSendBtn').disabled = true;
+
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/chat`,{
+      method:'POST', headers:authHeaders(), body:JSON.stringify({message: userMessage || 'Начни задавать вопросы'}),
+    });
+    if(!r.ok) throw new Error('');
+    const data = await r.json();
+    if(data.response){
+      addChatMessage('ai', data.response);
+    }
+  }catch(e){ /* silent */ }
+
+  isGenerating = false;
+  document.getElementById('chatSendBtn').disabled = false;
+}
+
+// ── Phase 2: Spec approve ─────────────────────────────────────────────────
+async function approveSpec(){
+  showLoading('Переходим к загрузке изображений...');
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/approve-spec`,{
+      method:'POST', headers:authHeaders(),
+    });
+    if(!r.ok) throw new Error('Ошибка');
+    currentProject = await getProjectDetail();
+    hideAllPhases();
+    document.getElementById('phaseImages').classList.remove('hidden');
+    await loadProjectImages();
+  }catch(e){
+    hideAllPhases();
+    alert('Ошибка: '+e.message);
+  }
+}
+
+function backToChat(){
+  hideAllPhases();
+  document.getElementById('phaseChat').classList.remove('hidden');
+  document.getElementById('phaseChat').classList.add('flex');
+  loadChatHistory();
+}
+
+// ── Phase 2.5: Image collection ───────────────────────────────────────────
+async function loadProjectImages(){
+  imagePaths = [];
+  try{
+    const proj = await getProjectDetail();
+    currentProject = proj;
+    if(proj.image_paths){
+      try{ imagePaths = JSON.parse(proj.image_paths); }catch(e){ imagePaths = []; }
+    }
+  }catch(e){}
+  renderImages();
+}
+
+function renderImages(){
+  const list = document.getElementById('imageList');
+  if(!imagePaths.length){
+    list.innerHTML = '<p class="text-xs text-on-dim/50">Пока нет изображений</p>';
+    return;
+  }
+  list.innerHTML = imagePaths.map((url,i)=>`
+    <a href="${API}${url.startsWith('/')?url:'/'+url}" target="_blank">
+      <img src="${API}${url.startsWith('/')?url:'/'+url}" class="img-thumb" title="${url.split('/').pop()}"/>
+    </a>
+  `).join('');
+}
+
+function triggerImageUpload(){
+  document.getElementById('imageFileInput').click();
+}
+
+async function handleImageUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  event.target.value = '';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try{
+    const r = await fetch(`${API}/upload`,{
+      method:'POST',
+      headers: authToken ? {'Authorization':'Bearer '+authToken} : {},
+      body: formData,
+    });
+    if(!r.ok) throw new Error('Ошибка загрузки');
+    const data = await r.json();
+
+    // Attach to project
+    await fetch(`${API}/sites/projects/${currentProjectId}/attach-image`,{
+      method:'POST', headers:authHeaders(), body:JSON.stringify({file_url:data.url}),
+    });
+
+    await loadProjectImages();
+  }catch(e){
+    alert('Ошибка загрузки: '+e.message);
+  }
+}
+
+// ── Phase 3: Code generation ──────────────────────────────────────────────
+async function generateCode(){
+  if(isGenerating) return;
+  isGenerating = true;
+  showLoading('Генерация кода сайта...');
+
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/generate-code`,{
+      method:'POST', headers:authHeaders(), body:JSON.stringify({}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      if(r.status===402) throw new Error('Недостаточно токенов (нужно '+CODE_ITER_CH_COST+' CH)');
+      throw new Error(d.detail || 'Ошибка генерации');
+    }
+    const data = await r.json();
+    currentProject = await getProjectDetail();
+    hideAllPhases();
+    showDonePhase(data.code_html);
+  }catch(e){
+    hideAllPhases();
+    alert(e.message);
+  }
+
+  isGenerating = false;
+}
+
+// ── Phase 3+: Done (code) ─────────────────────────────────────────────────
+function showDonePhase(code){
+  hideAllPhases();
+  document.getElementById('phaseDone').classList.remove('hidden');
+  document.getElementById('phaseDone').classList.add('flex','flex-col','flex-1','min-h-0');
+
+  const codeText = code || currentProject.code_html || '';
+  document.getElementById('codeEditor').value = codeText;
+
+  // Spec tab
+  document.getElementById('dSpecBox').textContent = currentProject.spec_text || '';
+
+  // Reset to code tab
+  switchDetailTab('code', document.querySelector('#phaseDone .tab-btn'));
+
+  // Bottom bar
+  updateDoneBottomBar();
+}
+
+function updateDoneBottomBar(){
+  const bar = document.getElementById('doneBottomBar');
+  bar.classList.remove('hidden');
+
+  if(currentProject.hosted_path){
+    const urlWrap = document.getElementById('hostedUrl');
+    urlWrap.classList.remove('hidden');
+    document.getElementById('hostedLink').href = API + currentProject.hosted_path;
+    document.getElementById('hostedLink').textContent = API + currentProject.hosted_path;
+  } else {
+    document.getElementById('hostedUrl').classList.add('hidden');
+  }
+}
+
+async function iterateCode(){
+  const input = document.getElementById('iterInput');
+  const text = input.value.trim();
+  if(!text || isGenerating) return;
+  isGenerating = true;
+  input.value = '';
+  document.getElementById('iterBtn').disabled = true;
+  showLoading('Применяем изменения...');
+
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/iterate`,{
+      method:'POST', headers:authHeaders(), body:JSON.stringify({instructions:text}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      if(r.status===402) throw new Error('Недостаточно токенов');
+      throw new Error(d.detail || 'Ошибка');
+    }
+    const data = await r.json();
+    document.getElementById('codeEditor').value = data.code_html || '';
+    currentProject = await getProjectDetail();
+    document.getElementById('detailCost').textContent = (currentProject.price_tokens||0) + ' CH';
+  }catch(e){
+    alert(e.message);
+  }
+
+  hideLoading();
+  isGenerating = false;
+  document.getElementById('iterBtn').disabled = false;
+  input.focus();
+}
+
+async function saveCode(){
+  const code = document.getElementById('codeEditor').value;
+  currentProject.code_html = code;  // locally
+  // Refresh preview if showing
+  const activeTab = document.querySelector('#phaseDone .tab-btn.active');
+  if(activeTab && activeTab.textContent.trim()==='Превью'){
+    refreshPreview();
+  }
+}
+
+function copyCode(){
+  navigator.clipboard.writeText(document.getElementById('codeEditor').value);
+  const btn = event.target.closest('button');
+  const orig = btn.textContent;
+  btn.textContent = 'Скопировано!';
+  setTimeout(()=>btn.textContent=orig, 2000);
+}
+
+// ── Preview ───────────────────────────────────────────────────────────────
+function refreshPreview(){
+  const code = document.getElementById('codeEditor').value;
+  const frame = document.getElementById('previewFrame');
+  if(!frame || !code) return;
+  const blob = new Blob([code],{type:'text/html'});
+  frame.src = URL.createObjectURL(blob);
+}
+
+// ── Host / Download ───────────────────────────────────────────────────────
+async function hostSite(){
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/host`,{
+      method:'POST', headers:authHeaders(),
+    });
+    if(!r.ok) throw new Error('Ошибка');
+    const data = await r.json();
+    currentProject.hosted_path = data.url;
+    updateDoneBottomBar();
+    alert('Сайт опубликован!');
+  }catch(e){
+    alert('Ошибка: '+e.message);
+  }
+}
+
+async function downloadSite(){
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/download`,{
+      method:'POST', headers:authHeaders(),
+    });
+    if(!r.ok) throw new Error('Ошибка');
+    const data = await r.json();
+    // Open in new tab
+    window.open(API + data.url, '_blank');
+  }catch(e){
+    alert('Ошибка: '+e.message);
+  }
+}
+
+// ── Rename ────────────────────────────────────────────────────────────────
+async function startRename(){
+  const newName = prompt('Новое название:', currentProject.name || '');
+  if(!newName || newName.trim() === currentProject.name) return;
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/rename`,{
+      method:'POST', headers:authHeaders(), body:JSON.stringify({name:newName.trim()}),
+    });
+    if(!r.ok) throw new Error('Ошибка');
+    document.getElementById('detailTitle').textContent = newName.trim();
+    currentProject.name = newName.trim();
+    await loadProjects();
+  }catch(e){
+    alert('Ошибка: '+e.message);
+  }
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────
+async function deleteCurrentProject(){
+  if(!currentProjectId) return;
+  if(!confirm('Удалить проект? Это действие нельзя отменить.')) return;
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}`,{
+      method:'DELETE', headers:authHeaders(),
+    });
+    if(!r.ok) throw new Error('Ошибка удаления');
+    closeDetail();
+    await loadProjects();
+  }catch(e){
+    alert('Ошибка: '+e.message);
+  }
+}
+
+// ── Detail tabs ───────────────────────────────────────────────────────────
+function switchDetailTab(tab, btn){
+  document.querySelectorAll('#phaseDone .tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('#phaseDone .tab-pane').forEach(p=>{
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
+  if(btn) btn.classList.add('active');
+  const el = document.getElementById('dtab-'+tab);
+  el.classList.add('active');
+  el.style.display = (tab==='code')?'flex':'block';
+  if(tab==='preview') refreshPreview();
+}
+
+// ── Loading overlay ───────────────────────────────────────────────────────
+function showLoading(text='Думаю...'){
+  document.getElementById('loadingText').textContent = text;
+  const ld = document.getElementById('phaseLoading');
+  ld.classList.remove('hidden');
+  ld.classList.add('flex');
+}
+
+function hideLoading(){
+  document.getElementById('phaseLoading').classList.add('hidden');
+  document.getElementById('phaseLoading').classList.remove('flex');
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+async function getProjectDetail(){
+  const r = await fetch(`${API}/sites/projects/${currentProjectId}`,{headers:authHeaders()});
+  if(!r.ok) throw new Error('Failed');
+  return await r.json();
+}
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// Close modals on backdrop click
+document.getElementById('createModal').addEventListener('click',e=>{ if(e.target===e.currentTarget)closeCreate(); });
+document.getElementById('detailModal').addEventListener('click',e=>{ if(e.target===e.currentTarget)closeDetail(); });
+</script>
+</body>
+</html>

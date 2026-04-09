@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from db import Base
+from server.db import Base
 from datetime import datetime
 
 
@@ -12,7 +12,7 @@ class User(Base):
     password_hash    = Column(String, nullable=False)
     name             = Column(String, nullable=True)
     avatar_url       = Column(String, nullable=True)
-    tokens_balance   = Column(Integer, default=0)
+    tokens_balance   = Column(Float, default=0.0)
     is_active        = Column(Boolean, default=True)
     is_verified      = Column(Boolean, default=False)       # email verified
     is_banned        = Column(Boolean, default=False)        # заблокирован по оферте (п. 10.1)
@@ -296,8 +296,11 @@ class SiteProject(Base):
     spec_text    = Column(Text, nullable=True)
     code_html    = Column(Text, nullable=True)
     price_tokens = Column(Integer, default=0)
-    template_id  = Column(Integer, nullable=True)
-    template_fields = Column(Text, nullable=True)    # JSON: user input fields
+    creation_mode = Column(String, default="create_together")  # "have_spec" | "create_together"
+    conversation_phase = Column(String, default="idle")  # idle / gathering_spec / spec_ready / collecting_images / generating_code / done
+    chat_history = Column(Text, nullable=True)    # JSON: conversation during spec creation
+    image_paths  = Column(Text, nullable=True)    # JSON array of uploaded image/logo paths
+    hosted_path  = Column(String, nullable=True)  # e.g. "sites/123/" for hosted URL
     created_at   = Column(DateTime, default=datetime.utcnow)
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

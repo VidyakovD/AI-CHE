@@ -1,24 +1,58 @@
 """
 Rate limiting + input validation middleware.
-Uses in-memory store (works for single-process; swap for Redis in prod).
+Persistent store: saves to JSON file for crash/restart resilience.
 """
-import time, re
+import time, re, os, json, threading
 from collections import defaultdict
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 
-# ── in-memory rate limit store ────────────────────────────────────────────────
+# ── persistent rate limit store ───────────────────────────────────────────────
 # { key: [timestamp, ...] }
 _store: dict[str, list[float]] = defaultdict(list)
+_store_lock = threading.Lock()
+_STORE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".rate_limit_store.json")
+
+def _persist_store():
+    """Save active (non-expired) entries to disk."""
+    now = time.time()
+    data = {k: [t for t in v if now - t < 600] for k, v in _store.items()}
+    # Remove empty entries
+    data = {k: v for k, v in data.items() if v}
+    try:
+        with open(_STORE_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+def _load_store():
+    """Restore entries from disk on startup."""
+    if not os.path.exists(_STORE_FILE):
+        return
+    try:
+        with open(_STORE_FILE, "r") as f:
+            data = json.load(f)
+        now = time.time()
+        for k, v in data.items():
+            _store[k] = [t for t in v if now - t < 600]
+    except Exception:
+        pass
+
+# Load persisted data at module import
+_load_store()
 
 def _check(key: str, max_calls: int, window_sec: int) -> bool:
-    now = time.time()
-    calls = [t for t in _store[key] if now - t < window_sec]
-    _store[key] = calls
-    if len(calls) >= max_calls:
-        return False
-    _store[key].append(now)
-    return True
+    with _store_lock:
+        now = time.time()
+        calls = [t for t in _store[key] if now - t < window_sec]
+        _store[key] = calls
+        if len(calls) >= max_calls:
+            return False
+        _store[key].append(now)
+        # Persist periodically (every 10th call approximately)
+        if len(calls) % 10 == 0:
+            _persist_store()
+        return True
 
 RULES = {
     # path_prefix: (max_calls, window_seconds)

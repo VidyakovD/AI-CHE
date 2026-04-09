@@ -22,25 +22,32 @@ def get_plan(plan_id: str) -> dict:
     return PLANS.get(plan_id, PLANS["starter"])
 
 
-def create_payment(plan: str, user_id: int, return_url: str, user_email: str = None) -> dict:
+def create_payment(plan: str, user_id: int, return_url: str,
+                   user_email: str = None, promo_code: str = None) -> dict:
     plan_cfg = PLANS.get(plan)
     if not plan_cfg:
         raise ValueError(f"Unknown plan: {plan}")
+
+    price = plan_cfg["price_rub"]
+    if promo_code:
+        price = round(price * 0.9)  # 10% скидка
+
     payment_data = {
-        "amount":       {"value": str(float(plan_cfg["price_rub"])), "currency": "RUB"},
+        "amount":       {"value": str(float(price)), "currency": "RUB"},
         "confirmation": {"type": "redirect", "return_url": return_url},
         "capture":      True,
         "description":  f"AI Студия Че — {plan_cfg['name']} (user {user_id})",
-        "metadata":     {"user_id": user_id, "plan": plan},
+        "metadata":     {"user_id": user_id, "plan": plan,
+                         "promo": promo_code, "original_price": plan_cfg["price_rub"]},
     }
     # Электронный чек (54-ФЗ)
     if user_email:
         payment_data["receipt"] = {
             "customer_email": user_email,
             "items": [{
-                "description": f"Подписка {plan_cfg['name']} — {plan_cfg['tokens']//1000}к CH",
+                "description": f"Подписка {plan_cfg['name']}" + (" (–10% промокод)" if promo_code else ""),
                 "quantity": "1",
-                "amount": {"value": str(float(plan_cfg["price_rub"])), "currency": "RUB"},
+                "amount": {"value": str(float(price)), "currency": "RUB"},
                 "vat_code": "1",  # Без НДС
             }],
         }
@@ -51,6 +58,21 @@ def create_payment(plan: str, user_id: int, return_url: str, user_email: str = N
         "status":           p.status,
         "receipt_sent":     bool(user_email),
     }
+
+
+def credit_referral_bonus(db, db_user, tokens, description):
+    """Начисляет рефереру 10% от токенов тарифа при каждой оплате."""
+    referred_by = getattr(db_user, 'referred_by', None)
+    if not referred_by:
+        return
+    from server.models import User, Transaction
+    referrer = db.query(User).filter_by(referral_code=referred_by).first()
+    if not referrer:
+        return
+    bonus = max(1, round(tokens * 0.10))
+    referrer.tokens_balance += bonus
+    db.add(Transaction(user_id=referrer.id, type="bonus", tokens_delta=bonus,
+                       description=f"Реферальный бонус за оплату {description}"))
 
 
 def check_payment(payment_id: str) -> str:
