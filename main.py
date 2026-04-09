@@ -138,8 +138,12 @@ from fastapi import Depends  # noqa: E402
 
 @app.on_event("startup")
 async def startup():
-    # Seed default pricing, features, and start exchange-rate updater
-    await startup_public()
+    db = SessionLocal()
+    try:
+        # Seed default pricing, features, and start exchange-rate updater
+        await startup_public(db)
+    finally:
+        db.close()
     # Load API keys from DB into env
     _load_all_apikeys_from_db()
     # Start agent queue
