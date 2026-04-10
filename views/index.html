@@ -1581,9 +1581,8 @@ async function sendMessage(){
       if(authToken)fetchMe();
       loadChats(); // без await — не блокировать
       // Уведомление когда ответ готов
-      const chatTitle = getChatTitle();
       const preview = (r.content||"").substring(0, 80).replace(/\n/g, " ");
-      showNotify(chatTitle, preview);
+      showNotify(currentChatTitle || currentModel, preview);
     }
   }catch(e){removeTyping();addMsg("Ошибка сети или сервера","ai");}
   btn.disabled=false;btn.classList.remove("opacity-50","cursor-not-allowed");
