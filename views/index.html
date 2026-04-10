@@ -1575,16 +1575,19 @@ async function sendMessage(){
     if(data.error)addMsg(data.error,"ai","error");
     else{
       const r=data.response;
-      if(r.type==="video_task"||r.type==="video_base64")addVideoMsg(r);
+      if(!r){addMsg("Ошибка ответа сервера","ai","error");}
+      else if(r.type==="video_task"||r.type==="video_base64")addVideoMsg(r);
       else if(r.type==="image"){addMsg(r.content||"","ai","image");}
       else addMsg(r.content||"Ошибка","ai");
-      if(authToken)fetchMe();
-      loadChats(); // без await — не блокировать
-      // Уведомление когда ответ готов
-      const preview = (r.content||"").substring(0, 80).replace(/\n/g, " ");
-      showNotify(currentChatTitle || currentModel, preview);
+      // Пост-обработка — не должна влиять на отображение ответа
+      try{
+        if(authToken)fetchMe();
+        loadChats();
+        const preview=(r?.content||"").substring(0,80).replace(/\n/g," ");
+        showNotify(currentChatTitle||currentModel,preview);
+      }catch(pe){console.error("Post-send error:",pe);}
     }
-  }catch(e){removeTyping();addMsg("Ошибка сети или сервера","ai");}
+  }catch(e){removeTyping();console.error("Send error:",e);addMsg("Ошибка сети или сервера","ai");}
   btn.disabled=false;btn.classList.remove("opacity-50","cursor-not-allowed");
 }
 
