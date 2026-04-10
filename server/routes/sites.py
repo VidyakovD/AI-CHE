@@ -316,13 +316,13 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
     p.conversation_phase = "generating_code"
     db.commit()
 
-    answer = generate_response("claude", [{"role": "system", "content": prompt}])
+    answer = generate_response("claude", [{"role": "user", "content": prompt}])
     content = answer.get("content", "") if isinstance(answer, dict) else ""
     # Clean markdown
     for marker in ["```html\n", "```\n", "```html", "```"]:
         if content.startswith(marker):
             content = content[len(marker):]
-            content = content.rsplit("```", 1)[0] if content.endswith("```") or "```" in content else content
+            content = content.rsplit("```", 1)[0] if "```" in content else content
             break
 
     p.code_html = content
@@ -378,7 +378,7 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
         f"Верни ТОЛЬКО обновлённый полный HTML-код. Без markdown, без объяснений."
     )
 
-    answer = generate_response("claude", [{"role": "system", "content": prompt}])
+    answer = generate_response("claude", [{"role": "user", "content": prompt}])
     content = answer.get("content", "") if isinstance(answer, dict) else ""
     # Clean markdown
     for marker in ["```html\n", "```\n", "```html", "```"]:
