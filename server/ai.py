@@ -588,7 +588,7 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
                 with httpx.stream(
                     "POST",
                     f"{base_url.rstrip('/')}/v1/messages",
-                    json={"model": model, "max_tokens": 8192, "stream": True,
+                    json={"model": model, "max_tokens": 32000, "stream": True,
                           "system": system if isinstance(system, str) else "Ты полезный ассистент.",
                           "messages": claude_msgs},
                     headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
