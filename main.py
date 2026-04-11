@@ -22,6 +22,7 @@ from server.routes.solutions import router as solutions_router
 from server.routes.sites import router as sites_router
 from server.routes.presentations import router as presentations_router
 from server.routes.agent import router as agent_router, init_agent_queue
+import server.agents.registry  # noqa: F401 — registers all agent types on import
 from server.routes.public import router as public_router, startup_public
 
 load_dotenv()

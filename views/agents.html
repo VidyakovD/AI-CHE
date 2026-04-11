@@ -337,6 +337,46 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 const API = localStorage.getItem('obs_api') || window.location.origin;
 const authToken = localStorage.getItem('obs_token');
 
+// ── SVG Icon system (Material-style, 24×24) ───────────────────────────────────
+const SVG_ICONS = {
+  // Channels
+  send:        `<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>`,
+  forum:       `<path d="M21 15c0 1.1-.9 2-2 2H7l-4 4V5c0-1.1.9-2 2-2h14c1.1 0 2 .9 2 2v10zm-2 0V5H5v13.17L6.17 17H19z"/>`,
+  group:       `<path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>`,
+  phone:       `<path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/>`,
+  bolt:        `<path d="M7 2v11h3v9l7-12h-4l4-8z"/>`,
+  // Block categories
+  search:      `<path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.56l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>`,
+  home:        `<path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>`,
+  article:     `<path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>`,
+  campaign:    `<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>`,
+  chat:        `<path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/>`,
+  people:      `<path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>`,
+  bar_chart:   `<path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/>`,
+  smart_toy:   `<path d="M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zm-2 11H6v-2h12v2zm0-4H6V7h12v9zM9 14h2v2H9zm4 0h2v2h-2zm-4-4h2v2H9zm4 0h2v2h-2z"/>`,
+  // Block-specific
+  money:       `<path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/>`,
+  gavel:       `<path d="M1 21l11.5-11.5-2.12-2.12-1.07 1.07-1.41-1.42 1.06-1.06-1.42-1.41L5 7l-1.41-1.41L4.66 4.5l1.41 1.41 1.06-1.06 1.42 1.41 1.06-1.06 2.83 2.83L10.37 9.1l2.12 2.12L14 9.71l-2.12-2.12 1.41-1.41 1.42 1.41.7-.71 2.83 2.83-.7.71 1.41 1.41-7.07 7.07L10.5 17.5 1 21zm10-4.24l4.95-4.95-.71-.71-4.24 4.24v1.42z"/>`,
+  assignment:  `<path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>`,
+  edit:        `<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>`,
+  analytics:   `<path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/>`,
+  trending:    `<path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/>`,
+  support:     `<path d="M21 12.22C21 6.73 16.74 3 12 3c-4.69 0-9 3.65-9 9.28-.6.34-1 .98-1 1.72v2c0 1.1.9 2 2 2h1v-6.1c0-3.87 3.13-7 7-7s7 3.13 7 7V19h-8v2h8c1.1 0 2-.9 2-2v-1.22c.59-.31 1-.92 1-1.64v-2.3c0-.7-.41-1.31-1-1.62z"/>`,
+  star:        `<path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>`,
+  receipt:     `<path d="M18 17H6v-2h12v2zm0-4H6v-2h12v2zm0-4H6V7h12v2zM3 22l1.5-1.5L6 22l1.5-1.5L9 22l1.5-1.5L12 22l1.5-1.5L15 22l1.5-1.5L18 22l1.5-1.5L21 22V2l-1.5 1.5L18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2 4.5 3.5 3 2v20z"/>`,
+  hub:         `<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM8 17.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5zM9.5 8c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5S9.5 9.38 9.5 8zm6.5 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>`,
+  // Orchestrator diagram
+  account_tree:`<path d="M22 11V3h-7v3H9V3H2v8h7V8h2v10h4v3h7v-8h-7v3h-2V8h2v3z"/>`,
+  psychology:  `<path d="M13 8.57c-.79 0-1.43.64-1.43 1.43s.64 1.43 1.43 1.43 1.43-.64 1.43-1.43S13.79 8.57 13 8.57zM13 3C9.25 3 6.2 5.94 6.02 9.64L4.1 12.2c-.25.33-.01.8.4.8H6v3c0 1.1.9 2 2 2h1v3h7v-4.68c2.36-1.12 4-3.53 4-6.32 0-3.87-3.13-7-7-7z"/>`,
+  memory:      `<path d="M15 9H9v6h6V9zm-2 4h-2v-2h2v2zm8-2V9h-2V7c0-1.1-.9-2-2-2h-2V3h-2v2h-2V3H9v2H7c-1.1 0-2 .9-2 2v2H3v2h2v2H3v2h2v2c0 1.1.9 2 2 2h2v2h2v-2h2v2h2v-2h2c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2zm-4 6H7V7h10v10z"/>`,
+};
+
+function svgIcon(name, size=18, color='currentColor') {
+  const p = SVG_ICONS[name];
+  if (!p) return '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="${color}" style="flex-shrink:0;display:inline-block;vertical-align:middle">${p}</svg>`;
+}
+
 let myAgents = [], editingAgentId = null;
 let currentTaskId = null, pollInterval = null;
 
@@ -348,63 +388,64 @@ function hdrs(x={}) {
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ── Data ──────────────────────────────────────────────────────────────────────
+// icon: key in SVG_ICONS
 const AGENT_BLOCKS = [
   // Госзакупки
-  {id:'tender_parser',    cat:'Госзакупки',          icon:'🔍', name:'Парсер тендеров',       desc:'Мониторинг ЕИС по профилю каждые 2–4 часа',              model:'Своя'},
-  {id:'tender_analyst',   cat:'Госзакупки',          icon:'📋', name:'Аналитик тендера',      desc:'Резюме: риски, сроки, вердикт брать/не брать',           model:'Claude'},
-  {id:'margin_calc',      cat:'Госзакупки',          icon:'💰', name:'Калькулятор маржи',     desc:'Считает себестоимость, маржу, рекомендует цену',         model:'Своя'},
-  {id:'competitor_intel', cat:'Госзакупки',          icon:'🕵️', name:'Конкурентная разведка', desc:'История участников, ставки конкурентов',                 model:'Своя'},
+  {id:'tender_parser',    cat:'Госзакупки',          icon:'search',    name:'Парсер тендеров',       desc:'Мониторинг ЕИС по профилю каждые 2–4 часа',              model:'Своя'},
+  {id:'tender_analyst',   cat:'Госзакупки',          icon:'assignment',name:'Аналитик тендера',      desc:'Резюме: риски, сроки, вердикт брать/не брать',           model:'Claude'},
+  {id:'margin_calc',      cat:'Госзакупки',          icon:'money',     name:'Калькулятор маржи',     desc:'Считает себестоимость, маржу, рекомендует цену',         model:'Своя'},
+  {id:'competitor_intel', cat:'Госзакупки',          icon:'gavel',     name:'Конкурентная разведка', desc:'История участников, ставки конкурентов',                 model:'Своя'},
   // Строительство
-  {id:'estimator',        cat:'Строительство',       icon:'🏗️', name:'Агент-сметчик',         desc:'Разбор сметы, коды ГЭСН/ФЕР, поиск завышений',          model:'Claude'},
-  {id:'volume_checker',   cat:'Строительство',       icon:'📐', name:'Проверка объёмов',      desc:'Сверка объёмов работ с чертежами',                      model:'Своя'},
-  {id:'index_recalc',     cat:'Строительство',       icon:'📊', name:'Пересчёт индексов',     desc:'Актуальные индексы Минстроя, пересчёт цен',              model:'Своя'},
+  {id:'estimator',        cat:'Строительство',       icon:'home',      name:'Агент-сметчик',         desc:'Разбор сметы, коды ГЭСН/ФЕР, поиск завышений',          model:'Claude'},
+  {id:'volume_checker',   cat:'Строительство',       icon:'bar_chart', name:'Проверка объёмов',      desc:'Сверка объёмов работ с чертежами',                      model:'Своя'},
+  {id:'index_recalc',     cat:'Строительство',       icon:'trending',  name:'Пересчёт индексов',     desc:'Актуальные индексы Минстроя, пересчёт цен',              model:'Своя'},
   // Документы
-  {id:'accountant',       cat:'Документы и право',   icon:'🧾', name:'Бухгалтер',             desc:'Счета, акты, УПД, сверки, напоминания об оплате',        model:'Своя'},
-  {id:'lawyer',           cat:'Документы и право',   icon:'⚖️', name:'Юрист',                 desc:'Договоры, претензии, анализ рисков контракта',           model:'Claude'},
-  {id:'hr_docs',          cat:'Документы и право',   icon:'📝', name:'Кадровик',              desc:'Трудовые договоры, приказы, должностные инструкции',     model:'Своя'},
+  {id:'accountant',       cat:'Документы и право',   icon:'receipt',   name:'Бухгалтер',             desc:'Счета, акты, УПД, сверки, напоминания об оплате',        model:'Своя'},
+  {id:'lawyer',           cat:'Документы и право',   icon:'gavel',     name:'Юрист',                 desc:'Договоры, претензии, анализ рисков контракта',           model:'Claude'},
+  {id:'hr_docs',          cat:'Документы и право',   icon:'article',   name:'Кадровик',              desc:'Трудовые договоры, приказы, должностные инструкции',     model:'Своя'},
   // Маркетинг
-  {id:'smm',              cat:'Маркетинг и контент', icon:'📱', name:'SMM-агент',             desc:'Контент-план на месяц, тренды, хэштеги',                 model:'Claude'},
-  {id:'scriptwriter',     cat:'Маркетинг и контент', icon:'🎬', name:'Сценарист',             desc:'Сценарии Reels, TikTok, YouTube, подкасты',             model:'Claude'},
-  {id:'copywriter',       cat:'Маркетинг и контент', icon:'✍️', name:'Копирайтер',            desc:'Тексты, лендинги, описания товаров',                     model:'Claude'},
-  {id:'artist',           cat:'Маркетинг и контент', icon:'🎨', name:'Художник',              desc:'Баннеры, картинки, иллюстрации через Stable Diffusion',  model:'SD'},
-  {id:'ads_agent',        cat:'Маркетинг и контент', icon:'📣', name:'Рекламный агент',       desc:'Мониторинг Директ/VK, алерты, оптимизация',              model:'Своя'},
+  {id:'smm',              cat:'Маркетинг и контент', icon:'campaign',  name:'SMM-агент',             desc:'Контент-план на месяц, тренды, хэштеги',                 model:'Claude'},
+  {id:'scriptwriter',     cat:'Маркетинг и контент', icon:'edit',      name:'Сценарист',             desc:'Сценарии Reels, TikTok, YouTube, подкасты',             model:'Claude'},
+  {id:'copywriter',       cat:'Маркетинг и контент', icon:'article',   name:'Копирайтер',            desc:'Тексты, лендинги, описания товаров',                     model:'Claude'},
+  {id:'artist',           cat:'Маркетинг и контент', icon:'hub',       name:'Художник',              desc:'Баннеры, картинки, иллюстрации',                         model:'SD'},
+  {id:'ads_agent',        cat:'Маркетинг и контент', icon:'trending',  name:'Рекламный агент',       desc:'Мониторинг Директ/VK, алерты, оптимизация',              model:'Своя'},
   // Продажи
-  {id:'chat_manager',     cat:'Продажи и клиенты',   icon:'💬', name:'Менеджер переписки',    desc:'Отвечает клиентам в мессенджерах, квалифицирует лидов',  model:'Claude'},
-  {id:'kp_agent',         cat:'Продажи и клиенты',   icon:'📄', name:'Агент КП',              desc:'Коммерческие предложения под каждого клиента',           model:'Claude'},
-  {id:'objection_agent',  cat:'Продажи и клиенты',   icon:'🎯', name:'Агент возражений',      desc:'Скрипты: дорого / подумаю / не надо',                   model:'Своя'},
-  {id:'reactivation',     cat:'Продажи и клиенты',   icon:'🔄', name:'Реактивация клиентов',  desc:'Серия касаний для спящей базы',                         model:'Claude'},
-  {id:'upsell',           cat:'Продажи и клиенты',   icon:'⬆️', name:'Upsell-агент',          desc:'Предлагает доп. услуги в нужный момент',                model:'Claude'},
+  {id:'chat_manager',     cat:'Продажи и клиенты',   icon:'chat',      name:'Менеджер переписки',    desc:'Отвечает клиентам в мессенджерах, квалифицирует лидов',  model:'Claude'},
+  {id:'kp_agent',         cat:'Продажи и клиенты',   icon:'article',   name:'Агент КП',              desc:'Коммерческие предложения под каждого клиента',           model:'Claude'},
+  {id:'objection_agent',  cat:'Продажи и клиенты',   icon:'support',   name:'Агент возражений',      desc:'Скрипты: дорого / подумаю / не надо',                   model:'Своя'},
+  {id:'reactivation',     cat:'Продажи и клиенты',   icon:'send',      name:'Реактивация клиентов',  desc:'Серия касаний для спящей базы',                         model:'Claude'},
+  {id:'upsell',           cat:'Продажи и клиенты',   icon:'trending',  name:'Upsell-агент',          desc:'Предлагает доп. услуги в нужный момент',                model:'Claude'},
   // HR
-  {id:'vacancy_agent',    cat:'HR',                  icon:'👔', name:'Агент вакансий',        desc:'Пишет и размещает вакансии по профилю',                 model:'Своя'},
-  {id:'screener',         cat:'HR',                  icon:'📎', name:'Скринер резюме',        desc:'Первичный отбор кандидатов по критериям',               model:'Своя'},
-  {id:'onboarding',       cat:'HR',                  icon:'🤝', name:'Онбординг',             desc:'Вводит новых сотрудников в курс дела',                  model:'Своя'},
+  {id:'vacancy_agent',    cat:'HR',                  icon:'people',    name:'Агент вакансий',        desc:'Пишет и размещает вакансии по профилю',                 model:'Своя'},
+  {id:'screener',         cat:'HR',                  icon:'search',    name:'Скринер резюме',        desc:'Первичный отбор кандидатов по критериям',               model:'Своя'},
+  {id:'onboarding',       cat:'HR',                  icon:'people',    name:'Онбординг',             desc:'Вводит новых сотрудников в курс дела',                  model:'Своя'},
   // Аналитика
-  {id:'fin_analyst',      cat:'Аналитика',           icon:'📈', name:'Финансовый аналитик',   desc:'Объясняет цифры собственнику простым языком',           model:'Claude'},
-  {id:'reputation',       cat:'Аналитика',           icon:'⭐', name:'Мониторинг репутации',  desc:'Отзывы, упоминания бренда, алерты',                     model:'Своя'},
-  {id:'comp_intel',       cat:'Аналитика',           icon:'🔭', name:'Конкурентный разведчик', desc:'Цены, акции, офферы конкурентов',                      model:'Своя'},
-  {id:'funnel_agent',     cat:'Аналитика',           icon:'🔻', name:'Агент воронки',         desc:'Где теряются клиенты, гипотезы роста',                  model:'Claude'},
+  {id:'fin_analyst',      cat:'Аналитика',           icon:'analytics', name:'Финансовый аналитик',   desc:'Объясняет цифры собственнику простым языком',           model:'Claude'},
+  {id:'reputation',       cat:'Аналитика',           icon:'star',      name:'Мониторинг репутации',  desc:'Отзывы, упоминания бренда, алерты',                     model:'Своя'},
+  {id:'comp_intel',       cat:'Аналитика',           icon:'search',    name:'Конкурентный разведчик',desc:'Цены, акции, офферы конкурентов',                       model:'Своя'},
+  {id:'funnel_agent',     cat:'Аналитика',           icon:'bar_chart', name:'Агент воронки',         desc:'Где теряются клиенты, гипотезы роста',                  model:'Claude'},
   // Чат-боты
-  {id:'bot_tg',           cat:'Чат-боты',            icon:'✈️', name:'Бот для Telegram',      desc:'Ответы клиентам, квалификация, продажи',                model:'Claude'},
-  {id:'bot_site',         cat:'Чат-боты',            icon:'🌐', name:'Бот для сайта',         desc:'Виджет диалогового окна, WebSocket',                    model:'Claude'},
-  {id:'bot_avito',        cat:'Чат-боты',            icon:'🏠', name:'Бот для Авито',         desc:'Автоответы на запросы покупателей',                     model:'Claude'},
-  {id:'bot_wa',           cat:'Чат-боты',            icon:'💚', name:'Бот для WhatsApp',      desc:'Бизнес API, автоответы и рассылки',                     model:'Claude'},
+  {id:'bot_tg',           cat:'Чат-боты',            icon:'send',      name:'Бот для Telegram',      desc:'Ответы клиентам, квалификация, продажи',                model:'Claude'},
+  {id:'bot_site',         cat:'Чат-боты',            icon:'chat',      name:'Бот для сайта',         desc:'Виджет диалогового окна, WebSocket',                    model:'Claude'},
+  {id:'bot_avito',        cat:'Чат-боты',            icon:'home',      name:'Бот для Авито',         desc:'Автоответы на запросы покупателей',                     model:'Claude'},
+  {id:'bot_wa',           cat:'Чат-боты',            icon:'forum',     name:'Бот для WhatsApp',      desc:'Бизнес API, автоответы и рассылки',                     model:'Claude'},
 ];
 
 const CHANNELS = [
-  {id:'telegram', icon:'✈️', name:'Telegram', fields:[
-    {key:'tg_token',   label:'Bot Token',  placeholder:'1234567890:AAF...', type:'password'},
-    {key:'tg_chat_id', label:'Chat ID',    placeholder:'-1001234567890',   type:'text'},
+  {id:'telegram', icon:'send',  name:'Telegram', fields:[
+    {key:'tg_token',   label:'Bot Token', placeholder:'1234567890:AAF...', type:'password'},
+    {key:'tg_chat_id', label:'Chat ID',   placeholder:'-1001234567890',   type:'text'},
   ]},
-  {id:'discord',  icon:'🎮', name:'Discord', fields:[
-    {key:'discord_token',   label:'Bot Token',   placeholder:'MTA0NjY...', type:'password'},
-    {key:'discord_channel', label:'Channel ID',  placeholder:'123456789',  type:'text'},
+  {id:'discord',  icon:'forum', name:'Discord', fields:[
+    {key:'discord_token',   label:'Bot Token',  placeholder:'MTA0NjY...', type:'password'},
+    {key:'discord_channel', label:'Channel ID', placeholder:'123456789',  type:'text'},
   ]},
-  {id:'vk',       icon:'🔵', name:'VK',       fields:[
-    {key:'vk_token',    label:'Access Token', placeholder:'vk1.a.XXX',    type:'password'},
-    {key:'vk_group_id', label:'Group ID',     placeholder:'-123456789',   type:'text'},
+  {id:'vk',       icon:'group', name:'VK', fields:[
+    {key:'vk_token',    label:'Access Token', placeholder:'vk1.a.XXX',  type:'password'},
+    {key:'vk_group_id', label:'Group ID',     placeholder:'-123456789', type:'text'},
   ]},
-  {id:'app',      icon:'📱', name:'Приложение', fields:[], disabled:true, hint:'Скоро'},
-  {id:'api',      icon:'🔌', name:'API Webhook', fields:[
+  {id:'app',      icon:'phone', name:'Приложение', fields:[], disabled:true, hint:'Скоро'},
+  {id:'api',      icon:'bolt',  name:'API Webhook', fields:[
     {key:'webhook_url', label:'Webhook URL', placeholder:'https://yoursite.com/webhook', type:'text'},
   ]},
 ];
@@ -465,7 +506,9 @@ function renderCatalog(cat) {
   document.getElementById('catalogGrid').innerHTML = blocks.map(b => `
     <div class="block-card">
       <div class="flex items-start gap-2.5 mb-2">
-        <span class="text-xl mt-0.5">${b.icon}</span>
+        <div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+          ${svgIcon(b.icon, 16, '#ff8c42')}
+        </div>
         <div class="flex-1 min-w-0">
           <p class="font-headline font-bold text-sm">${esc(b.name)}</p>
           <span class="text-[10px] bg-surface3 text-on-dim px-2 py-0.5 rounded-full">${esc(b.model)}</span>
@@ -492,7 +535,7 @@ function renderAgents() {
   list.innerHTML = myAgents.map(a => {
     const chLabels = CHANNELS.filter(c =>
       c.fields.some(f => a.channels?.[f.key])
-    ).map(c => `<span class="text-sm">${c.icon}</span>`).join('');
+    ).map(c => `<span class="opacity-70">${svgIcon(c.icon, 14)}</span>`).join('');
     const dot = {active:'dot-active', paused:'dot-paused', draft:'dot-draft'}[a.status] || 'dot-draft';
     const stLabel = {active:'Активен', paused:'Пауза', draft:'Черновик'}[a.status] || 'Черновик';
     const orchSettings = a.settings || {};
@@ -626,7 +669,9 @@ function buildWizardStep1() {
     <div class="ch-card${c.disabled?' disabled':''}" id="chcard-${c.id}"
       onclick="${c.disabled?'':(`toggleWizChannel('${c.id}')`)}"
       title="${c.hint||c.name}">
-      <div class="text-3xl mb-2">${c.icon}</div>
+      <div class="w-10 h-10 rounded-xl bg-surface3 flex items-center justify-center mx-auto mb-2">
+        ${svgIcon(c.icon, 20, '#ff8c42')}
+      </div>
       <div class="text-xs font-bold">${c.name}</div>
       ${c.hint ? `<div class="text-[10px] text-on-dim mt-0.5">${c.hint}</div>` : ''}
     </div>`).join('');
@@ -715,8 +760,10 @@ function renderWizBlocks(cat) {
   document.getElementById('wBlocksGrid').innerHTML = blocks.map(b => `
     <div class="block-card text-sm${wizData.blocks.has(b.id)?' selected':''}" id="wb-${b.id}"
       onclick="toggleWizBlock('${b.id}')">
-      <div class="flex items-center gap-2">
-        <span class="text-lg">${b.icon}</span>
+      <div class="flex items-center gap-2.5">
+        <div class="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+          ${svgIcon(b.icon, 14, '#ff8c42')}
+        </div>
         <div class="flex-1 min-w-0">
           <p class="font-semibold text-xs truncate">${esc(b.name)}</p>
           <p class="text-[10px] text-on-dim truncate">${esc(b.desc)}</p>

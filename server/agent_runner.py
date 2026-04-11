@@ -67,15 +67,32 @@ def register_agent(
     name: str,
     description: str,
     keywords: list[str],
+    system_prompt: str | None = None,
+    allowed_tools: list[str] | None = None,
     handler=None,
 ) -> None:
-    """Register a new agent type. Idempotent — safe to call on every import."""
+    """Register a new agent type. Idempotent — safe to call on every import.
+
+    Args:
+        agent_id:      Unique identifier used for routing ("smm", "lawyer", …)
+        name:          Human-readable name
+        description:   Short description used by LLM classifier
+        keywords:      Keyword list for fast (non-LLM) routing
+        system_prompt: Specialized system prompt — "pre-training" for this agent.
+                       If None, falls back to the generic AGENT_SYSTEM.
+        allowed_tools: Whitelist of tool names this agent may use.
+                       If None, all tools are available.
+        handler:       Optional custom async(task_id, goal, context, max_steps)->None.
+                       If None, the standard ReAct loop is used with system_prompt.
+    """
     AGENT_REGISTRY[agent_id] = {
-        "id":          agent_id,
-        "name":        name,
-        "description": description,
-        "keywords":    [k.lower() for k in keywords],
-        "handler":     handler,
+        "id":            agent_id,
+        "name":          name,
+        "description":   description,
+        "keywords":      [k.lower() for k in keywords],
+        "system_prompt": system_prompt,
+        "allowed_tools": allowed_tools,
+        "handler":       handler,
     }
     log.info(f"[Registry] Registered: {agent_id} — {name}")
 
@@ -559,9 +576,18 @@ async def run_agent(
     context: dict,
     max_steps: int = 15,
     orchestrator: Orchestrator | None = None,
+    system_override: str | None = None,
+    tools_whitelist: list[str] | None = None,
 ):
-    """Main ReAct loop. Uses orchestrator for compression if provided."""
-    orch = orchestrator or default_orchestrator
+    """Main ReAct loop. Uses orchestrator for compression if provided.
+
+    system_override: replaces AGENT_SYSTEM (agent "pre-training")
+    tools_whitelist: only these tools are available to this agent run
+    """
+    orch         = orchestrator or default_orchestrator
+    active_system = system_override or AGENT_SYSTEM
+    active_tools  = {k: v for k, v in TOOLS.items()
+                     if tools_whitelist is None or k in tools_whitelist}
     update_task(task_id, status="running")
     log.info(f"[{task_id}] Starting: {goal[:80]}")
 
@@ -593,7 +619,7 @@ async def run_agent(
         try:
             from server.ai import generate_response
             planner_messages = [
-                {"role": "system", "content": AGENT_SYSTEM},
+                {"role": "system", "content": active_system},
                 {"role": "user",   "content": planner_prompt}
             ]
             raw      = generate_response(
@@ -626,7 +652,7 @@ async def run_agent(
         log.info(f"[{task_id}] Action:  {action}({json.dumps(params, ensure_ascii=False)[:100]})")
 
         # ── Execute tool ──────────────────────────────────────────────────
-        tool_fn = TOOLS.get(action)
+        tool_fn = active_tools.get(action) or TOOLS.get(action)
         if not tool_fn:
             observation = f"Инструмент '{action}' не найден. Доступные: {', '.join(TOOLS.keys())}"
         else:
@@ -675,16 +701,22 @@ async def agent_worker(queue: asyncio.PriorityQueue):
             # Build per-task orchestrator if config provided
             orch = Orchestrator(pt.orch_config) if pt.orch_config else default_orchestrator
 
-            # Classify and optionally route to custom handler
-            agent_id = await orch.classify(pt.goal)
-            handler  = AGENT_REGISTRY.get(agent_id, {}).get("handler")
+            # Classify and route
+            agent_id  = await orch.classify(pt.goal)
+            agent_def = AGENT_REGISTRY.get(agent_id, {})
+            handler   = agent_def.get("handler")
 
             if handler:
-                log.info(f"[Worker] Routing {pt.task_id} → agent:{agent_id}")
-                result = await handler(pt.goal, pt.context, 12)
-                update_task(pt.task_id, status="done", result=result or "Готово")
+                log.info(f"[Worker] Custom handler: {pt.task_id} → {agent_id}")
+                await handler(pt.task_id, pt.goal, pt.context, 12)
             else:
-                await run_agent(pt.task_id, pt.goal, pt.context, orchestrator=orch)
+                log.info(f"[Worker] ReAct loop: {pt.task_id} → {agent_id or 'default'}")
+                await run_agent(
+                    pt.task_id, pt.goal, pt.context,
+                    orchestrator=orch,
+                    system_override=agent_def.get("system_prompt"),
+                    tools_whitelist=agent_def.get("allowed_tools"),
+                )
         except Exception as e:
             log.error(f"Agent worker error for {pt.task_id}: {e}")
             update_task(pt.task_id, status="error", result=str(e))
