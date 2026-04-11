@@ -711,10 +711,23 @@ async def agent_worker(queue: asyncio.PriorityQueue):
                 await handler(pt.task_id, pt.goal, pt.context, 12)
             else:
                 log.info(f"[Worker] ReAct loop: {pt.task_id} → {agent_id or 'default'}")
+                # Inject user's business config into system prompt
+                base_prompt = agent_def.get("system_prompt")
+                block_config = pt.context.get("block_configs", {}).get(agent_id, {})
+                if base_prompt and block_config:
+                    cfg_lines = "\n".join(
+                        f"• {k}: {v}" for k, v in block_config.items() if v and str(v).strip()
+                    )
+                    if cfg_lines:
+                        base_prompt = (
+                            base_prompt
+                            + f"\n\n=== НАСТРОЙКИ БИЗНЕСА ПОЛЬЗОВАТЕЛЯ ===\n{cfg_lines}"
+                            + "\n\nЭти настройки приоритетны. Используй их при выполнении всех шагов."
+                        )
                 await run_agent(
                     pt.task_id, pt.goal, pt.context,
                     orchestrator=orch,
-                    system_override=agent_def.get("system_prompt"),
+                    system_override=base_prompt,
                     tools_whitelist=agent_def.get("allowed_tools"),
                 )
         except Exception as e:

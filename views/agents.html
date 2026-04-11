@@ -304,6 +304,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     <div class="flex flex-wrap gap-1.5 mb-4" id="wCatFilter"></div>
     <!-- Blocks -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1" id="wBlocksGrid"></div>
+    <div id="wBlockConfigSection" class="hidden"></div>
   </div>
 
   <!-- ── Step 4: Review ─────────────────────────────────────────────── -->
@@ -391,44 +392,230 @@ function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').rep
 // icon: key in SVG_ICONS
 const AGENT_BLOCKS = [
   // Госзакупки
-  {id:'tender_parser',    cat:'Госзакупки',          icon:'search',    name:'Парсер тендеров',       desc:'Мониторинг ЕИС по профилю каждые 2–4 часа',              model:'Своя'},
-  {id:'tender_analyst',   cat:'Госзакупки',          icon:'assignment',name:'Аналитик тендера',      desc:'Резюме: риски, сроки, вердикт брать/не брать',           model:'Claude'},
-  {id:'margin_calc',      cat:'Госзакупки',          icon:'money',     name:'Калькулятор маржи',     desc:'Считает себестоимость, маржу, рекомендует цену',         model:'Своя'},
-  {id:'competitor_intel', cat:'Госзакупки',          icon:'gavel',     name:'Конкурентная разведка', desc:'История участников, ставки конкурентов',                 model:'Своя'},
+  {id:'tender_parser', cat:'Госзакупки', icon:'search', name:'Парсер тендеров', desc:'Мониторинг ЕИС по профилю каждые 2–4 часа', model:'Своя',
+   configFields:[
+    {key:'keywords',         label:'Ключевые слова',    type:'textarea', placeholder:'строительство, монтаж, кровля, кирпич...'},
+    {key:'regions',          label:'Регионы поиска',     type:'text',     placeholder:'Москва, Московская область, СПб'},
+    {key:'nmck_min',         label:'НМЦК от (₽)',        type:'number',   placeholder:'100000'},
+    {key:'nmck_max',         label:'НМЦК до (₽)',        type:'number',   placeholder:'50000000'},
+    {key:'okpd2',            label:'Коды ОКПД2',         type:'text',     placeholder:'41.20, 43.99.19'},
+    {key:'procurement_type', label:'Тип закупки',        type:'select',   options:['Все','Аукцион','Конкурс','Котировка','Единственный поставщик']},
+  ]},
+  {id:'tender_analyst', cat:'Госзакупки', icon:'assignment', name:'Аналитик тендера', desc:'Резюме: риски, сроки, вердикт брать/не брать', model:'Claude',
+   configFields:[
+    {key:'company_profile',   label:'Профиль компании',     type:'textarea', placeholder:'Что умеем делать: монтаж кровель, фасадные работы...'},
+    {key:'typical_margin',    label:'Целевая маржа (%)',     type:'number',   placeholder:'15'},
+    {key:'blacklist',         label:'Нежелательные заказчики', type:'textarea', placeholder:'ООО Проблемный, ГУП Задержки...'},
+    {key:'min_nmck',          label:'Мин. НМЦК для участия (₽)', type:'number', placeholder:'500000'},
+  ]},
+  {id:'margin_calc', cat:'Госзакупки', icon:'money', name:'Калькулятор маржи', desc:'Считает себестоимость, маржу, рекомендует цену', model:'Своя',
+   configFields:[
+    {key:'overhead_rate',   label:'Накладные расходы (%)', type:'number', placeholder:'12'},
+    {key:'vat_rate',        label:'НДС (%)',               type:'select', options:['0','10','20']},
+    {key:'target_margin',   label:'Целевая маржа (%)',     type:'number', placeholder:'18'},
+  ]},
+  {id:'competitor_intel', cat:'Госзакупки', icon:'gavel', name:'Конкурентная разведка', desc:'История участников, ставки конкурентов', model:'Своя',
+   configFields:[
+    {key:'your_company', label:'Ваша компания', type:'text', placeholder:'ООО СтройПрофи'},
+    {key:'competitors',  label:'Известные конкуренты', type:'textarea', placeholder:'ООО Альфа, ИП Иванов, ЗАО Бета...'},
+  ]},
   // Строительство
-  {id:'estimator',        cat:'Строительство',       icon:'home',      name:'Агент-сметчик',         desc:'Разбор сметы, коды ГЭСН/ФЕР, поиск завышений',          model:'Claude'},
-  {id:'volume_checker',   cat:'Строительство',       icon:'bar_chart', name:'Проверка объёмов',      desc:'Сверка объёмов работ с чертежами',                      model:'Своя'},
-  {id:'index_recalc',     cat:'Строительство',       icon:'trending',  name:'Пересчёт индексов',     desc:'Актуальные индексы Минстроя, пересчёт цен',              model:'Своя'},
+  {id:'estimator', cat:'Строительство', icon:'home', name:'Агент-сметчик', desc:'Разбор сметы, коды ГЭСН/ФЕР, поиск завышений', model:'Claude',
+   configFields:[
+    {key:'region',        label:'Регион строительства', type:'text',   placeholder:'Москва'},
+    {key:'work_types',    label:'Виды работ',           type:'textarea', placeholder:'Общестроительные, сантехника, электрика...'},
+    {key:'base_year',     label:'Базовый год сметы',    type:'select', options:['2001','2020','2022']},
+    {key:'vat',           label:'НДС в смете',          type:'select', options:['Без НДС','С НДС 20%']},
+  ]},
+  {id:'volume_checker', cat:'Строительство', icon:'bar_chart', name:'Проверка объёмов', desc:'Сверка объёмов работ с чертежами', model:'Своя',
+   configFields:[
+    {key:'work_type', label:'Тип работ', type:'text', placeholder:'Монолитные конструкции, кладка...'},
+  ]},
+  {id:'index_recalc', cat:'Строительство', icon:'trending', name:'Пересчёт индексов', desc:'Актуальные индексы Минстроя, пересчёт цен', model:'Своя',
+   configFields:[
+    {key:'region',     label:'Регион', type:'text', placeholder:'Московская область'},
+    {key:'work_types', label:'Виды работ для пересчёта', type:'text', placeholder:'СМР, монтаж оборудования'},
+  ]},
   // Документы
-  {id:'accountant',       cat:'Документы и право',   icon:'receipt',   name:'Бухгалтер',             desc:'Счета, акты, УПД, сверки, напоминания об оплате',        model:'Своя'},
-  {id:'lawyer',           cat:'Документы и право',   icon:'gavel',     name:'Юрист',                 desc:'Договоры, претензии, анализ рисков контракта',           model:'Claude'},
-  {id:'hr_docs',          cat:'Документы и право',   icon:'article',   name:'Кадровик',              desc:'Трудовые договоры, приказы, должностные инструкции',     model:'Своя'},
+  {id:'accountant', cat:'Документы и право', icon:'receipt', name:'Бухгалтер', desc:'Счета, акты, УПД, сверки, напоминания об оплате', model:'Своя',
+   configFields:[
+    {key:'company_name', label:'Название организации', type:'text',   placeholder:'ООО Ромашка'},
+    {key:'inn',          label:'ИНН',                  type:'text',   placeholder:'7701234567'},
+    {key:'bank_details', label:'Банковские реквизиты', type:'textarea', placeholder:'р/с, банк, БИК, к/с...'},
+    {key:'tax_system',   label:'Система налогообложения', type:'select', options:['УСН 6%','УСН 15%','ОСНО','Патент','НПД']},
+    {key:'director',     label:'Директор (ФИО)',        type:'text',   placeholder:'Иванов Иван Иванович'},
+  ]},
+  {id:'lawyer', cat:'Документы и право', icon:'gavel', name:'Юрист', desc:'Договоры, претензии, анализ рисков контракта', model:'Claude',
+   configFields:[
+    {key:'company_name',     label:'Название организации', type:'text',   placeholder:'ООО Ромашка'},
+    {key:'inn',              label:'ИНН',                  type:'text',   placeholder:'7701234567'},
+    {key:'typical_contracts',label:'Типичные договоры',   type:'textarea', placeholder:'Поставка товаров, оказание услуг, подряд...'},
+    {key:'jurisdiction',     label:'Основная юрисдикция', type:'text',   placeholder:'Москва, арбитраж'},
+    {key:'director',         label:'Директор (ФИО, должность)', type:'text', placeholder:'Генеральный директор Иванов И.И.'},
+  ]},
+  {id:'hr_docs', cat:'Документы и право', icon:'article', name:'Кадровик', desc:'Трудовые договоры, приказы, должностные инструкции', model:'Своя',
+   configFields:[
+    {key:'company_name',   label:'Название организации', type:'text',   placeholder:'ООО Ромашка'},
+    {key:'director',       label:'Директор (ФИО)',        type:'text',   placeholder:'Иванов Иван Иванович'},
+    {key:'work_schedule',  label:'Режим работы',          type:'text',   placeholder:'Пн-Пт, 9:00-18:00'},
+    {key:'address',        label:'Юридический адрес',     type:'text',   placeholder:'г. Москва, ул. Ленина, 1'},
+  ]},
   // Маркетинг
-  {id:'smm',              cat:'Маркетинг и контент', icon:'campaign',  name:'SMM-агент',             desc:'Контент-план на месяц, тренды, хэштеги',                 model:'Claude'},
-  {id:'scriptwriter',     cat:'Маркетинг и контент', icon:'edit',      name:'Сценарист',             desc:'Сценарии Reels, TikTok, YouTube, подкасты',             model:'Claude'},
-  {id:'copywriter',       cat:'Маркетинг и контент', icon:'article',   name:'Копирайтер',            desc:'Тексты, лендинги, описания товаров',                     model:'Claude'},
-  {id:'artist',           cat:'Маркетинг и контент', icon:'hub',       name:'Художник',              desc:'Баннеры, картинки, иллюстрации',                         model:'SD'},
-  {id:'ads_agent',        cat:'Маркетинг и контент', icon:'trending',  name:'Рекламный агент',       desc:'Мониторинг Директ/VK, алерты, оптимизация',              model:'Своя'},
+  {id:'smm', cat:'Маркетинг и контент', icon:'campaign', name:'SMM-агент', desc:'Контент-план на месяц, тренды, хэштеги', model:'Claude',
+   configFields:[
+    {key:'company_name',    label:'Название компании',    type:'text',     placeholder:'ООО Ромашка'},
+    {key:'niche',           label:'Ниша / сфера',         type:'text',     placeholder:'Строительство загородных домов'},
+    {key:'target_audience', label:'Целевая аудитория',    type:'textarea', placeholder:'Мужчины 35-55, семейные, доход выше среднего...'},
+    {key:'brand_voice',     label:'Тон бренда',           type:'select',   options:['Экспертный','Дружелюбный','Провокационный','Вдохновляющий','Нейтральный']},
+    {key:'topics',          label:'Темы для контента',    type:'textarea', placeholder:'Кейсы, советы по выбору, FAQ, за кадром...'},
+    {key:'platforms',       label:'Платформы',            type:'text',     placeholder:'VK, Telegram, Instagram'},
+  ]},
+  {id:'copywriter', cat:'Маркетинг и контент', icon:'article', name:'Копирайтер', desc:'Тексты, лендинги, описания товаров', model:'Claude',
+   configFields:[
+    {key:'company_name',    label:'Название компании',  type:'text',     placeholder:'ООО Ромашка'},
+    {key:'product',         label:'Продукт / услуга',   type:'text',     placeholder:'Строительство домов под ключ'},
+    {key:'usp',             label:'УТП',                type:'textarea', placeholder:'Строим за 90 дней с фиксированной ценой'},
+    {key:'target_audience', label:'Целевая аудитория',  type:'textarea', placeholder:'Семьи, хотящие переехать за город'},
+    {key:'tone',            label:'Тон',                type:'select',   options:['Профессиональный','Дружелюбный','Экспертный','Продающий']},
+  ]},
+  {id:'scriptwriter', cat:'Маркетинг и контент', icon:'edit', name:'Сценарист', desc:'Сценарии Reels, TikTok, YouTube, подкасты', model:'Claude',
+   configFields:[
+    {key:'company_name', label:'Компания / бренд',   type:'text',   placeholder:'ООО Ромашка'},
+    {key:'niche',        label:'Ниша',               type:'text',   placeholder:'Строительство'},
+    {key:'cta',          label:'Целевое действие',   type:'text',   placeholder:'Написать в WhatsApp, перейти на сайт'},
+    {key:'platform',     label:'Основная платформа', type:'select', options:['YouTube Shorts','Instagram Reels','TikTok','Telegram','ВКонтакте']},
+  ]},
+  {id:'artist', cat:'Маркетинг и контент', icon:'hub', name:'Художник', desc:'Баннеры, картинки, иллюстрации', model:'SD',
+   configFields:[
+    {key:'brand_colors', label:'Фирменные цвета',  type:'text', placeholder:'#FF5500, синий, белый'},
+    {key:'brand_style',  label:'Стиль бренда',     type:'text', placeholder:'Минимализм, корпоративный, живой...'},
+  ]},
+  {id:'ads_agent', cat:'Маркетинг и контент', icon:'trending', name:'Рекламный агент', desc:'Мониторинг Директ/VK, алерты, оптимизация', model:'Своя',
+   configFields:[
+    {key:'niche',       label:'Ниша',           type:'text',   placeholder:'Строительство загородных домов'},
+    {key:'region',      label:'Регион',         type:'text',   placeholder:'Москва и МО'},
+    {key:'budget',      label:'Месячный бюджет (₽)', type:'number', placeholder:'100000'},
+    {key:'target_cpa',  label:'Целевой CPA (₽)', type:'number', placeholder:'5000'},
+    {key:'platform',    label:'Платформа',      type:'select', options:['Яндекс.Директ','VK Ads','Оба']},
+  ]},
   // Продажи
-  {id:'chat_manager',     cat:'Продажи и клиенты',   icon:'chat',      name:'Менеджер переписки',    desc:'Отвечает клиентам в мессенджерах, квалифицирует лидов',  model:'Claude'},
-  {id:'kp_agent',         cat:'Продажи и клиенты',   icon:'article',   name:'Агент КП',              desc:'Коммерческие предложения под каждого клиента',           model:'Claude'},
-  {id:'objection_agent',  cat:'Продажи и клиенты',   icon:'support',   name:'Агент возражений',      desc:'Скрипты: дорого / подумаю / не надо',                   model:'Своя'},
-  {id:'reactivation',     cat:'Продажи и клиенты',   icon:'send',      name:'Реактивация клиентов',  desc:'Серия касаний для спящей базы',                         model:'Claude'},
-  {id:'upsell',           cat:'Продажи и клиенты',   icon:'trending',  name:'Upsell-агент',          desc:'Предлагает доп. услуги в нужный момент',                model:'Claude'},
+  {id:'chat_manager', cat:'Продажи и клиенты', icon:'chat', name:'Менеджер переписки', desc:'Отвечает клиентам в мессенджерах, квалифицирует лидов', model:'Claude',
+   configFields:[
+    {key:'product',         label:'Продукт / услуга',  type:'text',     placeholder:'Строительство домов'},
+    {key:'price_range',     label:'Ценовой диапазон',  type:'text',     placeholder:'от 3 млн до 15 млн руб'},
+    {key:'target_audience', label:'Целевая аудитория', type:'textarea', placeholder:'Семьи 35-50 лет, бюджет от 3 млн'},
+    {key:'key_objections',  label:'Типичные возражения', type:'textarea', placeholder:'Дорого, долго, не доверяю...'},
+    {key:'cta',             label:'Целевое действие',  type:'text',     placeholder:'Записаться на встречу'},
+  ]},
+  {id:'kp_agent', cat:'Продажи и клиенты', icon:'article', name:'Агент КП', desc:'Коммерческие предложения под каждого клиента', model:'Claude',
+   configFields:[
+    {key:'company_name', label:'Название компании',    type:'text',     placeholder:'ООО Ромашка'},
+    {key:'product',      label:'Продукт / услуга',     type:'text',     placeholder:'Строительство домов под ключ'},
+    {key:'usp',          label:'Уникальные преимущества', type:'textarea', placeholder:'90 дней, фиксированная цена, гарантия 5 лет'},
+    {key:'price',        label:'Цена / прайс',         type:'textarea', placeholder:'Дома 100 м² от 4,5 млн; 150 м² от 6 млн'},
+    {key:'contacts',     label:'Контакты',             type:'text',     placeholder:'+7 900 123-45-67, romashka.ru'},
+  ]},
+  {id:'objection_agent', cat:'Продажи и клиенты', icon:'support', name:'Агент возражений', desc:'Скрипты: дорого / подумаю / не надо', model:'Своя',
+   configFields:[
+    {key:'product',     label:'Продукт / услуга', type:'text',     placeholder:'Дома из бруса'},
+    {key:'price',       label:'Цена',             type:'text',     placeholder:'от 4,5 млн рублей'},
+    {key:'competitors', label:'Конкуренты',       type:'textarea', placeholder:'Дешёвые сборные дома, DIY'},
+  ]},
+  {id:'reactivation', cat:'Продажи и клиенты', icon:'send', name:'Реактивация клиентов', desc:'Серия касаний для спящей базы', model:'Claude',
+   configFields:[
+    {key:'product',       label:'Продукт / услуга',    type:'text',     placeholder:'Строительство'},
+    {key:'last_contact',  label:'Давность последнего контакта', type:'select', options:['3 месяца','6 месяцев','1 год','Более года']},
+    {key:'reactivation_offer', label:'Спецпредложение для реактивации', type:'textarea', placeholder:'Скидка 10%, бесплатный проект...'},
+  ]},
+  {id:'upsell', cat:'Продажи и клиенты', icon:'trending', name:'Upsell-агент', desc:'Предлагает доп. услуги в нужный момент', model:'Claude',
+   configFields:[
+    {key:'main_product',  label:'Основной продукт',        type:'text',     placeholder:'Строительство дома'},
+    {key:'upsell_offers', label:'Допродажные предложения', type:'textarea', placeholder:'Ландшафтный дизайн, баня, гараж, забор...'},
+    {key:'trigger',       label:'Момент для допродажи',    type:'text',     placeholder:'После подписания договора на дом'},
+  ]},
   // HR
-  {id:'vacancy_agent',    cat:'HR',                  icon:'people',    name:'Агент вакансий',        desc:'Пишет и размещает вакансии по профилю',                 model:'Своя'},
-  {id:'screener',         cat:'HR',                  icon:'search',    name:'Скринер резюме',        desc:'Первичный отбор кандидатов по критериям',               model:'Своя'},
-  {id:'onboarding',       cat:'HR',                  icon:'people',    name:'Онбординг',             desc:'Вводит новых сотрудников в курс дела',                  model:'Своя'},
+  {id:'vacancy_agent', cat:'HR', icon:'people', name:'Агент вакансий', desc:'Пишет и размещает вакансии по профилю', model:'Своя',
+   configFields:[
+    {key:'company_name',  label:'Название компании',   type:'text',     placeholder:'ООО Ромашка'},
+    {key:'company_desc',  label:'О компании (кратко)', type:'textarea', placeholder:'Строим загородные дома с 2010 года...'},
+    {key:'culture',       label:'Корпоративная культура', type:'textarea', placeholder:'Команда 15 человек, без бюрократии...'},
+    {key:'salary_range',  label:'Вилка зарплаты',      type:'text',     placeholder:'80 000 — 150 000 руб'},
+    {key:'benefits',      label:'Плюшки / условия',    type:'textarea', placeholder:'ДМС, удалёнка, обучение...'},
+  ]},
+  {id:'screener', cat:'HR', icon:'search', name:'Скринер резюме', desc:'Первичный отбор кандидатов по критериям', model:'Своя',
+   configFields:[
+    {key:'position',    label:'Должность',                type:'text',     placeholder:'Прораб'},
+    {key:'must_have',   label:'Обязательные требования',  type:'textarea', placeholder:'Опыт в строительстве от 3 лет, права...'},
+    {key:'nice_have',   label:'Желательные требования',   type:'textarea', placeholder:'Опыт с деревянными домами, ПТМ...'},
+    {key:'red_flags',   label:'Красные флаги',            type:'textarea', placeholder:'Частые смены, судимости, конфликты...'},
+    {key:'salary_max',  label:'Максимальная зарплата (₽)', type:'number',  placeholder:'150000'},
+  ]},
+  {id:'onboarding', cat:'HR', icon:'people', name:'Онбординг', desc:'Вводит новых сотрудников в курс дела', model:'Своя',
+   configFields:[
+    {key:'company_name',   label:'Название компании',  type:'text',     placeholder:'ООО Ромашка'},
+    {key:'company_values', label:'Ценности компании',  type:'textarea', placeholder:'Честность, качество, срок...'},
+    {key:'key_processes',  label:'Ключевые процессы',  type:'textarea', placeholder:'CRM — Bitrix24, планёрки пн 9:00, отчёты...'},
+    {key:'first_tasks',    label:'Задачи на первую неделю', type:'textarea', placeholder:'Познакомиться с командой, изучить CRM...'},
+  ]},
   // Аналитика
-  {id:'fin_analyst',      cat:'Аналитика',           icon:'analytics', name:'Финансовый аналитик',   desc:'Объясняет цифры собственнику простым языком',           model:'Claude'},
-  {id:'reputation',       cat:'Аналитика',           icon:'star',      name:'Мониторинг репутации',  desc:'Отзывы, упоминания бренда, алерты',                     model:'Своя'},
-  {id:'comp_intel',       cat:'Аналитика',           icon:'search',    name:'Конкурентный разведчик',desc:'Цены, акции, офферы конкурентов',                       model:'Своя'},
-  {id:'funnel_agent',     cat:'Аналитика',           icon:'bar_chart', name:'Агент воронки',         desc:'Где теряются клиенты, гипотезы роста',                  model:'Claude'},
+  {id:'fin_analyst', cat:'Аналитика', icon:'analytics', name:'Финансовый аналитик', desc:'Объясняет цифры собственнику простым языком', model:'Claude',
+   configFields:[
+    {key:'business_type', label:'Тип бизнеса',     type:'text',   placeholder:'Строительная компания'},
+    {key:'kpi_focus',     label:'Ключевые KPI',    type:'textarea', placeholder:'Выручка, маржа, дебиторка, рентабельность'},
+    {key:'currency',      label:'Валюта',          type:'select', options:['RUB','USD','EUR']},
+    {key:'period',        label:'Отчётный период', type:'select', options:['Месяц','Квартал','Год']},
+  ]},
+  {id:'reputation', cat:'Аналитика', icon:'star', name:'Мониторинг репутации', desc:'Отзывы, упоминания бренда, алерты', model:'Своя',
+   configFields:[
+    {key:'brand_name',    label:'Название бренда / компании', type:'text',     placeholder:'ООО Ромашка, romashka-dom.ru'},
+    {key:'competitors',   label:'Конкуренты для сравнения', type:'textarea', placeholder:'ДомСтрой, СтройМастер...'},
+    {key:'platforms',     label:'Приоритетные площадки',   type:'textarea', placeholder:'2ГИС, Яндекс.Карты, Avito, otzovik...'},
+  ]},
+  {id:'comp_intel', cat:'Аналитика', icon:'search', name:'Конкурентный разведчик', desc:'Цены, акции, офферы конкурентов', model:'Своя',
+   configFields:[
+    {key:'your_company',      label:'Ваша компания',        type:'text',     placeholder:'ООО Ромашка'},
+    {key:'competitor_names',  label:'Конкуренты',           type:'textarea', placeholder:'ДомСтрой, СтройМастер, ЭкоДом...'},
+    {key:'niche',             label:'Ниша',                 type:'text',     placeholder:'Дома из бруса в МО'},
+    {key:'focus',             label:'Что мониторить',       type:'textarea', placeholder:'Цены, акции, новые проекты, отзывы'},
+  ]},
+  {id:'funnel_agent', cat:'Аналитика', icon:'bar_chart', name:'Агент воронки', desc:'Где теряются клиенты, гипотезы роста', model:'Claude',
+   configFields:[
+    {key:'funnel_stages', label:'Этапы воронки',    type:'textarea', placeholder:'Лид → Квалификация → КП → Договор → Оплата'},
+    {key:'crm',           label:'CRM система',      type:'text',     placeholder:'Bitrix24'},
+    {key:'avg_check',     label:'Средний чек (₽)',  type:'number',   placeholder:'6000000'},
+    {key:'main_loss',     label:'Где теряем больше всего', type:'text', placeholder:'На этапе КП, не отвечают...'},
+  ]},
   // Чат-боты
-  {id:'bot_tg',           cat:'Чат-боты',            icon:'send',      name:'Бот для Telegram',      desc:'Ответы клиентам, квалификация, продажи',                model:'Claude'},
-  {id:'bot_site',         cat:'Чат-боты',            icon:'chat',      name:'Бот для сайта',         desc:'Виджет диалогового окна, WebSocket',                    model:'Claude'},
-  {id:'bot_avito',        cat:'Чат-боты',            icon:'home',      name:'Бот для Авито',         desc:'Автоответы на запросы покупателей',                     model:'Claude'},
-  {id:'bot_wa',           cat:'Чат-боты',            icon:'forum',     name:'Бот для WhatsApp',      desc:'Бизнес API, автоответы и рассылки',                     model:'Claude'},
+  {id:'bot_tg', cat:'Чат-боты', icon:'send', name:'Бот для Telegram', desc:'Ответы клиентам, квалификация, продажи', model:'Claude',
+   configFields:[
+    {key:'bot_purpose',    label:'Цель бота',          type:'select', options:['Продажи','Поддержка','Запись','Квалификация','Универсальный']},
+    {key:'company_name',   label:'Название компании',  type:'text',   placeholder:'ООО Ромашка'},
+    {key:'main_services',  label:'Основные услуги',    type:'textarea', placeholder:'Строительство домов, проектирование...'},
+    {key:'cta',            label:'Целевое действие',   type:'text',   placeholder:'Записаться на встречу / замер'},
+    {key:'working_hours',  label:'Часы работы',        type:'text',   placeholder:'Пн-Пт 9:00-19:00'},
+  ]},
+  {id:'bot_site', cat:'Чат-боты', icon:'chat', name:'Бот для сайта', desc:'Виджет диалогового окна, WebSocket', model:'Claude',
+   configFields:[
+    {key:'company_name',     label:'Название компании',   type:'text',     placeholder:'ООО Ромашка'},
+    {key:'main_services',    label:'Основные услуги',     type:'textarea', placeholder:'Строительство домов...'},
+    {key:'working_hours',    label:'Часы работы',         type:'text',     placeholder:'Пн-Пт 9:00-19:00'},
+    {key:'offline_message',  label:'Сообщение вне рабочего времени', type:'textarea', placeholder:'Оставьте номер — перезвоним утром'},
+    {key:'trigger_delay',    label:'Через сколько секунд показать чат', type:'number', placeholder:'30'},
+  ]},
+  {id:'bot_avito', cat:'Чат-боты', icon:'home', name:'Бот для Авито', desc:'Автоответы на запросы покупателей', model:'Claude',
+   configFields:[
+    {key:'product',         label:'Что продаёте',         type:'text',     placeholder:'Дома из бруса'},
+    {key:'price_range',     label:'Ценовой диапазон',     type:'text',     placeholder:'от 1,5 до 8 млн руб'},
+    {key:'key_advantages',  label:'Ключевые преимущества', type:'textarea', placeholder:'Быстро, качественно, с гарантией...'},
+    {key:'cta',             label:'Следующий шаг',        type:'text',     placeholder:'Позвоните для расчёта стоимости'},
+  ]},
+  {id:'bot_wa', cat:'Чат-боты', icon:'forum', name:'Бот для WhatsApp', desc:'Бизнес API, автоответы и рассылки', model:'Claude',
+   configFields:[
+    {key:'company_name',   label:'Название компании', type:'text',     placeholder:'ООО Ромашка'},
+    {key:'main_services',  label:'Услуги / товары',   type:'textarea', placeholder:'Строительство домов...'},
+    {key:'cta',            label:'Целевое действие',  type:'text',     placeholder:'Записаться на замер'},
+    {key:'working_hours',  label:'Часы работы',       type:'text',     placeholder:'Пн-Пт 9:00-18:00'},
+  ]},
 ];
 
 const CHANNELS = [
@@ -463,6 +650,7 @@ let wizData = {
   channelFields: {},         // {key: value}
   orchestrator: { classifier_model:'gpt', max_parallel:'3', compression:'auto', priority:'fifo' },
   blocks: new Set(),
+  blockConfigs: {},
   name: ''
 };
 
@@ -603,6 +791,7 @@ function openAgent(id) {
     compression:      s.compression || 'auto',
     priority:         s.priority || 'fifo',
   };
+  wizData.blockConfigs = s.block_configs || {};
   wizData.name = a.name || '';
 
   openWizard(true);
@@ -616,7 +805,7 @@ function openWizard(isEdit = false) {
     wizData = {
       channels: new Set(), channelFields: {},
       orchestrator: {classifier_model:'gpt', max_parallel:'3', compression:'auto', priority:'fifo'},
-      blocks: new Set(), name: ''
+      blocks: new Set(), blockConfigs: {}, name: ''
     };
   }
   wizStep = 1;
@@ -771,6 +960,7 @@ function renderWizBlocks(cat) {
       </div>
     </div>`).join('');
   updateBlockCount();
+  renderBlockConfigs();
 }
 
 function toggleWizBlock(id) {
@@ -778,6 +968,71 @@ function toggleWizBlock(id) {
   else wizData.blocks.add(id);
   document.getElementById('wb-'+id)?.classList.toggle('selected', wizData.blocks.has(id));
   updateBlockCount();
+  renderBlockConfigs();
+}
+
+function renderBlockConfigs() {
+  const selected = AGENT_BLOCKS.filter(b => wizData.blocks.has(b.id) && b.configFields?.length);
+  const container = document.getElementById('wBlockConfigSection');
+  if (!container) return;
+  if (!selected.length) { container.classList.add('hidden'); return; }
+  container.classList.remove('hidden');
+  container.innerHTML = `
+    <div class="border-t border-outline/20 pt-4 mt-2">
+      <p class="text-xs font-bold text-on-dim uppercase tracking-wider mb-3">Настройка выбранных блоков</p>
+      <div class="space-y-2" id="wBlockConfigForms"></div>
+    </div>`;
+  const forms = document.getElementById('wBlockConfigForms');
+  forms.innerHTML = selected.map(b => {
+    const cfg = wizData.blockConfigs[b.id] || {};
+    const isOpen = Object.values(cfg).some(v => v);
+    return `
+      <div class="border border-outline/20 rounded-xl overflow-hidden">
+        <button class="w-full flex items-center justify-between px-4 py-3 bg-surface2 hover:bg-surface3 transition text-left"
+          onclick="toggleBlockCfg('${b.id}')">
+          <div class="flex items-center gap-2.5">
+            <div class="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+              ${svgIcon(b.icon, 12, '#ff8c42')}
+            </div>
+            <span class="text-sm font-semibold">${esc(b.name)}</span>
+            ${Object.values(cfg).some(v => v) ? '<span class="text-[10px] text-primary bg-primary/10 px-2 py-0.5 rounded-full">настроен</span>' : ''}
+          </div>
+          <svg id="cfgArrow-${b.id}" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"
+            class="text-on-dim transition-transform${isOpen ? ' rotate-180' : ''}">
+            <path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41z"/>
+          </svg>
+        </button>
+        <div id="cfgBody-${b.id}" class="${isOpen ? '' : 'hidden'} p-4 bg-surface grid grid-cols-1 sm:grid-cols-2 gap-3">
+          ${b.configFields.map(f => `
+            <div class="${f.type === 'textarea' ? 'sm:col-span-2' : ''}">
+              <label class="block text-[11px] text-on-dim mb-1">${f.label}</label>
+              ${f.type === 'textarea'
+                ? `<textarea id="bcfg_${b.id}_${f.key}" rows="2" class="inp text-xs resize-none" placeholder="${f.placeholder||''}" oninput="saveBlockCfg('${b.id}','${f.key}',this.value)">${esc(cfg[f.key]||'')}</textarea>`
+                : f.type === 'select'
+                ? `<select id="bcfg_${b.id}_${f.key}" class="inp text-xs" onchange="saveBlockCfg('${b.id}','${f.key}',this.value)">
+                    ${(f.options||[]).map(o => `<option value="${o}"${cfg[f.key]===o?' selected':''}>${o}</option>`).join('')}
+                   </select>`
+                : `<input id="bcfg_${b.id}_${f.key}" type="${f.type||'text'}" class="inp text-xs"
+                    placeholder="${f.placeholder||''}" value="${esc(cfg[f.key]||'')}"
+                    oninput="saveBlockCfg('${b.id}','${f.key}',this.value)"/>`
+              }
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleBlockCfg(blockId) {
+  const body  = document.getElementById(`cfgBody-${blockId}`);
+  const arrow = document.getElementById(`cfgArrow-${blockId}`);
+  if (!body) return;
+  body.classList.toggle('hidden');
+  arrow?.classList.toggle('rotate-180');
+}
+
+function saveBlockCfg(blockId, key, value) {
+  if (!wizData.blockConfigs[blockId]) wizData.blockConfigs[blockId] = {};
+  wizData.blockConfigs[blockId][key] = value;
 }
 
 function updateBlocksFromWizard() {
@@ -831,7 +1086,7 @@ async function saveAgent() {
     name,
     enabled_blocks: [...wizData.blocks],
     channels,
-    settings: {...wizData.orchestrator},
+    settings: {...wizData.orchestrator, block_configs: wizData.blockConfigs},
     status: 'draft',
   };
 
@@ -890,9 +1145,16 @@ async function runAgent() {
   document.getElementById('resultCard').classList.add('hidden');
 
   try {
+    const selectedAgentId = document.getElementById('agentSelect')?.value;
+    const selectedAgent = myAgents.find(a => a.id == selectedAgentId);
+    const blockConfigs = selectedAgent?.settings?.block_configs || {};
     const r = await fetch(`${API}/agent/run`, {
       method:'POST', headers:hdrs(),
-      body: JSON.stringify({goal})
+      body: JSON.stringify({
+        goal,
+        agent_config_id: selectedAgentId ? parseInt(selectedAgentId) : undefined,
+        context: {block_configs: blockConfigs}
+      })
     });
     if (!r.ok) { const e=await r.json(); throw new Error(e.detail||'Ошибка'); }
     const data = await r.json();

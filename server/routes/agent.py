@@ -22,7 +22,8 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 
 class AgentRunRequest(BaseModel):
     goal: str
-    context: dict | None = None  # vk_token, tg_token, etc.
+    context: dict | None = None       # vk_token, tg_token, etc.
+    agent_config_id: int | None = None  # load block_configs from saved agent
 
 
 @router.post("/run")
@@ -49,6 +50,19 @@ async def agent_run(
     ctx = req.context or {}
     if user:
         ctx["user_id"] = user.id
+
+    # Load block configs from saved AgentConfig if agent_config_id provided
+    if req.agent_config_id:
+        from server.models import AgentConfig
+        agent_cfg = db.query(AgentConfig).filter_by(id=req.agent_config_id).first()
+        if agent_cfg and agent_cfg.settings:
+            import json as _json
+            try:
+                saved_settings = _json.loads(agent_cfg.settings)
+                if "block_configs" in saved_settings:
+                    ctx["block_configs"] = saved_settings["block_configs"]
+            except Exception:
+                pass
 
     task_id = create_task(user_id=user.id if user else None, goal=req.goal, context=ctx)
     await submit_task(task_id, req.goal, ctx)
