@@ -356,3 +356,42 @@ class PresentationTemplate(Base):
     is_active    = Column(Boolean, default=True)
     sort_order   = Column(Integer, default=0)
     created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Company Profile (for Presentations & KP) ──────────────────────────────────
+
+class CompanyProfile(Base):
+    """Профиль компании пользователя — используется при генерации КП и презентаций."""
+    __tablename__ = "company_profiles"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    user_id       = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    company_name  = Column(String, nullable=True)
+    description   = Column(Text, nullable=True)      # Чем занимается компания
+    services      = Column(Text, nullable=True)       # Услуги/товары
+    prices        = Column(Text, nullable=True)       # Прайс-лист (свободный текст/таблица)
+    style_notes   = Column(Text, nullable=True)       # Стиль оформления, тон, цвета
+    contacts      = Column(Text, nullable=True)       # Телефон, email, сайт
+    extra         = Column(Text, nullable=True)       # Любые доп. данные (JSON)
+    updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", backref="company_profile")
+
+
+# ── Agent Constructor ──────────────────────────────────────────────────────────
+
+class AgentConfig(Base):
+    """Конфигурация ИИ-агента пользователя."""
+    __tablename__ = "agent_configs"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    user_id       = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name          = Column(String, default="Мой агент")
+    enabled_blocks= Column(Text, nullable=True)   # JSON: список включённых блоков
+    channels      = Column(Text, nullable=True)   # JSON: {tg_token, tg_chat_id, discord_token, ...}
+    settings      = Column(Text, nullable=True)   # JSON: доп. настройки
+    status        = Column(String, default="draft")  # draft / active / paused
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", backref="agent_configs")

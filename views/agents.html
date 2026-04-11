@@ -3,60 +3,58 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>AI Студия Че — ИИ Агент</title>
+<title>AI Студия Че — Конструктор агентов</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#141210","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
 <style>
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
+*::-webkit-scrollbar{width:4px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
 body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:100vh}
 .sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
 .sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.inp{width:100%;padding:10px 14px;border-radius:10px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:14px;transition:border-color .2s;font-family:Inter,sans-serif}
-.inp:focus{border-color:#ff8c42}
-.inp::placeholder{color:#a89880}
-.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#1e1a14;font-weight:700;border-radius:12px;padding:12px 24px;cursor:pointer;font-size:14px;border:none;transition:opacity .15s;display:inline-flex;align-items:center;gap:8px}
-.btn-p:hover{opacity:.88}
-.btn-p:disabled{opacity:.4;cursor:not-allowed}
-.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;font-family:inherit;transition:border-color .2s}
+.inp:focus{border-color:#ff8c42}.inp::placeholder{color:#a89880}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
 .btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
-.card{background:#1e1a14;border:1px solid rgba(74,63,47,0.25);border-radius:16px;overflow:hidden}
+.card{background:#1e1a14;border:1px solid rgba(74,63,47,0.25);border-radius:16px}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
+.modal-bg.show{display:flex}
 
-/* Step timeline */
-.step-item{display:flex;gap:16px;padding:12px 0;position:relative}
-.step-item:not(:last-child)::before{content:"";position:absolute;left:19px;top:48px;bottom:-12px;width:2px;background:rgba(74,63,47,0.4)}
-.step-dot{width:40px;height:40px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid transparent}
-.step-dot.thinking{background:rgba(255,140,66,0.1);border-color:rgba(255,140,66,0.4);animation:pulse-border 1.5s infinite}
-.step-dot.done{background:rgba(107,255,158,0.1);border-color:rgba(107,255,158,0.3)}
-.step-dot.tool{background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.3)}
-.step-dot.error{background:rgba(255,107,107,0.1);border-color:rgba(255,107,107,0.3)}
-@keyframes pulse-border{0%,100%{border-color:rgba(255,140,66,0.4)}50%{border-color:rgba(255,140,66,0.9)}}
+/* Agent blocks catalog */
+.block-card{background:#272018;border:1.5px solid rgba(74,63,47,0.3);border-radius:14px;padding:16px;cursor:pointer;transition:all .15s;position:relative}
+.block-card:hover{border-color:rgba(255,140,66,0.4);background:#322a1e}
+.block-card.selected{border-color:#ff8c42;background:rgba(255,140,66,0.06)}
+.block-card.selected::after{content:"✓";position:absolute;top:12px;right:12px;background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;line-height:22px;text-align:center}
+.block-cat-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#a89880;margin-bottom:10px;margin-top:20px}
+.block-cat-label:first-child{margin-top:0}
 
-.thought-bubble{background:#272018;border:1px solid rgba(74,63,47,0.3);border-radius:10px;padding:10px 14px;font-size:13px;font-style:italic;color:#a89880;margin-bottom:6px}
-.action-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);border-radius:6px;padding:4px 10px;font-size:12px;font-family:monospace;color:#a5b4fc;margin-bottom:6px}
-.observe-box{background:#1e1a14;border:1px solid rgba(74,63,47,0.2);border-radius:8px;padding:10px 14px;font-size:12px;color:#f0e6d8;white-space:pre-wrap;max-height:160px;overflow-y:auto}
-.result-box{background:linear-gradient(135deg,rgba(255,140,66,0.05),rgba(255,179,71,0.05));border:1px solid rgba(255,140,66,0.2);border-radius:12px;padding:20px;font-size:14px;line-height:1.7;color:#f0e6d8;white-space:pre-wrap}
+/* Channel chips */
+.channel-chip{display:inline-flex;align-items:center;gap:6px;background:#272018;border:1px solid rgba(74,63,47,0.4);border-radius:9999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.channel-chip:hover{border-color:#ff8c42;color:#ff8c42}
+.channel-chip.active{background:rgba(255,140,66,0.1);border-color:#ff8c42;color:#ff8c42}
 
-/* Preset tasks */
-.preset-card{background:#272018;border:1.5px solid rgba(74,63,47,0.3);border-radius:14px;padding:16px;cursor:pointer;transition:all .15s;display:flex;flex-direction:column;gap:6px}
-.preset-card:hover{border-color:rgba(255,140,66,0.5);background:#322a1e;transform:translateY(-1px)}
+/* My agents list */
+.agent-item{background:#272018;border:1px solid rgba(74,63,47,0.3);border-radius:12px;padding:14px 16px;cursor:pointer;transition:all .15s}
+.agent-item:hover{border-color:rgba(255,140,66,0.3)}
+.status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot-active{background:#6bff9e}
+.dot-draft{background:#a89880}
+.dot-paused{background:#ff8c42}
 
-/* Connections panel */
-.conn-card{background:#272018;border:1px solid rgba(74,63,47,0.3);border-radius:12px;padding:16px;space-y:3}
-.conn-status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;flex-shrink:0}
-.connected{background:#6bff9e}
-.disconnected{background:#a89880}
+/* Tabs */
+.main-tab{padding:10px 20px;font-size:13px;font-weight:600;color:#a89880;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.main-tab.active{color:#ff8c42;border-bottom-color:#ff8c42}
+.tab-pane{display:none}.tab-pane.active{display:block}
 
-/* Typing animation */
-.typing span{display:inline-block;width:6px;height:6px;border-radius:50%;background:#ff8c42;animation:bounce .8s infinite}
-.typing span:nth-child(2){animation-delay:.15s}
-.typing span:nth-child(3){animation-delay:.3s}
-@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-
-select.inp option{background:#272018;color:#f0e6d8}
+/* Step timeline (quick run) */
+.step-dot-sm{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px}
 </style>
 </head>
 <body class="dark">
 
-<div class="max-w-5xl mx-auto px-4 py-6">
+<div class="max-w-6xl mx-auto px-4 py-8">
 
   <!-- Header -->
   <div class="flex items-center justify-between mb-8">
@@ -64,132 +62,143 @@ select.inp option{background:#272018;color:#f0e6d8}
       <a href="index.html" class="btn-g text-xs">← Назад</a>
       <div>
         <h1 class="text-2xl font-extrabold font-headline">ИИ <span class="sig-text">Агент</span></h1>
-        <p class="text-sm text-on-dim">Автономный агент — сам планирует, ищет, создаёт и публикует</p>
+        <p class="text-sm text-on-dim">Конструктор AI-агентов под ваш бизнес</p>
       </div>
     </div>
-    <div class="flex items-center gap-2 text-xs text-on-dim">
-      <span id="balance-display" class="hidden bg-surface2 px-3 py-1.5 rounded-full border border-outline/20">
-        Баланс: <span id="agent-balance" class="text-primary font-bold">—</span> CH
-      </span>
-      <span class="bg-surface2 px-3 py-1.5 rounded-full border border-outline/20">50 CH / задача</span>
+    <button onclick="openCreateAgent()" class="btn-p">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+      Новый агент
+    </button>
+  </div>
+
+  <!-- Main tabs -->
+  <div class="border-b border-outline/20 mb-6 flex gap-0">
+    <button class="main-tab active" id="tab-my" onclick="switchMainTab('my')">Мои агенты</button>
+    <button class="main-tab" id="tab-catalog" onclick="switchMainTab('catalog')">Каталог блоков</button>
+    <button class="main-tab" id="tab-run" onclick="switchMainTab('run')">Запустить задачу</button>
+  </div>
+
+  <!-- ── Tab: My Agents ── -->
+  <div id="pane-my" class="tab-pane active">
+    <div id="agentsList" class="space-y-3 max-w-2xl"></div>
+    <div id="agentsEmpty" class="hidden text-center py-20">
+      <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="#141210"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+      </div>
+      <h2 class="text-xl font-bold font-headline mb-2">Нет агентов</h2>
+      <p class="text-on-dim text-sm mb-6">Создайте первого AI-агента — выберите блоки и канал связи</p>
+      <button onclick="openCreateAgent()" class="btn-p">Создать агента</button>
     </div>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <!-- ── Tab: Catalog ── -->
+  <div id="pane-catalog" class="tab-pane">
+    <div class="max-w-4xl">
+      <div class="bg-surface2 rounded-xl p-4 border border-outline/15 mb-6">
+        <p class="text-sm text-on-dim leading-relaxed">
+          <span class="text-primary font-semibold">Оркестратор</span> — центральный компонент. Получает запрос → классифицирует → выбирает нужного агента → возвращает результат. Все блоки работают через него.
+        </p>
+      </div>
+      <div id="catalogGrid"></div>
+    </div>
+  </div>
 
-    <!-- Left: Task input + presets -->
-    <div class="lg:col-span-1 space-y-5">
-
-      <!-- Task input -->
-      <div class="card">
-        <div class="sig px-5 py-3">
-          <p class="font-headline font-bold text-[#1e1a14] text-sm">Новая задача</p>
-        </div>
-        <div class="p-5 space-y-4">
+  <!-- ── Tab: Run task ── -->
+  <div id="pane-run" class="tab-pane">
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      <div class="lg:col-span-2 space-y-4">
+        <div class="card p-5 space-y-4">
+          <p class="font-headline font-bold text-sm">Задача агенту</p>
+          <textarea id="goalInput" rows="5" class="inp resize-none text-sm leading-relaxed"
+            placeholder="Например: Найди топ-5 новостей об ИИ за сегодня и напиши краткую сводку"></textarea>
           <div>
-            <label class="block text-xs text-on-dim mb-1.5">Опишите задачу подробно:</label>
-            <textarea id="goalInput" rows="5" class="inp resize-none text-sm leading-relaxed"
-              placeholder="Например: Найди последние новости об OpenAI, напиши краткую сводку на русском и опубликуй пост в моём VK сообществе с эмодзи"></textarea>
+            <label class="block text-xs text-on-dim mb-1.5">Агент</label>
+            <select id="agentSelect" class="inp">
+              <option value="">Автоматически</option>
+            </select>
           </div>
-
-          <!-- Context: platform tokens -->
-          <details class="text-xs">
-            <summary class="text-on-dim cursor-pointer hover:text-primary transition flex items-center gap-1.5">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65z"/></svg>
-              Подключения (VK, Telegram)
-            </summary>
-            <div class="mt-3 space-y-2">
-              <input id="ctx_vk_token"    type="password" placeholder="VK Access Token" class="inp text-xs"/>
-              <input id="ctx_vk_group_id" type="text"     placeholder="VK Group ID (-123456)" class="inp text-xs"/>
-              <input id="ctx_tg_token"    type="password" placeholder="TG Bot Token" class="inp text-xs"/>
-              <input id="ctx_tg_chat_id"  type="text"     placeholder="TG Chat ID" class="inp text-xs"/>
-            </div>
-          </details>
-
           <button id="runBtn" onclick="runAgent()" class="btn-p w-full justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            Запустить агента
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            Запустить (50 CH)
           </button>
           <p id="runError" class="text-error text-xs hidden text-center"></p>
         </div>
-      </div>
 
-      <!-- Preset tasks -->
-      <div>
-        <p class="text-xs text-on-dim uppercase tracking-wider font-bold mb-3">Быстрые задачи</p>
+        <!-- Quick presets -->
+        <p class="text-xs text-on-dim uppercase tracking-wider font-bold">Быстрые задачи</p>
         <div class="space-y-2" id="presetList"></div>
       </div>
 
-      <!-- Tools list -->
-      <div class="card">
-        <div class="px-5 py-3 border-b border-outline/15">
-          <p class="font-headline font-bold text-sm">Доступные инструменты</p>
-        </div>
-        <div class="p-4 space-y-2" id="toolsList"></div>
-      </div>
-    </div>
-
-    <!-- Right: Agent execution view -->
-    <div class="lg:col-span-2 space-y-5">
-
-      <!-- Status bar -->
-      <div id="statusBar" class="hidden card">
-        <div class="p-4 flex items-center gap-4">
-          <div id="statusIcon" class="w-10 h-10 rounded-xl sig flex items-center justify-center flex-shrink-0">
-            <div class="typing"><span></span><span></span><span></span></div>
+      <div class="lg:col-span-3 space-y-4">
+        <div id="runStatusBar" class="hidden card p-4 flex items-center gap-4">
+          <div class="w-9 h-9 sig rounded-xl flex items-center justify-center flex-shrink-0">
+            <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
           </div>
           <div class="flex-1 min-w-0">
-            <p class="font-bold text-sm" id="statusTitle">Агент думает...</p>
+            <p class="font-bold text-sm" id="statusTitle">Агент работает...</p>
             <p class="text-xs text-on-dim truncate" id="statusGoal"></p>
           </div>
-          <div class="text-xs text-on-dim flex items-center gap-2">
-            <span id="stepCounter" class="bg-surface2 px-2 py-0.5 rounded-full">Шаг 0</span>
-            <button onclick="stopAgent()" id="stopBtn" class="btn-g text-xs py-1 px-3 hidden">Стоп</button>
+          <button onclick="stopAgent()" class="btn-g text-xs">Стоп</button>
+        </div>
+
+        <div class="card">
+          <div class="px-5 py-3 border-b border-outline/15 flex items-center justify-between">
+            <p class="font-headline font-bold text-sm">Ход выполнения</p>
+            <button onclick="clearSteps()" class="text-xs text-on-dim hover:text-primary transition">Очистить</button>
+          </div>
+          <div class="p-5 space-y-2" id="stepsTimeline">
+            <p class="text-on-dim/40 text-sm text-center py-8">Запустите задачу — шаги появятся здесь</p>
           </div>
         </div>
-        <!-- Progress bar -->
-        <div class="h-1 bg-surface2"><div id="progressBar" class="h-full sig transition-all duration-500" style="width:0%"></div></div>
-      </div>
 
-      <!-- Steps timeline -->
-      <div class="card">
-        <div class="px-5 py-3 border-b border-outline/15 flex items-center justify-between">
-          <p class="font-headline font-bold text-sm">Ход выполнения</p>
-          <button onclick="clearSteps()" class="text-xs text-on-dim hover:text-primary transition">Очистить</button>
-        </div>
-        <div class="p-5">
-          <div id="stepsTimeline" class="space-y-1">
-            <p class="text-on-dim/40 text-sm text-center py-8">Запустите агента — здесь будут отображаться шаги выполнения в реальном времени</p>
+        <div id="resultCard" class="hidden card">
+          <div class="sig px-5 py-3">
+            <p class="font-headline font-bold text-[#141210]">Результат</p>
           </div>
-        </div>
-      </div>
-
-      <!-- Final result -->
-      <div id="resultCard" class="hidden card">
-        <div class="sig px-5 py-3 flex items-center gap-3">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="#1e1a14" style="font-variation-settings:'FILL' 1"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
-          <p class="font-headline font-bold text-[#1e1a14]">Результат агента</p>
-        </div>
-        <div class="p-5">
-          <div id="resultContent" class="result-box"></div>
-          <div id="outputsList" class="mt-4 space-y-3"></div>
-          <div class="flex gap-3 mt-4">
-            <button onclick="copyResult()" class="btn-g text-xs flex items-center gap-1.5">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-              Копировать
-            </button>
-            <button onclick="sendToChat()" class="btn-p text-xs py-2 px-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-              В чат
-            </button>
+          <div class="p-5">
+            <div id="resultContent" class="text-sm leading-relaxed whitespace-pre-wrap text-on-surface"></div>
+            <div class="flex gap-3 mt-4">
+              <button onclick="copyResult()" class="btn-g text-xs">Копировать</button>
+            </div>
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
 
-      <!-- History -->
-      <div id="historySection" class="hidden">
-        <p class="text-xs text-on-dim uppercase tracking-wider font-bold mb-3">Предыдущие задачи</p>
-        <div id="historyList" class="space-y-2"></div>
+<!-- ── Create/Edit Agent Modal ── -->
+<div id="agentModal" class="modal-bg">
+  <div class="bg-surface rounded-2xl w-full max-w-3xl border border-outline/25 shadow-2xl overflow-hidden">
+    <div class="sig px-6 py-4 flex items-center justify-between">
+      <h2 class="font-headline font-bold text-[#141210] text-lg" id="agentModalTitle">Новый агент</h2>
+      <button onclick="closeAgentModal()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#141210] text-lg">✕</button>
+    </div>
+    <div class="p-6 space-y-6 max-h-[85vh] overflow-y-auto">
+
+      <!-- Name -->
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Название агента</label>
+        <input id="agentName" type="text" class="inp" placeholder="Мой бизнес-агент"/>
+      </div>
+
+      <!-- Channels -->
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-3">Каналы коммуникации</label>
+        <div class="flex flex-wrap gap-2 mb-4" id="channelChips"></div>
+        <div id="channelFields" class="space-y-3"></div>
+      </div>
+
+      <!-- Blocks selection -->
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1">Блоки агента</label>
+        <p class="text-xs text-on-dim/60 mb-3">Выберите функции, которые нужны вашему агенту</p>
+        <div id="modalBlocksGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+      </div>
+
+      <div class="flex gap-3 pt-2">
+        <button onclick="closeAgentModal()" class="btn-g flex-1">Отмена</button>
+        <button onclick="saveAgent()" class="btn-p flex-1 justify-center" id="saveAgentBtn">Сохранить агента</button>
       </div>
     </div>
   </div>
@@ -198,383 +207,427 @@ select.inp option{background:#272018;color:#f0e6d8}
 <script>
 const API = localStorage.getItem('obs_api') || window.location.origin;
 const authToken = localStorage.getItem('obs_token');
+
+let myAgents = [];
+let editingAgentId = null;
+let selectedBlocks = new Set();
+let activeChannels = new Set();
 let currentTaskId = null;
 let currentSSE = null;
-let taskHistory = JSON.parse(localStorage.getItem('obs_agent_history')||'[]');
 
-// ── Tool icons ─────────────────────────────────────────────────────────────
-const TOOL_ICONS = {
-  web_search:'🔍', browse_url:'🌐', run_llm:'🤖', generate_image:'🎨',
-  generate_video:'🎬', send_vk_post:'🔵', send_tg_message:'✈️',
-  write_output:'📝', finish:'✅'
-};
+function hdrs(extra = {}) {
+  const h = {'Content-Type': 'application/json', ...extra};
+  if (authToken) h['Authorization'] = 'Bearer ' + authToken;
+  return h;
+}
 
-// ── Preset tasks ───────────────────────────────────────────────────────────
+// ── Blocks catalog data ────────────────────────────────────────────────────
+const AGENT_BLOCKS = [
+  // Госзакупки
+  {id:'tender_parser',    cat:'Госзакупки',          icon:'🔍', name:'Парсер тендеров',     desc:'Мониторинг ЕИС по профилю каждые 2–4 часа', model:'Своя модель'},
+  {id:'tender_analyst',   cat:'Госзакупки',          icon:'📋', name:'Аналитик тендера',    desc:'Резюме: риски, сроки, вердикт брать/не брать', model:'Claude API'},
+  {id:'margin_calc',      cat:'Госзакупки',          icon:'💰', name:'Калькулятор маржи',   desc:'Считает себестоимость, маржу, рекомендует цену', model:'Своя модель'},
+  {id:'competitor_intel', cat:'Госзакупки',          icon:'🕵️', name:'Конкурентная разведка',desc:'История участников, ставки конкурентов', model:'Своя модель'},
+  // Строительство
+  {id:'estimator',        cat:'Строительство',       icon:'🏗️', name:'Агент-сметчик',       desc:'Разбор сметы, коды ГЭСН/ФЕР, поиск завышений', model:'Claude API'},
+  {id:'volume_checker',   cat:'Строительство',       icon:'📐', name:'Проверка объёмов',    desc:'Сверка объёмов с чертежами', model:'Своя модель'},
+  {id:'index_recalc',     cat:'Строительство',       icon:'📊', name:'Пересчёт индексов',   desc:'Актуальные индексы Минстроя, пересчёт цен', model:'Своя модель'},
+  // Документы
+  {id:'accountant',       cat:'Документы и право',   icon:'🧾', name:'Бухгалтер',           desc:'Счета, акты, УПД, сверки, напоминания об оплате', model:'Своя модель'},
+  {id:'lawyer',           cat:'Документы и право',   icon:'⚖️', name:'Юрист',               desc:'Договоры, претензии, анализ рисков контракта', model:'Claude API'},
+  {id:'hr',               cat:'Документы и право',   icon:'📝', name:'Кадровик',            desc:'Трудовые договоры, приказы, должностные инструкции', model:'Своя модель'},
+  // Маркетинг
+  {id:'smm',              cat:'Маркетинг и контент', icon:'📱', name:'SMM-агент',            desc:'Контент-план на месяц, тренды, хэштеги', model:'Claude API'},
+  {id:'scriptwriter',     cat:'Маркетинг и контент', icon:'🎬', name:'Сценарист',           desc:'Сценарии Reels, TikTok, YouTube, подкасты', model:'Claude API'},
+  {id:'copywriter',       cat:'Маркетинг и контент', icon:'✍️', name:'Копирайтер',          desc:'Тексты, лендинги, описания товаров', model:'Claude API'},
+  {id:'artist',           cat:'Маркетинг и контент', icon:'🎨', name:'Художник',            desc:'Баннеры, картинки, иллюстрации', model:'Stable Diffusion'},
+  {id:'ads_agent',        cat:'Маркетинг и контент', icon:'📣', name:'Рекламный агент',     desc:'Мониторинг Директ/VK, алерты, оптимизация', model:'Своя + API'},
+  // Продажи
+  {id:'chat_manager',     cat:'Продажи и клиенты',   icon:'💬', name:'Менеджер переписки',  desc:'Отвечает клиентам в мессенджерах, квалифицирует лидов', model:'Claude API'},
+  {id:'kp_agent',         cat:'Продажи и клиенты',   icon:'📄', name:'Агент КП',            desc:'Коммерческие предложения под клиента', model:'Claude API'},
+  {id:'objection_agent',  cat:'Продажи и клиенты',   icon:'🎯', name:'Агент возражений',    desc:'Скрипты: дорого / подумаю / не надо', model:'Своя модель'},
+  {id:'reactivation',     cat:'Продажи и клиенты',   icon:'🔄', name:'Агент реактивации',   desc:'Серия касаний для спящих клиентов', model:'Claude API'},
+  {id:'upsell',           cat:'Продажи и клиенты',   icon:'⬆️', name:'Агент upsell',        desc:'Предлагает доп. услуги в нужный момент', model:'Claude API'},
+  // HR
+  {id:'vacancy_agent',    cat:'HR',                  icon:'👔', name:'Агент вакансий',      desc:'Пишет и размещает вакансии по профилю', model:'Своя модель'},
+  {id:'screener',         cat:'HR',                  icon:'📎', name:'Скринер резюме',      desc:'Первичный отбор кандидатов по критериям', model:'Своя модель'},
+  {id:'onboarding',       cat:'HR',                  icon:'🤝', name:'Агент онбординга',    desc:'Вводит новых сотрудников в курс дела', model:'Своя модель'},
+  // Аналитика
+  {id:'fin_analyst',      cat:'Аналитика',           icon:'📈', name:'Финансовый аналитик', desc:'Объясняет цифры собственнику простым языком', model:'Claude API'},
+  {id:'reputation',       cat:'Аналитика',           icon:'⭐', name:'Агент репутации',     desc:'Мониторинг отзывов и упоминаний бренда', model:'Своя модель'},
+  {id:'comp_intel',       cat:'Аналитика',           icon:'🔭', name:'Конкурентный разведчик',desc:'Цены, акции, офферы конкурентов', model:'Своя модель'},
+  {id:'funnel_agent',     cat:'Аналитика',           icon:'🔻', name:'Агент воронки',       desc:'Где теряются клиенты, гипотезы роста', model:'Claude API'},
+  // Чат-боты
+  {id:'bot_tg',           cat:'Чат-боты',            icon:'✈️', name:'Бот для Telegram',    desc:'Ответы клиентам, квалификация, продажи', model:'Claude API'},
+  {id:'bot_site',         cat:'Чат-боты',            icon:'🌐', name:'Бот для сайта',       desc:'Виджет диалогового окна, WebSocket', model:'Claude API'},
+  {id:'bot_avito',        cat:'Чат-боты',            icon:'🏠', name:'Бот для Авито',       desc:'Автоответы на запросы покупателей', model:'Claude API'},
+  {id:'bot_ig',           cat:'Чат-боты',            icon:'📸', name:'Бот для Instagram',   desc:'Ответы в директ через Meta Webhooks', model:'Claude API'},
+  {id:'bot_wa',           cat:'Чат-боты',            icon:'💚', name:'Бот для WhatsApp',    desc:'Бизнес API, автоответы и рассылки', model:'Claude API'},
+];
+
+const CHANNELS = [
+  {id:'telegram', icon:'✈️', name:'Telegram', fields:[
+    {key:'tg_token', label:'Bot Token', placeholder:'1234567890:AAF...', type:'password'},
+    {key:'tg_chat_id', label:'Chat ID', placeholder:'-1001234567890', type:'text'},
+  ]},
+  {id:'discord', icon:'🎮', name:'Discord', fields:[
+    {key:'discord_token', label:'Bot Token', placeholder:'MTA0NjY...', type:'password'},
+    {key:'discord_channel', label:'Channel ID', placeholder:'1234567890', type:'text'},
+  ]},
+  {id:'vk', icon:'🔵', name:'VK', fields:[
+    {key:'vk_token', label:'Access Token', placeholder:'vk1.a.XXX', type:'password'},
+    {key:'vk_group_id', label:'Group ID', placeholder:'-123456789', type:'text'},
+  ]},
+  {id:'app', icon:'📱', name:'Приложение', fields:[], disabled:true, hint:'Скоро'},
+  {id:'api', icon:'🔌', name:'API Webhook', fields:[
+    {key:'webhook_url', label:'Webhook URL', placeholder:'https://yoursite.com/webhook', type:'text'},
+  ]},
+];
+
 const PRESETS = [
-  {
-    icon:'📰', title:'Дайджест новостей',
-    desc:'Найти топ-5 новостей об ИИ за сегодня и написать сводку',
-    goal:'Найди 5 самых важных новостей об искусственном интеллекте за сегодня. Для каждой напиши: заголовок, краткое содержание (2-3 предложения) и почему это важно. Оформи красиво с эмодзи.'
-  },
-  {
-    icon:'📱', title:'Пост для VK',
-    desc:'Написать и опубликовать пост в VK сообщество',
-    goal:'Напиши интересный и вовлекающий пост для VK сообщества на тему использования ИИ в бизнесе. Добавь эмодзи, хэштеги. Если настроен VK токен — опубликуй.'
-  },
-  {
-    icon:'🔍', title:'Анализ конкурентов',
-    desc:'Исследовать конкурентов по теме',
-    goal:'Найди информацию о 3 ведущих AI-платформах для бизнеса (например Genspark, Manus, Perplexity). Для каждой: что умеет, цены, плюсы и минусы. Сделай сравнительную таблицу в тексте.'
-  },
-  {
-    icon:'✍️', title:'Контент-план',
-    desc:'Создать контент-план на неделю',
-    goal:'Создай контент-план на 7 дней для соцсетей AI-стартапа. Для каждого дня: тема поста, формат (текст/видео/картинка), краткое описание, лучшее время публикации. Оформи структурированно.'
-  },
-  {
-    icon:'📊', title:'Анализ рынка',
-    desc:'Исследовать рынок по заданной теме',
-    goal:'Проведи анализ рынка AI-инструментов для малого бизнеса в России. Найди актуальные данные: размер рынка, основные игроки, тренды 2024-2025, потребности аудитории. Структурируй выводы.'
-  },
-  {
-    icon:'🎯', title:'Своя задача',
-    desc:'Введите любую задачу вручную',
-    goal:''
-  },
+  {icon:'📰', title:'Дайджест новостей', goal:'Найди 5 самых важных новостей об ИИ за сегодня. Для каждой: заголовок, краткое содержание, почему важно. Оформи с эмодзи.'},
+  {icon:'📊', title:'Анализ рынка', goal:'Проведи анализ рынка AI-инструментов для малого бизнеса в России. Размер рынка, игроки, тренды 2025.'},
+  {icon:'✍️', title:'Контент-план', goal:'Создай контент-план на 7 дней для соцсетей. Для каждого дня: тема, формат, описание.'},
+  {icon:'🎯', title:'Своя задача', goal:''},
 ];
 
 // ── Init ───────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', async ()=>{
-  renderPresets();
-  await loadTools();
-  loadBalance();
-  loadHistory();
-
-  // Load saved context
-  const savedCtx = JSON.parse(localStorage.getItem('obs_agent_ctx')||'{}');
-  if(savedCtx.vk_token)    document.getElementById('ctx_vk_token').value    = savedCtx.vk_token;
-  if(savedCtx.vk_group_id) document.getElementById('ctx_vk_group_id').value = savedCtx.vk_group_id;
-  if(savedCtx.tg_token)    document.getElementById('ctx_tg_token').value    = savedCtx.tg_token;
-  if(savedCtx.tg_chat_id)  document.getElementById('ctx_tg_chat_id').value  = savedCtx.tg_chat_id;
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!authToken) { window.location.href = 'index.html'; return; }
+  buildCatalog();
+  buildPresets();
+  buildChannelChips();
+  buildModalBlocks();
+  await loadAgents();
+  fillAgentSelect();
 });
 
-function renderPresets(){
-  document.getElementById('presetList').innerHTML = PRESETS.map((p,i)=>`
-    <div class="preset-card" onclick="usePreset(${i})">
-      <div class="flex items-center gap-2">
-        <span class="text-xl">${p.icon}</span>
-        <p class="font-bold text-sm font-headline">${p.title}</p>
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function switchMainTab(tab) {
+  ['my','catalog','run'].forEach(t => {
+    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
+    document.getElementById('pane-'+t).classList.toggle('active', t===tab);
+  });
+}
+
+// ── Catalog ────────────────────────────────────────────────────────────────
+function buildCatalog() {
+  const cats = [...new Set(AGENT_BLOCKS.map(b => b.cat))];
+  document.getElementById('catalogGrid').innerHTML = cats.map(cat => {
+    const blocks = AGENT_BLOCKS.filter(b => b.cat === cat);
+    return `<p class="block-cat-label">${cat}</p>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-2">
+      ${blocks.map(b => `
+      <div class="block-card">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-xl">${b.icon}</span>
+          <div>
+            <p class="font-headline font-bold text-sm">${b.name}</p>
+            <span class="text-[10px] bg-surface3 text-on-dim px-2 py-0.5 rounded-full">${b.model}</span>
+          </div>
+        </div>
+        <p class="text-xs text-on-dim leading-relaxed">${b.desc}</p>
+      </div>`).join('')}
+    </div>`;
+  }).join('');
+}
+
+// ── My Agents ──────────────────────────────────────────────────────────────
+async function loadAgents() {
+  try {
+    const r = await fetch(`${API}/agent/config`, {headers: hdrs()});
+    if (r.ok) myAgents = (await r.json()).configs || [];
+    renderAgents();
+  } catch { myAgents = []; renderAgents(); }
+}
+
+function renderAgents() {
+  const list = document.getElementById('agentsList');
+  const empty = document.getElementById('agentsEmpty');
+  if (!myAgents.length) {
+    list.innerHTML = ''; empty.classList.remove('hidden'); return;
+  }
+  empty.classList.add('hidden');
+  list.innerHTML = myAgents.map(a => {
+    const channels = Object.keys(a.channels || {}).filter(k => a.channels[k]);
+    const chLabels = CHANNELS.filter(c => channels.some(k => k.startsWith(c.id))).map(c => c.icon + ' ' + c.name);
+    const statusColor = a.status === 'active' ? 'dot-active' : a.status === 'paused' ? 'dot-paused' : 'dot-draft';
+    const statusLabel = a.status === 'active' ? 'Активен' : a.status === 'paused' ? 'Пауза' : 'Черновик';
+    return `<div class="agent-item" onclick="openAgent(${a.id})">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="status-dot ${statusColor}"></div>
+          <div>
+            <p class="font-headline font-bold text-sm">${esc(a.name)}</p>
+            <p class="text-xs text-on-dim mt-0.5">
+              ${a.enabled_blocks?.length || 0} блоков${chLabels.length ? ' · ' + chLabels.join(', ') : ''}
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-on-dim">${statusLabel}</span>
+          <button onclick="event.stopPropagation();deleteAgent(${a.id})" class="text-error/50 hover:text-error transition p-1">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
+        </div>
       </div>
-      <p class="text-xs text-on-dim leading-relaxed">${p.desc}</p>
+    </div>`;
+  }).join('');
+}
+
+function fillAgentSelect() {
+  const sel = document.getElementById('agentSelect');
+  const existing = myAgents.filter(a => a.status !== 'draft');
+  sel.innerHTML = '<option value="">Автоматически</option>' +
+    existing.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+}
+
+// ── Create / Edit agent modal ──────────────────────────────────────────────
+function buildChannelChips() {
+  document.getElementById('channelChips').innerHTML = CHANNELS.map(c => `
+    <div class="channel-chip${c.disabled?' opacity-40 cursor-not-allowed':''}" id="chip-${c.id}"
+         onclick="${c.disabled?'':(`toggleChannel('${c.id}')`)}" title="${c.hint||c.name}">
+      <span>${c.icon}</span><span>${c.name}</span>${c.hint?`<span class="text-[10px] opacity-60">${c.hint}</span>`:''}
     </div>`).join('');
 }
 
-function usePreset(i){
-  const p = PRESETS[i];
-  if(p.goal){
-    document.getElementById('goalInput').value = p.goal;
-  } else {
-    document.getElementById('goalInput').value = '';
-    document.getElementById('goalInput').focus();
-  }
-}
-
-async function loadTools(){
-  try{
-    const tools = await fetch(`${API}/agent/tools/list`).then(r=>r.json());
-    document.getElementById('toolsList').innerHTML = tools.map(t=>`
-      <div class="flex items-start gap-2 py-1.5">
-        <span class="text-base flex-shrink-0 mt-0.5">${TOOL_ICONS[t.name]||'🔧'}</span>
-        <div>
-          <p class="text-xs font-medium text-on-surface">${t.name}</p>
-          <p class="text-[11px] text-on-dim leading-relaxed">${t.description}</p>
+function buildModalBlocks() {
+  const cats = [...new Set(AGENT_BLOCKS.map(b => b.cat))];
+  document.getElementById('modalBlocksGrid').innerHTML = cats.map(cat => {
+    const blocks = AGENT_BLOCKS.filter(b => b.cat === cat);
+    return `<div class="sm:col-span-2 mt-3 mb-1">
+      <p class="text-[10px] font-bold uppercase tracking-wider text-on-dim/60">${cat}</p>
+    </div>` +
+    blocks.map(b => `
+      <div class="block-card text-sm" id="mblock-${b.id}" onclick="toggleBlock('${b.id}')">
+        <div class="flex items-center gap-2">
+          <span>${b.icon}</span>
+          <div class="flex-1 min-w-0">
+            <p class="font-semibold text-xs truncate">${b.name}</p>
+            <p class="text-[10px] text-on-dim truncate">${b.desc}</p>
+          </div>
         </div>
       </div>`).join('');
-  }catch(e){
-    document.getElementById('toolsList').innerHTML = '<p class="text-xs text-on-dim">Сервер недоступен</p>';
-  }
+  }).join('');
 }
 
-async function loadBalance(){
-  if(!authToken) return;
-  try{
-    const me = await fetch(`${API}/auth/me`,{headers:{Authorization:'Bearer '+authToken}}).then(r=>r.json());
-    document.getElementById('balance-display').classList.remove('hidden');
-    document.getElementById('agent-balance').textContent = fmtT(me.tokens_balance);
-  }catch(e){}
+function toggleBlock(id) {
+  if (selectedBlocks.has(id)) selectedBlocks.delete(id);
+  else selectedBlocks.add(id);
+  document.getElementById('mblock-'+id)?.classList.toggle('selected', selectedBlocks.has(id));
 }
 
-// ── Run agent ──────────────────────────────────────────────────────────────
-async function runAgent(){
-  const goal = document.getElementById('goalInput').value.trim();
-  if(!goal){ showError('Опишите задачу'); return; }
-
-  const btn = document.getElementById('runBtn');
-  const errEl = document.getElementById('runError');
-  errEl.classList.add('hidden');
-  btn.disabled = true;
-
-  // Collect context
-  const ctx = {
-    vk_token:    document.getElementById('ctx_vk_token').value.trim(),
-    vk_group_id: document.getElementById('ctx_vk_group_id').value.trim(),
-    tg_token:    document.getElementById('ctx_tg_token').value.trim(),
-    tg_chat_id:  document.getElementById('ctx_tg_chat_id').value.trim(),
-  };
-  // Save context
-  localStorage.setItem('obs_agent_ctx', JSON.stringify(ctx));
-
-  // Reset UI
-  document.getElementById('stepsTimeline').innerHTML = '';
-  document.getElementById('resultCard').classList.add('hidden');
-  document.getElementById('statusBar').classList.remove('hidden');
-  document.getElementById('statusGoal').textContent = goal;
-  document.getElementById('stopBtn').classList.remove('hidden');
-  setStatus('running', 'Агент запускается...');
-
-  try{
-    const headers = {'Content-Type':'application/json'};
-    if(authToken) headers['Authorization'] = 'Bearer ' + authToken;
-
-    const r = await fetch(`${API}/agent/run`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({goal, context: ctx})
-    });
-    const data = await r.json();
-    if(!r.ok) throw new Error(data.detail || r.statusText);
-
-    currentTaskId = data.task_id;
-
-    // Save to history
-    taskHistory.unshift({id: currentTaskId, goal, ts: new Date().toISOString(), status:'running'});
-    if(taskHistory.length > 20) taskHistory.pop();
-    localStorage.setItem('obs_agent_history', JSON.stringify(taskHistory));
-
-    // Start SSE stream
-    startStream(currentTaskId);
-
-  }catch(e){
-    btn.disabled = false;
-    showError(e.message);
-    setStatus('error', 'Ошибка запуска');
-  }
+function toggleChannel(id) {
+  if (activeChannels.has(id)) activeChannels.delete(id);
+  else activeChannels.add(id);
+  document.getElementById('chip-'+id)?.classList.toggle('active', activeChannels.has(id));
+  renderChannelFields();
 }
 
-function startStream(taskId){
-  if(currentSSE) currentSSE.close();
-
-  const url = `${API}/agent/${taskId}/stream`;
-  currentSSE = new EventSource(url);
-
-  currentSSE.onmessage = (e)=>{
-    const data = JSON.parse(e.data);
-
-    if(data.type === 'step'){
-      renderStep(data.step);
-      const n = data.step.step;
-      document.getElementById('stepCounter').textContent = `Шаг ${n}`;
-      document.getElementById('progressBar').style.width = Math.min(n*7, 90)+'%';
-      setStatus('running', getStepStatusText(data.step));
-    }
-
-    if(data.type === 'done'){
-      currentSSE.close();
-      document.getElementById('runBtn').disabled = false;
-      document.getElementById('stopBtn').classList.add('hidden');
-      document.getElementById('progressBar').style.width = '100%';
-
-      if(data.status === 'done'){
-        setStatus('done', 'Задача выполнена ✅');
-        showResult(data.result);
-        // Update history
-        const h = taskHistory.find(x=>x.id===taskId);
-        if(h){ h.status='done'; h.result=data.result; }
-        localStorage.setItem('obs_agent_history', JSON.stringify(taskHistory));
-      } else {
-        setStatus('error', 'Ошибка выполнения');
-      }
-    }
-  };
-
-  currentSSE.onerror = ()=>{
-    // SSE closed — fallback to polling
-    currentSSE.close();
-    pollStatus(taskId);
-  };
-}
-
-// Polling fallback (when SSE not available)
-async function pollStatus(taskId){
-  let attempts = 0;
-  const maxAttempts = 300; // 5 min
-
-  const poll = async ()=>{
-    if(attempts++ > maxAttempts) return;
-    try{
-      const r = await fetch(`${API}/agent/${taskId}/status`);
-      const t = await r.json();
-
-      // Render new steps
-      const timeline = document.getElementById('stepsTimeline');
-      const renderedCount = timeline.querySelectorAll('.step-item').length;
-      t.steps.slice(renderedCount).forEach(s => renderStep(s));
-
-      if(t.steps.length){
-        const last = t.steps[t.steps.length-1];
-        document.getElementById('stepCounter').textContent = `Шаг ${last.step}`;
-        document.getElementById('progressBar').style.width = Math.min(last.step*7, 90)+'%';
-        setStatus('running', getStepStatusText(last));
-      }
-
-      if(t.status === 'done'){
-        document.getElementById('runBtn').disabled = false;
-        document.getElementById('stopBtn').classList.add('hidden');
-        document.getElementById('progressBar').style.width = '100%';
-        setStatus('done','Задача выполнена ✅');
-        showResult(t.result);
-        return;
-      }
-      if(t.status === 'error'){
-        document.getElementById('runBtn').disabled = false;
-        setStatus('error', 'Ошибка: ' + (t.result||''));
-        return;
-      }
-    }catch(e){}
-    setTimeout(poll, 2000);
-  };
-  poll();
-}
-
-function stopAgent(){
-  if(currentSSE){ currentSSE.close(); currentSSE = null; }
-  document.getElementById('runBtn').disabled = false;
-  document.getElementById('stopBtn').classList.add('hidden');
-  setStatus('stopped','Остановлен');
-}
-
-// ── UI helpers ─────────────────────────────────────────────────────────────
-function setStatus(state, text){
-  const icon = document.getElementById('statusIcon');
-  const title = document.getElementById('statusTitle');
-  title.textContent = text;
-
-  const states = {
-    running: {bg:'sig', content:'<div class="typing"><span></span><span></span><span></span></div>'},
-    done:    {bg:'bg-green-500/20', content:'<span style="color:#6bff9e;font-size:18px">✓</span>'},
-    error:   {bg:'bg-red-500/20',   content:'<span style="color:#ff6b6b;font-size:18px">✕</span>'},
-    stopped: {bg:'bg-surface3',     content:'<span style="color:#a89880;font-size:14px">■</span>'},
-  };
-  const s = states[state] || states.running;
-  icon.className = `w-10 h-10 rounded-xl ${s.bg} flex items-center justify-center flex-shrink-0`;
-  icon.innerHTML = s.content;
-}
-
-function getStepStatusText(step){
-  const icons = TOOL_ICONS[step.action] || '🔧';
-  return `${icons} ${step.action} — ${step.thought.slice(0,60)}...`;
-}
-
-function renderStep(step){
-  const timeline = document.getElementById('stepsTimeline');
-
-  // Remove empty state
-  const empty = timeline.querySelector('p');
-  if(empty) empty.remove();
-
-  const item = document.createElement('div');
-  item.className = 'step-item';
-
-  const isFinish = step.action === 'finish';
-  const isError  = step.action === 'error';
-  const dotClass = isFinish ? 'done' : isError ? 'error' : 'tool';
-  const icon     = TOOL_ICONS[step.action] || '🔧';
-
-  item.innerHTML = `
-    <div class="step-dot ${dotClass}">${icon}</div>
-    <div class="flex-1 min-w-0 pt-1">
-      <div class="thought-bubble">"${esc(step.thought)}"</div>
-      <div class="action-badge">
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        ${esc(step.action)}(${esc(JSON.stringify(step.params, null, null).slice(0,80))}...)
-      </div>
-      <div class="observe-box">${esc(String(step.observation||''))}</div>
-    </div>
-    <div class="flex-shrink-0 text-[10px] text-on-dim/40 pt-2">#${step.step}</div>`;
-
-  timeline.appendChild(item);
-  timeline.scrollTop = timeline.scrollHeight;
-}
-
-function showResult(result){
-  document.getElementById('resultCard').classList.remove('hidden');
-  document.getElementById('resultContent').textContent = result || '(нет результата)';
-  document.getElementById('resultCard').scrollIntoView({behavior:'smooth', block:'start'});
-}
-
-function clearSteps(){
-  document.getElementById('stepsTimeline').innerHTML =
-    '<p class="text-on-dim/40 text-sm text-center py-8">Запустите агента — здесь будут шаги выполнения</p>';
-  document.getElementById('resultCard').classList.add('hidden');
-  document.getElementById('statusBar').classList.add('hidden');
-}
-
-function copyResult(){
-  const txt = document.getElementById('resultContent').textContent;
-  navigator.clipboard.writeText(txt);
-  const btn = event.target.closest('button');
-  const orig = btn.innerHTML;
-  btn.textContent = 'Скопировано!';
-  btn.style.color = '#6bff9e';
-  setTimeout(()=>{ btn.innerHTML=orig; btn.style.color=''; }, 2000);
-}
-
-function sendToChat(){
-  const txt = document.getElementById('resultContent').textContent;
-  localStorage.setItem('obs_agent_result', txt);
-  window.location.href = 'index.html';
-}
-
-function loadHistory(){
-  if(!taskHistory.length) return;
-  const sec = document.getElementById('historySection');
-  const list = document.getElementById('historyList');
-  sec.classList.remove('hidden');
-  list.innerHTML = taskHistory.slice(0,5).map(h=>`
-    <div class="bg-surface2 rounded-xl px-4 py-3 border border-outline/20 cursor-pointer hover:border-primary/30 transition" onclick="loadTask('${h.id}')">
-      <div class="flex items-center gap-2 mb-1">
-        <span class="text-[10px] px-2 py-0.5 rounded-full font-bold ${h.status==='done'?'bg-green-500/15 text-green-400':h.status==='error'?'bg-error/15 text-error':'bg-primary/10 text-primary'}">${h.status}</span>
-        <span class="text-[10px] text-on-dim/50">${new Date(h.ts).toLocaleString('ru')}</span>
-      </div>
-      <p class="text-sm text-on-surface truncate">${esc(h.goal)}</p>
+function renderChannelFields() {
+  const active = CHANNELS.filter(c => activeChannels.has(c.id));
+  document.getElementById('channelFields').innerHTML = active.flatMap(c => c.fields).map(f => `
+    <div>
+      <label class="block text-xs text-on-dim mb-1">${f.label}</label>
+      <input id="ch_${f.key}" type="${f.type}" class="inp text-xs" placeholder="${f.placeholder}"/>
     </div>`).join('');
 }
 
-async function loadTask(taskId){
-  try{
-    const t = await fetch(`${API}/agent/${taskId}/status`).then(r=>r.json());
-    document.getElementById('stepsTimeline').innerHTML='';
-    document.getElementById('resultCard').classList.add('hidden');
-    t.steps.forEach(s=>renderStep(s));
-    if(t.result) showResult(t.result);
-    document.getElementById('statusGoal').textContent = t.goal;
-    setStatus(t.status, t.status==='done'?'Задача выполнена ✅':'Загружено из истории');
-    document.getElementById('statusBar').classList.remove('hidden');
-  }catch(e){ alert('Задача не найдена на сервере'); }
+function openCreateAgent() {
+  editingAgentId = null;
+  selectedBlocks = new Set();
+  activeChannels = new Set();
+  document.getElementById('agentName').value = '';
+  document.getElementById('agentModalTitle').textContent = 'Новый агент';
+  // Reset UI
+  document.querySelectorAll('.block-card[id^=mblock]').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll('.channel-chip').forEach(el => el.classList.remove('active'));
+  document.getElementById('channelFields').innerHTML = '';
+  document.getElementById('agentModal').classList.add('show');
+  switchMainTab('my');
 }
 
-function showError(msg){
-  const el = document.getElementById('runError');
-  el.textContent = '❌ ' + msg;
-  el.classList.remove('hidden');
+function openAgent(id) {
+  const a = myAgents.find(x => x.id === id);
+  if (!a) return;
+  editingAgentId = id;
+  selectedBlocks = new Set(a.enabled_blocks || []);
+  activeChannels = new Set();
+  document.getElementById('agentName').value = a.name || '';
+  document.getElementById('agentModalTitle').textContent = 'Редактировать агента';
+
+  // Reset blocks UI
+  document.querySelectorAll('.block-card[id^=mblock]').forEach(el => el.classList.remove('selected'));
+  selectedBlocks.forEach(bid => document.getElementById('mblock-'+bid)?.classList.add('selected'));
+
+  // Channels
+  document.querySelectorAll('.channel-chip').forEach(el => el.classList.remove('active'));
+  const channels = a.channels || {};
+  CHANNELS.forEach(c => {
+    if (c.fields.some(f => channels[f.key])) { activeChannels.add(c.id); document.getElementById('chip-'+c.id)?.classList.add('active'); }
+  });
+  renderChannelFields();
+  setTimeout(() => {
+    Object.entries(channels).forEach(([k, v]) => {
+      const el = document.getElementById('ch_'+k);
+      if (el && v) el.value = v;
+    });
+  }, 50);
+
+  document.getElementById('agentModal').classList.add('show');
 }
 
-function fmtT(n){ if(n>=1e6)return(n/1e6).toFixed(1)+'M'; if(n>=1000)return(n/1000).toFixed(0)+'к'; return String(n||0); }
-function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function closeAgentModal() { document.getElementById('agentModal').classList.remove('show'); }
 
-// Auto-fill result from chat redirect
-const agentResult = localStorage.getItem('obs_agent_result_pending');
-if(agentResult){ document.getElementById('goalInput').value = agentResult; localStorage.removeItem('obs_agent_result_pending'); }
+async function saveAgent() {
+  const name = document.getElementById('agentName').value.trim() || 'Мой агент';
+  const channels = {};
+  CHANNELS.forEach(c => {
+    c.fields.forEach(f => {
+      const el = document.getElementById('ch_'+f.key);
+      if (el?.value) channels[f.key] = el.value;
+    });
+  });
+  const body = {name, enabled_blocks: [...selectedBlocks], channels, status: 'draft'};
+
+  const btn = document.getElementById('saveAgentBtn');
+  btn.disabled = true; btn.textContent = 'Сохраняю...';
+  try {
+    let r;
+    if (editingAgentId) {
+      r = await fetch(`${API}/agent/config/${editingAgentId}`, {method:'PUT', headers:hdrs(), body:JSON.stringify(body)});
+    } else {
+      r = await fetch(`${API}/agent/config`, {method:'POST', headers:hdrs(), body:JSON.stringify(body)});
+    }
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Ошибка');
+    closeAgentModal();
+    await loadAgents();
+    fillAgentSelect();
+  } catch(e) { alert('Ошибка: ' + e.message); }
+  btn.disabled = false; btn.textContent = 'Сохранить агента';
+}
+
+async function deleteAgent(id) {
+  if (!confirm('Удалить агента?')) return;
+  try {
+    await fetch(`${API}/agent/config/${id}`, {method:'DELETE', headers:hdrs()});
+    await loadAgents(); fillAgentSelect();
+  } catch(e) { alert('Ошибка: ' + e.message); }
+}
+
+// ── Run task ───────────────────────────────────────────────────────────────
+function buildPresets() {
+  document.getElementById('presetList').innerHTML = PRESETS.map((p,i) => `
+    <div class="bg-surface2 border border-outline/25 rounded-xl p-3 cursor-pointer hover:border-primary/40 transition"
+         onclick="usePreset(${i})">
+      <div class="flex items-center gap-2">
+        <span>${p.icon}</span>
+        <p class="font-bold text-sm">${p.title}</p>
+      </div>
+      ${p.goal ? `<p class="text-xs text-on-dim mt-1 line-clamp-2">${p.goal}</p>` : '<p class="text-xs text-on-dim mt-1">Введите задачу вручную</p>'}
+    </div>`).join('');
+}
+
+function usePreset(i) {
+  document.getElementById('goalInput').value = PRESETS[i].goal;
+  if (!PRESETS[i].goal) document.getElementById('goalInput').focus();
+}
+
+async function runAgent() {
+  const goal = document.getElementById('goalInput').value.trim();
+  if (!goal) { document.getElementById('runError').textContent = 'Введите задачу'; document.getElementById('runError').classList.remove('hidden'); return; }
+  document.getElementById('runError').classList.add('hidden');
+
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true; btn.textContent = 'Запускаю...';
+  document.getElementById('runStatusBar').classList.remove('hidden');
+  document.getElementById('resultCard').classList.add('hidden');
+  document.getElementById('stepsTimeline').innerHTML = '';
+  document.getElementById('statusGoal').textContent = goal;
+
+  const agentId = document.getElementById('agentSelect').value;
+  const ctx = agentId ? {agent_config_id: parseInt(agentId)} : {};
+
+  try {
+    const r = await fetch(`${API}/agent/run`, {
+      method: 'POST', headers: hdrs(), body: JSON.stringify({goal, context: ctx})
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 402) throw new Error('Недостаточно токенов (нужно 50 CH)');
+      throw new Error(d.detail || 'Ошибка');
+    }
+    const data = await r.json();
+    currentTaskId = data.task_id;
+    pollTask(currentTaskId);
+  } catch(e) {
+    document.getElementById('runError').textContent = e.message;
+    document.getElementById('runError').classList.remove('hidden');
+    document.getElementById('runStatusBar').classList.add('hidden');
+    btn.disabled = false; btn.textContent = 'Запустить (50 CH)';
+  }
+}
+
+function pollTask(taskId) {
+  let lastStep = 0;
+  const interval = setInterval(async () => {
+    try {
+      const r = await fetch(`${API}/agent/${taskId}/status`, {headers: hdrs()});
+      if (!r.ok) return;
+      const t = await r.json();
+      // Render new steps
+      while (lastStep < (t.steps||[]).length) {
+        addStep(t.steps[lastStep]); lastStep++;
+      }
+      if (t.status === 'done' || t.status === 'error') {
+        clearInterval(interval);
+        document.getElementById('runBtn').disabled = false;
+        document.getElementById('runBtn').textContent = 'Запустить (50 CH)';
+        document.getElementById('runStatusBar').classList.add('hidden');
+        if (t.result) {
+          document.getElementById('resultContent').textContent = t.result;
+          document.getElementById('resultCard').classList.remove('hidden');
+        }
+      }
+    } catch {}
+  }, 1500);
+}
+
+function addStep(step) {
+  const tl = document.getElementById('stepsTimeline');
+  const el = document.createElement('div');
+  el.className = 'flex items-start gap-3 py-2';
+  const dotColor = step.type === 'error' ? 'bg-error/20 text-error' : step.type === 'result' ? 'bg-primary/20 text-primary' : 'bg-surface3 text-on-dim';
+  el.innerHTML = `<div class="step-dot-sm ${dotColor} flex-shrink-0">${step.type==='thinking'?'💭':step.type==='tool'?'🔧':step.type==='result'?'✅':'⚙️'}</div>
+    <div class="flex-1 min-w-0">
+      <p class="text-xs text-on-dim leading-relaxed">${esc(step.content||step.action||'...')}</p>
+    </div>`;
+  tl.appendChild(el);
+  tl.scrollTop = tl.scrollHeight;
+}
+
+function stopAgent() {
+  currentTaskId = null;
+  document.getElementById('runStatusBar').classList.add('hidden');
+  document.getElementById('runBtn').disabled = false;
+  document.getElementById('runBtn').textContent = 'Запустить (50 CH)';
+}
+
+function clearSteps() {
+  document.getElementById('stepsTimeline').innerHTML = '<p class="text-on-dim/40 text-sm text-center py-8">Запустите задачу — шаги появятся здесь</p>';
+  document.getElementById('resultCard').classList.add('hidden');
+}
+
+function copyResult() {
+  navigator.clipboard.writeText(document.getElementById('resultContent').textContent);
+  const btn = event.target.closest('button');
+  const orig = btn.textContent; btn.textContent = 'Скопировано!';
+  setTimeout(() => btn.textContent = orig, 2000);
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+document.getElementById('agentModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeAgentModal(); });
 </script>
 </body>
 </html>

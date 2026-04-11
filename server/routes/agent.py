@@ -170,3 +170,70 @@ async def agent_stream(task_id: str):
 def agent_tools():
     """Список доступных инструментов агента."""
     return TOOL_SCHEMAS
+
+
+# ── Agent Constructor ──────────────────────────────────────────────────────────
+
+from server.models import AgentConfig
+from pydantic import BaseModel as _BM
+
+class AgentConfigRequest(_BM):
+    name: str | None = "Мой агент"
+    enabled_blocks: list | None = None
+    channels: dict | None = None
+    settings: dict | None = None
+    status: str | None = "draft"
+
+@router.get("/config")
+def get_agent_config(db: Session = Depends(get_db), user=Depends(optional_user)):
+    if not user: return {"configs": []}
+    configs = db.query(AgentConfig).filter_by(user_id=user.id).order_by(AgentConfig.created_at.desc()).all()
+    result = []
+    for c in configs:
+        result.append({
+            "id": c.id, "name": c.name, "status": c.status,
+            "enabled_blocks": json.loads(c.enabled_blocks) if c.enabled_blocks else [],
+            "channels": json.loads(c.channels) if c.channels else {},
+            "settings": json.loads(c.settings) if c.settings else {},
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        })
+    return {"configs": result}
+
+
+@router.post("/config")
+def create_agent_config(req: AgentConfigRequest, db: Session = Depends(get_db), user=Depends(optional_user)):
+    if not user: raise HTTPException(401, "Нужна авторизация")
+    c = AgentConfig(
+        user_id=user.id, name=req.name,
+        enabled_blocks=json.dumps(req.enabled_blocks or []),
+        channels=json.dumps(req.channels or {}),
+        settings=json.dumps(req.settings or {}),
+        status=req.status or "draft",
+    )
+    db.add(c); db.commit(); db.refresh(c)
+    return {"id": c.id, "status": "created"}
+
+
+@router.put("/config/{config_id}")
+def update_agent_config(config_id: int, req: AgentConfigRequest,
+                        db: Session = Depends(get_db), user=Depends(optional_user)):
+    if not user: raise HTTPException(401, "Нужна авторизация")
+    c = db.query(AgentConfig).filter_by(id=config_id, user_id=user.id).first()
+    if not c: raise HTTPException(404, "Конфигурация не найдена")
+    if req.name is not None: c.name = req.name
+    if req.enabled_blocks is not None: c.enabled_blocks = json.dumps(req.enabled_blocks)
+    if req.channels is not None: c.channels = json.dumps(req.channels)
+    if req.settings is not None: c.settings = json.dumps(req.settings)
+    if req.status is not None: c.status = req.status
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.delete("/config/{config_id}")
+def delete_agent_config(config_id: int, db: Session = Depends(get_db), user=Depends(optional_user)):
+    if not user: raise HTTPException(401, "Нужна авторизация")
+    c = db.query(AgentConfig).filter_by(id=config_id, user_id=user.id).first()
+    if not c: raise HTTPException(404, "Конфигурация не найдена")
+    db.delete(c); db.commit()
+    return {"status": "deleted"}
