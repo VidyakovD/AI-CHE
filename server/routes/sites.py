@@ -318,6 +318,12 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
 
     answer = generate_response("claude", [{"role": "user", "content": prompt}])
     content = answer.get("content", "") if isinstance(answer, dict) else ""
+
+    if not content.strip().startswith("<") or "временно недоступен" in content:
+        p.conversation_phase = "spec_approved"
+        db.commit()
+        raise HTTPException(503, "AI не вернул корректный HTML. Попробуйте ещё раз.")
+
     # Clean markdown
     for marker in ["```html\n", "```\n", "```html", "```"]:
         if content.startswith(marker):
@@ -380,6 +386,11 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
 
     answer = generate_response("claude", [{"role": "user", "content": prompt}])
     content = answer.get("content", "") if isinstance(answer, dict) else ""
+
+    # Guard: if AI returned an error message instead of HTML — don't overwrite
+    if not content.strip().startswith("<") or "временно недоступен" in content:
+        raise HTTPException(503, "AI не вернул корректный HTML. Попробуйте ещё раз.")
+
     # Clean markdown
     for marker in ["```html\n", "```\n", "```html", "```"]:
         if content.startswith(marker):
