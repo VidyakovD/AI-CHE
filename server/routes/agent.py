@@ -12,6 +12,7 @@ from server.models import User, Transaction
 from server.agent_runner import (
     create_task, submit_task, tasks as agent_tasks,
     init_agent_queue, TOOL_SCHEMAS, subscribe_task,
+    PRIORITY_NORMAL, PRIORITY_HIGH,
 )
 
 log = logging.getLogger(__name__)

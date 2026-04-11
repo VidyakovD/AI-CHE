@@ -1,25 +1,25 @@
 """
-ReAct Agent Runner — AI Студия Че
+ReAct Agent Runner — AI Студия Che
 ===================================
-Архитектура: Reason → Act → Observe → Repeat
+Архитектура: Orchestrator → Registry → ReAct Loop
 
-Агент получает задачу, сам планирует шаги, вызывает инструменты,
-анализирует результаты и итерирует до завершения.
+Оркестратор — центральный компонент:
+  classify()        — определяет, какому агенту передать задачу
+  compress_history() — MicroCompact / AutoCompact управление контекстом
+  run_parallel()    — параллельный запуск независимых подзадач
+
+Registry — расширяемый реестр агентов:
+  register_agent()  — добавить агент одной строкой, без изменений ядра
+  unregister_agent()
+  list_agents()
+
+Queue — приоритетная очередь задач (PRIORITY_HIGH / NORMAL / LOW)
 
 Инструменты:
-  - web_search      : поиск через Perplexity/DuckDuckGo
-  - browse_url      : получить содержимое URL
-  - run_llm         : вызов языковой модели (GPT/Claude)
-  - generate_image  : генерация картинки через GPT Images
-  - generate_video  : генерация видео через Kling
-  - send_vk_post    : публикация в ВКонтакте
-  - send_tg_message : отправка в Telegram
-  - read_file       : читать загруженный файл
-  - write_output    : сохранить результат
-  - finish          : завершить с ответом
+  web_search, browse_url, run_llm, generate_image, generate_video,
+  send_vk_post, send_tg_message, write_output, finish
 
-Запуск: python agent_runner.py (background process)
-API:    POST /agent/run  GET /agent/{task_id}/status
+API: POST /agent/run  GET /agent/{task_id}/status  WS /agent/{task_id}/ws
 """
 
 import os, json, uuid, asyncio, logging, re, time
@@ -31,6 +31,181 @@ load_dotenv()
 log = logging.getLogger("agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [AGENT] %(message)s")
 
+# ── PRIORITY CONSTANTS ────────────────────────────────────────────────────────
+
+PRIORITY_HIGH   = 1
+PRIORITY_NORMAL = 2
+PRIORITY_LOW    = 3
+
+
+class PriorityTask:
+    """Wrapper for priority queue ordering."""
+    __slots__ = ("priority", "task_id", "goal", "context", "orch_config")
+
+    def __init__(self, priority: int, task_id: str, goal: str,
+                 context: dict, orch_config: dict | None = None):
+        self.priority    = priority
+        self.task_id     = task_id
+        self.goal        = goal
+        self.context     = context
+        self.orch_config = orch_config or {}
+
+    def __lt__(self, other):  return self.priority < other.priority
+    def __eq__(self, other):  return self.priority == other.priority
+
+
+# ── AGENT REGISTRY ────────────────────────────────────────────────────────────
+# To add a new agent:
+#   1. Write async handler(goal, context, max_steps) -> str  (or None for ReAct)
+#   2. Call register_agent(...)   — no other changes needed
+
+AGENT_REGISTRY: dict[str, dict] = {}
+
+
+def register_agent(
+    agent_id: str,
+    name: str,
+    description: str,
+    keywords: list[str],
+    handler=None,
+) -> None:
+    """Register a new agent type. Idempotent — safe to call on every import."""
+    AGENT_REGISTRY[agent_id] = {
+        "id":          agent_id,
+        "name":        name,
+        "description": description,
+        "keywords":    [k.lower() for k in keywords],
+        "handler":     handler,
+    }
+    log.info(f"[Registry] Registered: {agent_id} — {name}")
+
+
+def unregister_agent(agent_id: str) -> None:
+    AGENT_REGISTRY.pop(agent_id, None)
+
+
+def list_agents() -> list[dict]:
+    return [
+        {"id": v["id"], "name": v["name"],
+         "description": v["description"], "keywords": v["keywords"]}
+        for v in AGENT_REGISTRY.values()
+    ]
+
+
+# ── ORCHESTRATOR ──────────────────────────────────────────────────────────────
+
+class Orchestrator:
+    """Central routing component — classifies, compresses context, runs parallel tasks."""
+
+    COMPRESSION_NONE  = "none"
+    COMPRESSION_AUTO  = "auto"   # AutoCompact: soft, keep last 6 steps
+    COMPRESSION_MICRO = "micro"  # MicroCompact: aggressive, keep last 3 steps
+
+    def __init__(self, config: dict | None = None):
+        cfg = config or {}
+        self.compression      = cfg.get("compression",      self.COMPRESSION_AUTO)
+        self.max_parallel     = int(cfg.get("max_parallel", 3))
+        self.classifier_model = cfg.get("classifier_model", "gpt")
+        self.priority_mode    = cfg.get("priority",         "fifo")   # "fifo" | "smart"
+
+    # ── Classification ────────────────────────────────────────────────────────
+
+    async def classify(self, goal: str) -> str:
+        """Return the agent_id best suited for this goal."""
+        if not AGENT_REGISTRY:
+            return "react"
+
+        # 1. Fast keyword match
+        goal_lower = goal.lower()
+        for aid, a in AGENT_REGISTRY.items():
+            if any(kw in goal_lower for kw in a["keywords"]):
+                log.info(f"[Orchestrator] keyword match → {aid}")
+                return aid
+
+        # 2. LLM classification fallback
+        try:
+            agents_desc = "\n".join(
+                f"- {aid}: {a['description']}"
+                for aid, a in AGENT_REGISTRY.items()
+            )
+            prompt = (
+                f"Запрос: {goal}\n\n"
+                f"Доступные агенты:\n{agents_desc}\n- react: универсальный\n\n"
+                'Верни JSON: {"agent": "id_агента"}'
+            )
+            from server.ai import generate_response
+            r    = generate_response(self.classifier_model, [{"role": "user", "content": prompt}])
+            text = r.get("content", "") if isinstance(r, dict) else str(r)
+            m    = re.search(r'"agent"\s*:\s*"([\w_-]+)"', text)
+            if m:
+                aid = m.group(1)
+                if aid in AGENT_REGISTRY or aid == "react":
+                    log.info(f"[Orchestrator] LLM classified → {aid}")
+                    return aid
+        except Exception as e:
+            log.warning(f"[Orchestrator] classify error: {e}")
+
+        return "react"
+
+    # ── Context compression ───────────────────────────────────────────────────
+
+    def compress_history(self, history: list[dict]) -> list[dict]:
+        """Compress conversation history to manage context window."""
+        strategy = self.compression
+        n = len(history)
+
+        if strategy == self.COMPRESSION_NONE or n <= 4:
+            return history
+
+        if strategy == self.COMPRESSION_MICRO and n > 3:
+            summary = f"[MicroCompact: {n - 3} шагов свёрнуто]"
+            compact = {"step": 0, "thought": summary, "action": "compact",
+                       "params": {}, "observation": summary, "ts": datetime.utcnow().isoformat()}
+            return [compact] + history[-3:]
+
+        # AUTO: keep last 6 steps, summarise older
+        if n > 6:
+            older    = history[:-6]
+            snippets = "; ".join(
+                str(h.get("observation", ""))[:80]
+                for h in older if h.get("observation")
+            )
+            summary = f"[AutoCompact ({len(older)} шагов): {snippets[:300]}]"
+            compact = {"step": 0, "thought": summary, "action": "compact",
+                       "params": {}, "observation": summary, "ts": datetime.utcnow().isoformat()}
+            return [compact] + history[-6:]
+
+        return history
+
+    # ── Parallel execution ────────────────────────────────────────────────────
+
+    async def run_parallel(
+        self,
+        subtasks: list[tuple[str, dict]],
+        max_steps: int = 8,
+    ) -> list[str]:
+        """Run up to max_parallel subtasks concurrently. Returns list of results."""
+        batch = subtasks[: self.max_parallel]
+        coros, tids = [], []
+        for goal, ctx in batch:
+            tid = create_task(user_id=ctx.get("user_id"), goal=goal, context=ctx)
+            tids.append(tid)
+            coros.append(run_agent(tid, goal, ctx, max_steps=max_steps))
+
+        results = await asyncio.gather(*coros, return_exceptions=True)
+        out = []
+        for tid, r in zip(tids, results):
+            if isinstance(r, Exception):
+                out.append(f"Ошибка: {r}")
+            else:
+                out.append(tasks.get(tid, {}).get("result") or "")
+        return out
+
+
+# Singleton default orchestrator — overridden per-task via orch_config
+default_orchestrator = Orchestrator()
+
+
 # ── TOOL DEFINITIONS ──────────────────────────────────────────────────────────
 
 TOOL_SCHEMAS = [
@@ -38,7 +213,7 @@ TOOL_SCHEMAS = [
         "name": "web_search",
         "description": "Поиск актуальной информации в интернете. Используй для получения свежих данных, новостей, фактов.",
         "parameters": {
-            "query": "Поисковый запрос (строка)",
+            "query":       "Поисковый запрос (строка)",
             "num_results": "Количество результатов, 1-10 (по умолчанию 5)"
         }
     },
@@ -53,7 +228,7 @@ TOOL_SCHEMAS = [
         "name": "run_llm",
         "description": "Вызвать языковую модель для анализа, суммаризации, перевода, написания текста.",
         "parameters": {
-            "model": "Модель: gpt | gpt-4o | claude | claude-sonnet | perplexity",
+            "model":  "Модель: gpt | gpt-4o | claude | claude-sonnet | perplexity",
             "prompt": "Запрос к модели",
             "system": "Системный промпт (необязательно)"
         }
@@ -63,23 +238,23 @@ TOOL_SCHEMAS = [
         "description": "Сгенерировать изображение через DALL-E. Возвращает URL картинки.",
         "parameters": {
             "prompt": "Описание изображения на английском",
-            "size": "Размер: 1024x1024 | 1792x1024 | 1024x1792"
+            "size":   "Размер: 1024x1024 | 1792x1024 | 1024x1792"
         }
     },
     {
         "name": "generate_video",
         "description": "Сгенерировать видео через Kling. Возвращает task_id для проверки статуса.",
         "parameters": {
-            "prompt": "Описание видео",
+            "prompt":       "Описание видео",
             "aspect_ratio": "16:9 | 9:16",
-            "duration": "5 | 10"
+            "duration":     "5 | 10"
         }
     },
     {
         "name": "send_vk_post",
         "description": "Опубликовать пост в сообществе ВКонтакте.",
         "parameters": {
-            "message": "Текст поста",
+            "message":   "Текст поста",
             "image_url": "URL изображения (необязательно)"
         }
     },
@@ -87,7 +262,7 @@ TOOL_SCHEMAS = [
         "name": "send_tg_message",
         "description": "Отправить сообщение в Telegram канал/чат.",
         "parameters": {
-            "text": "Текст сообщения (поддерживает Markdown)",
+            "text":      "Текст сообщения (поддерживает Markdown)",
             "image_url": "URL изображения (необязательно)"
         }
     },
@@ -96,14 +271,14 @@ TOOL_SCHEMAS = [
         "description": "Сохранить промежуточный или финальный результат. Используй для длинных текстов.",
         "parameters": {
             "content": "Содержимое для сохранения",
-            "label": "Метка/заголовок результата"
+            "label":   "Метка/заголовок результата"
         }
     },
     {
         "name": "finish",
         "description": "Завершить задачу и вернуть итоговый ответ пользователю.",
         "parameters": {
-            "answer": "Финальный ответ / результат для пользователя",
+            "answer":  "Финальный ответ / результат для пользователя",
             "summary": "Краткое резюме что было сделано"
         }
     }
@@ -116,7 +291,7 @@ TOOL_SCHEMA_STR = "\n".join(
 
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
 
-AGENT_SYSTEM = f"""Ты автономный ИИ-агент AI Студии Че. Ты получаешь задачу и самостоятельно выполняешь её шаг за шагом, используя доступные инструменты.
+AGENT_SYSTEM = f"""Ты автономный ИИ-агент AI Студии Che. Ты получаешь задачу и самостоятельно выполняешь её шаг за шагом, используя доступные инструменты.
 
 ## Цикл работы (ReAct):
 1. **ДУМАЮ**: Анализирую задачу и планирую следующий шаг
@@ -148,48 +323,48 @@ AGENT_SYSTEM = f"""Ты автономный ИИ-агент AI Студии Ч�
 - Всегда заканчивай инструментом `finish`
 """
 
-# ── TASK STORE (in-memory + optional DB) ─────────────────────────────────────
+# ── TASK STORE ────────────────────────────────────────────────────────────────
 
-tasks: dict[str, dict] = {}   # task_id → task state
-task_subscribers: dict[str, list] = {}  # task_id → [WebSocket connections]
+tasks: dict[str, dict] = {}
+task_subscribers: dict[str, list] = {}
+
 
 def create_task(user_id, goal: str, context: dict = None) -> str:
     tid = str(uuid.uuid4())
     tasks[tid] = {
-        "id": tid,
-        "user_id": user_id,
-        "goal": goal,
-        "context": context or {},
-        "status": "pending",   # pending / running / done / error
-        "steps": [],
-        "outputs": [],
-        "result": None,
+        "id":         tid,
+        "user_id":    user_id,
+        "goal":       goal,
+        "context":    context or {},
+        "status":     "pending",
+        "steps":      [],
+        "outputs":    [],
+        "result":     None,
         "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
     }
     return tid
 
+
 def update_task(tid: str, **kwargs):
     if tid in tasks:
         tasks[tid].update(kwargs)
         tasks[tid]["updated_at"] = datetime.utcnow().isoformat()
-        # Notify WebSocket subscribers
         _notify_task(tid)
+
 
 def add_step(tid: str, step: dict):
     if tid in tasks:
         tasks[tid]["steps"].append({**step, "ts": datetime.utcnow().isoformat()})
-        # Notify subscribers about new step
         _notify_task(tid)
 
+
 def subscribe_task(tid: str, ws) -> None:
-    """Register a WebSocket connection for task updates."""
     task_subscribers.setdefault(tid, []).append(ws)
 
+
 def _notify_task(tid: str) -> None:
-    """Send current task state to all WebSocket subscribers."""
-    import asyncio
-    t = tasks.get(tid)
+    t   = tasks.get(tid)
     if not t:
         return
     msg = json.dumps({"type": "update", "task": t}, ensure_ascii=False)
@@ -197,7 +372,8 @@ def _notify_task(tid: str) -> None:
         try:
             asyncio.create_task(ws.send_text(msg))
         except Exception:
-            pass  # will be cleaned up on next check
+            pass
+
 
 # ── TOOL IMPLEMENTATIONS ──────────────────────────────────────────────────────
 
@@ -206,13 +382,11 @@ async def tool_web_search(params: dict, context: dict) -> str:
     num   = min(int(params.get("num_results", 5)), 10)
     log.info(f"[tool] web_search: {query}")
 
-    # Try Perplexity first
     pplx_keys = [k.strip() for k in os.getenv("PERPLEXITY_API_KEYS","").split(",") if k.strip()]
     if pplx_keys:
         try:
             import httpx
-            client = httpx.AsyncClient(timeout=15)
-            resp = await client.post(
+            resp = await httpx.AsyncClient(timeout=15).post(
                 "https://api.perplexity.ai/chat/completions",
                 headers={"Authorization": f"Bearer {pplx_keys[0]}", "Content-Type": "application/json"},
                 json={"model":"sonar-small-chat","messages":[
@@ -220,29 +394,23 @@ async def tool_web_search(params: dict, context: dict) -> str:
                     {"role":"user","content":query}
                 ]}
             )
-            data = resp.json()
-            text = data["choices"][0]["message"]["content"]
+            text = resp.json()["choices"][0]["message"]["content"]
             return f"Результаты поиска по запросу '{query}':\n\n{text}"
         except Exception as e:
             log.warning(f"Perplexity failed: {e}")
 
-    # Fallback: DuckDuckGo lite
     try:
         import httpx
-        client = httpx.AsyncClient(timeout=10)
-        resp = await client.get(
+        resp = await httpx.AsyncClient(timeout=10).get(
             f"https://lite.duckduckgo.com/lite/?q={query.replace(' ', '+')}&kl=ru-ru",
             headers={"User-Agent": "Mozilla/5.0"}
         )
-        # Extract text snippets
-        text = resp.text
+        text     = resp.text
         snippets = re.findall(r'class="result-snippet"[^>]*>(.*?)</td>', text, re.DOTALL)
-        titles   = re.findall(r'class="result-link"[^>]*>(.*?)</a>', text, re.DOTALL)
+        titles   = re.findall(r'class="result-link"[^>]*>(.*?)</a>',    text, re.DOTALL)
         results  = []
-        for i,(t,s) in enumerate(zip(titles[:num], snippets[:num])):
-            t_clean = re.sub(r'<[^>]+>','',t).strip()
-            s_clean = re.sub(r'<[^>]+>','',s).strip()
-            results.append(f"{i+1}. {t_clean}\n   {s_clean}")
+        for i, (t, s) in enumerate(zip(titles[:num], snippets[:num])):
+            results.append(f"{i+1}. {re.sub(r'<[^>]+>','',t).strip()}\n   {re.sub(r'<[^>]+>','',s).strip()}")
         return f"Результаты поиска '{query}':\n" + "\n".join(results) if results else "Результатов не найдено"
     except Exception as e:
         return f"Ошибка поиска: {e}"
@@ -253,15 +421,14 @@ async def tool_browse_url(params: dict, context: dict) -> str:
     log.info(f"[tool] browse_url: {url}")
     try:
         import httpx
-        client = httpx.AsyncClient(timeout=15, follow_redirects=True)
-        resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        text = resp.text
-        # Strip HTML tags
-        clean = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
-        clean = re.sub(r'<style[^>]*>.*?</style>', '', clean, flags=re.DOTALL)
+        resp  = await httpx.AsyncClient(timeout=15, follow_redirects=True).get(
+            url, headers={"User-Agent": "Mozilla/5.0"}
+        )
+        clean = re.sub(r'<script[^>]*>.*?</script>', '', resp.text, flags=re.DOTALL)
+        clean = re.sub(r'<style[^>]*>.*?</style>',   '', clean,     flags=re.DOTALL)
         clean = re.sub(r'<[^>]+>', ' ', clean)
-        clean = re.sub(r'\s+', ' ', clean).strip()
-        return clean[:3000] + ("..." if len(clean)>3000 else "")
+        clean = re.sub(r'\s+',    ' ', clean).strip()
+        return clean[:3000] + ("..." if len(clean) > 3000 else "")
     except Exception as e:
         return f"Ошибка загрузки {url}: {e}"
 
@@ -271,30 +438,27 @@ async def tool_run_llm(params: dict, context: dict) -> str:
     prompt = params.get("prompt", "")
     system = params.get("system", "Ты полезный ассистент.")
     log.info(f"[tool] run_llm: model={model}, prompt[:80]={prompt[:80]}")
-
     from server.ai import generate_response
-    messages = [{"role":"system","content":system}, {"role":"user","content":prompt}]
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
     try:
         result = generate_response(model, messages)
-        if isinstance(result, dict):
-            return result.get("content","")
-        return str(result)
+        return result.get("content", "") if isinstance(result, dict) else str(result)
     except Exception as e:
         return f"Ошибка LLM: {e}"
 
 
 async def tool_generate_image(params: dict, context: dict) -> str:
-    prompt = params.get("prompt","")
-    size   = params.get("size","1024x1024")
+    prompt = params.get("prompt", "")
+    size   = params.get("size", "1024x1024")
     log.info(f"[tool] generate_image: {prompt[:60]}")
-
     keys = [k.strip() for k in os.getenv("OPENAI_API_KEYS","").split(",") if k.strip()]
     if not keys:
         return "Нет OpenAI ключей для генерации изображений"
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=keys[0])
-        resp = client.images.generate(model="dall-e-3", prompt=prompt, n=1, size=size)
+        resp = OpenAI(api_key=keys[0]).images.generate(
+            model="dall-e-3", prompt=prompt, n=1, size=size
+        )
         return resp.data[0].url or "URL не получен"
     except Exception as e:
         return f"Ошибка генерации: {e}"
@@ -306,69 +470,56 @@ async def tool_generate_video(params: dict, context: dict) -> str:
         return "[Заглушка] Kling video: нет API ключей. task_id=mock_123"
     try:
         import httpx
-        client = httpx.AsyncClient(timeout=30)
         payload = {
             "model": "kling-v1",
-            "prompt": params.get("prompt",""),
-            "aspect_ratio": params.get("aspect_ratio","16:9"),
-            "duration": int(params.get("duration",5)),
+            "prompt": params.get("prompt", ""),
+            "aspect_ratio": params.get("aspect_ratio", "16:9"),
+            "duration": int(params.get("duration", 5)),
             "cfg_scale": 0.5,
         }
-        resp = await client.post(
+        resp    = await httpx.AsyncClient(timeout=30).post(
             "https://api.klingai.com/v1/videos/text2video",
             json=payload,
-            headers={"Authorization": f"Bearer {keys[0]}", "Content-Type":"application/json"}
+            headers={"Authorization": f"Bearer {keys[0]}", "Content-Type": "application/json"}
         )
-        data = resp.json()
-        task_id = data.get("data",{}).get("task_id","unknown")
+        task_id = resp.json().get("data", {}).get("task_id", "unknown")
         return f"Видео генерируется. task_id={task_id}"
     except Exception as e:
         return f"Ошибка Kling: {e}"
 
 
 async def tool_send_vk_post(params: dict, context: dict) -> str:
-    token    = context.get("vk_token") or os.getenv("VK_TOKEN","")
-    group_id = context.get("vk_group_id") or os.getenv("VK_GROUP_ID","")
-    message  = params.get("message","")
+    token    = context.get("vk_token")    or os.getenv("VK_TOKEN", "")
+    group_id = context.get("vk_group_id") or os.getenv("VK_GROUP_ID", "")
+    message  = params.get("message", "")
     log.info(f"[tool] send_vk_post: {message[:60]}")
-
     if not token or not group_id:
         return "[Заглушка] VK пост: не настроен токен. Текст: " + message[:100]
     try:
         import httpx
-        gid = group_id.lstrip("-")
-        client = httpx.AsyncClient(timeout=10)
-        resp = await client.post(
+        resp = await httpx.AsyncClient(timeout=10).post(
             "https://api.vk.com/method/wall.post",
-            params={
-                "owner_id": f"-{gid}",
-                "message": message,
-                "from_group": 1,
-                "access_token": token,
-                "v": "5.131"
-            }
+            params={"owner_id": f"-{group_id.lstrip('-')}", "message": message,
+                    "from_group": 1, "access_token": token, "v": "5.131"}
         )
         data = resp.json()
         if "error" in data:
             return f"Ошибка VK: {data['error']['error_msg']}"
-        post_id = data.get("response",{}).get("post_id","?")
-        return f"✅ Пост опубликован в VK. ID: {post_id}"
+        return f"✅ Пост опубликован в VK. ID: {data.get('response',{}).get('post_id','?')}"
     except Exception as e:
         return f"Ошибка VK: {e}"
 
 
 async def tool_send_tg_message(params: dict, context: dict) -> str:
-    token   = context.get("tg_token") or os.getenv("TG_BOT_TOKEN","")
-    chat_id = context.get("tg_chat_id") or os.getenv("TG_CHAT_ID","")
-    text    = params.get("text","")
+    token   = context.get("tg_token")   or os.getenv("TG_BOT_TOKEN", "")
+    chat_id = context.get("tg_chat_id") or os.getenv("TG_CHAT_ID", "")
+    text    = params.get("text", "")
     log.info(f"[tool] send_tg_message: {text[:60]}")
-
     if not token or not chat_id:
         return "[Заглушка] TG сообщение: не настроен токен. Текст: " + text[:100]
     try:
         import httpx
-        client = httpx.AsyncClient(timeout=10)
-        resp = await client.post(
+        resp = await httpx.AsyncClient(timeout=10).post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
         )
@@ -385,81 +536,88 @@ async def tool_write_output(params: dict, context: dict) -> str:
 
 
 async def tool_finish(params: dict, context: dict) -> str:
-    return params.get("answer","Задача выполнена")
+    return params.get("answer", "Задача выполнена")
 
 
 TOOLS = {
-    "web_search":      tool_web_search,
-    "browse_url":      tool_browse_url,
-    "run_llm":         tool_run_llm,
-    "generate_image":  tool_generate_image,
-    "generate_video":  tool_generate_video,
-    "send_vk_post":    tool_send_vk_post,
-    "send_tg_message": tool_send_tg_message,
-    "write_output":    tool_write_output,
-    "finish":          tool_finish,
+    "web_search":     tool_web_search,
+    "browse_url":     tool_browse_url,
+    "run_llm":        tool_run_llm,
+    "generate_image": tool_generate_image,
+    "generate_video": tool_generate_video,
+    "send_vk_post":   tool_send_vk_post,
+    "send_tg_message":tool_send_tg_message,
+    "write_output":   tool_write_output,
+    "finish":         tool_finish,
 }
 
 # ── REACT LOOP ────────────────────────────────────────────────────────────────
 
-async def run_agent(task_id: str, goal: str, context: dict, max_steps: int = 15):
-    """Main ReAct loop."""
+async def run_agent(
+    task_id: str,
+    goal: str,
+    context: dict,
+    max_steps: int = 15,
+    orchestrator: Orchestrator | None = None,
+):
+    """Main ReAct loop. Uses orchestrator for compression if provided."""
+    orch = orchestrator or default_orchestrator
     update_task(task_id, status="running")
     log.info(f"[{task_id}] Starting: {goal[:80]}")
 
-    # Build conversation history for the planner
-    history = []
+    history      = []
+    outputs      = []
     final_answer = None
-    outputs = []
 
     for step_num in range(1, max_steps + 1):
         log.info(f"[{task_id}] Step {step_num}/{max_steps}")
 
-        # Build prompt for planner
+        # ── Compress history ──────────────────────────────────────────────
+        compressed = orch.compress_history(history)
+
         history_str = ""
-        for h in history[-8:]:  # last 8 steps for context window
+        for h in compressed:
             history_str += f"\n### Шаг {h['step']}\n"
             history_str += f"Думаю: {h['thought']}\n"
             history_str += f"Действие: {h['action']}({json.dumps(h['params'], ensure_ascii=False)})\n"
             history_str += f"Результат: {str(h['observation'])[:500]}\n"
 
-        planner_prompt = f"""Задача: {goal}
+        planner_prompt = (
+            f"Задача: {goal}\n\n"
+            f"Контекст: {json.dumps(context, ensure_ascii=False, default=str)[:500]}\n\n"
+            f"История шагов:{history_str if history_str else ' (пусто — первый шаг)'}\n\n"
+            f"Шаг {step_num}. Что делаем дальше? Верни JSON."
+        )
 
-Контекст: {json.dumps(context, ensure_ascii=False, default=str)[:500]}
-
-История шагов:{history_str if history_str else " (пусто — первый шаг)"}
-
-Шаг {step_num}. Что делаем дальше? Верни JSON."""
-
-        # Call planner LLM
+        # ── Call planner ──────────────────────────────────────────────────
         try:
             from server.ai import generate_response
             planner_messages = [
                 {"role": "system", "content": AGENT_SYSTEM},
                 {"role": "user",   "content": planner_prompt}
             ]
-            raw = generate_response("gpt-4o" if os.getenv("OPENAI_API_KEYS") else "gpt",
-                                    planner_messages)
-            raw_text = raw.get("content","") if isinstance(raw, dict) else str(raw)
+            raw      = generate_response(
+                "gpt-4o" if os.getenv("OPENAI_API_KEYS") else "gpt",
+                planner_messages
+            )
+            raw_text = raw.get("content", "") if isinstance(raw, dict) else str(raw)
         except Exception as e:
             log.error(f"Planner error: {e}")
             update_task(task_id, status="error",
                         result=f"Ошибка планировщика на шаге {step_num}: {e}")
             return
 
-        # Parse JSON from planner response
+        # ── Parse JSON ────────────────────────────────────────────────────
         try:
-            # Extract JSON block
             json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
             if not json_match:
                 raise ValueError("No JSON in response")
-            plan = json.loads(json_match.group())
-            thought = plan.get("думаю", plan.get("думаю", plan.get("thought", "")))
-            action  = plan.get("действие", plan.get("action", "finish"))
-            params  = plan.get("параметры", plan.get("parameters", plan.get("params", {})))
+            plan    = json.loads(json_match.group())
+            thought = plan.get("думаю",    plan.get("thought", ""))
+            action  = plan.get("действие", plan.get("action",  "finish"))
+            params  = plan.get("параметры",plan.get("parameters", plan.get("params", {})))
         except Exception as e:
             log.warning(f"JSON parse error: {e} — raw: {raw_text[:300]}")
-            # Try to extract action from raw text
             thought = raw_text[:200]
             action  = "finish"
             params  = {"answer": raw_text[:500], "summary": "Ошибка парсинга"}
@@ -467,7 +625,7 @@ async def run_agent(task_id: str, goal: str, context: dict, max_steps: int = 15)
         log.info(f"[{task_id}] Thought: {thought[:80]}")
         log.info(f"[{task_id}] Action:  {action}({json.dumps(params, ensure_ascii=False)[:100]})")
 
-        # Execute tool
+        # ── Execute tool ──────────────────────────────────────────────────
         tool_fn = TOOLS.get(action)
         if not tool_fn:
             observation = f"Инструмент '{action}' не найден. Доступные: {', '.join(TOOLS.keys())}"
@@ -479,67 +637,84 @@ async def run_agent(task_id: str, goal: str, context: dict, max_steps: int = 15)
 
         log.info(f"[{task_id}] Observe: {str(observation)[:120]}")
 
-        # Record step
+        # ── Record step ───────────────────────────────────────────────────
         step_record = {
-            "step": step_num,
-            "thought": thought,
-            "action": action,
-            "params": params,
-            "observation": str(observation)
+            "step": step_num, "thought": thought, "action": action,
+            "params": params, "observation": str(observation)
         }
         history.append(step_record)
         add_step(task_id, step_record)
 
-        # Save output if write_output or finish
         if action == "write_output":
             outputs.append({"label": params.get("label",""), "content": params.get("content","")})
             update_task(task_id, outputs=outputs)
 
-        # Check if done
         if action == "finish":
             final_answer = params.get("answer", str(observation))
-            update_task(task_id,
-                        status="done",
-                        result=final_answer,
-                        outputs=outputs,
-                        steps_count=step_num)
+            update_task(task_id, status="done", result=final_answer,
+                        outputs=outputs, steps_count=step_num)
             log.info(f"[{task_id}] DONE in {step_num} steps")
             return
 
     # Max steps reached
-    update_task(task_id,
-                status="done",
-                result=f"Достигнут лимит шагов ({max_steps}). Последнее действие: {history[-1]['observation'][:300] if history else ''}",
-                steps_count=max_steps)
+    update_task(
+        task_id, status="done",
+        result=f"Достигнут лимит шагов ({max_steps}). "
+               f"Последнее: {history[-1]['observation'][:300] if history else ''}",
+        steps_count=max_steps,
+    )
 
 
 # ── BACKGROUND RUNNER ─────────────────────────────────────────────────────────
 
-async def agent_worker(queue: asyncio.Queue):
-    """Background worker that processes tasks from queue."""
+async def agent_worker(queue: asyncio.PriorityQueue):
+    """Background worker — processes tasks from priority queue."""
     while True:
-        task_id, goal, context = await queue.get()
+        pt: PriorityTask = await queue.get()
         try:
-            await run_agent(task_id, goal, context)
+            # Build per-task orchestrator if config provided
+            orch = Orchestrator(pt.orch_config) if pt.orch_config else default_orchestrator
+
+            # Classify and optionally route to custom handler
+            agent_id = await orch.classify(pt.goal)
+            handler  = AGENT_REGISTRY.get(agent_id, {}).get("handler")
+
+            if handler:
+                log.info(f"[Worker] Routing {pt.task_id} → agent:{agent_id}")
+                result = await handler(pt.goal, pt.context, 12)
+                update_task(pt.task_id, status="done", result=result or "Готово")
+            else:
+                await run_agent(pt.task_id, pt.goal, pt.context, orchestrator=orch)
         except Exception as e:
-            log.error(f"Agent worker error for {task_id}: {e}")
-            update_task(task_id, status="error", result=str(e))
+            log.error(f"Agent worker error for {pt.task_id}: {e}")
+            update_task(pt.task_id, status="error", result=str(e))
         queue.task_done()
 
 
-# Global queue — imported by main.py
-agent_queue: asyncio.Queue | None = None
+# Global priority queue
+agent_queue: asyncio.PriorityQueue | None = None
+
 
 async def init_agent_queue():
     global agent_queue
-    agent_queue = asyncio.Queue()
+    agent_queue = asyncio.PriorityQueue()
     asyncio.create_task(agent_worker(agent_queue))
     log.info("Agent queue initialized")
 
-async def submit_task(task_id: str, goal: str, context: dict):
+
+async def submit_task(
+    task_id: str,
+    goal: str,
+    context: dict,
+    priority: int = PRIORITY_NORMAL,
+    orch_config: dict | None = None,
+):
+    """Submit a task to the priority queue."""
+    global agent_queue
     if agent_queue is None:
         await init_agent_queue()
-    await agent_queue.put((task_id, goal, context))
+    pt = PriorityTask(priority, task_id, goal, context, orch_config)
+    await agent_queue.put(pt)
 
 
 # ── STANDALONE MODE ───────────────────────────────────────────────────────────

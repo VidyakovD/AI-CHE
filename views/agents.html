@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>AI Студия Че — Конструктор агентов</title>
+<title>AI Студия Che — Конструктор агентов</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#141210","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
 <style>
-*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
-*::-webkit-scrollbar{width:4px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,.2) transparent}
+*::-webkit-scrollbar{width:4px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,.25);border-radius:999px}
 body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:100vh}
 .sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
 .sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
@@ -18,38 +18,60 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
 .btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
 .btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
-.card{background:#1e1a14;border:1px solid rgba(74,63,47,0.25);border-radius:16px}
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
+.card{background:#1e1a14;border:1px solid rgba(74,63,47,.25);border-radius:16px}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(8px);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow-y:auto;padding:20px}
 .modal-bg.show{display:flex}
-
-/* Agent blocks catalog */
-.block-card{background:#272018;border:1.5px solid rgba(74,63,47,0.3);border-radius:14px;padding:16px;cursor:pointer;transition:all .15s;position:relative}
-.block-card:hover{border-color:rgba(255,140,66,0.4);background:#322a1e}
-.block-card.selected{border-color:#ff8c42;background:rgba(255,140,66,0.06)}
-.block-card.selected::after{content:"✓";position:absolute;top:12px;right:12px;background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;line-height:22px;text-align:center}
-.block-cat-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#a89880;margin-bottom:10px;margin-top:20px}
-.block-cat-label:first-child{margin-top:0}
-
-/* Channel chips */
-.channel-chip{display:inline-flex;align-items:center;gap:6px;background:#272018;border:1px solid rgba(74,63,47,0.4);border-radius:9999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
-.channel-chip:hover{border-color:#ff8c42;color:#ff8c42}
-.channel-chip.active{background:rgba(255,140,66,0.1);border-color:#ff8c42;color:#ff8c42}
-
-/* My agents list */
-.agent-item{background:#272018;border:1px solid rgba(74,63,47,0.3);border-radius:12px;padding:14px 16px;cursor:pointer;transition:all .15s}
-.agent-item:hover{border-color:rgba(255,140,66,0.3)}
-.status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.dot-active{background:#6bff9e}
-.dot-draft{background:#a89880}
-.dot-paused{background:#ff8c42}
-
-/* Tabs */
 .main-tab{padding:10px 20px;font-size:13px;font-weight:600;color:#a89880;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
 .main-tab.active{color:#ff8c42;border-bottom-color:#ff8c42}
 .tab-pane{display:none}.tab-pane.active{display:block}
 
-/* Step timeline (quick run) */
-.step-dot-sm{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px}
+/* Agent list */
+.agent-item{background:#272018;border:1px solid rgba(74,63,47,.3);border-radius:12px;padding:14px 16px;cursor:pointer;transition:all .15s}
+.agent-item:hover{border-color:rgba(255,140,66,.4)}
+.status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot-active{background:#6bff9e}.dot-draft{background:#a89880}.dot-paused{background:#ff8c42}
+
+/* Catalog */
+.block-card{background:#272018;border:1.5px solid rgba(74,63,47,.3);border-radius:12px;padding:14px;cursor:pointer;transition:all .15s;position:relative}
+.block-card:hover{border-color:rgba(255,140,66,.4);background:#322a1e}
+.block-card.selected{border-color:#ff8c42;background:rgba(255,140,66,.06)}
+.block-card.selected::after{content:"✓";position:absolute;top:10px;right:10px;background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;line-height:20px;text-align:center}
+.cat-btn{padding:5px 12px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid rgba(74,63,47,.4);background:#272018;color:#a89880;cursor:pointer;transition:all .15s}
+.cat-btn:hover{border-color:#ff8c42;color:#ff8c42}
+.cat-btn.active{background:rgba(255,140,66,.1);border-color:#ff8c42;color:#ff8c42}
+
+/* Wizard */
+.wiz-box{background:#1e1a14;border:1px solid rgba(74,63,47,.3);border-radius:20px;width:100%;max-width:680px}
+.wiz-step-body{padding:28px;min-height:360px}
+.step-indic{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0;transition:all .25s}
+.step-indic.active{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210}
+.step-indic.done{background:rgba(255,140,66,.15);color:#ff8c42;border:2px solid #ff8c42}
+.step-indic.pending{background:#272018;color:#a89880;border:2px solid rgba(74,63,47,.4)}
+.step-line{flex:1;height:2px;background:rgba(74,63,47,.3);transition:background .25s}
+.step-line.done{background:rgba(255,140,66,.4)}
+
+/* Channel cards */
+.ch-card{border:2px solid rgba(74,63,47,.3);border-radius:14px;padding:16px;cursor:pointer;transition:all .15s;background:#272018;text-align:center;position:relative}
+.ch-card:hover:not(.disabled){border-color:rgba(255,140,66,.5);background:#322a1e}
+.ch-card.selected{border-color:#ff8c42;background:rgba(255,140,66,.07)}
+.ch-card.disabled{opacity:.4;cursor:not-allowed}
+.ch-card.selected::after{content:"✓";position:absolute;top:8px;right:8px;background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:700;line-height:18px;text-align:center}
+
+/* Orchestrator diagram */
+.orch-node{border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.orch-node.input{background:#272018;border:1px solid rgba(74,63,47,.5)}
+.orch-node.core{background:rgba(255,140,66,.08);border:1.5px solid rgba(255,140,66,.3);color:#ff8c42}
+.orch-node.output{background:rgba(107,255,158,.08);border:1px solid rgba(107,255,158,.3);color:#6bff9e}
+.orch-node.agent{background:#272018;border:1px solid rgba(74,63,47,.4);font-size:11px;padding:5px 10px}
+
+/* Orchestrator settings pills */
+.opt-pill{border:1px solid rgba(74,63,47,.5);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;background:#272018;color:#a89880}
+.opt-pill:hover{border-color:#ff8c42;color:#f0e6d8}
+.opt-pill.active{background:rgba(255,140,66,.1);border-color:#ff8c42;color:#ff8c42}
+
+/* Steps timeline */
+.step-row{display:flex;gap:12px;align-items:flex-start}
+.step-dot{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px}
 </style>
 </head>
 <body class="dark">
@@ -62,10 +84,10 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <a href="index.html" class="btn-g text-xs">← Назад</a>
       <div>
         <h1 class="text-2xl font-extrabold font-headline">ИИ <span class="sig-text">Агент</span></h1>
-        <p class="text-sm text-on-dim">Конструктор AI-агентов под ваш бизнес</p>
+        <p class="text-sm text-on-dim">Конструктор AI-агентов для вашего бизнеса</p>
       </div>
     </div>
-    <button onclick="openCreateAgent()" class="btn-p">
+    <button onclick="openWizard()" class="btn-p">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
       Новый агент
     </button>
@@ -73,48 +95,55 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
   <!-- Main tabs -->
   <div class="border-b border-outline/20 mb-6 flex gap-0">
-    <button class="main-tab active" id="tab-my" onclick="switchMainTab('my')">Мои агенты</button>
-    <button class="main-tab" id="tab-catalog" onclick="switchMainTab('catalog')">Каталог блоков</button>
-    <button class="main-tab" id="tab-run" onclick="switchMainTab('run')">Запустить задачу</button>
+    <button class="main-tab active" id="tab-my" onclick="switchTab('my')">Мои агенты</button>
+    <button class="main-tab" id="tab-catalog" onclick="switchTab('catalog')">Каталог блоков</button>
+    <button class="main-tab" id="tab-run" onclick="switchTab('run')">Запустить задачу</button>
   </div>
 
-  <!-- ── Tab: My Agents ── -->
+  <!-- ── Tab: Мои агенты ── -->
   <div id="pane-my" class="tab-pane active">
-    <div id="agentsList" class="space-y-3 max-w-2xl"></div>
-    <div id="agentsEmpty" class="hidden text-center py-20">
+    <div id="agentsList" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl"></div>
+    <div id="agentsEmpty" class="hidden text-center py-24">
       <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="#141210"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="#141210"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
       </div>
       <h2 class="text-xl font-bold font-headline mb-2">Нет агентов</h2>
-      <p class="text-on-dim text-sm mb-6">Создайте первого AI-агента — выберите блоки и канал связи</p>
-      <button onclick="openCreateAgent()" class="btn-p">Создать агента</button>
+      <p class="text-on-dim text-sm mb-6">Создайте первого AI-агента — выберите канал, настройте оркестратор и добавьте блоки</p>
+      <button onclick="openWizard()" class="btn-p">Создать агента</button>
     </div>
   </div>
 
-  <!-- ── Tab: Catalog ── -->
+  <!-- ── Tab: Каталог ── -->
   <div id="pane-catalog" class="tab-pane">
-    <div class="max-w-4xl">
-      <div class="bg-surface2 rounded-xl p-4 border border-outline/15 mb-6">
-        <p class="text-sm text-on-dim leading-relaxed">
-          <span class="text-primary font-semibold">Оркестратор</span> — центральный компонент. Получает запрос → классифицирует → выбирает нужного агента → возвращает результат. Все блоки работают через него.
-        </p>
+    <div class="max-w-5xl">
+      <!-- Orchestrator info banner -->
+      <div class="bg-surface2 border border-primary/20 rounded-xl p-4 mb-6 flex gap-4">
+        <div class="w-10 h-10 rounded-xl sig flex items-center justify-center flex-shrink-0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#141210"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2zm1 14.93V17a1 1 0 01-2 0v-.07A8.001 8.001 0 014.07 13H4a1 1 0 010-2h.07A8.001 8.001 0 0111 4.07V4a1 1 0 012 0v.07A8.001 8.001 0 0119.93 11H20a1 1 0 010 2h-.07A8.001 8.001 0 0113 16.93z"/></svg>
+        </div>
+        <div>
+          <p class="font-bold text-sm text-primary mb-1">Оркестратор</p>
+          <p class="text-xs text-on-dim leading-relaxed">Центральный компонент системы. Получает запрос → классифицирует задачу → маршрутизирует к нужному блоку → при необходимости запускает задачи параллельно → управляет памятью сессии (AutoCompact / MicroCompact).</p>
+        </div>
       </div>
-      <div id="catalogGrid"></div>
+      <!-- Category filter -->
+      <div class="flex flex-wrap gap-2 mb-5" id="catFilter"></div>
+      <!-- Blocks grid -->
+      <div id="catalogGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
     </div>
   </div>
 
-  <!-- ── Tab: Run task ── -->
+  <!-- ── Tab: Запустить задачу ── -->
   <div id="pane-run" class="tab-pane">
     <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
       <div class="lg:col-span-2 space-y-4">
         <div class="card p-5 space-y-4">
           <p class="font-headline font-bold text-sm">Задача агенту</p>
-          <textarea id="goalInput" rows="5" class="inp resize-none text-sm leading-relaxed"
-            placeholder="Например: Найди топ-5 новостей об ИИ за сегодня и напиши краткую сводку"></textarea>
+          <textarea id="goalInput" rows="5" class="inp resize-none text-sm leading-relaxed" placeholder="Например: Найди топ-5 новостей об ИИ за сегодня и напиши краткую сводку"></textarea>
           <div>
             <label class="block text-xs text-on-dim mb-1.5">Агент</label>
             <select id="agentSelect" class="inp">
-              <option value="">Автоматически</option>
+              <option value="">Автоматически (оркестратор решит)</option>
             </select>
           </div>
           <button id="runBtn" onclick="runAgent()" class="btn-p w-full justify-center">
@@ -123,8 +152,6 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           </button>
           <p id="runError" class="text-error text-xs hidden text-center"></p>
         </div>
-
-        <!-- Quick presets -->
         <p class="text-xs text-on-dim uppercase tracking-wider font-bold">Быстрые задачи</p>
         <div class="space-y-2" id="presetList"></div>
       </div>
@@ -140,7 +167,6 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           </div>
           <button onclick="stopAgent()" class="btn-g text-xs">Стоп</button>
         </div>
-
         <div class="card">
           <div class="px-5 py-3 border-b border-outline/15 flex items-center justify-between">
             <p class="font-headline font-bold text-sm">Ход выполнения</p>
@@ -150,11 +176,8 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
             <p class="text-on-dim/40 text-sm text-center py-8">Запустите задачу — шаги появятся здесь</p>
           </div>
         </div>
-
         <div id="resultCard" class="hidden card">
-          <div class="sig px-5 py-3">
-            <p class="font-headline font-bold text-[#141210]">Результат</p>
-          </div>
+          <div class="sig px-5 py-3"><p class="font-headline font-bold text-[#141210]">Результат</p></div>
           <div class="p-5">
             <div id="resultContent" class="text-sm leading-relaxed whitespace-pre-wrap text-on-surface"></div>
             <div class="flex gap-3 mt-4">
@@ -167,172 +190,292 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   </div>
 </div>
 
-<!-- ── Create/Edit Agent Modal ── -->
-<div id="agentModal" class="modal-bg">
-  <div class="bg-surface rounded-2xl w-full max-w-3xl border border-outline/25 shadow-2xl overflow-hidden">
-    <div class="sig px-6 py-4 flex items-center justify-between">
-      <h2 class="font-headline font-bold text-[#141210] text-lg" id="agentModalTitle">Новый агент</h2>
-      <button onclick="closeAgentModal()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#141210] text-lg">✕</button>
+<!-- ═══════════════════════════════════════════════════════════
+     WIZARD MODAL  (4 steps)
+════════════════════════════════════════════════════════════ -->
+<div id="wizardModal" class="modal-bg">
+<div class="wiz-box my-auto">
+
+  <!-- Step indicator -->
+  <div class="px-6 pt-6 pb-4 border-b border-outline/15">
+    <div class="flex items-center gap-0">
+      <div id="si-1" class="step-indic active">1</div>
+      <div id="sl-12" class="step-line"></div>
+      <div id="si-2" class="step-indic pending">2</div>
+      <div id="sl-23" class="step-line"></div>
+      <div id="si-3" class="step-indic pending">3</div>
+      <div id="sl-34" class="step-line"></div>
+      <div id="si-4" class="step-indic pending">4</div>
     </div>
-    <div class="p-6 space-y-6 max-h-[85vh] overflow-y-auto">
+    <div class="flex justify-between mt-2 px-1">
+      <span class="text-[10px] text-on-dim">Канал</span>
+      <span class="text-[10px] text-on-dim">Оркестратор</span>
+      <span class="text-[10px] text-on-dim">Блоки</span>
+      <span class="text-[10px] text-on-dim">Готово</span>
+    </div>
+  </div>
 
-      <!-- Name -->
-      <div>
-        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Название агента</label>
-        <input id="agentName" type="text" class="inp" placeholder="Мой бизнес-агент"/>
+  <!-- ── Step 1: Channel ─────────────────────────────────────────────── -->
+  <div id="wstep-1" class="wiz-step-body">
+    <h2 class="font-headline font-bold text-lg mb-1">Канал связи</h2>
+    <p class="text-sm text-on-dim mb-5">Как пользователи будут общаться с агентом?</p>
+    <div class="grid grid-cols-3 sm:grid-cols-5 gap-3 mb-5" id="channelGrid">
+      <!-- filled by JS -->
+    </div>
+    <div id="channelFields" class="space-y-3 mt-4"></div>
+  </div>
+
+  <!-- ── Step 2: Orchestrator ───────────────────────────────────────── -->
+  <div id="wstep-2" class="wiz-step-body hidden">
+    <h2 class="font-headline font-bold text-lg mb-1">Оркестратор</h2>
+    <p class="text-sm text-on-dim mb-4">Центральный компонент, который управляет агентами</p>
+
+    <!-- Diagram -->
+    <div class="border border-outline/25 rounded-xl p-4 bg-surface2 mb-5 text-center select-none">
+      <div class="inline-flex items-center gap-2 orch-node input mb-2">
+        <span>📨</span><span>Запрос от пользователя</span>
       </div>
-
-      <!-- Channels -->
-      <div>
-        <label class="block text-xs text-on-dim uppercase tracking-wider mb-3">Каналы коммуникации</label>
-        <div class="flex flex-wrap gap-2 mb-4" id="channelChips"></div>
-        <div id="channelFields" class="space-y-3"></div>
+      <div class="text-primary text-xl my-1 leading-none">↓</div>
+      <div class="inline-block w-full max-w-xs mb-2">
+        <div class="orch-node core w-full justify-center mb-2">⚙️ Оркестратор</div>
+        <div class="grid grid-cols-3 gap-1.5">
+          <div class="bg-surface3 rounded-lg p-2 text-center"><div class="text-sm mb-0.5">🔍</div><div class="text-[10px] text-on-dim">Классификатор</div></div>
+          <div class="bg-surface3 rounded-lg p-2 text-center"><div class="text-sm mb-0.5">📊</div><div class="text-[10px] text-on-dim">Очередь</div></div>
+          <div class="bg-surface3 rounded-lg p-2 text-center"><div class="text-sm mb-0.5">💾</div><div class="text-[10px] text-on-dim">Память</div></div>
+        </div>
       </div>
-
-      <!-- Blocks selection -->
-      <div>
-        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1">Блоки агента</label>
-        <p class="text-xs text-on-dim/60 mb-3">Выберите функции, которые нужны вашему агенту</p>
-        <div id="modalBlocksGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+      <div class="text-primary text-xl my-1 leading-none">↓</div>
+      <div class="flex justify-center gap-2 mb-2">
+        <div class="orch-node agent">Блок 1</div>
+        <div class="orch-node agent">Блок 2</div>
+        <div class="orch-node agent text-on-dim">...</div>
       </div>
+      <div class="text-primary text-xl my-1 leading-none">↓</div>
+      <div class="inline-flex items-center gap-2 orch-node output">
+        <span>✅</span><span>Результат</span>
+      </div>
+    </div>
 
-      <div class="flex gap-3 pt-2">
-        <button onclick="closeAgentModal()" class="btn-g flex-1">Отмена</button>
-        <button onclick="saveAgent()" class="btn-p flex-1 justify-center" id="saveAgentBtn">Сохранить агента</button>
+    <!-- Settings -->
+    <div class="space-y-4">
+      <div>
+        <p class="text-xs text-on-dim uppercase tracking-wider font-bold mb-2">Классификация запросов</p>
+        <div class="flex gap-2 flex-wrap" id="orchClassifier">
+          <button class="opt-pill active" data-val="gpt" onclick="setOrch('classifier_model','gpt',this)">⚡ Быстрая (GPT)</button>
+          <button class="opt-pill" data-val="claude" onclick="setOrch('classifier_model','claude',this)">🧠 Умная (Claude)</button>
+        </div>
+      </div>
+      <div>
+        <p class="text-xs text-on-dim uppercase tracking-wider font-bold mb-2">Параллельные задачи</p>
+        <div class="flex gap-2" id="orchParallel">
+          <button class="opt-pill" data-val="1" onclick="setOrch('max_parallel','1',this)">1</button>
+          <button class="opt-pill" data-val="2" onclick="setOrch('max_parallel','2',this)">2</button>
+          <button class="opt-pill active" data-val="3" onclick="setOrch('max_parallel','3',this)">3</button>
+          <button class="opt-pill" data-val="5" onclick="setOrch('max_parallel','5',this)">5</button>
+        </div>
+      </div>
+      <div>
+        <p class="text-xs text-on-dim uppercase tracking-wider font-bold mb-1">Компрессия контекста</p>
+        <p class="text-[11px] text-on-dim/60 mb-2">Как агент управляет памятью сессии при длинных задачах</p>
+        <div class="flex gap-2 flex-wrap" id="orchCompression">
+          <button class="opt-pill" data-val="none" onclick="setOrch('compression','none',this)">Отключена</button>
+          <button class="opt-pill active" data-val="auto" onclick="setOrch('compression','auto',this)">AutoCompact</button>
+          <button class="opt-pill" data-val="micro" onclick="setOrch('compression','micro',this)">MicroCompact</button>
+        </div>
+      </div>
+      <div>
+        <p class="text-xs text-on-dim uppercase tracking-wider font-bold mb-2">Приоритет задач</p>
+        <div class="flex gap-2" id="orchPriority">
+          <button class="opt-pill active" data-val="fifo" onclick="setOrch('priority','fifo',this)">FIFO (по порядку)</button>
+          <button class="opt-pill" data-val="smart" onclick="setOrch('priority','smart',this)">По срочности</button>
+        </div>
       </div>
     </div>
   </div>
+
+  <!-- ── Step 3: Blocks ─────────────────────────────────────────────── -->
+  <div id="wstep-3" class="wiz-step-body hidden">
+    <div class="flex items-center justify-between mb-1">
+      <h2 class="font-headline font-bold text-lg">Блоки агента</h2>
+      <span id="wBlockCount" class="text-xs text-primary font-bold bg-primary/10 px-2.5 py-1 rounded-full">0 выбрано</span>
+    </div>
+    <p class="text-sm text-on-dim mb-4">Какие функции нужны вашему агенту?</p>
+    <!-- Category filter -->
+    <div class="flex flex-wrap gap-1.5 mb-4" id="wCatFilter"></div>
+    <!-- Blocks -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1" id="wBlocksGrid"></div>
+  </div>
+
+  <!-- ── Step 4: Review ─────────────────────────────────────────────── -->
+  <div id="wstep-4" class="wiz-step-body hidden">
+    <h2 class="font-headline font-bold text-lg mb-1">Готово к запуску!</h2>
+    <p class="text-sm text-on-dim mb-5">Дайте агенту название и сохраните конфигурацию</p>
+    <div class="mb-5">
+      <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Название агента</label>
+      <input id="agentName" type="text" class="inp" placeholder="Мой бизнес-агент"/>
+    </div>
+    <!-- Summary -->
+    <div class="space-y-2 mb-5" id="wSummary"></div>
+    <p id="wSaveError" class="text-error text-xs hidden text-center mb-2"></p>
+  </div>
+
+  <!-- Footer navigation -->
+  <div class="px-6 pb-6 pt-4 border-t border-outline/15 flex items-center justify-between gap-3">
+    <button onclick="wizardPrev()" id="wPrevBtn" class="btn-g hidden">← Назад</button>
+    <div id="wCloseBtn" class="btn-g cursor-pointer" onclick="closeWizard()">Отмена</div>
+    <button onclick="wizardNext()" id="wNextBtn" class="btn-p ml-auto">Далее →</button>
+    <button onclick="saveAgent()" id="wSaveBtn" class="btn-p ml-auto hidden">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+      Создать агента
+    </button>
+  </div>
+
+</div>
 </div>
 
 <script>
 const API = localStorage.getItem('obs_api') || window.location.origin;
 const authToken = localStorage.getItem('obs_token');
 
-let myAgents = [];
-let editingAgentId = null;
-let selectedBlocks = new Set();
-let activeChannels = new Set();
-let currentTaskId = null;
-let currentSSE = null;
+let myAgents = [], editingAgentId = null;
+let currentTaskId = null, pollInterval = null;
 
-function hdrs(extra = {}) {
-  const h = {'Content-Type': 'application/json', ...extra};
-  if (authToken) h['Authorization'] = 'Bearer ' + authToken;
+function hdrs(x={}) {
+  const h = {'Content-Type':'application/json',...x};
+  if (authToken) h['Authorization'] = 'Bearer '+authToken;
   return h;
 }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-// ── Blocks catalog data ────────────────────────────────────────────────────
+// ── Data ──────────────────────────────────────────────────────────────────────
 const AGENT_BLOCKS = [
   // Госзакупки
-  {id:'tender_parser',    cat:'Госзакупки',          icon:'🔍', name:'Парсер тендеров',     desc:'Мониторинг ЕИС по профилю каждые 2–4 часа', model:'Своя модель'},
-  {id:'tender_analyst',   cat:'Госзакупки',          icon:'📋', name:'Аналитик тендера',    desc:'Резюме: риски, сроки, вердикт брать/не брать', model:'Claude API'},
-  {id:'margin_calc',      cat:'Госзакупки',          icon:'💰', name:'Калькулятор маржи',   desc:'Считает себестоимость, маржу, рекомендует цену', model:'Своя модель'},
-  {id:'competitor_intel', cat:'Госзакупки',          icon:'🕵️', name:'Конкурентная разведка',desc:'История участников, ставки конкурентов', model:'Своя модель'},
+  {id:'tender_parser',    cat:'Госзакупки',          icon:'🔍', name:'Парсер тендеров',       desc:'Мониторинг ЕИС по профилю каждые 2–4 часа',              model:'Своя'},
+  {id:'tender_analyst',   cat:'Госзакупки',          icon:'📋', name:'Аналитик тендера',      desc:'Резюме: риски, сроки, вердикт брать/не брать',           model:'Claude'},
+  {id:'margin_calc',      cat:'Госзакупки',          icon:'💰', name:'Калькулятор маржи',     desc:'Считает себестоимость, маржу, рекомендует цену',         model:'Своя'},
+  {id:'competitor_intel', cat:'Госзакупки',          icon:'🕵️', name:'Конкурентная разведка', desc:'История участников, ставки конкурентов',                 model:'Своя'},
   // Строительство
-  {id:'estimator',        cat:'Строительство',       icon:'🏗️', name:'Агент-сметчик',       desc:'Разбор сметы, коды ГЭСН/ФЕР, поиск завышений', model:'Claude API'},
-  {id:'volume_checker',   cat:'Строительство',       icon:'📐', name:'Проверка объёмов',    desc:'Сверка объёмов с чертежами', model:'Своя модель'},
-  {id:'index_recalc',     cat:'Строительство',       icon:'📊', name:'Пересчёт индексов',   desc:'Актуальные индексы Минстроя, пересчёт цен', model:'Своя модель'},
+  {id:'estimator',        cat:'Строительство',       icon:'🏗️', name:'Агент-сметчик',         desc:'Разбор сметы, коды ГЭСН/ФЕР, поиск завышений',          model:'Claude'},
+  {id:'volume_checker',   cat:'Строительство',       icon:'📐', name:'Проверка объёмов',      desc:'Сверка объёмов работ с чертежами',                      model:'Своя'},
+  {id:'index_recalc',     cat:'Строительство',       icon:'📊', name:'Пересчёт индексов',     desc:'Актуальные индексы Минстроя, пересчёт цен',              model:'Своя'},
   // Документы
-  {id:'accountant',       cat:'Документы и право',   icon:'🧾', name:'Бухгалтер',           desc:'Счета, акты, УПД, сверки, напоминания об оплате', model:'Своя модель'},
-  {id:'lawyer',           cat:'Документы и право',   icon:'⚖️', name:'Юрист',               desc:'Договоры, претензии, анализ рисков контракта', model:'Claude API'},
-  {id:'hr',               cat:'Документы и право',   icon:'📝', name:'Кадровик',            desc:'Трудовые договоры, приказы, должностные инструкции', model:'Своя модель'},
+  {id:'accountant',       cat:'Документы и право',   icon:'🧾', name:'Бухгалтер',             desc:'Счета, акты, УПД, сверки, напоминания об оплате',        model:'Своя'},
+  {id:'lawyer',           cat:'Документы и право',   icon:'⚖️', name:'Юрист',                 desc:'Договоры, претензии, анализ рисков контракта',           model:'Claude'},
+  {id:'hr_docs',          cat:'Документы и право',   icon:'📝', name:'Кадровик',              desc:'Трудовые договоры, приказы, должностные инструкции',     model:'Своя'},
   // Маркетинг
-  {id:'smm',              cat:'Маркетинг и контент', icon:'📱', name:'SMM-агент',            desc:'Контент-план на месяц, тренды, хэштеги', model:'Claude API'},
-  {id:'scriptwriter',     cat:'Маркетинг и контент', icon:'🎬', name:'Сценарист',           desc:'Сценарии Reels, TikTok, YouTube, подкасты', model:'Claude API'},
-  {id:'copywriter',       cat:'Маркетинг и контент', icon:'✍️', name:'Копирайтер',          desc:'Тексты, лендинги, описания товаров', model:'Claude API'},
-  {id:'artist',           cat:'Маркетинг и контент', icon:'🎨', name:'Художник',            desc:'Баннеры, картинки, иллюстрации', model:'Stable Diffusion'},
-  {id:'ads_agent',        cat:'Маркетинг и контент', icon:'📣', name:'Рекламный агент',     desc:'Мониторинг Директ/VK, алерты, оптимизация', model:'Своя + API'},
+  {id:'smm',              cat:'Маркетинг и контент', icon:'📱', name:'SMM-агент',             desc:'Контент-план на месяц, тренды, хэштеги',                 model:'Claude'},
+  {id:'scriptwriter',     cat:'Маркетинг и контент', icon:'🎬', name:'Сценарист',             desc:'Сценарии Reels, TikTok, YouTube, подкасты',             model:'Claude'},
+  {id:'copywriter',       cat:'Маркетинг и контент', icon:'✍️', name:'Копирайтер',            desc:'Тексты, лендинги, описания товаров',                     model:'Claude'},
+  {id:'artist',           cat:'Маркетинг и контент', icon:'🎨', name:'Художник',              desc:'Баннеры, картинки, иллюстрации через Stable Diffusion',  model:'SD'},
+  {id:'ads_agent',        cat:'Маркетинг и контент', icon:'📣', name:'Рекламный агент',       desc:'Мониторинг Директ/VK, алерты, оптимизация',              model:'Своя'},
   // Продажи
-  {id:'chat_manager',     cat:'Продажи и клиенты',   icon:'💬', name:'Менеджер переписки',  desc:'Отвечает клиентам в мессенджерах, квалифицирует лидов', model:'Claude API'},
-  {id:'kp_agent',         cat:'Продажи и клиенты',   icon:'📄', name:'Агент КП',            desc:'Коммерческие предложения под клиента', model:'Claude API'},
-  {id:'objection_agent',  cat:'Продажи и клиенты',   icon:'🎯', name:'Агент возражений',    desc:'Скрипты: дорого / подумаю / не надо', model:'Своя модель'},
-  {id:'reactivation',     cat:'Продажи и клиенты',   icon:'🔄', name:'Агент реактивации',   desc:'Серия касаний для спящих клиентов', model:'Claude API'},
-  {id:'upsell',           cat:'Продажи и клиенты',   icon:'⬆️', name:'Агент upsell',        desc:'Предлагает доп. услуги в нужный момент', model:'Claude API'},
+  {id:'chat_manager',     cat:'Продажи и клиенты',   icon:'💬', name:'Менеджер переписки',    desc:'Отвечает клиентам в мессенджерах, квалифицирует лидов',  model:'Claude'},
+  {id:'kp_agent',         cat:'Продажи и клиенты',   icon:'📄', name:'Агент КП',              desc:'Коммерческие предложения под каждого клиента',           model:'Claude'},
+  {id:'objection_agent',  cat:'Продажи и клиенты',   icon:'🎯', name:'Агент возражений',      desc:'Скрипты: дорого / подумаю / не надо',                   model:'Своя'},
+  {id:'reactivation',     cat:'Продажи и клиенты',   icon:'🔄', name:'Реактивация клиентов',  desc:'Серия касаний для спящей базы',                         model:'Claude'},
+  {id:'upsell',           cat:'Продажи и клиенты',   icon:'⬆️', name:'Upsell-агент',          desc:'Предлагает доп. услуги в нужный момент',                model:'Claude'},
   // HR
-  {id:'vacancy_agent',    cat:'HR',                  icon:'👔', name:'Агент вакансий',      desc:'Пишет и размещает вакансии по профилю', model:'Своя модель'},
-  {id:'screener',         cat:'HR',                  icon:'📎', name:'Скринер резюме',      desc:'Первичный отбор кандидатов по критериям', model:'Своя модель'},
-  {id:'onboarding',       cat:'HR',                  icon:'🤝', name:'Агент онбординга',    desc:'Вводит новых сотрудников в курс дела', model:'Своя модель'},
+  {id:'vacancy_agent',    cat:'HR',                  icon:'👔', name:'Агент вакансий',        desc:'Пишет и размещает вакансии по профилю',                 model:'Своя'},
+  {id:'screener',         cat:'HR',                  icon:'📎', name:'Скринер резюме',        desc:'Первичный отбор кандидатов по критериям',               model:'Своя'},
+  {id:'onboarding',       cat:'HR',                  icon:'🤝', name:'Онбординг',             desc:'Вводит новых сотрудников в курс дела',                  model:'Своя'},
   // Аналитика
-  {id:'fin_analyst',      cat:'Аналитика',           icon:'📈', name:'Финансовый аналитик', desc:'Объясняет цифры собственнику простым языком', model:'Claude API'},
-  {id:'reputation',       cat:'Аналитика',           icon:'⭐', name:'Агент репутации',     desc:'Мониторинг отзывов и упоминаний бренда', model:'Своя модель'},
-  {id:'comp_intel',       cat:'Аналитика',           icon:'🔭', name:'Конкурентный разведчик',desc:'Цены, акции, офферы конкурентов', model:'Своя модель'},
-  {id:'funnel_agent',     cat:'Аналитика',           icon:'🔻', name:'Агент воронки',       desc:'Где теряются клиенты, гипотезы роста', model:'Claude API'},
+  {id:'fin_analyst',      cat:'Аналитика',           icon:'📈', name:'Финансовый аналитик',   desc:'Объясняет цифры собственнику простым языком',           model:'Claude'},
+  {id:'reputation',       cat:'Аналитика',           icon:'⭐', name:'Мониторинг репутации',  desc:'Отзывы, упоминания бренда, алерты',                     model:'Своя'},
+  {id:'comp_intel',       cat:'Аналитика',           icon:'🔭', name:'Конкурентный разведчик', desc:'Цены, акции, офферы конкурентов',                      model:'Своя'},
+  {id:'funnel_agent',     cat:'Аналитика',           icon:'🔻', name:'Агент воронки',         desc:'Где теряются клиенты, гипотезы роста',                  model:'Claude'},
   // Чат-боты
-  {id:'bot_tg',           cat:'Чат-боты',            icon:'✈️', name:'Бот для Telegram',    desc:'Ответы клиентам, квалификация, продажи', model:'Claude API'},
-  {id:'bot_site',         cat:'Чат-боты',            icon:'🌐', name:'Бот для сайта',       desc:'Виджет диалогового окна, WebSocket', model:'Claude API'},
-  {id:'bot_avito',        cat:'Чат-боты',            icon:'🏠', name:'Бот для Авито',       desc:'Автоответы на запросы покупателей', model:'Claude API'},
-  {id:'bot_ig',           cat:'Чат-боты',            icon:'📸', name:'Бот для Instagram',   desc:'Ответы в директ через Meta Webhooks', model:'Claude API'},
-  {id:'bot_wa',           cat:'Чат-боты',            icon:'💚', name:'Бот для WhatsApp',    desc:'Бизнес API, автоответы и рассылки', model:'Claude API'},
+  {id:'bot_tg',           cat:'Чат-боты',            icon:'✈️', name:'Бот для Telegram',      desc:'Ответы клиентам, квалификация, продажи',                model:'Claude'},
+  {id:'bot_site',         cat:'Чат-боты',            icon:'🌐', name:'Бот для сайта',         desc:'Виджет диалогового окна, WebSocket',                    model:'Claude'},
+  {id:'bot_avito',        cat:'Чат-боты',            icon:'🏠', name:'Бот для Авито',         desc:'Автоответы на запросы покупателей',                     model:'Claude'},
+  {id:'bot_wa',           cat:'Чат-боты',            icon:'💚', name:'Бот для WhatsApp',      desc:'Бизнес API, автоответы и рассылки',                     model:'Claude'},
 ];
 
 const CHANNELS = [
   {id:'telegram', icon:'✈️', name:'Telegram', fields:[
-    {key:'tg_token', label:'Bot Token', placeholder:'1234567890:AAF...', type:'password'},
-    {key:'tg_chat_id', label:'Chat ID', placeholder:'-1001234567890', type:'text'},
+    {key:'tg_token',   label:'Bot Token',  placeholder:'1234567890:AAF...', type:'password'},
+    {key:'tg_chat_id', label:'Chat ID',    placeholder:'-1001234567890',   type:'text'},
   ]},
-  {id:'discord', icon:'🎮', name:'Discord', fields:[
-    {key:'discord_token', label:'Bot Token', placeholder:'MTA0NjY...', type:'password'},
-    {key:'discord_channel', label:'Channel ID', placeholder:'1234567890', type:'text'},
+  {id:'discord',  icon:'🎮', name:'Discord', fields:[
+    {key:'discord_token',   label:'Bot Token',   placeholder:'MTA0NjY...', type:'password'},
+    {key:'discord_channel', label:'Channel ID',  placeholder:'123456789',  type:'text'},
   ]},
-  {id:'vk', icon:'🔵', name:'VK', fields:[
-    {key:'vk_token', label:'Access Token', placeholder:'vk1.a.XXX', type:'password'},
-    {key:'vk_group_id', label:'Group ID', placeholder:'-123456789', type:'text'},
+  {id:'vk',       icon:'🔵', name:'VK',       fields:[
+    {key:'vk_token',    label:'Access Token', placeholder:'vk1.a.XXX',    type:'password'},
+    {key:'vk_group_id', label:'Group ID',     placeholder:'-123456789',   type:'text'},
   ]},
-  {id:'app', icon:'📱', name:'Приложение', fields:[], disabled:true, hint:'Скоро'},
-  {id:'api', icon:'🔌', name:'API Webhook', fields:[
+  {id:'app',      icon:'📱', name:'Приложение', fields:[], disabled:true, hint:'Скоро'},
+  {id:'api',      icon:'🔌', name:'API Webhook', fields:[
     {key:'webhook_url', label:'Webhook URL', placeholder:'https://yoursite.com/webhook', type:'text'},
   ]},
 ];
 
 const PRESETS = [
-  {icon:'📰', title:'Дайджест новостей', goal:'Найди 5 самых важных новостей об ИИ за сегодня. Для каждой: заголовок, краткое содержание, почему важно. Оформи с эмодзи.'},
-  {icon:'📊', title:'Анализ рынка', goal:'Проведи анализ рынка AI-инструментов для малого бизнеса в России. Размер рынка, игроки, тренды 2025.'},
-  {icon:'✍️', title:'Контент-план', goal:'Создай контент-план на 7 дней для соцсетей. Для каждого дня: тема, формат, описание.'},
-  {icon:'🎯', title:'Своя задача', goal:''},
+  {icon:'📰', title:'Дайджест новостей', goal:'Найди 5 важных новостей об ИИ за сегодня. Для каждой: заголовок, содержание, почему важно.'},
+  {icon:'📊', title:'Анализ рынка',      goal:'Проведи анализ рынка AI-инструментов для малого бизнеса в России: размер, игроки, тренды 2025.'},
+  {icon:'✍️', title:'Контент-план',      goal:'Создай контент-план на 7 дней для соцсетей. Для каждого дня: тема, формат, описание поста.'},
 ];
 
-// ── Init ───────────────────────────────────────────────────────────────────
+// ── Wizard state ──────────────────────────────────────────────────────────────
+let wizStep = 1;
+let wizData = {
+  channels: new Set(),       // selected channel ids
+  channelFields: {},         // {key: value}
+  orchestrator: { classifier_model:'gpt', max_parallel:'3', compression:'auto', priority:'fifo' },
+  blocks: new Set(),
+  name: ''
+};
+
+// ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   if (!authToken) { window.location.href = 'index.html'; return; }
   buildCatalog();
   buildPresets();
-  buildChannelChips();
-  buildModalBlocks();
   await loadAgents();
-  fillAgentSelect();
 });
 
-// ── Tabs ───────────────────────────────────────────────────────────────────
-function switchMainTab(tab) {
-  ['my','catalog','run'].forEach(t => {
-    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
-    document.getElementById('pane-'+t).classList.toggle('active', t===tab);
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function switchTab(t) {
+  ['my','catalog','run'].forEach(x => {
+    document.getElementById('tab-'+x).classList.toggle('active', x===t);
+    document.getElementById('pane-'+x).classList.toggle('active', x===t);
   });
 }
 
-// ── Catalog ────────────────────────────────────────────────────────────────
+// ── Catalog ───────────────────────────────────────────────────────────────────
+let activeCat = 'all';
+
 function buildCatalog() {
   const cats = [...new Set(AGENT_BLOCKS.map(b => b.cat))];
-  document.getElementById('catalogGrid').innerHTML = cats.map(cat => {
-    const blocks = AGENT_BLOCKS.filter(b => b.cat === cat);
-    return `<p class="block-cat-label">${cat}</p>
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-2">
-      ${blocks.map(b => `
-      <div class="block-card">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="text-xl">${b.icon}</span>
-          <div>
-            <p class="font-headline font-bold text-sm">${b.name}</p>
-            <span class="text-[10px] bg-surface3 text-on-dim px-2 py-0.5 rounded-full">${b.model}</span>
-          </div>
-        </div>
-        <p class="text-xs text-on-dim leading-relaxed">${b.desc}</p>
-      </div>`).join('')}
-    </div>`;
-  }).join('');
+  // Category filter
+  const cf = document.getElementById('catFilter');
+  cf.innerHTML = `<button class="cat-btn active" onclick="filterCat('all',this)">Все</button>` +
+    cats.map(c => `<button class="cat-btn" onclick="filterCat('${esc(c)}',this)">${esc(c)}</button>`).join('');
+  renderCatalog('all');
 }
 
-// ── My Agents ──────────────────────────────────────────────────────────────
+function filterCat(cat, btn) {
+  activeCat = cat;
+  document.querySelectorAll('#catFilter .cat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderCatalog(cat);
+}
+
+function renderCatalog(cat) {
+  const blocks = cat === 'all' ? AGENT_BLOCKS : AGENT_BLOCKS.filter(b => b.cat === cat);
+  document.getElementById('catalogGrid').innerHTML = blocks.map(b => `
+    <div class="block-card">
+      <div class="flex items-start gap-2.5 mb-2">
+        <span class="text-xl mt-0.5">${b.icon}</span>
+        <div class="flex-1 min-w-0">
+          <p class="font-headline font-bold text-sm">${esc(b.name)}</p>
+          <span class="text-[10px] bg-surface3 text-on-dim px-2 py-0.5 rounded-full">${esc(b.model)}</span>
+        </div>
+      </div>
+      <p class="text-xs text-on-dim leading-relaxed">${esc(b.desc)}</p>
+    </div>`).join('');
+}
+
+// ── My Agents ─────────────────────────────────────────────────────────────────
 async function loadAgents() {
   try {
     const r = await fetch(`${API}/agent/config`, {headers: hdrs()});
@@ -344,154 +487,312 @@ async function loadAgents() {
 function renderAgents() {
   const list = document.getElementById('agentsList');
   const empty = document.getElementById('agentsEmpty');
-  if (!myAgents.length) {
-    list.innerHTML = ''; empty.classList.remove('hidden'); return;
-  }
+  if (!myAgents.length) { list.innerHTML=''; empty.classList.remove('hidden'); return; }
   empty.classList.add('hidden');
   list.innerHTML = myAgents.map(a => {
-    const channels = Object.keys(a.channels || {}).filter(k => a.channels[k]);
-    const chLabels = CHANNELS.filter(c => channels.some(k => k.startsWith(c.id))).map(c => c.icon + ' ' + c.name);
-    const statusColor = a.status === 'active' ? 'dot-active' : a.status === 'paused' ? 'dot-paused' : 'dot-draft';
-    const statusLabel = a.status === 'active' ? 'Активен' : a.status === 'paused' ? 'Пауза' : 'Черновик';
+    const chLabels = CHANNELS.filter(c =>
+      c.fields.some(f => a.channels?.[f.key])
+    ).map(c => `<span class="text-sm">${c.icon}</span>`).join('');
+    const dot = {active:'dot-active', paused:'dot-paused', draft:'dot-draft'}[a.status] || 'dot-draft';
+    const stLabel = {active:'Активен', paused:'Пауза', draft:'Черновик'}[a.status] || 'Черновик';
+    const orchSettings = a.settings || {};
+    const orchText = [
+      orchSettings.compression === 'micro' ? 'MicroCompact' : orchSettings.compression === 'none' ? '' : 'AutoCompact',
+      orchSettings.max_parallel ? `${orchSettings.max_parallel} задачи` : ''
+    ].filter(Boolean).join(' · ');
     return `<div class="agent-item" onclick="openAgent(${a.id})">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="status-dot ${statusColor}"></div>
-          <div>
-            <p class="font-headline font-bold text-sm">${esc(a.name)}</p>
-            <p class="text-xs text-on-dim mt-0.5">
-              ${a.enabled_blocks?.length || 0} блоков${chLabels.length ? ' · ' + chLabels.join(', ') : ''}
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-start gap-3 flex-1 min-w-0">
+          <div class="status-dot ${dot} mt-1.5"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-0.5">
+              <p class="font-headline font-bold text-sm truncate">${esc(a.name)}</p>
+              ${chLabels ? `<span class="flex gap-1">${chLabels}</span>` : ''}
+            </div>
+            <p class="text-xs text-on-dim">
+              ${a.enabled_blocks?.length || 0} блоков
+              ${orchText ? ' · ' + orchText : ''}
             </p>
           </div>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-on-dim">${statusLabel}</span>
-          <button onclick="event.stopPropagation();deleteAgent(${a.id})" class="text-error/50 hover:text-error transition p-1">
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <span class="text-xs text-on-dim">${stLabel}</span>
+          <button onclick="event.stopPropagation();deleteAgent(${a.id})"
+            class="text-error/40 hover:text-error transition p-1">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
           </button>
         </div>
       </div>
     </div>`;
   }).join('');
-}
 
-function fillAgentSelect() {
+  // fill agent select in run tab
   const sel = document.getElementById('agentSelect');
-  const existing = myAgents.filter(a => a.status !== 'draft');
-  sel.innerHTML = '<option value="">Автоматически</option>' +
-    existing.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+  sel.innerHTML = '<option value="">Автоматически (оркестратор решит)</option>' +
+    myAgents.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
 }
 
-// ── Create / Edit agent modal ──────────────────────────────────────────────
-function buildChannelChips() {
-  document.getElementById('channelChips').innerHTML = CHANNELS.map(c => `
-    <div class="channel-chip${c.disabled?' opacity-40 cursor-not-allowed':''}" id="chip-${c.id}"
-         onclick="${c.disabled?'':(`toggleChannel('${c.id}')`)}" title="${c.hint||c.name}">
-      <span>${c.icon}</span><span>${c.name}</span>${c.hint?`<span class="text-[10px] opacity-60">${c.hint}</span>`:''}
+async function deleteAgent(id) {
+  if (!confirm('Удалить агента?')) return;
+  await fetch(`${API}/agent/config/${id}`, {method:'DELETE', headers:hdrs()});
+  await loadAgents();
+}
+
+function openAgent(id) {
+  const a = myAgents.find(x => x.id===id);
+  if (!a) return;
+  editingAgentId = id;
+
+  wizData.blocks = new Set(a.enabled_blocks || []);
+  wizData.channels = new Set();
+  wizData.channelFields = {};
+  const chMap = a.channels || {};
+  CHANNELS.forEach(c => {
+    if (c.fields.some(f => chMap[f.key])) {
+      wizData.channels.add(c.id);
+      c.fields.forEach(f => { if (chMap[f.key]) wizData.channelFields[f.key] = chMap[f.key]; });
+    }
+  });
+  const s = a.settings || {};
+  wizData.orchestrator = {
+    classifier_model: s.classifier_model || 'gpt',
+    max_parallel:     String(s.max_parallel || '3'),
+    compression:      s.compression || 'auto',
+    priority:         s.priority || 'fifo',
+  };
+  wizData.name = a.name || '';
+
+  openWizard(true);
+}
+
+// ── Wizard ────────────────────────────────────────────────────────────────────
+
+function openWizard(isEdit = false) {
+  if (!isEdit) {
+    editingAgentId = null;
+    wizData = {
+      channels: new Set(), channelFields: {},
+      orchestrator: {classifier_model:'gpt', max_parallel:'3', compression:'auto', priority:'fifo'},
+      blocks: new Set(), name: ''
+    };
+  }
+  wizStep = 1;
+  buildWizardStep1();
+  buildWizardStep3();
+  applyWizardOrch();
+  showWizardStep(1);
+  document.getElementById('wizardModal').classList.add('show');
+}
+
+function closeWizard() {
+  document.getElementById('wizardModal').classList.remove('show');
+}
+
+function showWizardStep(n) {
+  for (let i=1; i<=4; i++) {
+    const body = document.getElementById(`wstep-${i}`);
+    if (body) body.classList.toggle('hidden', i !== n);
+    // Update indicator
+    const si = document.getElementById(`si-${i}`);
+    si.className = 'step-indic ' + (i < n ? 'done' : i === n ? 'active' : 'pending');
+  }
+  // Lines
+  for (const [from,to] of [[1,2],[2,3],[3,4]]) {
+    const line = document.getElementById(`sl-${from}${to}`);
+    if (line) line.classList.toggle('done', from < n);
+  }
+  // Buttons
+  document.getElementById('wPrevBtn').classList.toggle('hidden', n === 1);
+  document.getElementById('wCloseBtn').classList.toggle('hidden', n > 1);
+  document.getElementById('wNextBtn').classList.toggle('hidden', n === 4);
+  document.getElementById('wSaveBtn').classList.toggle('hidden', n !== 4);
+
+  if (n === 4) buildWizardReview();
+}
+
+function wizardNext() {
+  if (wizStep === 3) updateBlocksFromWizard();
+  if (wizStep < 4) { wizStep++; showWizardStep(wizStep); }
+}
+
+function wizardPrev() {
+  if (wizStep > 1) { wizStep--; showWizardStep(wizStep); }
+}
+
+// ── Step 1: Channels ──────────────────────────────────────────────────────────
+
+function buildWizardStep1() {
+  document.getElementById('channelGrid').innerHTML = CHANNELS.map(c => `
+    <div class="ch-card${c.disabled?' disabled':''}" id="chcard-${c.id}"
+      onclick="${c.disabled?'':(`toggleWizChannel('${c.id}')`)}"
+      title="${c.hint||c.name}">
+      <div class="text-3xl mb-2">${c.icon}</div>
+      <div class="text-xs font-bold">${c.name}</div>
+      ${c.hint ? `<div class="text-[10px] text-on-dim mt-0.5">${c.hint}</div>` : ''}
     </div>`).join('');
+  // Re-apply selection
+  wizData.channels.forEach(id => {
+    document.getElementById(`chcard-${id}`)?.classList.add('selected');
+  });
+  renderChannelFields();
 }
 
-function buildModalBlocks() {
-  const cats = [...new Set(AGENT_BLOCKS.map(b => b.cat))];
-  document.getElementById('modalBlocksGrid').innerHTML = cats.map(cat => {
-    const blocks = AGENT_BLOCKS.filter(b => b.cat === cat);
-    return `<div class="sm:col-span-2 mt-3 mb-1">
-      <p class="text-[10px] font-bold uppercase tracking-wider text-on-dim/60">${cat}</p>
-    </div>` +
-    blocks.map(b => `
-      <div class="block-card text-sm" id="mblock-${b.id}" onclick="toggleBlock('${b.id}')">
-        <div class="flex items-center gap-2">
-          <span>${b.icon}</span>
-          <div class="flex-1 min-w-0">
-            <p class="font-semibold text-xs truncate">${b.name}</p>
-            <p class="text-[10px] text-on-dim truncate">${b.desc}</p>
-          </div>
-        </div>
-      </div>`).join('');
-  }).join('');
-}
-
-function toggleBlock(id) {
-  if (selectedBlocks.has(id)) selectedBlocks.delete(id);
-  else selectedBlocks.add(id);
-  document.getElementById('mblock-'+id)?.classList.toggle('selected', selectedBlocks.has(id));
-}
-
-function toggleChannel(id) {
-  if (activeChannels.has(id)) activeChannels.delete(id);
-  else activeChannels.add(id);
-  document.getElementById('chip-'+id)?.classList.toggle('active', activeChannels.has(id));
+function toggleWizChannel(id) {
+  if (wizData.channels.has(id)) wizData.channels.delete(id);
+  else wizData.channels.add(id);
+  document.getElementById(`chcard-${id}`)?.classList.toggle('selected', wizData.channels.has(id));
   renderChannelFields();
 }
 
 function renderChannelFields() {
-  const active = CHANNELS.filter(c => activeChannels.has(c.id));
-  document.getElementById('channelFields').innerHTML = active.flatMap(c => c.fields).map(f => `
-    <div>
-      <label class="block text-xs text-on-dim mb-1">${f.label}</label>
-      <input id="ch_${f.key}" type="${f.type}" class="inp text-xs" placeholder="${f.placeholder}"/>
+  const active = CHANNELS.filter(c => wizData.channels.has(c.id));
+  if (!active.length) { document.getElementById('channelFields').innerHTML=''; return; }
+  document.getElementById('channelFields').innerHTML = active.map(c => `
+    <div class="border border-outline/20 rounded-xl p-3 bg-surface2">
+      <p class="text-xs font-bold mb-2">${c.icon} ${c.name}</p>
+      <div class="space-y-2">
+        ${c.fields.map(f => `
+          <div>
+            <label class="block text-[11px] text-on-dim mb-1">${f.label}</label>
+            <input id="ch_${f.key}" type="${f.type}" class="inp text-xs"
+              placeholder="${f.placeholder}" value="${esc(wizData.channelFields[f.key]||'')}"/>
+          </div>`).join('')}
+      </div>
     </div>`).join('');
 }
 
-function openCreateAgent() {
-  editingAgentId = null;
-  selectedBlocks = new Set();
-  activeChannels = new Set();
-  document.getElementById('agentName').value = '';
-  document.getElementById('agentModalTitle').textContent = 'Новый агент';
-  // Reset UI
-  document.querySelectorAll('.block-card[id^=mblock]').forEach(el => el.classList.remove('selected'));
-  document.querySelectorAll('.channel-chip').forEach(el => el.classList.remove('active'));
-  document.getElementById('channelFields').innerHTML = '';
-  document.getElementById('agentModal').classList.add('show');
-  switchMainTab('my');
+function collectChannelFields() {
+  CHANNELS.forEach(c => c.fields.forEach(f => {
+    const el = document.getElementById('ch_'+f.key);
+    if (el) wizData.channelFields[f.key] = el.value.trim();
+  }));
 }
 
-function openAgent(id) {
-  const a = myAgents.find(x => x.id === id);
-  if (!a) return;
-  editingAgentId = id;
-  selectedBlocks = new Set(a.enabled_blocks || []);
-  activeChannels = new Set();
-  document.getElementById('agentName').value = a.name || '';
-  document.getElementById('agentModalTitle').textContent = 'Редактировать агента';
+// ── Step 2: Orchestrator ──────────────────────────────────────────────────────
 
-  // Reset blocks UI
-  document.querySelectorAll('.block-card[id^=mblock]').forEach(el => el.classList.remove('selected'));
-  selectedBlocks.forEach(bid => document.getElementById('mblock-'+bid)?.classList.add('selected'));
+function setOrch(key, val, btn) {
+  wizData.orchestrator[key] = val;
+  btn.closest('[id]')?.querySelectorAll('.opt-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
 
-  // Channels
-  document.querySelectorAll('.channel-chip').forEach(el => el.classList.remove('active'));
-  const channels = a.channels || {};
-  CHANNELS.forEach(c => {
-    if (c.fields.some(f => channels[f.key])) { activeChannels.add(c.id); document.getElementById('chip-'+c.id)?.classList.add('active'); }
-  });
-  renderChannelFields();
-  setTimeout(() => {
-    Object.entries(channels).forEach(([k, v]) => {
-      const el = document.getElementById('ch_'+k);
-      if (el && v) el.value = v;
+function applyWizardOrch() {
+  const o = wizData.orchestrator;
+  const applyGroup = (groupId, key) => {
+    const grp = document.getElementById(groupId);
+    if (!grp) return;
+    grp.querySelectorAll('.opt-pill').forEach(b => {
+      b.classList.toggle('active', b.dataset.val === o[key]);
     });
-  }, 50);
-
-  document.getElementById('agentModal').classList.add('show');
+  };
+  applyGroup('orchClassifier',  'classifier_model');
+  applyGroup('orchParallel',    'max_parallel');
+  applyGroup('orchCompression', 'compression');
+  applyGroup('orchPriority',    'priority');
 }
 
-function closeAgentModal() { document.getElementById('agentModal').classList.remove('show'); }
+// ── Step 3: Blocks ────────────────────────────────────────────────────────────
+
+let wizCatFilter = 'all';
+
+function buildWizardStep3() {
+  const cats = [...new Set(AGENT_BLOCKS.map(b => b.cat))];
+  document.getElementById('wCatFilter').innerHTML =
+    `<button class="cat-btn active" onclick="wizFilterCat('all',this)">Все</button>` +
+    cats.map(c => `<button class="cat-btn" onclick="wizFilterCat('${esc(c)}',this)">${esc(c)}</button>`).join('');
+  renderWizBlocks('all');
+}
+
+function wizFilterCat(cat, btn) {
+  wizCatFilter = cat;
+  document.querySelectorAll('#wCatFilter .cat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderWizBlocks(cat);
+}
+
+function renderWizBlocks(cat) {
+  const blocks = cat === 'all' ? AGENT_BLOCKS : AGENT_BLOCKS.filter(b => b.cat === cat);
+  document.getElementById('wBlocksGrid').innerHTML = blocks.map(b => `
+    <div class="block-card text-sm${wizData.blocks.has(b.id)?' selected':''}" id="wb-${b.id}"
+      onclick="toggleWizBlock('${b.id}')">
+      <div class="flex items-center gap-2">
+        <span class="text-lg">${b.icon}</span>
+        <div class="flex-1 min-w-0">
+          <p class="font-semibold text-xs truncate">${esc(b.name)}</p>
+          <p class="text-[10px] text-on-dim truncate">${esc(b.desc)}</p>
+        </div>
+      </div>
+    </div>`).join('');
+  updateBlockCount();
+}
+
+function toggleWizBlock(id) {
+  if (wizData.blocks.has(id)) wizData.blocks.delete(id);
+  else wizData.blocks.add(id);
+  document.getElementById('wb-'+id)?.classList.toggle('selected', wizData.blocks.has(id));
+  updateBlockCount();
+}
+
+function updateBlocksFromWizard() {
+  // blocks are kept in wizData.blocks, already synced by toggleWizBlock
+}
+
+function updateBlockCount() {
+  document.getElementById('wBlockCount').textContent = wizData.blocks.size + ' выбрано';
+}
+
+// ── Step 4: Review ────────────────────────────────────────────────────────────
+
+function buildWizardReview() {
+  const o = wizData.orchestrator;
+  const chLabels = CHANNELS.filter(c => wizData.channels.has(c.id)).map(c => c.icon+' '+c.name);
+  const compLabel = {none:'Отключена', auto:'AutoCompact', micro:'MicroCompact'}[o.compression] || o.compression;
+  const classLabel = {gpt:'Быстрая (GPT)', claude:'Умная (Claude)'}[o.classifier_model] || o.classifier_model;
+  const prioLabel  = {fifo:'FIFO', smart:'По срочности'}[o.priority] || o.priority;
+
+  document.getElementById('agentName').value = wizData.name ||
+    (chLabels.length ? chLabels[0] + ' агент' : 'Мой агент');
+
+  document.getElementById('wSummary').innerHTML = `
+    <div class="bg-surface2 rounded-xl p-4 space-y-2">
+      <div class="flex justify-between text-sm"><span class="text-on-dim">Каналы</span>
+        <span class="font-semibold">${chLabels.length ? chLabels.join(', ') : '—'}</span></div>
+      <div class="flex justify-between text-sm"><span class="text-on-dim">Блоки</span>
+        <span class="font-semibold">${wizData.blocks.size} выбрано</span></div>
+      <div class="flex justify-between text-sm"><span class="text-on-dim">Классификация</span>
+        <span class="font-semibold">${classLabel}</span></div>
+      <div class="flex justify-between text-sm"><span class="text-on-dim">Параллельность</span>
+        <span class="font-semibold">${o.max_parallel} задачи</span></div>
+      <div class="flex justify-between text-sm"><span class="text-on-dim">Компрессия</span>
+        <span class="font-semibold">${compLabel}</span></div>
+      <div class="flex justify-between text-sm"><span class="text-on-dim">Приоритет</span>
+        <span class="font-semibold">${prioLabel}</span></div>
+    </div>`;
+}
 
 async function saveAgent() {
-  const name = document.getElementById('agentName').value.trim() || 'Мой агент';
-  const channels = {};
-  CHANNELS.forEach(c => {
-    c.fields.forEach(f => {
-      const el = document.getElementById('ch_'+f.key);
-      if (el?.value) channels[f.key] = el.value;
-    });
-  });
-  const body = {name, enabled_blocks: [...selectedBlocks], channels, status: 'draft'};
+  collectChannelFields();
+  const name = document.getElementById('agentName')?.value?.trim() || 'Мой агент';
+  wizData.name = name;
 
-  const btn = document.getElementById('saveAgentBtn');
+  const channels = {};
+  CHANNELS.forEach(c => c.fields.forEach(f => {
+    if (wizData.channelFields[f.key]) channels[f.key] = wizData.channelFields[f.key];
+  }));
+
+  const body = {
+    name,
+    enabled_blocks: [...wizData.blocks],
+    channels,
+    settings: {...wizData.orchestrator},
+    status: 'draft',
+  };
+
+  const btn = document.getElementById('wSaveBtn');
   btn.disabled = true; btn.textContent = 'Сохраняю...';
+  const errEl = document.getElementById('wSaveError');
+  errEl.classList.add('hidden');
+
   try {
     let r;
     if (editingAgentId) {
@@ -499,135 +800,120 @@ async function saveAgent() {
     } else {
       r = await fetch(`${API}/agent/config`, {method:'POST', headers:hdrs(), body:JSON.stringify(body)});
     }
-    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Ошибка');
-    closeAgentModal();
+    if (!r.ok) throw new Error(await r.text());
+    closeWizard();
     await loadAgents();
-    fillAgentSelect();
-  } catch(e) { alert('Ошибка: ' + e.message); }
-  btn.disabled = false; btn.textContent = 'Сохранить агента';
-}
-
-async function deleteAgent(id) {
-  if (!confirm('Удалить агента?')) return;
-  try {
-    await fetch(`${API}/agent/config/${id}`, {method:'DELETE', headers:hdrs()});
-    await loadAgents(); fillAgentSelect();
-  } catch(e) { alert('Ошибка: ' + e.message); }
-}
-
-// ── Run task ───────────────────────────────────────────────────────────────
-function buildPresets() {
-  document.getElementById('presetList').innerHTML = PRESETS.map((p,i) => `
-    <div class="bg-surface2 border border-outline/25 rounded-xl p-3 cursor-pointer hover:border-primary/40 transition"
-         onclick="usePreset(${i})">
-      <div class="flex items-center gap-2">
-        <span>${p.icon}</span>
-        <p class="font-bold text-sm">${p.title}</p>
-      </div>
-      ${p.goal ? `<p class="text-xs text-on-dim mt-1 line-clamp-2">${p.goal}</p>` : '<p class="text-xs text-on-dim mt-1">Введите задачу вручную</p>'}
-    </div>`).join('');
-}
-
-function usePreset(i) {
-  document.getElementById('goalInput').value = PRESETS[i].goal;
-  if (!PRESETS[i].goal) document.getElementById('goalInput').focus();
-}
-
-async function runAgent() {
-  const goal = document.getElementById('goalInput').value.trim();
-  if (!goal) { document.getElementById('runError').textContent = 'Введите задачу'; document.getElementById('runError').classList.remove('hidden'); return; }
-  document.getElementById('runError').classList.add('hidden');
-
-  const btn = document.getElementById('runBtn');
-  btn.disabled = true; btn.textContent = 'Запускаю...';
-  document.getElementById('runStatusBar').classList.remove('hidden');
-  document.getElementById('resultCard').classList.add('hidden');
-  document.getElementById('stepsTimeline').innerHTML = '';
-  document.getElementById('statusGoal').textContent = goal;
-
-  const agentId = document.getElementById('agentSelect').value;
-  const ctx = agentId ? {agent_config_id: parseInt(agentId)} : {};
-
-  try {
-    const r = await fetch(`${API}/agent/run`, {
-      method: 'POST', headers: hdrs(), body: JSON.stringify({goal, context: ctx})
-    });
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      if (r.status === 402) throw new Error('Недостаточно токенов (нужно 50 CH)');
-      throw new Error(d.detail || 'Ошибка');
-    }
-    const data = await r.json();
-    currentTaskId = data.task_id;
-    pollTask(currentTaskId);
+    switchTab('my');
   } catch(e) {
-    document.getElementById('runError').textContent = e.message;
-    document.getElementById('runError').classList.remove('hidden');
-    document.getElementById('runStatusBar').classList.add('hidden');
-    btn.disabled = false; btn.textContent = 'Запустить (50 CH)';
+    errEl.textContent = 'Ошибка: ' + e.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Создать агента';
   }
 }
 
-function pollTask(taskId) {
-  let lastStep = 0;
-  const interval = setInterval(async () => {
+// ── Presets ────────────────────────────────────────────────────────────────────
+
+function buildPresets() {
+  document.getElementById('presetList').innerHTML = PRESETS.map(p => `
+    <div class="bg-surface2 border border-outline/15 rounded-xl p-3 flex items-center gap-3 cursor-pointer hover:border-primary/30 transition"
+      onclick="setPreset(${JSON.stringify(p.goal).replace(/'/g,'&#39;')})">
+      <span class="text-xl">${p.icon}</span>
+      <p class="text-sm font-semibold">${esc(p.title)}</p>
+    </div>`).join('');
+}
+
+function setPreset(goal) {
+  document.getElementById('goalInput').value = goal;
+  switchTab('run');
+}
+
+// ── Run task ───────────────────────────────────────────────────────────────────
+
+async function runAgent() {
+  const goal = document.getElementById('goalInput').value.trim();
+  if (!goal) return;
+  const errEl = document.getElementById('runError');
+  errEl.classList.add('hidden');
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  document.getElementById('runStatusBar').classList.remove('hidden');
+  document.getElementById('statusGoal').textContent = goal.substring(0,80);
+  document.getElementById('stepsTimeline').innerHTML = '';
+  document.getElementById('resultCard').classList.add('hidden');
+
+  try {
+    const r = await fetch(`${API}/agent/run`, {
+      method:'POST', headers:hdrs(),
+      body: JSON.stringify({goal})
+    });
+    if (!r.ok) { const e=await r.json(); throw new Error(e.detail||'Ошибка'); }
+    const data = await r.json();
+    currentTaskId = data.task_id;
+    pollStatus();
+  } catch(e) {
+    errEl.textContent = e.message; errEl.classList.remove('hidden');
+    document.getElementById('runStatusBar').classList.add('hidden');
+    btn.disabled = false;
+  }
+}
+
+function pollStatus() {
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(async () => {
+    if (!currentTaskId) return;
     try {
-      const r = await fetch(`${API}/agent/${taskId}/status`, {headers: hdrs()});
+      const r = await fetch(`${API}/agent/${currentTaskId}/status`, {headers:hdrs()});
       if (!r.ok) return;
       const t = await r.json();
-      // Render new steps
-      while (lastStep < (t.steps||[]).length) {
-        addStep(t.steps[lastStep]); lastStep++;
-      }
+      renderSteps(t.steps || []);
       if (t.status === 'done' || t.status === 'error') {
-        clearInterval(interval);
+        clearInterval(pollInterval);
         document.getElementById('runBtn').disabled = false;
-        document.getElementById('runBtn').textContent = 'Запустить (50 CH)';
         document.getElementById('runStatusBar').classList.add('hidden');
         if (t.result) {
           document.getElementById('resultContent').textContent = t.result;
           document.getElementById('resultCard').classList.remove('hidden');
         }
+        document.getElementById('statusTitle').textContent = t.status === 'done' ? 'Готово!' : 'Ошибка';
       }
     } catch {}
   }, 1500);
 }
 
-function addStep(step) {
-  const tl = document.getElementById('stepsTimeline');
-  const el = document.createElement('div');
-  el.className = 'flex items-start gap-3 py-2';
-  const dotColor = step.type === 'error' ? 'bg-error/20 text-error' : step.type === 'result' ? 'bg-primary/20 text-primary' : 'bg-surface3 text-on-dim';
-  el.innerHTML = `<div class="step-dot-sm ${dotColor} flex-shrink-0">${step.type==='thinking'?'💭':step.type==='tool'?'🔧':step.type==='result'?'✅':'⚙️'}</div>
-    <div class="flex-1 min-w-0">
-      <p class="text-xs text-on-dim leading-relaxed">${esc(step.content||step.action||'...')}</p>
+function renderSteps(steps) {
+  const el = document.getElementById('stepsTimeline');
+  if (!steps.length) return;
+  el.innerHTML = steps.map(s => {
+    const icon = s.action === 'finish' ? '✅' : s.action === 'compact' ? '💾' : '⚙️';
+    const bg   = s.action === 'finish' ? 'bg-green-500/20' : 'bg-surface3';
+    return `<div class="step-row">
+      <div class="step-dot ${bg} text-sm">${icon}</div>
+      <div class="flex-1 min-w-0 py-0.5">
+        <p class="text-xs font-semibold truncate">${esc(s.action)}${s.params?.query?' · '+esc(s.params.query.substring(0,40)):''}</p>
+        <p class="text-[11px] text-on-dim truncate">${esc(String(s.observation||'').substring(0,100))}</p>
+      </div>
     </div>`;
-  tl.appendChild(el);
-  tl.scrollTop = tl.scrollHeight;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
 }
 
 function stopAgent() {
+  if (pollInterval) clearInterval(pollInterval);
   currentTaskId = null;
-  document.getElementById('runStatusBar').classList.add('hidden');
   document.getElementById('runBtn').disabled = false;
-  document.getElementById('runBtn').textContent = 'Запустить (50 CH)';
+  document.getElementById('runStatusBar').classList.add('hidden');
 }
 
 function clearSteps() {
-  document.getElementById('stepsTimeline').innerHTML = '<p class="text-on-dim/40 text-sm text-center py-8">Запустите задачу — шаги появятся здесь</p>';
+  document.getElementById('stepsTimeline').innerHTML =
+    '<p class="text-on-dim/40 text-sm text-center py-8">Запустите задачу — шаги появятся здесь</p>';
   document.getElementById('resultCard').classList.add('hidden');
 }
 
 function copyResult() {
-  navigator.clipboard.writeText(document.getElementById('resultContent').textContent);
-  const btn = event.target.closest('button');
-  const orig = btn.textContent; btn.textContent = 'Скопировано!';
-  setTimeout(() => btn.textContent = orig, 2000);
+  navigator.clipboard.writeText(document.getElementById('resultContent').textContent).catch(()=>{});
 }
-
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-document.getElementById('agentModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeAgentModal(); });
 </script>
 </body>
 </html>
