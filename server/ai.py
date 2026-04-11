@@ -584,48 +584,18 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
     for key in keys:
         try:
             if base_url:
-                # Force streaming — SSE parser handles thinking blocks correctly
-                r = httpx.post(
-                    f"{base_url.rstrip('/')}/v1/messages",
-                    json={"model": model, "max_tokens": 8192, "stream": True,
-                          "system": system if isinstance(system, str) else "Ты полезный ассистент.",
-                          "messages": claude_msgs},
-                    headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
-                    timeout=120
+                import anthropic as _ant
+                client = _ant.Anthropic(api_key=key, base_url=base_url)
+                resp = client.messages.create(
+                    model=model, max_tokens=8192,
+                    system=system if isinstance(system, str) else "Ты полезный ассистент.",
+                    messages=claude_msgs,
                 )
-                log.info(f"[Anthropic] status={r.status_code} content-type={r.headers.get('content-type','')}")
-                text_parts = []
-                for line in r.text.split("\n"):
-                    if line.startswith("data: "):
-                        try:
-                            d = json.loads(line[6:])
-                            if d.get("type") == "content_block_start":
-                                block = d.get("content_block", {})
-                                if block.get("type") == "text":
-                                    text_parts.append(block.get("text", ""))
-                            elif d.get("type") == "content_block_delta":
-                                delta = d.get("delta", {})
-                                if delta.get("type") == "text_delta":
-                                    text_parts.append(delta.get("text", ""))
-                        except:
-                            pass
+                log.info(f"[Anthropic] proxy OK model={model}")
+                text_parts = [b.text for b in resp.content if hasattr(b, "text")]
                 if text_parts:
-                    return {"type":"text","content":"".join(text_parts)}
-                # Fallback: maybe proxy returned JSON despite stream=true
-                try:
-                    data = r.json()
-                    blocks = data.get("content", [])
-                    text_block = next((b for b in blocks if b.get("type") == "text"), None)
-                    if text_block:
-                        return {"type":"text","content":text_block["text"]}
-                    for b in blocks:
-                        if b.get("text"):
-                            return {"type":"text","content":b["text"]}
-                    err = data.get("error")
-                    err_msg = (err.get("message") if isinstance(err, dict) else str(err)) if err else str(data)
-                    raise RuntimeError(err_msg[:300])
-                except Exception:
-                    raise RuntimeError(f"Пустой ответ от прокси: {r.text[:200]}")
+                    return {"type": "text", "content": "".join(text_parts)}
+                raise RuntimeError(f"Нет текста в ответе: {resp.content}")
             else:
                 import anthropic as _ant
                 resp = _ant.Anthropic(api_key=key).messages.create(
