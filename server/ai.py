@@ -584,18 +584,30 @@ def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
     for key in keys:
         try:
             if base_url:
-                import anthropic as _ant
-                client = _ant.Anthropic(api_key=key, base_url=base_url)
-                resp = client.messages.create(
-                    model=model, max_tokens=8192,
-                    system=system if isinstance(system, str) else "Ты полезный ассистент.",
-                    messages=claude_msgs,
-                )
-                log.info(f"[Anthropic] proxy OK model={model}")
-                text_parts = [b.text for b in resp.content if hasattr(b, "text")]
+                text_parts = []
+                with httpx.stream(
+                    "POST",
+                    f"{base_url.rstrip('/')}/v1/messages",
+                    json={"model": model, "max_tokens": 8192, "stream": True,
+                          "system": system if isinstance(system, str) else "Ты полезный ассистент.",
+                          "messages": claude_msgs},
+                    headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+                    timeout=180,
+                ) as r:
+                    for line in r.iter_lines():
+                        if line.startswith("data: "):
+                            try:
+                                d = json.loads(line[6:])
+                                if d.get("type") == "content_block_delta":
+                                    delta = d.get("delta", {})
+                                    if delta.get("type") == "text_delta":
+                                        text_parts.append(delta.get("text", ""))
+                            except Exception:
+                                pass
+                log.info(f"[Anthropic] proxy OK model={model} chars={sum(len(p) for p in text_parts)}")
                 if text_parts:
                     return {"type": "text", "content": "".join(text_parts)}
-                raise RuntimeError(f"Нет текста в ответе: {resp.content}")
+                raise RuntimeError("Пустой текстовый ответ от прокси")
             else:
                 import anthropic as _ant
                 resp = _ant.Anthropic(api_key=key).messages.create(
