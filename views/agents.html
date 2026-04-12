@@ -72,6 +72,22 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 /* Steps timeline */
 .step-row{display:flex;gap:12px;align-items:flex-start}
 .step-dot{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px}
+
+/* Library */
+.lib-card{background:#1e1a14;border:1.5px solid rgba(74,63,47,.25);border-radius:16px;padding:20px;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;gap:12px}
+.lib-card:hover{border-color:rgba(255,140,66,.5);background:#272018;transform:translateY(-1px)}
+.price-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700}
+.price-svc{background:rgba(255,140,66,.12);color:#ff8c42;border:1px solid rgba(255,140,66,.3)}
+.price-own{background:rgba(107,255,158,.1);color:#6bff9e;border:1px solid rgba(107,255,158,.3)}
+
+/* API mode toggle */
+.api-toggle{border:1.5px solid rgba(74,63,47,.4);border-radius:12px;overflow:hidden;display:flex}
+.api-opt{flex:1;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;text-align:center;border:none;background:transparent}
+.api-opt.active{background:rgba(255,140,66,.1);color:#ff8c42}
+.api-opt:not(.active){color:#a89880}
+
+/* Keys modal */
+.key-row{background:#272018;border:1px solid rgba(74,63,47,.3);border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:12px}
 </style>
 </head>
 <body class="dark">
@@ -94,14 +110,29 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   </div>
 
   <!-- Main tabs -->
-  <div class="border-b border-outline/20 mb-6 flex gap-0">
-    <button class="main-tab active" id="tab-my" onclick="switchTab('my')">Мои агенты</button>
-    <button class="main-tab" id="tab-catalog" onclick="switchTab('catalog')">Каталог блоков</button>
-    <button class="main-tab" id="tab-run" onclick="switchTab('run')">Запустить задачу</button>
+  <div class="border-b border-outline/20 mb-6 flex gap-0 items-center justify-between">
+    <div class="flex">
+      <button class="main-tab active" id="tab-library" onclick="switchTab('library')">Библиотека агентов</button>
+      <button class="main-tab" id="tab-my" onclick="switchTab('my')">Мои агенты</button>
+      <button class="main-tab" id="tab-catalog" onclick="switchTab('catalog')">Конструктор</button>
+      <button class="main-tab" id="tab-run" onclick="switchTab('run')">Запустить</button>
+    </div>
+    <button onclick="openKeysModal()" class="btn-g text-xs flex items-center gap-1.5 mr-1">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+      Мои API ключи
+    </button>
+  </div>
+
+  <!-- ── Tab: Библиотека ── -->
+  <div id="pane-library" class="tab-pane active">
+    <div class="max-w-6xl">
+      <div class="flex flex-wrap gap-2 mb-6" id="libCatFilter"></div>
+      <div id="libGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </div>
   </div>
 
   <!-- ── Tab: Мои агенты ── -->
-  <div id="pane-my" class="tab-pane active">
+  <div id="pane-my" class="tab-pane">
     <div id="agentsList" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl"></div>
     <div id="agentsEmpty" class="hidden text-center py-24">
       <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
@@ -139,16 +170,39 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <div class="lg:col-span-2 space-y-4">
         <div class="card p-5 space-y-4">
           <p class="font-headline font-bold text-sm">Задача агенту</p>
-          <textarea id="goalInput" rows="5" class="inp resize-none text-sm leading-relaxed" placeholder="Например: Найди топ-5 новостей об ИИ за сегодня и напиши краткую сводку"></textarea>
+          <textarea id="goalInput" rows="4" class="inp resize-none text-sm leading-relaxed" placeholder="Например: Найди топ-5 новостей об ИИ за сегодня и напиши краткую сводку"></textarea>
           <div>
             <label class="block text-xs text-on-dim mb-1.5">Агент</label>
             <select id="agentSelect" class="inp">
               <option value="">Автоматически (оркестратор решит)</option>
             </select>
           </div>
+
+          <!-- API mode -->
+          <div>
+            <label class="block text-xs text-on-dim mb-2">Режим API</label>
+            <div class="api-toggle">
+              <button class="api-opt active" id="apiOptSvc" onclick="setApiMode('service')">
+                🔧 Сервисный — <span class="text-primary">50 CH</span>
+              </button>
+              <button class="api-opt" id="apiOptOwn" onclick="setApiMode('own')">
+                🔑 Свой ключ — <span class="text-green-400">5 CH</span>
+              </button>
+            </div>
+            <div id="ownKeySection" class="hidden mt-3 space-y-2">
+              <select id="ownKeyProvider" class="inp text-sm" onchange="refreshOwnKeyStatus()">
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="openai">OpenAI (GPT)</option>
+                <option value="gemini">Google (Gemini)</option>
+                <option value="grok">xAI (Grok)</option>
+              </select>
+              <div id="ownKeyStatus" class="text-xs text-on-dim"></div>
+            </div>
+          </div>
+
           <button id="runBtn" onclick="runAgent()" class="btn-p w-full justify-center">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            Запустить (50 CH)
+            <span id="runBtnLabel">Запустить (50 CH)</span>
           </button>
           <p id="runError" class="text-error text-xs hidden text-center"></p>
         </div>
@@ -188,6 +242,90 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       </div>
     </div>
   </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     LAUNCH MODAL (быстрый запуск из библиотеки)
+════════════════════════════════════════════════════════════ -->
+<div id="launchModal" class="modal-bg">
+<div class="wiz-box my-auto max-w-lg w-full">
+  <div class="px-6 pt-5 pb-4 border-b border-outline/15 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center" id="launchIcon"></div>
+      <div>
+        <p class="font-headline font-bold" id="launchName">Агент</p>
+        <p class="text-xs text-on-dim" id="launchCat"></p>
+      </div>
+    </div>
+    <button onclick="closeLaunchModal()" class="text-on-dim hover:text-primary transition">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+    </button>
+  </div>
+  <div class="p-6 space-y-4">
+    <div>
+      <label class="block text-xs text-on-dim mb-2">Задача</label>
+      <textarea id="launchGoal" rows="3" class="inp text-sm resize-none" id="launchGoal"
+        placeholder="Опишите что нужно сделать..."></textarea>
+    </div>
+    <div>
+      <label class="block text-xs text-on-dim mb-2">Режим API</label>
+      <div class="api-toggle">
+        <button class="api-opt active" id="launchApiSvc" onclick="setLaunchApiMode('service')">
+          🔧 Сервисный — <span class="text-primary">50 CH</span>
+        </button>
+        <button class="api-opt" id="launchApiOwn" onclick="setLaunchApiMode('own')">
+          🔑 Свой ключ — <span class="text-green-400">5 CH</span>
+        </button>
+      </div>
+      <div id="launchOwnKeySection" class="hidden mt-3 space-y-2">
+        <select id="launchOwnProvider" class="inp text-sm" onchange="refreshLaunchKeyStatus()">
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="openai">OpenAI (GPT)</option>
+          <option value="gemini">Google (Gemini)</option>
+          <option value="grok">xAI (Grok)</option>
+        </select>
+        <div id="launchKeyStatus" class="text-xs"></div>
+      </div>
+    </div>
+    <div id="launchConfigFields" class="space-y-3"></div>
+    <button id="launchRunBtn" onclick="launchAgent()" class="btn-p w-full justify-center">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <span id="launchRunLabel">Запустить (50 CH)</span>
+    </button>
+    <p id="launchError" class="text-error text-xs hidden text-center"></p>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     KEYS MODAL
+════════════════════════════════════════════════════════════ -->
+<div id="keysModal" class="modal-bg">
+<div class="wiz-box my-auto max-w-lg w-full">
+  <div class="px-6 pt-5 pb-4 border-b border-outline/15 flex items-center justify-between">
+    <p class="font-headline font-bold">Мои API ключи</p>
+    <button onclick="closeKeysModal()" class="text-on-dim hover:text-primary transition">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+    </button>
+  </div>
+  <div class="p-6 space-y-4">
+    <p class="text-sm text-on-dim leading-relaxed">Добавьте собственные API-ключи. Запуск агентов будет стоить <span class="text-green-400 font-bold">5 CH</span> вместо 50 CH — вы платите только платформенный сбор, AI-токены списываются с вашего ключа напрямую.</p>
+    <div id="keysList" class="space-y-2"></div>
+    <div class="border border-outline/20 rounded-xl p-4 space-y-3">
+      <p class="text-xs font-bold text-on-dim uppercase tracking-wider">Добавить ключ</p>
+      <select id="newKeyProvider" class="inp text-sm">
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="openai">OpenAI (GPT)</option>
+        <option value="gemini">Google (Gemini)</option>
+        <option value="grok">xAI (Grok)</option>
+      </select>
+      <input id="newKeyValue" type="password" class="inp text-sm" placeholder="sk-ant-... / sk-... / AIza..."/>
+      <input id="newKeyLabel" type="text" class="inp text-sm" placeholder="Название (необязательно)"/>
+      <button onclick="addUserKey()" class="btn-p text-sm">Сохранить ключ</button>
+      <p id="keysError" class="text-error text-xs hidden"></p>
+    </div>
+  </div>
+</div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
@@ -657,8 +795,10 @@ let wizData = {
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   if (!authToken) { window.location.href = 'index.html'; return; }
+  buildLibrary();
   buildCatalog();
   buildPresets();
+  await loadUserKeys();
   await loadAgents();
 });
 
@@ -1223,6 +1363,309 @@ function clearSteps() {
 function copyResult() {
   navigator.clipboard.writeText(document.getElementById('resultContent').textContent).catch(()=>{});
 }
+
+// ── switchTab patch: add 'library' ─────────────────────────────────────────────
+const _origSwitchTab = switchTab;
+switchTab = function(tab) {
+  ['library','my','catalog','run'].forEach(t => {
+    const pane = document.getElementById(`pane-${t}`);
+    const tabEl = document.getElementById(`tab-${t}`);
+    if (pane) pane.classList.toggle('active', t === tab);
+    if (pane) pane.style.display = t === tab ? '' : 'none';
+    if (tabEl) tabEl.classList.toggle('active', t === tab);
+  });
+  if (tab === 'catalog') buildCatalog();
+};
+
+// ── Library ───────────────────────────────────────────────────────────────────
+let libCatActive = 'all';
+
+const CAT_LABELS = {
+  'Тендеры': '📋', 'Стройка': '🏗️', 'Юридика': '⚖️', 'Финансы': '💰',
+  'HR': '👥', 'Маркетинг': '📣', 'Продажи': '💼', 'IT': '🤖',
+  'Аналитика': '📊', 'Контент': '✍️',
+};
+
+function buildLibrary() {
+  const cats = ['all', ...new Set(AGENT_BLOCKS.map(b => b.cat))];
+  document.getElementById('libCatFilter').innerHTML = cats.map(c => `
+    <button class="cat-btn${c==='all'?' active':''}" onclick="filterLibrary('${esc(c)}',this)">
+      ${c==='all' ? '🔥 Все' : (CAT_LABELS[c]||'') + ' ' + c}
+    </button>`).join('');
+  renderLibrary('all');
+}
+
+function filterLibrary(cat, btn) {
+  libCatActive = cat;
+  document.querySelectorAll('#libCatFilter .cat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderLibrary(cat);
+}
+
+function renderLibrary(cat) {
+  const blocks = cat === 'all' ? AGENT_BLOCKS : AGENT_BLOCKS.filter(b => b.cat === cat);
+  document.getElementById('libGrid').innerHTML = blocks.map(b => `
+    <div class="lib-card" onclick="openLaunchModal('${b.id}')">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+            ${svgIcon(b.icon, 18, '#ff8c42')}
+          </div>
+          <div>
+            <p class="font-headline font-bold text-sm">${esc(b.name)}</p>
+            <span class="text-[10px] bg-surface3 text-on-dim px-2 py-0.5 rounded-full">${esc(b.cat)}</span>
+          </div>
+        </div>
+        <div class="flex flex-col gap-1 items-end flex-shrink-0">
+          <span class="price-badge price-svc">50 CH</span>
+          <span class="price-badge price-own">5 CH 🔑</span>
+        </div>
+      </div>
+      <p class="text-xs text-on-dim leading-relaxed">${esc(b.desc)}</p>
+      <button class="btn-p text-xs py-2 w-full justify-center mt-auto" onclick="event.stopPropagation();openLaunchModal('${b.id}')">
+        Запустить
+      </button>
+    </div>`).join('');
+}
+
+// ── Launch Modal ──────────────────────────────────────────────────────────────
+let launchBlockId = null;
+let launchApiMode = 'service';
+
+function openLaunchModal(blockId) {
+  const block = AGENT_BLOCKS.find(b => b.id === blockId);
+  if (!block) return;
+  launchBlockId = blockId;
+  launchApiMode = 'service';
+
+  document.getElementById('launchIcon').innerHTML = svgIcon(block.icon, 18, '#ff8c42');
+  document.getElementById('launchName').textContent = block.name;
+  document.getElementById('launchCat').textContent = block.cat;
+  document.getElementById('launchGoal').value = '';
+  document.getElementById('launchError').classList.add('hidden');
+
+  setLaunchApiMode('service');
+
+  // Config fields
+  const cfg = document.getElementById('launchConfigFields');
+  if (block.configFields?.length) {
+    cfg.innerHTML = `<p class="text-xs font-bold text-on-dim uppercase tracking-wider">Настройка агента</p>` +
+      block.configFields.map(f => `
+        <div>
+          <label class="block text-xs text-on-dim mb-1">${esc(f.label)}</label>
+          ${f.type === 'textarea'
+            ? `<textarea id="lcf_${f.key}" rows="2" class="inp text-sm resize-none" placeholder="${esc(f.placeholder||'')}"></textarea>`
+            : f.type === 'select'
+            ? `<select id="lcf_${f.key}" class="inp text-sm">${(f.options||[]).map(o=>`<option>${esc(o)}</option>`).join('')}</select>`
+            : `<input id="lcf_${f.key}" type="${f.type||'text'}" class="inp text-sm" placeholder="${esc(f.placeholder||'')}"/>`
+          }
+        </div>`).join('');
+  } else {
+    cfg.innerHTML = '';
+  }
+
+  document.getElementById('launchModal').classList.add('show');
+  refreshLaunchKeyStatus();
+}
+
+function closeLaunchModal() {
+  document.getElementById('launchModal').classList.remove('show');
+}
+
+function setLaunchApiMode(mode) {
+  launchApiMode = mode;
+  document.getElementById('launchApiSvc').classList.toggle('active', mode === 'service');
+  document.getElementById('launchApiOwn').classList.toggle('active', mode === 'own');
+  document.getElementById('launchOwnKeySection').classList.toggle('hidden', mode === 'service');
+  document.getElementById('launchRunLabel').textContent = mode === 'service' ? 'Запустить (50 CH)' : 'Запустить (5 CH)';
+  refreshLaunchKeyStatus();
+}
+
+function refreshLaunchKeyStatus() {
+  const provider = document.getElementById('launchOwnProvider')?.value;
+  const el = document.getElementById('launchKeyStatus');
+  if (!el || launchApiMode !== 'own') return;
+  const saved = (userKeys || []).find(k => k.provider === provider);
+  el.innerHTML = saved
+    ? `<span class="text-green-400">✓ Ключ сохранён: ${esc(saved.key_preview)}</span>`
+    : `<span class="text-yellow-400">⚠ Ключ не найден — <button class="underline" onclick="openKeysModal()">добавить</button></span>`;
+}
+
+async function launchAgent() {
+  const goal = document.getElementById('launchGoal').value.trim();
+  if (!goal) { document.getElementById('launchGoal').focus(); return; }
+
+  const block = AGENT_BLOCKS.find(b => b.id === launchBlockId);
+  const errEl = document.getElementById('launchError');
+  errEl.classList.add('hidden');
+
+  // Collect config fields
+  const blockConfigs = {};
+  if (block?.configFields?.length) {
+    const cfg = {};
+    block.configFields.forEach(f => {
+      const el = document.getElementById('lcf_' + f.key);
+      if (el) cfg[f.key] = el.value;
+    });
+    blockConfigs[launchBlockId] = cfg;
+  }
+
+  const btn = document.getElementById('launchRunBtn');
+  btn.disabled = true;
+
+  try {
+    const body = {
+      goal,
+      api_mode: launchApiMode,
+      provider: document.getElementById('launchOwnProvider')?.value || 'anthropic',
+      context: { block_configs: blockConfigs, agent_block: launchBlockId },
+    };
+    const r = await fetch(`${API}/agent/run`, { method:'POST', headers:hdrs(), body:JSON.stringify(body) });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Ошибка'); }
+    const data = await r.json();
+    currentTaskId = data.task_id;
+    closeLaunchModal();
+    switchTab('run');
+    document.getElementById('statusGoal').textContent = goal.substring(0, 80);
+    document.getElementById('runStatusBar').classList.remove('hidden');
+    document.getElementById('stepsTimeline').innerHTML = '';
+    document.getElementById('resultCard').classList.add('hidden');
+    pollStatus();
+  } catch(e) {
+    errEl.textContent = e.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── API mode in Run tab ───────────────────────────────────────────────────────
+let runApiMode = 'service';
+
+function setApiMode(mode) {
+  runApiMode = mode;
+  document.getElementById('apiOptSvc').classList.toggle('active', mode === 'service');
+  document.getElementById('apiOptOwn').classList.toggle('active', mode === 'own');
+  document.getElementById('ownKeySection').classList.toggle('hidden', mode === 'service');
+  document.getElementById('runBtnLabel').textContent = mode === 'service' ? 'Запустить (50 CH)' : 'Запустить (5 CH)';
+  refreshOwnKeyStatus();
+}
+
+function refreshOwnKeyStatus() {
+  const provider = document.getElementById('ownKeyProvider')?.value;
+  const el = document.getElementById('ownKeyStatus');
+  if (!el) return;
+  const saved = (userKeys || []).find(k => k.provider === provider);
+  el.innerHTML = saved
+    ? `<span class="text-green-400">✓ Ключ сохранён: ${esc(saved.key_preview)}</span>`
+    : `<span class="text-yellow-400">⚠ Ключ не найден — <button class="underline" onclick="openKeysModal()">добавить</button></span>`;
+}
+
+// ── User API Keys ──────────────────────────────────────────────────────────────
+let userKeys = [];
+
+async function loadUserKeys() {
+  try {
+    const r = await fetch(`${API}/user/api-keys`, { headers: hdrs() });
+    if (r.ok) userKeys = await r.json();
+  } catch { userKeys = []; }
+}
+
+function openKeysModal() {
+  renderKeysList();
+  document.getElementById('keysModal').classList.add('show');
+}
+
+function closeKeysModal() {
+  document.getElementById('keysModal').classList.remove('show');
+}
+
+function renderKeysList() {
+  const el = document.getElementById('keysList');
+  if (!userKeys.length) {
+    el.innerHTML = '<p class="text-xs text-on-dim text-center py-2">Ключей пока нет</p>';
+    return;
+  }
+  const providerNames = { anthropic:'Anthropic', openai:'OpenAI', gemini:'Gemini', grok:'xAI Grok' };
+  el.innerHTML = userKeys.map(k => `
+    <div class="key-row">
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-semibold">${providerNames[k.provider] || k.provider}${k.label ? ' — '+esc(k.label) : ''}</p>
+        <p class="text-xs text-on-dim font-mono">${esc(k.key_preview)}</p>
+      </div>
+      <button onclick="deleteUserKey(${k.id})" class="text-error/50 hover:text-error transition p-1">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+      </button>
+    </div>`).join('');
+}
+
+async function addUserKey() {
+  const provider = document.getElementById('newKeyProvider').value;
+  const api_key  = document.getElementById('newKeyValue').value.trim();
+  const label    = document.getElementById('newKeyLabel').value.trim();
+  const errEl    = document.getElementById('keysError');
+  if (!api_key) { errEl.textContent = 'Введите ключ'; errEl.classList.remove('hidden'); return; }
+  errEl.classList.add('hidden');
+  try {
+    const r = await fetch(`${API}/user/api-keys`, {
+      method:'POST', headers:hdrs(), body:JSON.stringify({ provider, api_key, label })
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
+    document.getElementById('newKeyValue').value = '';
+    document.getElementById('newKeyLabel').value = '';
+    await loadUserKeys();
+    renderKeysList();
+    refreshOwnKeyStatus();
+    refreshLaunchKeyStatus();
+  } catch(e) {
+    errEl.textContent = e.message; errEl.classList.remove('hidden');
+  }
+}
+
+async function deleteUserKey(id) {
+  if (!confirm('Удалить ключ?')) return;
+  await fetch(`${API}/user/api-keys/${id}`, { method:'DELETE', headers:hdrs() });
+  await loadUserKeys();
+  renderKeysList();
+}
+
+// ── patch runAgent to use API mode ────────────────────────────────────────────
+const _origRunAgent = runAgent;
+runAgent = async function() {
+  const goal = document.getElementById('goalInput').value.trim();
+  if (!goal) return;
+  const errEl = document.getElementById('runError');
+  errEl.classList.add('hidden');
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  document.getElementById('runStatusBar').classList.remove('hidden');
+  document.getElementById('statusGoal').textContent = goal.substring(0,80);
+  document.getElementById('stepsTimeline').innerHTML = '';
+  document.getElementById('resultCard').classList.add('hidden');
+  try {
+    const selectedAgentId = document.getElementById('agentSelect')?.value;
+    const selectedAgent = myAgents.find(a => a.id == selectedAgentId);
+    const blockConfigs = selectedAgent?.settings?.block_configs || {};
+    const r = await fetch(`${API}/agent/run`, {
+      method:'POST', headers:hdrs(),
+      body: JSON.stringify({
+        goal,
+        api_mode: runApiMode,
+        provider: document.getElementById('ownKeyProvider')?.value || 'anthropic',
+        agent_config_id: selectedAgentId ? parseInt(selectedAgentId) : undefined,
+        context: { block_configs: blockConfigs }
+      })
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.detail||'Ошибка'); }
+    const data = await r.json();
+    currentTaskId = data.task_id;
+    pollStatus();
+  } catch(e) {
+    errEl.textContent = e.message; errEl.classList.remove('hidden');
+    document.getElementById('runStatusBar').classList.add('hidden');
+    btn.disabled = false;
+  }
+};
 </script>
 </body>
 </html>

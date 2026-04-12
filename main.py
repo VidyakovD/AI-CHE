@@ -24,6 +24,7 @@ from server.routes.presentations import router as presentations_router
 from server.routes.agent import router as agent_router, init_agent_queue
 import server.agents.registry  # noqa: F401 — registers all agent types on import
 from server.routes.public import router as public_router, startup_public
+from server.routes.user_apikeys import router as user_apikeys_router
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +60,7 @@ app.include_router(solutions_router)
 app.include_router(sites_router)
 app.include_router(presentations_router)
 app.include_router(agent_router)
+app.include_router(user_apikeys_router)
 app.include_router(public_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────

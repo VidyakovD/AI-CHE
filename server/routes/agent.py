@@ -8,7 +8,7 @@ import asyncio
 import logging
 
 from server.routes.deps import get_db, optional_user
-from server.models import User, Transaction
+from server.models import User, Transaction, UserApiKey
 from server.agent_runner import (
     create_task, submit_task, tasks as agent_tasks,
     init_agent_queue, TOOL_SCHEMAS, subscribe_task,
@@ -20,10 +20,16 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
+AGENT_SERVICE_COST = 50   # CH за запуск с сервисным ключом
+AGENT_OWN_KEY_COST = 5    # CH (платформенный сбор) за запуск с собственным ключом
+
+
 class AgentRunRequest(BaseModel):
     goal: str
-    context: dict | None = None       # vk_token, tg_token, etc.
-    agent_config_id: int | None = None  # load block_configs from saved agent
+    context: dict | None = None
+    agent_config_id: int | None = None
+    api_mode: str = "service"   # "service" | "own"
+    provider: str = "anthropic" # провайдер для своего ключа
 
 
 @router.post("/run")
@@ -32,18 +38,33 @@ async def agent_run(
     user=Depends(optional_user),
     db: Session = Depends(get_db),
 ):
-    """Запустить AI-агента. Стоимость: 50 CH."""
+    """Запустить AI-агента.
+    api_mode=service → 50 CH (сервисный ключ).
+    api_mode=own     →  5 CH (платформенный сбор, ключ пользователя).
+    """
+    user_api_key = None
+    cost = AGENT_SERVICE_COST
+
+    if req.api_mode == "own":
+        if not user:
+            raise HTTPException(401, "Нужна авторизация для использования своего ключа")
+        own = db.query(UserApiKey).filter_by(user_id=user.id, provider=req.provider).first()
+        if not own:
+            raise HTTPException(400, f"Ключ {req.provider} не найден. Добавьте в настройках.")
+        user_api_key = own.api_key
+        cost = AGENT_OWN_KEY_COST
+
     if user:
         if not user.is_verified:
             raise HTTPException(403, "Подтвердите email")
-        # Cost: 50 CH per agent task
         db_user = db.query(User).filter_by(id=user.id).first()
-        if db_user.tokens_balance < 50:
-            raise HTTPException(402, "Недостаточно токенов (нужно минимум 50 CH)")
-        db_user.tokens_balance -= 50
+        if db_user.tokens_balance < cost:
+            raise HTTPException(402, f"Недостаточно токенов (нужно {cost} CH)")
+        db_user.tokens_balance -= cost
+        mode_label = "свой ключ" if req.api_mode == "own" else "сервис"
         db.add(Transaction(
-            user_id=user.id, type="usage", tokens_delta=-50,
-            description=f"ИИ Агент: {req.goal[:50]}", model="agent",
+            user_id=user.id, type="usage", tokens_delta=-cost,
+            description=f"ИИ Агент [{mode_label}]: {req.goal[:50]}", model="agent",
         ))
         db.commit()
 
@@ -64,9 +85,13 @@ async def agent_run(
             except Exception:
                 pass
 
+    if user_api_key:
+        ctx["user_api_key"] = user_api_key
+        ctx["api_provider"] = req.provider
+
     task_id = create_task(user_id=user.id if user else None, goal=req.goal, context=ctx)
     await submit_task(task_id, req.goal, ctx)
-    return {"task_id": task_id, "status": "queued"}
+    return {"task_id": task_id, "status": "queued", "cost": cost, "api_mode": req.api_mode}
 
 
 @router.get("/{task_id}/status")

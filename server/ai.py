@@ -88,8 +88,9 @@ _image_to_base64 = _file_to_base64
 
 # ── OpenAI ────────────────────────────────────────────────────────────────────
 
-def openai_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_get_api_keys("openai"))
+def openai_response(model: str, messages: list, extra: dict = None,
+                    user_key: str = None) -> dict:
+    keys = [user_key] if user_key else _shuffle(_get_api_keys("openai"))
     if not keys:
         _notify_admin("OpenAI: OPENAI_API_KEYS пуст")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
@@ -569,12 +570,16 @@ def _prepare_claude_content(content):
     return [{"type": "text", "text": str(content)}]
 
 
-def anthropic_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_get_api_keys("anthropic"))
+def anthropic_response(model: str, messages: list, extra: dict = None,
+                       user_key: str = None) -> dict:
+    if user_key:
+        keys = [user_key]
+    else:
+        keys = _shuffle(_get_api_keys("anthropic"))
     if not keys:
         _notify_admin("Anthropic: ANTHROPIC_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
-    base_url = os.getenv("ANTHROPIC_BASE_URL")
+    base_url = os.getenv("ANTHROPIC_BASE_URL") if not user_key else None
     system = next((m["content"] for m in messages if m["role"]=="system"), "Ты полезный ассистент.")
     user_msgs = [m for m in messages if m["role"]!="system"]
     # Convert messages to Claude-compatible content blocks
@@ -717,7 +722,13 @@ def resolve_model(model: str):
     return MODEL_REGISTRY.get(model)
 
 
-def generate_response(model: str, messages: list, extra: dict = None) -> dict:
+def generate_response(model: str, messages: list, extra: dict = None,
+                      user_api_key: str = None) -> dict:
+    """Вызов AI-модели.
+
+    user_api_key — если передан, используется вместо сервисного ключа.
+    Прокидывается через extra["_user_key"] в провайдер.
+    """
     cfg = resolve_model(model)
     if not cfg:
         log.error(f"[AI] Модель не найдена: {model}")
@@ -728,21 +739,29 @@ def generate_response(model: str, messages: list, extra: dict = None) -> dict:
         log.error(f"[AI] Провайдер не найден: {cfg['provider']}")
         return {"type": "text", "content": f"Провайдер не найден: {cfg['provider']}"}
 
-    # Проверка ключей перед вызовом (из БД)
-    db_key_map = {"openai": "openai", "anthropic": "anthropic",
-                   "kling": "kling", "grok": "grok",
-                   "gemini": "google", "perplexity": "perplexity"}
-    db_provider = db_key_map.get(cfg["provider"])
-    if db_provider:
-        keys = _get_api_keys(db_provider)
-        log.info(f"[AI] {cfg['provider']}: real_model={cfg['real_model']} db_keys={len(keys)}")
-        if not keys:
-            log.error(f"[AI] {cfg['provider']}: НЕТ ключей в БД!")
+    # Если передан пользовательский ключ — подставляем в env временно через extra
+    if user_api_key:
+        log.info(f"[AI] {cfg['provider']}: используется пользовательский ключ")
+        _extra = dict(extra or {}, _user_key=user_api_key)
+    else:
+        _extra = extra or {}
+        db_key_map = {"openai": "openai", "anthropic": "anthropic",
+                      "kling": "kling", "grok": "grok",
+                      "gemini": "google", "perplexity": "perplexity"}
+        db_provider = db_key_map.get(cfg["provider"])
+        if db_provider:
+            keys = _get_api_keys(db_provider)
+            log.info(f"[AI] {cfg['provider']}: real_model={cfg['real_model']} db_keys={len(keys)}")
+            if not keys:
+                log.error(f"[AI] {cfg['provider']}: НЕТ ключей в БД!")
 
     real = cfg["real_model"]
     try:
         if cfg["provider"] in ("kling", "veo"):
-            return handler(real, messages, extra or {})
+            return handler(real, messages, _extra)
+        # Для провайдеров поддерживающих user_key передаём через extra
+        if user_api_key and cfg["provider"] in ("anthropic", "openai", "gemini", "grok"):
+            return handler(real, messages, user_key=user_api_key)
         return handler(real, messages)
     except Exception as e:
         log.error(f"[AI] Ошибка {cfg['provider']} ({real}): {type(e).__name__}: {e}")

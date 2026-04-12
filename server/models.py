@@ -395,3 +395,17 @@ class AgentConfig(Base):
     updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", backref="agent_configs")
+
+
+class UserApiKey(Base):
+    """Собственные API-ключи пользователя для AI-провайдеров."""
+    __tablename__ = "user_api_keys"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    provider   = Column(String, nullable=False)   # openai | anthropic | gemini | grok
+    api_key    = Column(String, nullable=False)   # ключ пользователя
+    label      = Column(String, nullable=True)    # название (необязательно)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", backref="api_keys_own")

@@ -457,8 +457,9 @@ async def tool_run_llm(params: dict, context: dict) -> str:
     log.info(f"[tool] run_llm: model={model}, prompt[:80]={prompt[:80]}")
     from server.ai import generate_response
     messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+    user_api_key = context.get("user_api_key")
     try:
-        result = generate_response(model, messages)
+        result = generate_response(model, messages, user_api_key=user_api_key)
         return result.get("content", "") if isinstance(result, dict) else str(result)
     except Exception as e:
         return f"Ошибка LLM: {e}"
@@ -622,9 +623,22 @@ async def run_agent(
                 {"role": "system", "content": active_system},
                 {"role": "user",   "content": planner_prompt}
             ]
+            user_api_key = context.get("user_api_key")
+            api_provider = context.get("api_provider", "")
+            if user_api_key and api_provider == "anthropic":
+                planner_model = "claude-sonnet-4-6"
+            elif user_api_key and api_provider == "gemini":
+                planner_model = "gemini-1.5-pro"
+            elif user_api_key and api_provider == "grok":
+                planner_model = "grok-2"
+            elif user_api_key and api_provider == "openai":
+                planner_model = "gpt-4o"
+            else:
+                planner_model = "gpt-4o" if os.getenv("OPENAI_API_KEYS") else "gpt"
             raw      = generate_response(
-                "gpt-4o" if os.getenv("OPENAI_API_KEYS") else "gpt",
-                planner_messages
+                planner_model,
+                planner_messages,
+                user_api_key=user_api_key,
             )
             raw_text = raw.get("content", "") if isinstance(raw, dict) else str(raw)
         except Exception as e:
