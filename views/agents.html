@@ -73,6 +73,20 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .step-row{display:flex;gap:12px;align-items:flex-start}
 .step-dot{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px}
 
+/* Workflow Builder */
+.wf-node{background:#1e1a14;border:2px solid rgba(74,63,47,.35);border-radius:16px;width:172px;flex-shrink:0;cursor:pointer;transition:all .2s;position:relative}
+.wf-node:hover{border-color:rgba(255,140,66,.5);transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.wf-node.wf-selected{border-color:#ff8c42;box-shadow:0 0 0 4px rgba(255,140,66,.15)}
+.wf-node-header{padding:9px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(74,63,47,.25);border-radius:14px 14px 0 0}
+.wf-node-body{padding:11px 13px}
+.wf-arrow{display:flex;align-items:center;flex-shrink:0;padding:0 2px}
+.wf-arrow-line{height:2px;width:32px;background:linear-gradient(90deg,rgba(255,140,66,.4),rgba(255,140,66,.6))}
+.wf-arrow-tip{color:rgba(255,140,66,.7);font-size:11px;margin-left:-2px;line-height:1}
+.wf-add-btn{width:32px;height:32px;border-radius:50%;border:2px dashed rgba(74,63,47,.5);background:transparent;color:#a89880;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+.wf-add-btn:hover{border-color:#ff8c42;color:#ff8c42;background:rgba(255,140,66,.08)}
+.wf-palette-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;border:1px solid rgba(74,63,47,.4);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;background:#272018;color:#a89880}
+.wf-palette-btn:hover{border-color:#ff8c42;color:#f0e6d8;background:#322a1e}
+
 /* Library */
 .lib-card{background:#1e1a14;border:1.5px solid rgba(74,63,47,.25);border-radius:16px;padding:20px;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;gap:12px}
 .lib-card:hover{border-color:rgba(255,140,66,.5);background:#272018;transform:translateY(-1px)}
@@ -144,23 +158,56 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     </div>
   </div>
 
-  <!-- ── Tab: Каталог ── -->
+  <!-- ── Tab: Конструктор (Visual Workflow Builder) ── -->
   <div id="pane-catalog" class="tab-pane">
     <div class="max-w-5xl">
-      <!-- Orchestrator info banner -->
-      <div class="bg-surface2 border border-primary/20 rounded-xl p-4 mb-6 flex gap-4">
-        <div class="w-10 h-10 rounded-xl sig flex items-center justify-center flex-shrink-0">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="#141210"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2zm1 14.93V17a1 1 0 01-2 0v-.07A8.001 8.001 0 014.07 13H4a1 1 0 010-2h.07A8.001 8.001 0 0111 4.07V4a1 1 0 012 0v.07A8.001 8.001 0 0119.93 11H20a1 1 0 010 2h-.07A8.001 8.001 0 0113 16.93z"/></svg>
-        </div>
-        <div>
-          <p class="font-bold text-sm text-primary mb-1">Оркестратор</p>
-          <p class="text-xs text-on-dim leading-relaxed">Центральный компонент системы. Получает запрос → классифицирует задачу → маршрутизирует к нужному блоку → при необходимости запускает задачи параллельно → управляет памятью сессии (AutoCompact / MicroCompact).</p>
+
+      <!-- Toolbar -->
+      <div class="flex items-center gap-3 mb-5">
+        <input id="wfName" class="inp text-sm font-bold max-w-xs" placeholder="Название воркфлоу" value="TG-бот с GPT"/>
+        <div class="flex-1"></div>
+        <button onclick="wfClear()" class="btn-g text-xs">Очистить</button>
+        <button onclick="wfSave()" class="btn-g text-xs flex items-center gap-1.5">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
+          Сохранить
+        </button>
+        <button onclick="wfRun()" class="btn-p text-sm py-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          Запустить
+        </button>
+      </div>
+
+      <!-- Palette -->
+      <div class="mb-5">
+        <p class="text-xs text-on-dim uppercase tracking-wider font-bold mb-2.5">Добавить блок</p>
+        <div class="flex flex-wrap gap-2" id="wfPalette"></div>
+      </div>
+
+      <!-- Canvas -->
+      <div class="card p-5 mb-4 overflow-x-auto">
+        <div id="wfCanvas" class="flex items-center gap-0 min-w-max py-4 px-2 min-h-[120px]"></div>
+        <div id="wfEmpty" class="hidden py-8 text-center text-on-dim/50">
+          <p class="text-3xl mb-2">🔧</p>
+          <p class="text-sm">Добавьте блоки из палитры выше</p>
         </div>
       </div>
-      <!-- Category filter -->
-      <div class="flex flex-wrap gap-2 mb-5" id="catFilter"></div>
-      <!-- Blocks grid -->
-      <div id="catalogGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+
+      <!-- Node config panel -->
+      <div id="wfConfigPanel" class="hidden card p-5">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2.5">
+            <div id="wfConfigIcon" class="w-8 h-8 rounded-lg flex items-center justify-center"></div>
+            <p class="font-headline font-bold" id="wfConfigTitle">Настройка блока</p>
+          </div>
+          <button onclick="wfDeselectNode()" class="text-on-dim hover:text-primary transition p-1">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+        <div id="wfConfigFields" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+      </div>
+
+      <p id="wfError"   class="text-error text-xs hidden mt-3 text-center"></p>
+      <p id="wfSuccess" class="text-green-400 text-xs hidden mt-3 text-center"></p>
     </div>
   </div>
 
@@ -796,7 +843,8 @@ let wizData = {
 document.addEventListener('DOMContentLoaded', async () => {
   if (!authToken) { window.location.href = 'index.html'; return; }
   buildLibrary();
-  buildCatalog();
+  buildWfPalette();
+  renderWorkflow();
   buildPresets();
   await loadUserKeys();
   await loadAgents();
@@ -1374,7 +1422,7 @@ switchTab = function(tab) {
     if (pane) pane.style.display = t === tab ? '' : 'none';
     if (tabEl) tabEl.classList.toggle('active', t === tab);
   });
-  if (tab === 'catalog') buildCatalog();
+  // catalog = visual builder, no rebuild needed
 };
 
 // ── Library ───────────────────────────────────────────────────────────────────
@@ -1627,6 +1675,283 @@ async function deleteUserKey(id) {
   await fetch(`${API}/user/api-keys/${id}`, { method:'DELETE', headers:hdrs() });
   await loadUserKeys();
   renderKeysList();
+}
+
+// ── VISUAL WORKFLOW BUILDER ───────────────────────────────────────────────────
+
+const WF_NODE_TYPES = {
+  // Triggers
+  trigger_manual:  { cat:'trigger',  label:'Ручной запуск', icon:'play_arrow', color:'#ff8c42',
+    fields:[] },
+  trigger_tg:      { cat:'trigger',  label:'Telegram',      icon:'send',       color:'#29b6f6',
+    fields:[
+      {key:'tg_token',   label:'Bot Token', type:'password', placeholder:'1234567890:AAF...'},
+      {key:'tg_chat_id', label:'Chat ID',   type:'text',     placeholder:'-1001234567890'},
+    ]},
+  trigger_webhook: { cat:'trigger',  label:'Webhook',       icon:'bolt',       color:'#ab47bc',
+    fields:[{key:'path', label:'URL путь', type:'text', placeholder:'/webhook/my-agent'}]},
+  // Processors
+  prompt: { cat:'process', label:'Инструкция',  icon:'edit_note',  color:'#66bb6a',
+    fields:[{key:'system', label:'Системный промпт', type:'textarea',
+             placeholder:'Ты полезный ассистент. Отвечай кратко и по делу...'}]},
+  llm:    { cat:'process', label:'AI Модель',   icon:'psychology', color:'#ffa726',
+    fields:[
+      {key:'model',       label:'Модель',       type:'select',
+       options:['gpt-4o','gpt-4o-mini','claude-sonnet-4-6','gemini-1.5-pro','grok-2']},
+      {key:'temperature', label:'Температура',  type:'select', options:['0.3','0.7','1.0']},
+    ]},
+  condition: { cat:'process', label:'Условие', icon:'call_split', color:'#78909c',
+    fields:[{key:'check', label:'Если ответ содержит', type:'text', placeholder:'да, подтверждаю'}]},
+  // Outputs
+  output_tg:   { cat:'output', label:'Ответить в TG', icon:'send', color:'#29b6f6',
+    fields:[
+      {key:'tg_token',   label:'Bot Token (если другой)', type:'password', placeholder:'оставьте пустым — берёт из триггера'},
+      {key:'tg_chat_id', label:'Chat ID   (если другой)', type:'text',     placeholder:'оставьте пустым — берёт из триггера'},
+    ]},
+  output_save: { cat:'output', label:'Сохранить',   icon:'save',  color:'#66bb6a', fields:[] },
+  output_hook: { cat:'output', label:'POST Webhook', icon:'bolt',  color:'#ab47bc',
+    fields:[{key:'url', label:'URL', type:'text', placeholder:'https://...'}]},
+};
+
+const WF_CAT_META = {
+  trigger: {label:'Триггер',    bg:'rgba(255,140,66,.10)'},
+  process: {label:'Обработка',  bg:'rgba(107,255,158,.08)'},
+  output:  {label:'Вывод',      bg:'rgba(41,182,246,.10)'},
+};
+
+// Default workflow: TG → Инструкция → GPT-4o → Ответ в TG
+let wfNodes = [
+  {id:'wn1', type:'trigger_tg',     config:{}},
+  {id:'wn2', type:'prompt',         config:{system:'Ты полезный ассистент. Отвечай кратко и по делу на русском языке.'}},
+  {id:'wn3', type:'llm',            config:{model:'gpt-4o', temperature:'0.7'}},
+  {id:'wn4', type:'output_tg',      config:{}},
+];
+let wfSelected   = null;
+let wfNodeCtr    = 5;
+
+// Build the top palette of node type buttons
+function buildWfPalette() {
+  const el = document.getElementById('wfPalette');
+  if (!el) return;
+  const cats = ['trigger','process','output'];
+  el.innerHTML = cats.map(cat => {
+    const types = Object.entries(WF_NODE_TYPES).filter(([,v]) => v.cat === cat);
+    const meta  = WF_CAT_META[cat];
+    return `<div class="flex items-center flex-wrap gap-1.5">
+      <span class="text-[10px] text-on-dim uppercase tracking-wider font-bold mr-0.5">${meta.label}</span>
+      ${types.map(([id, t]) => `
+        <button class="wf-palette-btn" onclick="wfAddNode('${id}')"
+          title="Добавить блок «${t.label}»" style="background:${meta.bg}">
+          ${svgIcon(t.icon, 12, t.color)}
+          <span style="color:${t.color}">${t.label}</span>
+        </button>`).join('')}
+      <span class="w-px h-5 bg-outline/30 mx-1"></span>
+    </div>`;
+  }).join('');
+}
+
+// Render the pipeline canvas
+function renderWorkflow() {
+  const canvas = document.getElementById('wfCanvas');
+  const empty  = document.getElementById('wfEmpty');
+  if (!canvas) return;
+  if (!wfNodes.length) {
+    canvas.innerHTML = '';
+    canvas.classList.add('hidden');
+    empty?.classList.remove('hidden');
+    return;
+  }
+  canvas.classList.remove('hidden');
+  empty?.classList.add('hidden');
+
+  canvas.innerHTML = wfNodes.map((node, i) => {
+    const t   = WF_NODE_TYPES[node.type];
+    if (!t) return '';
+    const sel = wfSelected === node.id;
+    const sum = wfNodeSummary(node, t);
+    const catMeta = WF_CAT_META[t.cat];
+    return `
+      <div class="wf-node${sel?' wf-selected':''}" id="wfnode-${node.id}"
+           onclick="wfSelectNode('${node.id}')">
+        <div class="wf-node-header" style="background:${catMeta.bg}">
+          <div class="flex items-center gap-1.5">
+            ${svgIcon(t.icon, 13, t.color)}
+            <span class="text-[10px] font-bold uppercase tracking-wider" style="color:${t.color}">${catMeta.label}</span>
+          </div>
+          <button onclick="event.stopPropagation();wfRemoveNode('${node.id}')"
+            class="text-error/30 hover:text-error transition rounded p-0.5 -mr-0.5"
+            title="Удалить блок">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+            </svg>
+          </button>
+        </div>
+        <div class="wf-node-body">
+          <p class="font-headline font-bold text-sm mb-1">${esc(t.label)}</p>
+          ${sum ? `<p class="text-[11px] text-on-dim leading-snug" style="word-break:break-all;max-width:148px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(sum)}</p>` : '<p class="text-[11px] text-on-dim/40 italic">Нажмите для настройки</p>'}
+        </div>
+      </div>
+      ${i < wfNodes.length - 1 ? `
+        <div class="wf-arrow">
+          <div class="wf-arrow-line"></div>
+          <div class="wf-arrow-tip">▶</div>
+        </div>` : `
+        <button class="wf-add-btn ml-3" onclick="wfShowAddMenu()" title="Добавить блок">+</button>`}
+    `;
+  }).join('');
+}
+
+function wfNodeSummary(node, t) {
+  if (!t.fields.length) return '';
+  for (const f of t.fields) {
+    const v = node.config[f.key];
+    if (v && String(v).trim()) {
+      if (f.type === 'password') return '●●●●●●●●';
+      return String(v).substring(0, 60);
+    }
+  }
+  return '';
+}
+
+function wfAddNode(type) {
+  wfNodes.push({id:'wn'+(wfNodeCtr++), type, config:{}});
+  renderWorkflow();
+  wfSelectNode(wfNodes[wfNodes.length-1].id);
+}
+
+function wfRemoveNode(id) {
+  wfNodes = wfNodes.filter(n => n.id !== id);
+  if (wfSelected === id) {
+    wfSelected = null;
+    document.getElementById('wfConfigPanel')?.classList.add('hidden');
+  }
+  renderWorkflow();
+}
+
+function wfSelectNode(id) {
+  wfSelected = id;
+  renderWorkflow();
+  _renderWfConfig(id);
+}
+
+function wfDeselectNode() {
+  wfSelected = null;
+  document.getElementById('wfConfigPanel')?.classList.add('hidden');
+  renderWorkflow();
+}
+
+function _renderWfConfig(id) {
+  const node   = wfNodes.find(n => n.id === id);
+  if (!node) return;
+  const t      = WF_NODE_TYPES[node.type];
+  const panel  = document.getElementById('wfConfigPanel');
+  const title  = document.getElementById('wfConfigTitle');
+  const icon   = document.getElementById('wfConfigIcon');
+  const fields = document.getElementById('wfConfigFields');
+  if (!panel || !t) return;
+
+  title.textContent = t.label;
+  icon.style.background = t.color + '22';
+  icon.innerHTML = svgIcon(t.icon, 16, t.color);
+
+  if (!t.fields.length) {
+    fields.innerHTML = '<p class="text-xs text-on-dim col-span-2 py-1">Этот блок не требует настройки — он сработает автоматически.</p>';
+  } else {
+    fields.innerHTML = t.fields.map(f => `
+      <div class="${f.type==='textarea'?'sm:col-span-2':''}">
+        <label class="block text-xs text-on-dim mb-1">${esc(f.label)}</label>
+        ${f.type==='textarea'
+          ? `<textarea rows="4" class="inp text-xs resize-none"
+               placeholder="${esc(f.placeholder||'')}"
+               oninput="wfSaveField('${id}','${f.key}',this.value)"
+              >${esc(node.config[f.key]||'')}</textarea>`
+          : f.type==='select'
+          ? `<select class="inp text-xs" onchange="wfSaveField('${id}','${f.key}',this.value)">
+               ${(f.options||[]).map(o=>`<option${node.config[f.key]===o?' selected':''}>${esc(o)}</option>`).join('')}
+             </select>`
+          : `<input type="${f.type||'text'}" class="inp text-xs"
+               placeholder="${esc(f.placeholder||'')}"
+               value="${esc(node.config[f.key]||'')}"
+               oninput="wfSaveField('${id}','${f.key}',this.value)"/>`
+        }
+      </div>`).join('');
+  }
+  panel.classList.remove('hidden');
+}
+
+function wfSaveField(nodeId, key, val) {
+  const n = wfNodes.find(n => n.id === nodeId);
+  if (n) { n.config[key] = val; renderWorkflow(); }
+}
+
+function wfShowAddMenu() {
+  // Just focus the palette section visually
+  document.getElementById('wfPalette')?.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+function wfClear() {
+  if (!confirm('Очистить воркфлоу и начать заново?')) return;
+  wfNodes = []; wfSelected = null;
+  document.getElementById('wfConfigPanel')?.classList.add('hidden');
+  renderWorkflow();
+}
+
+async function wfSave() {
+  const name  = document.getElementById('wfName')?.value?.trim() || 'Воркфлоу';
+  const errEl = document.getElementById('wfError');
+  const okEl  = document.getElementById('wfSuccess');
+  errEl.classList.add('hidden'); okEl.classList.add('hidden');
+  const body = {
+    name,
+    enabled_blocks: [...new Set(wfNodes.map(n => n.type))],
+    settings: { workflow_nodes: wfNodes, source: 'visual_builder' },
+    status: 'draft',
+  };
+  try {
+    const r = await fetch(`${API}/agent/config`, {method:'POST', headers:hdrs(), body:JSON.stringify(body)});
+    if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
+    okEl.textContent = '✓ Сохранено в «Мои агенты»';
+    okEl.classList.remove('hidden');
+    await loadAgents();
+    setTimeout(()=>okEl.classList.add('hidden'), 3000);
+  } catch(e) {
+    errEl.textContent = e.message; errEl.classList.remove('hidden');
+  }
+}
+
+async function wfRun() {
+  if (!wfNodes.length) return;
+  const name    = document.getElementById('wfName')?.value?.trim() || 'Воркфлоу';
+  const llmN    = wfNodes.find(n => n.type === 'llm');
+  const promptN = wfNodes.find(n => n.type === 'prompt');
+  const trgN    = wfNodes.find(n => n.type === 'trigger_tg');
+  const outN    = wfNodes.find(n => n.type === 'output_tg');
+  const context = {
+    workflow_nodes: wfNodes,
+    system_prompt:  promptN?.config?.system  || '',
+    model:          llmN?.config?.model      || 'gpt-4o',
+    tg_token:       trgN?.config?.tg_token   || outN?.config?.tg_token  || '',
+    tg_chat_id:     trgN?.config?.tg_chat_id || outN?.config?.tg_chat_id || '',
+  };
+  const errEl = document.getElementById('wfError');
+  errEl.classList.add('hidden');
+  try {
+    const r = await fetch(`${API}/agent/run`, {
+      method:'POST', headers:hdrs(),
+      body: JSON.stringify({goal: name, context, api_mode:'service'}),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
+    const data = await r.json();
+    currentTaskId = data.task_id;
+    switchTab('run');
+    document.getElementById('statusGoal').textContent = name;
+    document.getElementById('runStatusBar').classList.remove('hidden');
+    document.getElementById('stepsTimeline').innerHTML = '';
+    document.getElementById('resultCard').classList.add('hidden');
+    pollStatus();
+  } catch(e) {
+    errEl.textContent = e.message; errEl.classList.remove('hidden');
+  }
 }
 
 // ── patch runAgent to use API mode ────────────────────────────────────────────
