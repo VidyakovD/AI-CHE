@@ -73,19 +73,19 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .step-row{display:flex;gap:12px;align-items:flex-start}
 .step-dot{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px}
 
-/* Workflow Builder */
-.wf-node{background:#1e1a14;border:2px solid rgba(74,63,47,.35);border-radius:16px;width:172px;flex-shrink:0;cursor:pointer;transition:all .2s;position:relative}
-.wf-node:hover{border-color:rgba(255,140,66,.5);transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.4)}
-.wf-node.wf-selected{border-color:#ff8c42;box-shadow:0 0 0 4px rgba(255,140,66,.15)}
-.wf-node-header{padding:9px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(74,63,47,.25);border-radius:14px 14px 0 0}
-.wf-node-body{padding:11px 13px}
-.wf-arrow{display:flex;align-items:center;flex-shrink:0;padding:0 2px}
-.wf-arrow-line{height:2px;width:32px;background:linear-gradient(90deg,rgba(255,140,66,.4),rgba(255,140,66,.6))}
-.wf-arrow-tip{color:rgba(255,140,66,.7);font-size:11px;margin-left:-2px;line-height:1}
-.wf-add-btn{width:32px;height:32px;border-radius:50%;border:2px dashed rgba(74,63,47,.5);background:transparent;color:#a89880;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
-.wf-add-btn:hover{border-color:#ff8c42;color:#ff8c42;background:rgba(255,140,66,.08)}
-.wf-palette-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;border:1px solid rgba(74,63,47,.4);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;background:#272018;color:#a89880}
-.wf-palette-btn:hover{border-color:#ff8c42;color:#f0e6d8;background:#322a1e}
+/* Canvas Workflow Builder */
+.wfc-sidebar{width:220px;flex-shrink:0;background:#111009;border-right:1px solid rgba(74,63,47,.3);overflow-y:auto;display:flex;flex-direction:column}
+.wfc-sidebar-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:grab;font-size:12px;font-weight:600;color:#a89880;transition:all .15s;border:1px solid transparent;margin:1px 0}
+.wfc-sidebar-item:hover{background:rgba(255,140,66,.08);border-color:rgba(255,140,66,.25);color:#f0e6d8}
+.wfc-sidebar-item:active{cursor:grabbing}
+.wfc-node{position:absolute;background:#1a1610;border:1.5px solid rgba(74,63,47,.5);border-radius:14px;width:190px;user-select:none;transition:border-color .15s,box-shadow .15s}
+.wfc-node:hover{border-color:rgba(255,140,66,.45)}
+.wfc-node.selected{border-color:#ff8c42;box-shadow:0 0 0 3px rgba(255,140,66,.18)}
+.wfc-node-head{padding:9px 12px;display:flex;align-items:center;gap:8px;cursor:move;border-radius:13px 13px 0 0}
+.wfc-node-body{padding:9px 12px;cursor:pointer;border-radius:0 0 13px 13px}
+.wfc-port{width:14px;height:14px;border-radius:50%;position:absolute;top:50%;transform:translateY(-50%);cursor:crosshair;z-index:5;transition:all .15s;border:2.5px solid rgba(74,63,47,.7);background:#1a1610}
+.wfc-port.in{left:-7px}.wfc-port.out{right:-7px}
+.wfc-port:hover,.wfc-port.active{border-color:#ff8c42;background:rgba(255,140,66,.25);transform:translateY(-50%) scale(1.3)}
 
 /* Library */
 .lib-card{background:#1e1a14;border:1.5px solid rgba(74,63,47,.25);border-radius:16px;padding:20px;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;gap:12px}
@@ -158,56 +158,79 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     </div>
   </div>
 
-  <!-- ── Tab: Конструктор (Visual Workflow Builder) ── -->
+  <!-- ── Tab: Конструктор (Canvas n8n-style) ── -->
   <div id="pane-catalog" class="tab-pane">
-    <div class="max-w-5xl">
+    <div class="flex rounded-xl overflow-hidden border border-outline/20" style="height:calc(100vh - 210px);min-height:520px">
 
-      <!-- Toolbar -->
-      <div class="flex items-center gap-3 mb-5">
-        <input id="wfName" class="inp text-sm font-bold max-w-xs" placeholder="Название воркфлоу" value="TG-бот с GPT"/>
-        <div class="flex-1"></div>
-        <button onclick="wfClear()" class="btn-g text-xs">Очистить</button>
-        <button onclick="wfSave()" class="btn-g text-xs flex items-center gap-1.5">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
-          Сохранить
-        </button>
-        <button onclick="wfRun()" class="btn-p text-sm py-2">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          Запустить
-        </button>
-      </div>
-
-      <!-- Palette -->
-      <div class="mb-5">
-        <p class="text-xs text-on-dim uppercase tracking-wider font-bold mb-2.5">Добавить блок</p>
-        <div class="flex flex-wrap gap-2" id="wfPalette"></div>
-      </div>
-
-      <!-- Canvas -->
-      <div class="card p-5 mb-4 overflow-x-auto">
-        <div id="wfCanvas" class="flex items-center gap-0 min-w-max py-4 px-2 min-h-[120px]"></div>
-        <div id="wfEmpty" class="hidden py-8 text-center text-on-dim/50">
-          <p class="text-3xl mb-2">🔧</p>
-          <p class="text-sm">Добавьте блоки из палитры выше</p>
+      <!-- Sidebar: node palette -->
+      <div class="wfc-sidebar">
+        <div class="p-3 border-b border-outline/20 flex-shrink-0">
+          <input type="text" class="inp text-xs py-1.5" placeholder="🔍 Поиск блоков..." oninput="wfcSearch(this.value)"/>
         </div>
+        <div class="flex-1 overflow-y-auto p-2" id="wfcSidebarInner"></div>
       </div>
 
-      <!-- Node config panel -->
-      <div id="wfConfigPanel" class="hidden card p-5">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2.5">
-            <div id="wfConfigIcon" class="w-8 h-8 rounded-lg flex items-center justify-center"></div>
-            <p class="font-headline font-bold" id="wfConfigTitle">Настройка блока</p>
+      <!-- Canvas area -->
+      <div class="flex-1 flex flex-col overflow-hidden">
+
+        <!-- Toolbar -->
+        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-outline/20 flex-shrink-0" style="background:#111009">
+          <input id="wfcName" class="inp text-sm font-bold py-1.5" style="max-width:200px" placeholder="Название" value="TG-бот с AI"/>
+          <div class="flex-1"></div>
+          <span id="wfcMsg" class="text-xs hidden"></span>
+          <button onclick="wfcClear()" class="btn-g text-xs py-1.5">Очистить</button>
+          <button onclick="wfcSave()" class="btn-g text-xs py-1.5">💾 Сохранить</button>
+          <button onclick="wfcRun()" class="btn-p text-xs py-1.5 px-4">▶ Запустить</button>
+        </div>
+
+        <!-- Canvas -->
+        <div id="wfcWrap" class="flex-1 relative overflow-hidden select-none"
+             style="background:#0d0b09;cursor:default"
+             onmousedown="wfcWrapDown(event)" onmousemove="wfcWrapMove(event)"
+             onmouseup="wfcWrapUp(event)" onmouseleave="wfcWrapUp(event)"
+             ondragover="event.preventDefault()" ondrop="wfcDrop(event)"
+             onwheel="wfcWheel(event)">
+          <!-- Dot grid -->
+          <svg id="wfcGridSvg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg>
+          <!-- Connection SVG -->
+          <svg id="wfcEdgeSvg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible"></svg>
+          <!-- Nodes -->
+          <div id="wfcNodes" style="position:absolute;top:0;left:0;transform-origin:0 0"></div>
+          <!-- Zoom controls -->
+          <div style="position:absolute;bottom:12px;right:12px;display:flex;align-items:center;gap:6px;z-index:20">
+            <button onclick="wfcZoom(-0.12)" class="btn-g text-sm py-0.5 px-2.5">−</button>
+            <span id="wfcZoomLbl" class="text-xs text-on-dim w-10 text-center">100%</span>
+            <button onclick="wfcZoom(0.12)" class="btn-g text-sm py-0.5 px-2.5">+</button>
+            <button onclick="wfcFit()" class="btn-g text-xs py-0.5 px-2.5">Fit</button>
           </div>
-          <button onclick="wfDeselectNode()" class="text-on-dim hover:text-primary transition p-1">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-          </button>
+          <!-- Hint -->
+          <p id="wfcHint" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(168,152,128,.3);pointer-events:none;white-space:nowrap">
+            Перетащи блок с панели • Тащи ноду за заголовок • Кликни на порт (●) чтобы соединить
+          </p>
         </div>
-        <div id="wfConfigFields" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
       </div>
 
-      <p id="wfError"   class="text-error text-xs hidden mt-3 text-center"></p>
-      <p id="wfSuccess" class="text-green-400 text-xs hidden mt-3 text-center"></p>
+      <!-- Right config panel -->
+      <div id="wfcPanel" class="hidden border-l border-outline/20 overflow-y-auto flex-shrink-0" style="width:256px;background:#111009">
+        <div class="p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <div id="wfcPanelIco" class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"></div>
+              <p class="font-headline font-bold text-sm" id="wfcPanelTitle">Настройка</p>
+            </div>
+            <button onclick="wfcDeselect()" class="text-on-dim hover:text-primary p-0.5">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
+          </div>
+          <div id="wfcPanelFields" class="space-y-3"></div>
+          <div class="mt-4 pt-3 border-t border-outline/20">
+            <button onclick="wfcDeleteSel()" class="w-full py-2 text-xs font-semibold text-error/50 hover:text-error border border-error/15 hover:border-error/40 rounded-lg transition">
+              Удалить блок
+            </button>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -843,8 +866,9 @@ let wizData = {
 document.addEventListener('DOMContentLoaded', async () => {
   if (!authToken) { window.location.href = 'index.html'; return; }
   buildLibrary();
-  buildWfPalette();
-  renderWorkflow();
+  wfcInitDefs();
+  wfcBuildSidebar();
+  wfcInitDefault();
   buildPresets();
   await loadUserKeys();
   await loadAgents();
@@ -1422,7 +1446,7 @@ switchTab = function(tab) {
     if (pane) pane.style.display = t === tab ? '' : 'none';
     if (tabEl) tabEl.classList.toggle('active', t === tab);
   });
-  // catalog = visual builder, no rebuild needed
+  if (tab === 'catalog') setTimeout(wfcRender, 60);
 };
 
 // ── Library ───────────────────────────────────────────────────────────────────
@@ -1677,281 +1701,415 @@ async function deleteUserKey(id) {
   renderKeysList();
 }
 
-// ── VISUAL WORKFLOW BUILDER ───────────────────────────────────────────────────
+// ── CANVAS WORKFLOW BUILDER (n8n-style) ──────────────────────────────────────
 
-const WF_NODE_TYPES = {
-  // Triggers
-  trigger_manual:  { cat:'trigger',  label:'Ручной запуск', icon:'play_arrow', color:'#ff8c42',
-    fields:[] },
-  trigger_tg:      { cat:'trigger',  label:'Telegram',      icon:'send',       color:'#29b6f6',
-    fields:[
-      {key:'tg_token',   label:'Bot Token', type:'password', placeholder:'1234567890:AAF...'},
-      {key:'tg_chat_id', label:'Chat ID',   type:'text',     placeholder:'-1001234567890'},
-    ]},
-  trigger_webhook: { cat:'trigger',  label:'Webhook',       icon:'bolt',       color:'#ab47bc',
-    fields:[{key:'path', label:'URL путь', type:'text', placeholder:'/webhook/my-agent'}]},
-  // Processors
-  prompt: { cat:'process', label:'Инструкция',  icon:'edit_note',  color:'#66bb6a',
-    fields:[{key:'system', label:'Системный промпт', type:'textarea',
-             placeholder:'Ты полезный ассистент. Отвечай кратко и по делу...'}]},
-  llm:    { cat:'process', label:'AI Модель',   icon:'psychology', color:'#ffa726',
-    fields:[
-      {key:'model',       label:'Модель',       type:'select',
-       options:['gpt-4o','gpt-4o-mini','claude-sonnet-4-6','gemini-1.5-pro','grok-2']},
-      {key:'temperature', label:'Температура',  type:'select', options:['0.3','0.7','1.0']},
-    ]},
-  condition: { cat:'process', label:'Условие', icon:'call_split', color:'#78909c',
-    fields:[{key:'check', label:'Если ответ содержит', type:'text', placeholder:'да, подтверждаю'}]},
-  // Outputs
-  output_tg:   { cat:'output', label:'Ответить в TG', icon:'send', color:'#29b6f6',
-    fields:[
-      {key:'tg_token',   label:'Bot Token (если другой)', type:'password', placeholder:'оставьте пустым — берёт из триггера'},
-      {key:'tg_chat_id', label:'Chat ID   (если другой)', type:'text',     placeholder:'оставьте пустым — берёт из триггера'},
-    ]},
-  output_save: { cat:'output', label:'Сохранить',   icon:'save',  color:'#66bb6a', fields:[] },
-  output_hook: { cat:'output', label:'POST Webhook', icon:'bolt',  color:'#ab47bc',
-    fields:[{key:'url', label:'URL', type:'text', placeholder:'https://...'}]},
+let WFC_DEFS = {};   // filled by wfcInitDefs()
+
+function wfcInitDefs() {
+  WFC_DEFS = {
+    trigger_manual:  {cat:'trigger',      label:'Ручной запуск',  icon:'play_arrow', color:'#ff8c42', fields:[]},
+    trigger_tg:      {cat:'trigger',      label:'Telegram',       icon:'send',       color:'#29b6f6',
+      fields:[{k:'tg_token',l:'Bot Token',t:'password',p:'1234:AAF...'},{k:'tg_chat_id',l:'Chat ID',t:'text',p:'-10012345'}]},
+    trigger_webhook: {cat:'trigger',      label:'Webhook',        icon:'bolt',       color:'#ab47bc',
+      fields:[{k:'path',l:'URL путь',t:'text',p:'/webhook/agent'}]},
+    trigger_schedule:{cat:'trigger',      label:'Расписание',     icon:'schedule',   color:'#ef5350',
+      fields:[{k:'cron',l:'Cron',t:'text',p:'0 9 * * 1-5'}]},
+    orchestrator:    {cat:'orchestrator', label:'Оркестратор',    icon:'hub',        color:'#ff8c42',
+      fields:[{k:'model',l:'Классификатор',t:'select',opts:['gpt-4o-mini','gpt-4o','claude-sonnet-4-6']},
+              {k:'strategy',l:'Стратегия',t:'select',opts:['один агент','несколько параллельно']}]},
+    node_gpt:        {cat:'ai',           label:'GPT-4o',         icon:'psychology', color:'#10a37f',
+      fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},{k:'temp',l:'Температура',t:'select',opts:['0.3','0.7','1.0']}]},
+    node_claude:     {cat:'ai',           label:'Claude Sonnet',  icon:'psychology', color:'#cc785c',
+      fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},{k:'temp',l:'Температура',t:'select',opts:['0.3','0.7','1.0']}]},
+    node_gemini:     {cat:'ai',           label:'Gemini 1.5 Pro', icon:'psychology', color:'#4285f4',
+      fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'}]},
+    prompt:          {cat:'ai',           label:'Инструкция',     icon:'edit_note',  color:'#66bb6a',
+      fields:[{k:'system',l:'Текст инструкции',t:'textarea',p:'Ты полезный ассистент. Отвечай кратко...'}]},
+    condition:       {cat:'logic',        label:'Условие',        icon:'call_split', color:'#78909c',
+      fields:[{k:'check',l:'Если содержит',t:'text',p:'да, ок'}]},
+    delay:           {cat:'logic',        label:'Задержка',       icon:'timer',      color:'#78909c',
+      fields:[{k:'secs',l:'Секунд',t:'number',p:'5'}]},
+    output_tg:       {cat:'output',       label:'Ответить в TG',  icon:'send',       color:'#29b6f6',
+      fields:[{k:'tg_token',l:'Bot Token',t:'password',p:'оставьте пустым'},{k:'tg_chat_id',l:'Chat ID',t:'text',p:'оставьте пустым'}]},
+    output_save:     {cat:'output',       label:'Сохранить',      icon:'save',       color:'#66bb6a', fields:[]},
+    output_hook:     {cat:'output',       label:'POST Webhook',   icon:'bolt',       color:'#ab47bc',
+      fields:[{k:'url',l:'URL',t:'text',p:'https://...'}]},
+  };
+  // Add all library agents
+  AGENT_BLOCKS.forEach(b => {
+    WFC_DEFS['agent_'+b.id] = {
+      cat:'agent', label:b.name, icon:b.icon, color:'#ffa726', agentId:b.id, agentCat:b.cat,
+      fields:(b.configFields||[]).map(f=>({k:f.key,l:f.label,t:f.type||'text',p:f.placeholder||'',opts:f.options})),
+    };
+  });
+}
+
+const WFC_CATS = {
+  trigger:      {label:'Триггеры',         color:'#ff8c42'},
+  orchestrator: {label:'Оркестратор',      color:'#ff8c42'},
+  ai:           {label:'AI / Инструкция',  color:'#66bb6a'},
+  agent:        {label:'Агенты библиотеки',color:'#ffa726'},
+  logic:        {label:'Логика',           color:'#78909c'},
+  output:       {label:'Вывод',            color:'#29b6f6'},
 };
 
-const WF_CAT_META = {
-  trigger: {label:'Триггер',    bg:'rgba(255,140,66,.10)'},
-  process: {label:'Обработка',  bg:'rgba(107,255,158,.08)'},
-  output:  {label:'Вывод',      bg:'rgba(41,182,246,.10)'},
+// ── Canvas state ──────────────────────────────────────────────────────────────
+let wfc = {
+  nodes:[], edges:[],
+  tx:40, ty:40, scale:1,
+  drag:null,   // {nid, mx0, my0, nx0, ny0}
+  pan:null,    // {mx0, my0, tx0, ty0}
+  conn:null,   // {fromId, mx, my}
+  sel:null,
+  ctr:1,
 };
 
-// Default workflow: TG → Инструкция → GPT-4o → Ответ в TG
-let wfNodes = [
-  {id:'wn1', type:'trigger_tg',     config:{}},
-  {id:'wn2', type:'prompt',         config:{system:'Ты полезный ассистент. Отвечай кратко и по делу на русском языке.'}},
-  {id:'wn3', type:'llm',            config:{model:'gpt-4o', temperature:'0.7'}},
-  {id:'wn4', type:'output_tg',      config:{}},
-];
-let wfSelected   = null;
-let wfNodeCtr    = 5;
+function wfcInitDefault() {
+  wfc.nodes = [
+    {id:'n1',type:'trigger_tg',   x:60,  y:180, cfg:{}},
+    {id:'n2',type:'orchestrator', x:310, y:180, cfg:{model:'gpt-4o-mini',strategy:'один агент'}},
+    {id:'n3',type:'node_gpt',     x:560, y:80,  cfg:{system:'Ты полезный ассистент. Отвечай кратко и по делу на русском языке.',temp:'0.7'}},
+    {id:'n4',type:'output_tg',    x:810, y:180, cfg:{}},
+  ];
+  wfc.edges = [
+    {id:'e1',from:'n1',to:'n2'},
+    {id:'e2',from:'n2',to:'n3'},
+    {id:'e3',from:'n3',to:'n4'},
+  ];
+  wfc.ctr = 10;
+}
 
-// Build the top palette of node type buttons
-function buildWfPalette() {
-  const el = document.getElementById('wfPalette');
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+function wfcBuildSidebar(filter='') {
+  const el = document.getElementById('wfcSidebarInner');
   if (!el) return;
-  const cats = ['trigger','process','output'];
-  el.innerHTML = cats.map(cat => {
-    const types = Object.entries(WF_NODE_TYPES).filter(([,v]) => v.cat === cat);
-    const meta  = WF_CAT_META[cat];
-    return `<div class="flex items-center flex-wrap gap-1.5">
-      <span class="text-[10px] text-on-dim uppercase tracking-wider font-bold mr-0.5">${meta.label}</span>
-      ${types.map(([id, t]) => `
-        <button class="wf-palette-btn" onclick="wfAddNode('${id}')"
-          title="Добавить блок «${t.label}»" style="background:${meta.bg}">
-          ${svgIcon(t.icon, 12, t.color)}
-          <span style="color:${t.color}">${t.label}</span>
-        </button>`).join('')}
-      <span class="w-px h-5 bg-outline/30 mx-1"></span>
+  const fl = filter.toLowerCase().trim();
+  let html = '';
+  for (const [cat, meta] of Object.entries(WFC_CATS)) {
+    const defs = Object.entries(WFC_DEFS).filter(([,d])=>d.cat===cat &&
+      (!fl || d.label.toLowerCase().includes(fl)));
+    if (!defs.length) continue;
+    html += `<div class="mb-1">
+      <button class="flex items-center justify-between w-full px-2 py-1.5 rounded-lg hover:bg-surface3 transition"
+              onclick="wfcToggleCat('wfccat-${cat}')">
+        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${meta.color}">${meta.label}</span>
+        <svg id="wfcarr-${cat}" width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style="color:#a89880;transition:transform .2s${cat==='agent'?';transform:rotate(-90deg)':''}">
+          <path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41z"/>
+        </svg>
+      </button>
+      <div id="wfccat-${cat}" ${cat==='agent' && !fl?'style="display:none"':''}>
+        ${defs.map(([id,d])=>`
+          <div class="wfc-sidebar-item" draggable="true"
+               ondragstart="wfcSbDrag(event,'${id}')"
+               onclick="wfcAddCenter('${id}')">
+            ${svgIcon(d.icon,12,d.color)}
+            <span style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${d.label}</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+  el.innerHTML = html || '<p style="font-size:12px;color:#a89880;padding:8px">Ничего не найдено</p>';
+}
+
+function wfcToggleCat(id) {
+  const el  = document.getElementById(id);
+  const cat = id.replace('wfccat-','');
+  const arr = document.getElementById('wfcarr-'+cat);
+  if (!el) return;
+  const hidden = el.style.display === 'none';
+  el.style.display = hidden ? '' : 'none';
+  if (arr) arr.style.transform = hidden ? '' : 'rotate(-90deg)';
+}
+function wfcSearch(v) { wfcBuildSidebar(v); }
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function wfcRender() {
+  const nodesEl = document.getElementById('wfcNodes');
+  if (!nodesEl) return;
+  const ts = `translate(${wfc.tx}px,${wfc.ty}px) scale(${wfc.scale})`;
+  nodesEl.style.transform = ts;
+  nodesEl.innerHTML = wfc.nodes.map(n => {
+    const d = WFC_DEFS[n.type]; if (!d) return '';
+    const sel = n.id === wfc.sel;
+    const sum = wfcSum(n,d);
+    return `<div id="wfcn-${n.id}" class="wfc-node${sel?' selected':''}"
+         style="left:${n.x}px;top:${n.y}px" data-nid="${n.id}">
+      ${n.type.startsWith('trigger')?'':`<div class="wfc-port in" data-nid="${n.id}" data-port="in"
+        onmousedown="wfcPortDown(event,'${n.id}','in')"></div>`}
+      <div class="wfc-port out" data-nid="${n.id}" data-port="out"
+        onmousedown="wfcPortDown(event,'${n.id}','out')"></div>
+      <div class="wfc-node-head" style="background:${d.color}16"
+           onmousedown="wfcNodeDown(event,'${n.id}')">
+        <div style="width:22px;height:22px;border-radius:7px;background:${d.color}22;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          ${svgIcon(d.icon,12,d.color)}
+        </div>
+        <span style="font-size:12px;font-weight:700;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#f0e6d8">${esc(d.label)}</span>
+        <button onmousedown="event.stopPropagation()" onclick="wfcDelNode('${n.id}')"
+          style="flex-shrink:0;background:none;border:none;cursor:pointer;color:rgba(255,107,107,.3);padding:2px;border-radius:4px;line-height:0"
+          onmouseover="this.style.color='#ff6b6b'" onmouseout="this.style.color='rgba(255,107,107,.3)'">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div class="wfc-node-body" onclick="wfcSelNode('${n.id}')">
+        ${sum?`<p style="font-size:11px;color:#a89880;margin:0;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all">${esc(sum)}</p>`
+             :`<p style="font-size:11px;color:rgba(168,152,128,.35);margin:0;font-style:italic">Нажмите для настройки</p>`}
+      </div>
     </div>`;
   }).join('');
+  requestAnimationFrame(wfcDrawEdges);
+  wfcDrawGrid();
 }
 
-// Render the pipeline canvas
-function renderWorkflow() {
-  const canvas = document.getElementById('wfCanvas');
-  const empty  = document.getElementById('wfEmpty');
-  if (!canvas) return;
-  if (!wfNodes.length) {
-    canvas.innerHTML = '';
-    canvas.classList.add('hidden');
-    empty?.classList.remove('hidden');
-    return;
-  }
-  canvas.classList.remove('hidden');
-  empty?.classList.add('hidden');
-
-  canvas.innerHTML = wfNodes.map((node, i) => {
-    const t   = WF_NODE_TYPES[node.type];
-    if (!t) return '';
-    const sel = wfSelected === node.id;
-    const sum = wfNodeSummary(node, t);
-    const catMeta = WF_CAT_META[t.cat];
-    return `
-      <div class="wf-node${sel?' wf-selected':''}" id="wfnode-${node.id}"
-           onclick="wfSelectNode('${node.id}')">
-        <div class="wf-node-header" style="background:${catMeta.bg}">
-          <div class="flex items-center gap-1.5">
-            ${svgIcon(t.icon, 13, t.color)}
-            <span class="text-[10px] font-bold uppercase tracking-wider" style="color:${t.color}">${catMeta.label}</span>
-          </div>
-          <button onclick="event.stopPropagation();wfRemoveNode('${node.id}')"
-            class="text-error/30 hover:text-error transition rounded p-0.5 -mr-0.5"
-            title="Удалить блок">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-            </svg>
-          </button>
-        </div>
-        <div class="wf-node-body">
-          <p class="font-headline font-bold text-sm mb-1">${esc(t.label)}</p>
-          ${sum ? `<p class="text-[11px] text-on-dim leading-snug" style="word-break:break-all;max-width:148px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(sum)}</p>` : '<p class="text-[11px] text-on-dim/40 italic">Нажмите для настройки</p>'}
-        </div>
-      </div>
-      ${i < wfNodes.length - 1 ? `
-        <div class="wf-arrow">
-          <div class="wf-arrow-line"></div>
-          <div class="wf-arrow-tip">▶</div>
-        </div>` : `
-        <button class="wf-add-btn ml-3" onclick="wfShowAddMenu()" title="Добавить блок">+</button>`}
-    `;
-  }).join('');
-}
-
-function wfNodeSummary(node, t) {
-  if (!t.fields.length) return '';
-  for (const f of t.fields) {
-    const v = node.config[f.key];
-    if (v && String(v).trim()) {
-      if (f.type === 'password') return '●●●●●●●●';
-      return String(v).substring(0, 60);
-    }
+function wfcSum(n,d) {
+  for (const f of (d.fields||[])) {
+    const v = n.cfg[f.k];
+    if (v && String(v).trim()) return f.t==='password' ? '●●●●●●' : String(v).substring(0,55);
   }
   return '';
 }
 
-function wfAddNode(type) {
-  wfNodes.push({id:'wn'+(wfNodeCtr++), type, config:{}});
-  renderWorkflow();
-  wfSelectNode(wfNodes[wfNodes.length-1].id);
+function wfcPortXY(nid, port) {
+  const n = wfc.nodes.find(x=>x.id===nid); if (!n) return {x:0,y:0};
+  const el = document.getElementById('wfcn-'+nid);
+  const w = el?el.offsetWidth:190, h = el?el.offsetHeight:72;
+  return port==='out' ? {x:n.x+w, y:n.y+h/2} : {x:n.x, y:n.y+h/2};
 }
 
-function wfRemoveNode(id) {
-  wfNodes = wfNodes.filter(n => n.id !== id);
-  if (wfSelected === id) {
-    wfSelected = null;
-    document.getElementById('wfConfigPanel')?.classList.add('hidden');
+function wfcDrawEdges() {
+  const svg = document.getElementById('wfcEdgeSvg'); if (!svg) return;
+  const ts = `translate(${wfc.tx}px,${wfc.ty}px) scale(${wfc.scale})`;
+  let p = '';
+  for (const e of wfc.edges) {
+    const a = wfcPortXY(e.from,'out'), b = wfcPortXY(e.to,'in');
+    const dx = Math.max(70, Math.abs(b.x-a.x)*0.45);
+    p += `<path d="M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}"
+      fill="none" stroke="rgba(255,140,66,.55)" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="${a.x}" cy="${a.y}" r="3.5" fill="rgba(255,140,66,.7)"/>
+      <circle cx="${b.x}" cy="${b.y}" r="3.5" fill="rgba(255,140,66,.7)"/>`;
   }
-  renderWorkflow();
-}
-
-function wfSelectNode(id) {
-  wfSelected = id;
-  renderWorkflow();
-  _renderWfConfig(id);
-}
-
-function wfDeselectNode() {
-  wfSelected = null;
-  document.getElementById('wfConfigPanel')?.classList.add('hidden');
-  renderWorkflow();
-}
-
-function _renderWfConfig(id) {
-  const node   = wfNodes.find(n => n.id === id);
-  if (!node) return;
-  const t      = WF_NODE_TYPES[node.type];
-  const panel  = document.getElementById('wfConfigPanel');
-  const title  = document.getElementById('wfConfigTitle');
-  const icon   = document.getElementById('wfConfigIcon');
-  const fields = document.getElementById('wfConfigFields');
-  if (!panel || !t) return;
-
-  title.textContent = t.label;
-  icon.style.background = t.color + '22';
-  icon.innerHTML = svgIcon(t.icon, 16, t.color);
-
-  if (!t.fields.length) {
-    fields.innerHTML = '<p class="text-xs text-on-dim col-span-2 py-1">Этот блок не требует настройки — он сработает автоматически.</p>';
-  } else {
-    fields.innerHTML = t.fields.map(f => `
-      <div class="${f.type==='textarea'?'sm:col-span-2':''}">
-        <label class="block text-xs text-on-dim mb-1">${esc(f.label)}</label>
-        ${f.type==='textarea'
-          ? `<textarea rows="4" class="inp text-xs resize-none"
-               placeholder="${esc(f.placeholder||'')}"
-               oninput="wfSaveField('${id}','${f.key}',this.value)"
-              >${esc(node.config[f.key]||'')}</textarea>`
-          : f.type==='select'
-          ? `<select class="inp text-xs" onchange="wfSaveField('${id}','${f.key}',this.value)">
-               ${(f.options||[]).map(o=>`<option${node.config[f.key]===o?' selected':''}>${esc(o)}</option>`).join('')}
-             </select>`
-          : `<input type="${f.type||'text'}" class="inp text-xs"
-               placeholder="${esc(f.placeholder||'')}"
-               value="${esc(node.config[f.key]||'')}"
-               oninput="wfSaveField('${id}','${f.key}',this.value)"/>`
-        }
-      </div>`).join('');
+  if (wfc.conn) {
+    const a  = wfcPortXY(wfc.conn.fromId,'out');
+    const wr = document.getElementById('wfcWrap').getBoundingClientRect();
+    const cx = (wfc.conn.mx-wr.left-wfc.tx)/wfc.scale;
+    const cy = (wfc.conn.my-wr.top -wfc.ty)/wfc.scale;
+    const dx = Math.max(50, Math.abs(cx-a.x)*0.4);
+    p += `<path d="M${a.x},${a.y} C${a.x+dx},${a.y} ${cx-dx},${cy} ${cx},${cy}"
+      fill="none" stroke="rgba(255,140,66,.85)" stroke-width="2" stroke-dasharray="5,3"/>`;
   }
-  panel.classList.remove('hidden');
+  svg.innerHTML = `<g transform="${ts}">${p}</g>`;
 }
 
-function wfSaveField(nodeId, key, val) {
-  const n = wfNodes.find(n => n.id === nodeId);
-  if (n) { n.config[key] = val; renderWorkflow(); }
+function wfcDrawGrid() {
+  const svg=document.getElementById('wfcGridSvg'),wrap=document.getElementById('wfcWrap');
+  if(!svg||!wrap) return;
+  const W=wrap.offsetWidth, H=wrap.offsetHeight;
+  const sz=26*wfc.scale, ox=wfc.tx%sz, oy=wfc.ty%sz;
+  let d='';
+  for(let x=ox-sz;x<W+sz;x+=sz) for(let y=oy-sz;y<H+sz;y+=sz)
+    d+=`<circle cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="1" fill="rgba(74,63,47,.28)"/>`;
+  svg.innerHTML=d;
 }
 
-function wfShowAddMenu() {
-  // Just focus the palette section visually
-  document.getElementById('wfPalette')?.scrollIntoView({behavior:'smooth', block:'nearest'});
+// ── Mouse interactions ────────────────────────────────────────────────────────
+function wfcNodeDown(e, nid) {
+  e.preventDefault(); e.stopPropagation();
+  const n = wfc.nodes.find(x=>x.id===nid); if (!n) return;
+  wfcSelNode(nid);
+  wfc.drag = {nid, mx0:e.clientX, my0:e.clientY, nx0:n.x, ny0:n.y};
+}
+function wfcPortDown(e, nid, port) {
+  e.preventDefault(); e.stopPropagation();
+  if (port==='out') { wfc.conn={fromId:nid, mx:e.clientX, my:e.clientY}; }
+}
+function wfcWrapDown(e) {
+  if (e.target===document.getElementById('wfcWrap')||
+      e.target===document.getElementById('wfcNodes')||
+      ['circle','path','g','svg'].includes(e.target.tagName)) {
+    if (!wfc.conn) wfc.pan={mx0:e.clientX,my0:e.clientY,tx0:wfc.tx,ty0:wfc.ty};
+  }
+}
+function wfcWrapMove(e) {
+  if (wfc.drag) {
+    const n = wfc.nodes.find(x=>x.id===wfc.drag.nid); if (!n) return;
+    n.x = wfc.drag.nx0+(e.clientX-wfc.drag.mx0)/wfc.scale;
+    n.y = wfc.drag.ny0+(e.clientY-wfc.drag.my0)/wfc.scale;
+    const el = document.getElementById('wfcn-'+n.id);
+    if (el) { el.style.left=n.x+'px'; el.style.top=n.y+'px'; }
+    wfcDrawEdges(); return;
+  }
+  if (wfc.pan) {
+    wfc.tx=wfc.pan.tx0+(e.clientX-wfc.pan.mx0);
+    wfc.ty=wfc.pan.ty0+(e.clientY-wfc.pan.my0);
+    const no=document.getElementById('wfcNodes');
+    if(no) no.style.transform=`translate(${wfc.tx}px,${wfc.ty}px) scale(${wfc.scale})`;
+    wfcDrawEdges(); wfcDrawGrid(); return;
+  }
+  if (wfc.conn) { wfc.conn.mx=e.clientX; wfc.conn.my=e.clientY; wfcDrawEdges(); }
+}
+function wfcWrapUp(e) {
+  if (wfc.conn) {
+    const t = document.elementFromPoint(e.clientX, e.clientY);
+    if (t?.dataset?.port==='in' && t?.dataset?.nid && t.dataset.nid!==wfc.conn.fromId) {
+      const tid=t.dataset.nid;
+      if (!wfc.edges.find(ed=>ed.from===wfc.conn.fromId&&ed.to===tid))
+        wfc.edges.push({id:'e'+(wfc.ctr++), from:wfc.conn.fromId, to:tid});
+    }
+    wfc.conn=null; wfcRender(); return;
+  }
+  wfc.drag=null; wfc.pan=null;
+}
+function wfcWheel(e) {
+  e.preventDefault();
+  const d=e.deltaY>0?-0.1:0.1, wr=document.getElementById('wfcWrap').getBoundingClientRect();
+  const px=e.clientX-wr.left, py=e.clientY-wr.top;
+  const ns=Math.max(0.25,Math.min(2,wfc.scale+d)), r=ns/wfc.scale;
+  wfc.tx=px+(wfc.tx-px)*r; wfc.ty=py+(wfc.ty-py)*r; wfc.scale=ns;
+  document.getElementById('wfcZoomLbl').textContent=Math.round(ns*100)+'%';
+  wfcRender();
+}
+function wfcZoom(d) {
+  const wr=document.getElementById('wfcWrap'); if(!wr) return;
+  const px=wr.offsetWidth/2, py=wr.offsetHeight/2;
+  const ns=Math.max(0.25,Math.min(2,wfc.scale+d)), r=ns/wfc.scale;
+  wfc.tx=px+(wfc.tx-px)*r; wfc.ty=py+(wfc.ty-py)*r; wfc.scale=ns;
+  document.getElementById('wfcZoomLbl').textContent=Math.round(ns*100)+'%';
+  wfcRender();
+}
+function wfcFit() {
+  const wr=document.getElementById('wfcWrap'); if(!wr||!wfc.nodes.length) return;
+  let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+  wfc.nodes.forEach(n=>{
+    const el=document.getElementById('wfcn-'+n.id);
+    const w=el?el.offsetWidth:190, h=el?el.offsetHeight:72;
+    mnx=Math.min(mnx,n.x);mny=Math.min(mny,n.y);mxx=Math.max(mxx,n.x+w);mxy=Math.max(mxy,n.y+h);
+  });
+  const pad=60,bw=mxx-mnx+pad*2,bh=mxy-mny+pad*2;
+  wfc.scale=Math.min(1,wr.offsetWidth/bw,wr.offsetHeight/bh);
+  wfc.tx=(wr.offsetWidth-bw*wfc.scale)/2-(mnx-pad)*wfc.scale;
+  wfc.ty=(wr.offsetHeight-bh*wfc.scale)/2-(mny-pad)*wfc.scale;
+  document.getElementById('wfcZoomLbl').textContent=Math.round(wfc.scale*100)+'%';
+  wfcRender();
 }
 
-function wfClear() {
-  if (!confirm('Очистить воркфлоу и начать заново?')) return;
-  wfNodes = []; wfSelected = null;
-  document.getElementById('wfConfigPanel')?.classList.add('hidden');
-  renderWorkflow();
+// ── Node actions ──────────────────────────────────────────────────────────────
+function wfcSelNode(id) {
+  wfc.sel=id;
+  document.querySelectorAll('.wfc-node').forEach(el=>el.classList.toggle('selected',el.dataset.nid===id));
+  wfcShowPanel(id);
+}
+function wfcDeselect() {
+  wfc.sel=null;
+  document.querySelectorAll('.wfc-node').forEach(el=>el.classList.remove('selected'));
+  document.getElementById('wfcPanel')?.classList.add('hidden');
+}
+function wfcDelNode(id) {
+  wfc.nodes=wfc.nodes.filter(n=>n.id!==id);
+  wfc.edges=wfc.edges.filter(e=>e.from!==id&&e.to!==id);
+  if(wfc.sel===id){wfc.sel=null;document.getElementById('wfcPanel')?.classList.add('hidden');}
+  wfcRender();
+}
+function wfcDeleteSel() { if(wfc.sel) wfcDelNode(wfc.sel); }
+
+function wfcShowPanel(id) {
+  const n=wfc.nodes.find(x=>x.id===id); if(!n) return;
+  const d=WFC_DEFS[n.type]; if(!d) return;
+  document.getElementById('wfcPanelTitle').textContent=d.label;
+  const ico=document.getElementById('wfcPanelIco');
+  ico.style.background=d.color+'22'; ico.innerHTML=svgIcon(d.icon,14,d.color);
+  const fEl=document.getElementById('wfcPanelFields');
+  fEl.innerHTML=d.fields?.length
+    ? d.fields.map(f=>`<div>
+        <label style="display:block;font-size:11px;color:#a89880;margin-bottom:4px">${esc(f.l)}</label>
+        ${f.t==='textarea'
+          ?`<textarea rows="4" class="inp" style="font-size:12px;resize:vertical"
+             placeholder="${esc(f.p||'')}"
+             oninput="wfcSaveF('${id}','${f.k}',this.value)">${esc(n.cfg[f.k]||'')}</textarea>`
+          :f.t==='select'
+          ?`<select class="inp" style="font-size:12px" onchange="wfcSaveF('${id}','${f.k}',this.value)">
+             ${(f.opts||[]).map(o=>`<option${n.cfg[f.k]===o?' selected':''}>${esc(o)}</option>`).join('')}
+           </select>`
+          :`<input type="${f.t||'text'}" class="inp" style="font-size:12px"
+             placeholder="${esc(f.p||'')}" value="${esc(n.cfg[f.k]||'')}"
+             oninput="wfcSaveF('${id}','${f.k}',this.value)"/>`}
+      </div>`).join('')
+    : '<p style="font-size:12px;color:#a89880">Настройка не требуется.</p>';
+  document.getElementById('wfcPanel').classList.remove('hidden');
+}
+function wfcSaveF(nid,k,v) {
+  const n=wfc.nodes.find(x=>x.id===nid); if(!n) return;
+  n.cfg[k]=v;
+  const el=document.getElementById('wfcn-'+nid);
+  if(el){const b=el.querySelector('.wfc-node-body');
+    if(b){const d=WFC_DEFS[n.type],s=wfcSum(n,d);
+      b.innerHTML=s?`<p style="font-size:11px;color:#a89880;margin:0;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all">${esc(s)}</p>`
+                   :`<p style="font-size:11px;color:rgba(168,152,128,.35);margin:0;font-style:italic">Нажмите для настройки</p>`;}}
 }
 
-async function wfSave() {
-  const name  = document.getElementById('wfName')?.value?.trim() || 'Воркфлоу';
-  const errEl = document.getElementById('wfError');
-  const okEl  = document.getElementById('wfSuccess');
-  errEl.classList.add('hidden'); okEl.classList.add('hidden');
-  const body = {
-    name,
-    enabled_blocks: [...new Set(wfNodes.map(n => n.type))],
-    settings: { workflow_nodes: wfNodes, source: 'visual_builder' },
-    status: 'draft',
-  };
+// ── Add from sidebar (drag + click) ──────────────────────────────────────────
+let _wfcDragType = null;
+function wfcSbDrag(e, type) { _wfcDragType=type; e.dataTransfer.effectAllowed='copy'; }
+function wfcDrop(e) {
+  e.preventDefault(); if(!_wfcDragType) return;
+  const wr=document.getElementById('wfcWrap').getBoundingClientRect();
+  const x=(e.clientX-wr.left-wfc.tx)/wfc.scale-95;
+  const y=(e.clientY-wr.top -wfc.ty)/wfc.scale-36;
+  wfcAddAt(_wfcDragType, x, y); _wfcDragType=null;
+}
+function wfcAddCenter(type) {
+  const wr=document.getElementById('wfcWrap'); if(!wr) return;
+  wfcAddAt(type, (-wfc.tx+wr.offsetWidth/2)/wfc.scale-95, (-wfc.ty+wr.offsetHeight/2)/wfc.scale-36);
+}
+function wfcAddAt(type, x, y) {
+  const id='n'+(wfc.ctr++);
+  wfc.nodes.push({id,type,x:Math.round(x),y:Math.round(y),cfg:{}});
+  wfcRender(); wfcSelNode(id);
+}
+
+// ── Save / Run / Clear ────────────────────────────────────────────────────────
+function wfcClear() {
+  if(!confirm('Очистить воркфлоу?')) return;
+  wfc.nodes=[]; wfc.edges=[]; wfc.sel=null;
+  document.getElementById('wfcPanel')?.classList.add('hidden'); wfcRender();
+}
+async function wfcSave() {
+  const name=document.getElementById('wfcName')?.value?.trim()||'Воркфлоу';
+  const m=document.getElementById('wfcMsg');
+  m.className='text-xs text-on-dim'; m.textContent='Сохраняю...'; m.classList.remove('hidden');
   try {
-    const r = await fetch(`${API}/agent/config`, {method:'POST', headers:hdrs(), body:JSON.stringify(body)});
-    if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
-    okEl.textContent = '✓ Сохранено в «Мои агенты»';
-    okEl.classList.remove('hidden');
-    await loadAgents();
-    setTimeout(()=>okEl.classList.add('hidden'), 3000);
-  } catch(e) {
-    errEl.textContent = e.message; errEl.classList.remove('hidden');
-  }
+    const r=await fetch(`${API}/agent/config`,{method:'POST',headers:hdrs(),body:JSON.stringify({
+      name, enabled_blocks:[...new Set(wfc.nodes.map(n=>n.type))],
+      settings:{wfc_nodes:wfc.nodes,wfc_edges:wfc.edges,source:'canvas'}, status:'draft',
+    })});
+    if(!r.ok) throw new Error((await r.json()).detail||'Ошибка');
+    m.className='text-xs'; m.style.color='#6bff9e'; m.textContent='✓ Сохранено в «Мои агенты»';
+    await loadAgents(); setTimeout(()=>m.classList.add('hidden'),3000);
+  } catch(e){ m.className='text-xs text-error'; m.textContent=e.message; setTimeout(()=>m.classList.add('hidden'),5000); }
 }
-
-async function wfRun() {
-  if (!wfNodes.length) return;
-  const name    = document.getElementById('wfName')?.value?.trim() || 'Воркфлоу';
-  const llmN    = wfNodes.find(n => n.type === 'llm');
-  const promptN = wfNodes.find(n => n.type === 'prompt');
-  const trgN    = wfNodes.find(n => n.type === 'trigger_tg');
-  const outN    = wfNodes.find(n => n.type === 'output_tg');
-  const context = {
-    workflow_nodes: wfNodes,
-    system_prompt:  promptN?.config?.system  || '',
-    model:          llmN?.config?.model      || 'gpt-4o',
-    tg_token:       trgN?.config?.tg_token   || outN?.config?.tg_token  || '',
-    tg_chat_id:     trgN?.config?.tg_chat_id || outN?.config?.tg_chat_id || '',
-  };
-  const errEl = document.getElementById('wfError');
-  errEl.classList.add('hidden');
+async function wfcRun() {
+  if(!wfc.nodes.length) return;
+  const name=document.getElementById('wfcName')?.value?.trim()||'Воркфлоу';
+  const llmN=wfc.nodes.find(n=>['node_gpt','node_claude','node_gemini'].includes(n.type));
+  const trgN=wfc.nodes.find(n=>n.type==='trigger_tg');
+  const outN=wfc.nodes.find(n=>n.type==='output_tg');
+  const m=document.getElementById('wfcMsg');
+  m.className='text-xs text-on-dim'; m.textContent='Запускаю...'; m.classList.remove('hidden');
   try {
-    const r = await fetch(`${API}/agent/run`, {
-      method:'POST', headers:hdrs(),
-      body: JSON.stringify({goal: name, context, api_mode:'service'}),
-    });
-    if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
-    const data = await r.json();
-    currentTaskId = data.task_id;
-    switchTab('run');
-    document.getElementById('statusGoal').textContent = name;
+    const r=await fetch(`${API}/agent/run`,{method:'POST',headers:hdrs(),body:JSON.stringify({
+      goal:name, api_mode:'service',
+      context:{wfc_nodes:wfc.nodes,wfc_edges:wfc.edges,
+               system_prompt:llmN?.cfg?.system||'',model:llmN?.cfg?.temp||'gpt-4o',
+               tg_token:trgN?.cfg?.tg_token||outN?.cfg?.tg_token||'',
+               tg_chat_id:trgN?.cfg?.tg_chat_id||outN?.cfg?.tg_chat_id||''},
+    })});
+    if(!r.ok) throw new Error((await r.json()).detail||'Ошибка');
+    const data=await r.json(); currentTaskId=data.task_id;
+    m.classList.add('hidden'); switchTab('run');
+    document.getElementById('statusGoal').textContent=name;
     document.getElementById('runStatusBar').classList.remove('hidden');
-    document.getElementById('stepsTimeline').innerHTML = '';
+    document.getElementById('stepsTimeline').innerHTML='';
     document.getElementById('resultCard').classList.add('hidden');
     pollStatus();
-  } catch(e) {
-    errEl.textContent = e.message; errEl.classList.remove('hidden');
-  }
+  } catch(e){ m.className='text-xs text-error'; m.textContent=e.message; setTimeout(()=>m.classList.add('hidden'),5000); }
 }
 
 // ── patch runAgent to use API mode ────────────────────────────────────────────
