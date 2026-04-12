@@ -159,8 +159,8 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   </div>
 
   <!-- ── Tab: Конструктор (Canvas n8n-style) ── -->
-  <div id="pane-catalog" class="tab-pane">
-    <div class="flex rounded-xl overflow-hidden border border-outline/20" style="height:calc(100vh - 210px);min-height:520px">
+  <div id="pane-catalog" class="tab-pane" style="margin:0 -16px -32px">
+    <div class="flex overflow-hidden border-t border-outline/20" style="height:calc(100vh - 168px);min-height:560px">
 
       <!-- Sidebar: node palette -->
       <div class="wfc-sidebar">
@@ -1877,7 +1877,8 @@ function wfcPortXY(nid, port) {
 
 function wfcDrawEdges() {
   const svg = document.getElementById('wfcEdgeSvg'); if (!svg) return;
-  const ts = `translate(${wfc.tx}px,${wfc.ty}px) scale(${wfc.scale})`;
+  // SVG transform attribute uses unitless numbers (no px!)
+  const ts = `translate(${wfc.tx} ${wfc.ty}) scale(${wfc.scale})`;
   let p = '';
   for (const e of wfc.edges) {
     const a = wfcPortXY(e.from,'out'), b = wfcPortXY(e.to,'in');
@@ -2010,18 +2011,45 @@ function wfcDelNode(id) {
 }
 function wfcDeleteSel() { if(wfc.sel) wfcDelNode(wfc.sel); }
 
+function wfcAutoFill(n, d) {
+  // Auto-fill TG fields from another TG node in the workflow
+  const tgFields = ['tg_token','tg_chat_id'];
+  const hasTgFields = d.fields?.some(f => tgFields.includes(f.k));
+  if (hasTgFields) {
+    const donor = wfc.nodes.find(x => x.id !== n.id &&
+      (x.type==='trigger_tg'||x.type==='output_tg') &&
+      (x.cfg.tg_token || x.cfg.tg_chat_id));
+    if (donor) {
+      let filled = false;
+      tgFields.forEach(k => {
+        if (!n.cfg[k] && donor.cfg[k]) { n.cfg[k]=donor.cfg[k]; filled=true; }
+      });
+      if (filled) return true;
+    }
+  }
+  // Auto-fill AI provider key indicator (read-only note)
+  return false;
+}
+
 function wfcShowPanel(id) {
   const n=wfc.nodes.find(x=>x.id===id); if(!n) return;
   const d=WFC_DEFS[n.type]; if(!d) return;
+  wfcAutoFill(n, d);
   document.getElementById('wfcPanelTitle').textContent=d.label;
   const ico=document.getElementById('wfcPanelIco');
   ico.style.background=d.color+'22'; ico.innerHTML=svgIcon(d.icon,14,d.color);
+
+  // Key status badge for AI nodes
+  const aiProviderMap = {node_gpt:'openai', node_claude:'anthropic', node_gemini:'gemini'};
+  const provider = aiProviderMap[n.type];
+  const savedKey = provider && (userKeys||[]).find(k=>k.provider===provider);
+
   const fEl=document.getElementById('wfcPanelFields');
-  fEl.innerHTML=d.fields?.length
+  fEl.innerHTML=(d.fields?.length
     ? d.fields.map(f=>`<div>
         <label style="display:block;font-size:11px;color:#a89880;margin-bottom:4px">${esc(f.l)}</label>
         ${f.t==='textarea'
-          ?`<textarea rows="4" class="inp" style="font-size:12px;resize:vertical"
+          ?`<textarea rows="3" class="inp" style="font-size:12px;resize:vertical"
              placeholder="${esc(f.p||'')}"
              oninput="wfcSaveF('${id}','${f.k}',this.value)">${esc(n.cfg[f.k]||'')}</textarea>`
           :f.t==='select'
@@ -2032,7 +2060,14 @@ function wfcShowPanel(id) {
              placeholder="${esc(f.p||'')}" value="${esc(n.cfg[f.k]||'')}"
              oninput="wfcSaveF('${id}','${f.k}',this.value)"/>`}
       </div>`).join('')
-    : '<p style="font-size:12px;color:#a89880">Настройка не требуется.</p>';
+    : '<p style="font-size:12px;color:#a89880">Настройка не требуется.</p>')
+  + (provider ? `<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:${savedKey?'rgba(107,255,158,.08)':'rgba(74,63,47,.2)'};border:1px solid ${savedKey?'rgba(107,255,158,.3)':'rgba(74,63,47,.4)'}">
+    <p style="font-size:11px;font-weight:600;color:${savedKey?'#6bff9e':'#a89880'}">
+      ${savedKey ? `🔑 Свой ключ: ${esc(savedKey.key_preview)}` : '🔧 Сервисный ключ платформы'}
+    </p>
+    <p style="font-size:10px;color:#a89880;margin-top:2px">
+      ${savedKey ? 'Запуск: 5 CH · <button onclick="openKeysModal()" style="color:#ff8c42;background:none;border:none;cursor:pointer;font-size:10px;padding:0">управлять</button>' : '50 CH · <button onclick="openKeysModal()" style="color:#ff8c42;background:none;border:none;cursor:pointer;font-size:10px;padding:0">добавить свой</button>'}
+    </p></div>` : '');
   document.getElementById('wfcPanel').classList.remove('hidden');
 }
 function wfcSaveF(nid,k,v) {
