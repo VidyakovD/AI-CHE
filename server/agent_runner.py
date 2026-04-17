@@ -647,12 +647,31 @@ async def run_agent(
                         result=f"Ошибка планировщика на шаге {step_num}: {e}")
             return
 
-        # ── Parse JSON ────────────────────────────────────────────────────
+        # ── Parse JSON (robust: try direct parse, then balanced brace extraction) ─
+        def _extract_json(text: str) -> dict:
+            text = text.strip()
+            if text.startswith("```"):
+                text = re.sub(r'^```(?:json)?\s*', '', text)
+                text = re.sub(r'\s*```\s*$', '', text)
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                pass
+            # Balanced brace extraction
+            start = text.find('{')
+            if start == -1:
+                raise ValueError("No JSON object found in response")
+            depth, end = 0, start
+            for i in range(start, len(text)):
+                if text[i] == '{': depth += 1
+                elif text[i] == '}': depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+            return json.loads(text[start:end])
+
         try:
-            json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-            if not json_match:
-                raise ValueError("No JSON in response")
-            plan    = json.loads(json_match.group())
+            plan = _extract_json(raw_text)
             thought = plan.get("думаю",    plan.get("thought", ""))
             action  = plan.get("действие", plan.get("action",  "finish"))
             params  = plan.get("параметры",plan.get("parameters", plan.get("params", {})))

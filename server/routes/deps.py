@@ -92,3 +92,4 @@ def _deduct(db, user, cost, description, model=None):
     db_user.tokens_balance -= cost
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
                        description=description, model=model))
+    db.commit()

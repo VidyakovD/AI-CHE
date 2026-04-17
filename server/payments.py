@@ -23,14 +23,15 @@ def get_plan(plan_id: str) -> dict:
 
 
 def create_payment(plan: str, user_id: int, return_url: str,
-                   user_email: str = None, promo_code: str = None) -> dict:
+                   user_email: str = None, promo_code: str = None,
+                   discount_pct: int = 0) -> dict:
     plan_cfg = PLANS.get(plan)
     if not plan_cfg:
         raise ValueError(f"Unknown plan: {plan}")
 
     price = plan_cfg["price_rub"]
-    if promo_code:
-        price = round(price * 0.9)  # 10% скидка
+    if promo_code and discount_pct > 0:
+        price = round(price * (100 - discount_pct) / 100)
 
     payment_data = {
         "amount":       {"value": str(float(price)), "currency": "RUB"},

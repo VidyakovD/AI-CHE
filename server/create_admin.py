@@ -1,8 +1,8 @@
 """
 Запусти один раз: python -m server.create_admin
-Создаёт администратора Vidyakov с паролем 28371988
+Создаёт администратора. Пароль берётся из env ADMIN_PASSWORD или вводится интерактивно.
 """
-import sys, os
+import sys, os, secrets
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -16,11 +16,24 @@ models.Base.metadata.create_all(bind=engine)
 
 db = SessionLocal()
 
-email = "vidyakov@obsidian.ai"
+email = os.getenv("ADMIN_EMAIL", "vidyakov@obsidian.ai")
+password = os.getenv("ADMIN_PASSWORD")
+if not password:
+    import getpass
+    password = getpass.getpass(f"Введите пароль для {email}: ").strip()
+    if not password:
+        password = secrets.token_urlsafe(16)
+        print(f"⚠️ Пароль сгенерирован автоматически: {password}")
+
+if len(password) < 8:
+    print("❌ Пароль должен быть не менее 8 символов")
+    db.close()
+    sys.exit(1)
+
 existing = db.query(models.User).filter_by(email=email).first()
 
 if existing:
-    existing.password_hash = hash_password("28371988")
+    existing.password_hash = hash_password(password)
     existing.is_verified = True
     existing.is_active = True
     db.commit()
@@ -28,8 +41,8 @@ if existing:
 else:
     user = models.User(
         email=email,
-        password_hash=hash_password("28371988"),
-        name="Vidyakov",
+        password_hash=hash_password(password),
+        name="Admin",
         tokens_balance=999_999_999,
         is_active=True,
         is_verified=True,
@@ -38,25 +51,26 @@ else:
     )
     db.add(user)
     db.commit()
-    print(f"✅ Админ создан: {email} / 28371988")
+    print(f"✅ Админ создан: {email}")
 
 # Убедимся что email в ADMIN_EMAILS
 env_path = ".env"
 if os.path.exists(env_path):
-    lines = open(env_path).readlines()
+    with open(env_path, "r") as f:
+        lines = f.readlines()
     has_admin = any("ADMIN_EMAILS" in l for l in lines)
     if not has_admin:
         with open(env_path, "a") as f:
             f.write(f"\nADMIN_EMAILS={email}\n")
         print(f"✅ Добавлен ADMIN_EMAILS={email} в .env")
     else:
-        # append to existing
         new_lines = []
         for l in lines:
             if l.startswith("ADMIN_EMAILS=") and email not in l:
                 l = l.rstrip() + f",{email}\n"
             new_lines.append(l)
-        open(env_path,"w").writelines(new_lines)
+        with open(env_path, "w") as f:
+            f.writelines(new_lines)
         print(f"✅ ADMIN_EMAILS обновлён в .env")
 else:
     with open(env_path, "w") as f:
@@ -65,4 +79,3 @@ else:
 
 db.close()
 print(f"\n🔑 Логин: {email}")
-print(f"🔑 Пароль: 28371988")

@@ -271,9 +271,13 @@ ca.addEventListener('wheel',e=>{
   zoomBy(e.deltaY>0?-0.08:0.08, e.clientX, e.clientY);
 },{passive:false});
 
+let spaceDown=false;
+window.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.target.matches('input,textarea,select')){e.preventDefault();spaceDown=true;ca.style.cursor='grab';}});
+window.addEventListener('keyup',e=>{if(e.code==='Space'){spaceDown=false;if(!isPan)ca.style.cursor='';}});
+
 ca.addEventListener('mousedown',e=>{
   if(e.target===ca || e.target===document.getElementById('svg-layer')){
-    if(e.button===1||(e.button===0&&e.altKey)){
+    if(e.button===1||(e.button===0&&e.altKey)||(e.button===0&&spaceDown)){
       isPan=true;
       panStart={x:e.clientX-panX,y:e.clientY-panY};
       ca.style.cursor='grabbing';
@@ -302,7 +306,7 @@ window.addEventListener('mousemove',e=>{
   if(connFrom) redrawSvg();
 });
 window.addEventListener('mouseup',e=>{
-  isPan=false; ca.style.cursor='';
+  isPan=false; ca.style.cursor=spaceDown?'grab':'';
   dragId=null;
   if(connFrom){connFrom=null;redrawSvg();}
 });
@@ -682,7 +686,9 @@ function triggerUpload(nodeId,accept){
     const file=e.target.files[0];if(!file)return;
     const fd=new FormData();fd.append('file',file);
     try{
-      const r=await fetch(API+'/upload',{method:'POST',body:fd});
+      if(!authToken){alert('Требуется авторизация');return;}
+      const r=await fetch(API+'/upload',{method:'POST',headers:{'Authorization':'Bearer '+authToken},body:fd});
+      if(!r.ok){const err=await r.json().catch(()=>({}));alert(err.detail||'Ошибка загрузки');return;}
       const d=await r.json();
       const node=nodes.find(n=>n.id===nodeId);
       if(node){node.uploadedUrl=d.url;updateNodeBody(node);}
@@ -759,6 +765,7 @@ async function runWorkflow(){
   const panel=document.getElementById('runPanel');
   panel.classList.add('show');
   document.getElementById('runLog').innerHTML='';
+  if(!authToken){logRun('⚠️ Требуется авторизация. Войдите в аккаунт на главной странице.','err');return;}
   if(!nodes.length){logRun('⚠️ Добавьте блоки','warn');return;}
   const order=topoSort();
   if(!order){logRun('⚠️ Обнаружен цикл','err');return;}
@@ -784,7 +791,6 @@ async function runWorkflow(){
 }
 
 async function executeNode(node,inputs){
-  const getStr=v=>v?.(v.content||v.url||''):'' ;
   const primary=inputs[0];
   const primaryStr=primary?(primary.content||primary.url||''):'';
 
@@ -811,23 +817,45 @@ async function executeNode(node,inputs){
 
 async function callApi(node,text,inputObj){
   if(!authToken)throw new Error('Требуется авторизация');
+
+  // Формируем текст сообщения: системный промпт передаётся через историю как первый message
+  let userMsg = text || node.props.task || 'Привет';
+  // Если есть системный промпт, добавляем его как префикс к сообщению
+  // (сервер автоматически добавляет системное сообщение, но мы можем его расширить)
+  if(node.props.system && node.props.system !== 'Ты полезный ассистент.'){
+    userMsg = '[Инструкция: ' + node.props.system + ']\n\n' + userMsg;
+  }
+
   const body={
     chat_id:'wf_'+node.id+'_'+Date.now(),
-    message:text||node.props.task||node.props.system||'Привет',
-    model:getModelId(node.type)
+    message: userMsg,
+    model: getModelId(node.type)
   };
-  if(node.props.system)body.system=node.props.system;
+
   const extra={};
   if(node.props.aspect)extra.aspect_ratio=node.props.aspect;
   if(node.props.dur)extra.duration=node.props.dur;
   if(node.props.mode)extra.mode=node.props.mode;
   if(node.props.size)extra.size=node.props.size;
   if(node.props.style)extra.style=node.props.style;
-  // Pass image/video URLs
-  if(inputObj?.type==='image'&&inputObj.url) extra.image_url=API+inputObj.url;
+
+  // Для видео-моделей (Kling i2v, motion) — image_url нужен как полный URL
+  // Для текстовых моделей — file_url как путь на сервере
+  if(inputObj?.type==='image'&&inputObj.url){
+    const isVideoGen = ['kling','kling_i2v','kling_motion','kling_avatar','veo'].includes(node.type);
+    if(isVideoGen){
+      extra.image_url = API + inputObj.url;  // полный URL для Kling API
+    } else {
+      body.file_url = inputObj.url;  // путь /uploads/xxx.png для текстовых моделей
+    }
+  }
   if(Object.keys(extra).length)body.extra=extra;
 
   const r=await fetch(API+'/message',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken},body:JSON.stringify(body)});
+  if(!r.ok){
+    const err=await r.json().catch(()=>({}));
+    throw new Error(err.detail||'Ошибка API ('+r.status+')');
+  }
   const d=await r.json();
   if(d.error)throw new Error(d.error);
   return d.response||{type:'text',content:'ok'};
@@ -839,7 +867,8 @@ async function uploadInteractive(accept,node){
     inp.onchange=async e=>{
       const file=e.target.files[0];if(!file){res({type:'text',content:''});return;}
       const fd=new FormData();fd.append('file',file);
-      const r=await fetch(API+'/upload',{method:'POST',body:fd});
+      const r=await fetch(API+'/upload',{method:'POST',headers:{'Authorization':'Bearer '+authToken},body:fd});
+      if(!r.ok){res({type:'text',content:'Ошибка загрузки'});return;}
       const d=await r.json();
       node.uploadedUrl=d.url;
       res({type:accept.includes('image')?'image':'video',url:d.url});
@@ -849,7 +878,8 @@ async function uploadInteractive(accept,node){
 }
 
 function getModelId(type){
-  return{assistant:'gpt',gpt4o:'gpt-4o',claude:'claude-sonnet',gemini:'gemini',perplexity:'perplexity',nano:'nano',dalle:'dalle',kling:'kling',kling_i2v:'kling',kling_motion:'kling',veo:'veo'}[type]||'gpt';
+  // Маппинг на алиасы из MODEL_REGISTRY на сервере
+  return{assistant:'gpt',gpt4o:'gpt-4o',claude:'claude',gemini:'gemini',perplexity:'perplexity',nano:'nano',dalle:'dalle',kling:'kling',kling_i2v:'kling',kling_motion:'kling',veo:'veo'}[type]||'gpt';
 }
 
 function topoSort(){
@@ -894,12 +924,17 @@ function loadWorkflow(wf){
   curWfId=wf.id;
   (wf.nodes||[]).forEach(n=>{
     const node={...n,result:null,generating:false,uploadedUrl:n.uploadedUrl||null};
-    const num=parseInt(n.id.replace('n',''));
+    const num=parseInt(n.id.replace(/\D/g,''));
     if(!isNaN(num)&&num>=nodeIdCtr)nodeIdCtr=num+1;
     nodes.push(node);
     renderNode(node);
   });
-  conns=[...(wf.conns||[])];
+  conns=(wf.conns||[]).map(c=>({...c}));
+  // Убедимся, что nodeIdCtr больше всех id в коннекторах
+  conns.forEach(c=>{
+    const num=parseInt(String(c.id).replace(/\D/g,''));
+    if(!isNaN(num)&&num>=nodeIdCtr)nodeIdCtr=num+1;
+  });
   setTimeout(()=>{redrawSvg();selectNode(null);},100);
 }
 
@@ -912,7 +947,7 @@ function clearCanvas(){
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
 // CSS spin animation
 const style=document.createElement('style');

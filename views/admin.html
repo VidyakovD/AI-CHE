@@ -975,7 +975,7 @@ async function saveSolution(){
 
 // ── utils ──────────────────────────────────────────────────────────────────
 function fmtT(n){return(n||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})}
-function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
 
 async function get(path){
   const r=await fetch(API+path,{headers:authH()});

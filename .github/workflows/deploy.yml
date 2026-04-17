@@ -10,4 +10,23 @@ jobs:
     steps:
       - name: Call deploy endpoint
         run: |
-          curl -s -X POST "https://aiche.ru/internal/deploy" -H "Authorization: Bearer ${{ secrets.DEPLOY_TOKEN }}"
+          response=$(curl -s -w "\n%{http_code}" -X POST "https://aiche.ru/internal/deploy" \
+            -H "Authorization: Bearer ${{ secrets.DEPLOY_TOKEN }}")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "HTTP Status: $http_code"
+          echo "Response: $body"
+
+          if [ "$http_code" != "200" ]; then
+            echo "::error::Deploy failed with HTTP $http_code"
+            exit 1
+          fi
+
+          status=$(echo "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+          if [ "$status" != "ok" ]; then
+            echo "::error::Deploy returned status: $status"
+            exit 1
+          fi
+
+          echo "✅ Deploy successful"

@@ -81,10 +81,16 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     if req.referral_code:
         referrer = db.query(User).filter_by(referral_code=req.referral_code.upper()).first()
         if referrer:
+            already_used = db.query(Transaction).filter(
+                Transaction.user_id == referrer.id,
+                Transaction.type == "bonus",
+                Transaction.description.contains(email)
+            ).first()
             referred_by = req.referral_code.upper()
-            referrer.tokens_balance += 10_000
-            db.add(Transaction(user_id=referrer.id, type="bonus", tokens_delta=10_000,
-                               description=f"Реферальный бонус за {email}"))
+            if not already_used:
+                referrer.tokens_balance += 10_000
+                db.add(Transaction(user_id=referrer.id, type="bonus", tokens_delta=10_000,
+                                   description=f"Реферальный бонус за {email}"))
 
     user = User(email=email, password_hash=hash_password(req.password),
                 name=req.name or email.split("@")[0], tokens_balance=0,

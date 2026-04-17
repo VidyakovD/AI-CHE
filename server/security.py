@@ -66,9 +66,19 @@ RULES = {
     "/upload":                   (20,  60),
 }
 
+def _get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
+
+
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path
-    ip   = request.client.host if request.client else "unknown"
+    ip = _get_client_ip(request)
 
     for prefix, (max_c, win) in RULES.items():
         if path.startswith(prefix):

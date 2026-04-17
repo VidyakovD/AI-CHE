@@ -194,10 +194,20 @@ def upload_file(file: UploadFile = File(...), user=Depends(optional_user)):
 
 
 @router.get("/kling/status/{task_id}")
-def kling_status(task_id: str, user=Depends(current_user)):
+def kling_status(task_id: str, db: Session = Depends(get_db), user=Depends(current_user)):
+    msg = db.query(Message).filter(
+        Message.user_id == user.id,
+        Message.content.contains(task_id)
+    ).first()
+    if not msg:
+        raise HTTPException(403, "Нет доступа к этой задаче")
     import httpx as hx
-    keys = [k.strip() for k in os.getenv("KLING_API_KEYS","").split(",") if k.strip()]
-    if not keys: raise HTTPException(503, "No Kling keys")
-    r = hx.get(f"https://api.klingai.com/v1/videos/text2video/{task_id}",
-               headers={"Authorization": f"Bearer {keys[0]}"}, timeout=15)
-    return r.json()
+    keys = [k.strip() for k in os.getenv("KLING_API_KEYS", "").split(",") if k.strip()]
+    if not keys:
+        raise HTTPException(503, "No Kling keys")
+    try:
+        r = hx.get(f"https://api.klingai.com/v1/videos/text2video/{task_id}",
+                   headers={"Authorization": f"Bearer {keys[0]}"}, timeout=15)
+        return r.json()
+    except hx.TimeoutException:
+        raise HTTPException(504, "Kling API timeout")

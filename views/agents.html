@@ -24,6 +24,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .main-tab{padding:10px 20px;font-size:13px;font-weight:600;color:#a89880;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
 .main-tab.active{color:#ff8c42;border-bottom-color:#ff8c42}
 .tab-pane{display:none}.tab-pane.active{display:block}
+#pane-catalog.active{display:block}
 
 /* Agent list */
 .agent-item{background:#272018;border:1px solid rgba(74,63,47,.3);border-radius:12px;padding:14px 16px;cursor:pointer;transition:all .15s}
@@ -159,8 +160,8 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   </div>
 
   <!-- ── Tab: Конструктор (Canvas n8n-style) ── -->
-  <div id="pane-catalog" class="tab-pane" style="margin:0 -16px -32px">
-    <div class="flex overflow-hidden border-t border-outline/20" style="height:calc(100vh - 168px);min-height:560px">
+  <div id="pane-catalog" class="tab-pane" style="position:fixed;inset:0;top:0;z-index:40;background:#141210;margin:0">
+    <div class="flex overflow-hidden" style="height:100vh">
 
       <!-- Sidebar: node palette -->
       <div class="wfc-sidebar">
@@ -175,6 +176,11 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
         <!-- Toolbar -->
         <div class="flex items-center gap-2 px-4 py-2.5 border-b border-outline/20 flex-shrink-0" style="background:#111009">
+          <button onclick="switchTab('library')" class="btn-g text-xs py-1.5 flex items-center gap-1.5">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+            Назад
+          </button>
+          <div style="width:1px;height:20px;background:rgba(74,63,47,0.4);margin:0 4px"></div>
           <input id="wfcName" class="inp text-sm font-bold py-1.5" style="max-width:200px" placeholder="Название" value="TG-бот с AI"/>
           <div class="flex-1"></div>
           <span id="wfcMsg" class="text-xs hidden"></span>
@@ -594,7 +600,7 @@ function hdrs(x={}) {
   if (authToken) h['Authorization'] = 'Bearer '+authToken;
   return h;
 }
-function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 // icon: key in SVG_ICONS
@@ -869,6 +875,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   wfcInitDefs();
   wfcBuildSidebar();
   wfcInitDefault();
+  wfcRender();
   buildPresets();
   await loadUserKeys();
   await loadAgents();
@@ -876,11 +883,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(t) {
-  ['my','catalog','run'].forEach(x => {
-    document.getElementById('tab-'+x).classList.toggle('active', x===t);
-    document.getElementById('pane-'+x).classList.toggle('active', x===t);
+  ['library','my','catalog','run'].forEach(x => {
+    document.getElementById('tab-'+x)?.classList.toggle('active', x===t);
+    document.getElementById('pane-'+x)?.classList.toggle('active', x===t);
   });
+  // При переключении на конструктор — перерисовать канву
+  if(t==='catalog') setTimeout(()=>{ wfcDrawGrid(); wfcDrawEdges(); },100);
 }
+
+// Escape — выход из полноэкранного конструктора
+document.addEventListener('keydown', e => {
+  if(e.key==='Escape' && document.getElementById('pane-catalog')?.classList.contains('active')){
+    switchTab('library');
+  }
+});
 
 // ── Catalog ───────────────────────────────────────────────────────────────────
 let activeCat = 'all';
@@ -2132,7 +2148,7 @@ async function wfcRun() {
     const r=await fetch(`${API}/agent/run`,{method:'POST',headers:hdrs(),body:JSON.stringify({
       goal:name, api_mode:'service',
       context:{wfc_nodes:wfc.nodes,wfc_edges:wfc.edges,
-               system_prompt:llmN?.cfg?.system||'',model:llmN?.cfg?.temp||'gpt-4o',
+               system_prompt:llmN?.cfg?.system||'',model:llmN?.cfg?.model||'gpt-4o',
                tg_token:trgN?.cfg?.tg_token||outN?.cfg?.tg_token||'',
                tg_chat_id:trgN?.cfg?.tg_chat_id||outN?.cfg?.tg_chat_id||''},
     })});

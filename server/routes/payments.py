@@ -44,15 +44,23 @@ def payment_create(req: BuyPlanRequest, user: User = Depends(current_user),
     if req.plan not in PLANS:
         raise HTTPException(400, f"Неизвестный план: {req.plan}")
     promo = req.promo_code
+    discount_pct = 0
     if not promo:
         used = db.query(PromoUse).filter_by(user_id=user.id).first()
-        promo_code_rec = None
         if not used:
             promo_code_rec = db.query(PromoCode).filter_by(is_active=True).first()
-            if promo_code_rec:
+            if promo_code_rec and promo_code_rec.used_count < promo_code_rec.max_uses:
                 promo = promo_code_rec.code
+                discount_pct = promo_code_rec.discount_pct
+    else:
+        promo_code_rec = db.query(PromoCode).filter_by(code=promo.upper(), is_active=True).first()
+        if promo_code_rec and promo_code_rec.used_count < promo_code_rec.max_uses:
+            discount_pct = promo_code_rec.discount_pct
+        else:
+            promo = None
     try:
-        return create_payment(req.plan, user.id, req.return_url, user.email, promo)
+        return create_payment(req.plan, user.id, req.return_url, user.email,
+                              promo, discount_pct)
     except Exception as e:
         raise HTTPException(500, f"Ошибка платежа: {e}")
 

@@ -25,6 +25,9 @@ from server.routes.agent import router as agent_router, init_agent_queue
 import server.agents.registry  # noqa: F401 — registers all agent types on import
 from server.routes.public import router as public_router, startup_public
 from server.routes.user_apikeys import router as user_apikeys_router
+from server.routes.chatbots import router as chatbots_router
+from server.routes.webhook import router as webhook_router
+from server.routes.widget import router as widget_router
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -38,11 +41,14 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
-_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()] if _raw_origins else []
+if not _origins:
+    log.warning("ALLOWED_ORIGINS not set — CORS will allow all origins WITHOUT credentials")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins,
-    allow_credentials=True,
+    allow_origins=_origins if _origins else ["*"],
+    allow_credentials=bool(_origins),  # credentials нельзя с "*"
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -61,6 +67,9 @@ app.include_router(sites_router)
 app.include_router(presentations_router)
 app.include_router(agent_router)
 app.include_router(user_apikeys_router)
+app.include_router(chatbots_router)
+app.include_router(webhook_router)
+app.include_router(widget_router)
 app.include_router(public_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
@@ -130,11 +139,17 @@ async def deploy_endpoint(authorization: str = Header(None)):
             ["/root/AI-CHE/scripts/deploy.sh"],
             capture_output=True, text=True, timeout=120
         )
-        return {"status": "ok", "output": r.stdout[:1000]}
+        if r.returncode != 0:
+            log.error(f"Deploy failed (exit {r.returncode}): {r.stderr[:500]}")
+            return {"status": "error", "message": "Deploy script failed"}
+        log.info("Deploy completed successfully")
+        return {"status": "ok"}
     except _subprocess.TimeoutExpired:
+        log.error("Deploy timed out after 120s")
         return {"status": "timeout"}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        log.error(f"Deploy exception: {e}")
+        raise HTTPException(500, "Deploy failed")
 
 # ── Startup ────────────────────────────────────────────────────────────────────
 from fastapi import Depends  # noqa: E402

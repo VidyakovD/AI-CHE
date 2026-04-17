@@ -12,7 +12,7 @@ class User(Base):
     password_hash    = Column(String, nullable=False)
     name             = Column(String, nullable=True)
     avatar_url       = Column(String, nullable=True)
-    tokens_balance   = Column(Float, default=0.0)
+    tokens_balance   = Column(Integer, default=0)
     is_active        = Column(Boolean, default=True)
     is_verified      = Column(Boolean, default=False)       # email verified
     is_banned        = Column(Boolean, default=False)        # заблокирован по оферте (п. 10.1)
@@ -395,6 +395,48 @@ class AgentConfig(Base):
     updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", backref="agent_configs")
+
+
+# ── Persistent Chatbots ──────────────────────────────────────────────────────
+
+class ChatBot(Base):
+    """Постоянный бот — слушает входящие и отвечает через AI 24/7."""
+    __tablename__ = "chatbots"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name            = Column(String, default="Мой бот")
+    model           = Column(String, default="gpt")
+    system_prompt   = Column(Text, nullable=True)
+    # Telegram
+    tg_token        = Column(String, nullable=True)
+    tg_webhook_set  = Column(Boolean, default=False)
+    # VK
+    vk_token        = Column(String, nullable=True)
+    vk_group_id     = Column(String, nullable=True)
+    vk_secret       = Column(String, nullable=True)
+    vk_confirmation = Column(String, nullable=True)
+    vk_confirmed    = Column(Boolean, default=False)
+    # Авито
+    avito_client_id = Column(String, nullable=True)
+    avito_client_secret = Column(String, nullable=True)
+    avito_user_id   = Column(String, nullable=True)
+    # Виджет
+    widget_enabled  = Column(Boolean, default=False)
+    widget_secret   = Column(String, nullable=True)
+    # Воркфлоу (JSON граф нод/связей из конструктора)
+    workflow_json   = Column(Text, nullable=True)
+    # Лимиты
+    max_replies_day = Column(Integer, default=100)
+    cost_per_reply  = Column(Integer, default=5)
+    replies_today   = Column(Integer, default=0)
+    replies_reset_at= Column(DateTime, nullable=True)
+    # Статус
+    status          = Column(String, default="off")  # off / active / paused
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", backref="chatbots")
 
 
 class UserApiKey(Base):

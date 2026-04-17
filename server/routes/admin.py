@@ -15,6 +15,7 @@ from server.models import (
 )
 from server.security import require_admin
 from server.db import SessionLocal
+from server.ai import invalidate_api_key_cache
 
 log = logging.getLogger(__name__)
 
@@ -243,6 +244,7 @@ def admin_add_key(body: ApiKeyBody, user: User = Depends(current_user),
                  label=body.label, status="unknown")
     db.add(key); db.commit(); db.refresh(key)
     _rebuild_env_keys(body.provider, db)
+    invalidate_api_key_cache(body.provider)
     return {"id": key.id, "status": "added"}
 
 
@@ -256,6 +258,7 @@ def admin_delete_key(key_id: int, user: User = Depends(current_user),
     provider = key.provider
     db.delete(key); db.commit()
     _rebuild_env_keys(provider, db)
+    invalidate_api_key_cache(provider)
     return {"status": "deleted"}
 
 

@@ -1898,7 +1898,7 @@ function updateSendBtn(){
   btn.disabled=!a;btn.classList.toggle("opacity-50",!a);btn.classList.toggle("cursor-not-allowed",!a);
 }
 function fmtT(n){let v=n||0;return v.toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
 function openM(id){document.getElementById(id).classList.remove("hidden");}
 function closeM(id){document.getElementById(id).classList.add("hidden");}
 function switchM(a,b){closeM(a);openM(b);}

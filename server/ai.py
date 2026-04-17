@@ -7,24 +7,40 @@ log = logging.getLogger(__name__)
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+_api_key_cache: dict[str, tuple[float, list[str]]] = {}
+_API_KEY_CACHE_TTL = 60  # секунд
+
 def _get_api_keys(provider: str, sep=","):
-    """Читает ключи из БД напрямую. Работает во всех воркерах без env."""
+    """Читает ключи из БД с кэшированием на 60 сек."""
+    now = time.time()
+    cached = _api_key_cache.get(provider)
+    if cached and (now - cached[0]) < _API_KEY_CACHE_TTL:
+        return list(cached[1])
+
     from server.db import SessionLocal
     from server.models import ApiKey
     db = SessionLocal()
     try:
-        # Kling ключ один и содержит запятую внутри: "ak_XXX,sk_YYY"
         if provider == "kling":
             rows = db.query(ApiKey).filter_by(provider="kling").all()
-            return [r.key_value.strip() for r in rows if r.key_value.strip()]
-        # Для остальных провайдеров: можно несколько ключей через запятую в одной записи
-        rows = db.query(ApiKey).filter_by(provider=provider).all()
-        result = []
-        for r in rows:
-            result.extend(k.strip() for k in r.key_value.split(sep) if k.strip())
-        return result
+            result = [r.key_value.strip() for r in rows if r.key_value.strip()]
+        else:
+            rows = db.query(ApiKey).filter_by(provider=provider).all()
+            result = []
+            for r in rows:
+                result.extend(k.strip() for k in r.key_value.split(sep) if k.strip())
+        _api_key_cache[provider] = (now, result)
+        return list(result)
     finally:
         db.close()
+
+
+def invalidate_api_key_cache(provider: str = None):
+    """Сбросить кэш ключей (вызывать при добавлении/удалении ключей)."""
+    if provider:
+        _api_key_cache.pop(provider, None)
+    else:
+        _api_key_cache.clear()
 
 def _shuffle(lst): random.shuffle(lst); return lst
 
@@ -131,7 +147,7 @@ def openai_response(model: str, messages: list, extra: dict = None,
     last_error = None
     for key in keys:
         try:
-            client = OpenAI(api_key=key)
+            client = OpenAI(api_key=key, timeout=90)
             for attempt in range(2):
                 try:
                     resp = client.chat.completions.create(model=model, messages=formatted)
@@ -497,7 +513,7 @@ MODEL_REGISTRY = {
     "gpt":             {"provider": "openai",      "real_model": "gpt-4o-mini"},
     "gpt-4o":          {"provider": "openai",      "real_model": "gpt-4o"},
     "claude":          {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
-    "claude-sonnet":   {"provider": "anthropic",   "real_model": "claude-opus-4-6"},
+    "claude-sonnet":   {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
     "gemini":          {"provider": "gemini",      "real_model": "gemini-1.5-flash"},
     "gemini-pro":      {"provider": "gemini",      "real_model": "gemini-1.5-pro"},
     "perplexity":      {"provider": "perplexity",  "real_model": "sonar-small-chat"},

@@ -904,7 +904,7 @@ async function getProjectDetail(){
   return await r.json();
 }
 
-function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 // Close modals on backdrop click
 document.getElementById('createModal').addEventListener('click',e=>{ if(e.target===e.currentTarget)closeCreate(); });
