@@ -186,6 +186,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <span id="wfcMsg" class="text-xs hidden"></span>
           <button onclick="wfcClear()" class="btn-g text-xs py-1.5">Очистить</button>
           <button onclick="wfcSave()" class="btn-g text-xs py-1.5">💾 Сохранить</button>
+          <button onclick="wfcDeployAsBot()" class="btn-g text-xs py-1.5" style="border-color:rgba(107,255,158,0.4);color:#6bff9e">🤖 Как бота</button>
           <button onclick="wfcRun()" class="btn-p text-xs py-1.5 px-4">▶ Запустить</button>
         </div>
 
@@ -2136,6 +2137,47 @@ async function wfcSave() {
     await loadAgents(); setTimeout(()=>m.classList.add('hidden'),3000);
   } catch(e){ m.className='text-xs text-error'; m.textContent=e.message; setTimeout(()=>m.classList.add('hidden'),5000); }
 }
+async function wfcDeployAsBot() {
+  if(!wfc.nodes.length){alert('Добавьте блоки');return;}
+  const name=document.getElementById('wfcName')?.value?.trim()||'Воркфлоу-бот';
+  const m=document.getElementById('wfcMsg');
+  m.className='text-xs text-on-dim';m.textContent='Создаю бота...';m.classList.remove('hidden');
+
+  // Извлекаем настройки из нод
+  const trgTg=wfc.nodes.find(n=>n.type==='trigger_tg');
+  const outTg=wfc.nodes.find(n=>n.type==='output_tg');
+  const llmN=wfc.nodes.find(n=>['node_gpt','node_claude','node_gemini'].includes(n.type));
+  const promptN=wfc.nodes.find(n=>n.type==='prompt');
+  const tg_token=trgTg?.cfg?.tg_token||outTg?.cfg?.tg_token||'';
+  const system_prompt=llmN?.cfg?.system||promptN?.cfg?.system||'';
+  const model_map={node_gpt:'gpt',node_claude:'claude',node_gemini:'gemini'};
+  const model=model_map[llmN?.type]||'gpt';
+
+  const workflow_json=JSON.stringify({wfc_nodes:wfc.nodes,wfc_edges:wfc.edges});
+
+  try{
+    const r=await fetch(`${API}/chatbots`,{method:'POST',headers:hdrs(),body:JSON.stringify({
+      name, model, system_prompt, workflow_json,
+      tg_token:tg_token||undefined,
+      widget_enabled:true,
+      max_replies_day:200,cost_per_reply:5,
+    })});
+    if(!r.ok)throw new Error((await r.json()).detail||'Ошибка');
+    const bot=await r.json();
+
+    // Если есть TG токен — сразу deploy
+    if(tg_token){
+      const dr=await fetch(`${API}/chatbots/${bot.id}/deploy`,{method:'POST',headers:hdrs()});
+      const dd=await dr.json();
+      m.className='text-xs';m.style.color='#6bff9e';
+      m.textContent=dd.channels?.telegram?.ok?'✓ Бот запущен! Telegram webhook установлен':'✓ Бот создан → Чат-боты';
+    }else{
+      m.className='text-xs';m.style.color='#6bff9e';m.textContent='✓ Бот создан → откройте Чат-боты для настройки';
+    }
+    setTimeout(()=>m.classList.add('hidden'),5000);
+  }catch(e){m.className='text-xs text-error';m.textContent=e.message;setTimeout(()=>m.classList.add('hidden'),5000);}
+}
+
 async function wfcRun() {
   if(!wfc.nodes.length) return;
   const name=document.getElementById('wfcName')?.value?.trim()||'Воркфлоу';
