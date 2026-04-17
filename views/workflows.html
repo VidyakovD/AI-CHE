@@ -146,7 +146,7 @@ function deleteWf(id){
 }
 
 function save(){localStorage.setItem('obs_wf_v3',JSON.stringify(workflows));}
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;');}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
 document.addEventListener('click',e=>{
   if(!e.target.closest('[id^="menu_"]')&&!e.target.closest('button[onclick*="toggleMenu"]'))
