@@ -12,6 +12,7 @@ from server.models import (
     Solution, SolutionCategory, SolutionStep,
     Subscription, SupportRequest, PricingSetting,
     ModelPricing, TokenPackage, FaqItem, FeatureFlag,
+    UsageLog,
 )
 from server.security import require_admin
 from server.db import SessionLocal
@@ -131,6 +132,43 @@ def admin_stats(user: User = Depends(current_user), db: Session = Depends(get_db
         "total_messages": db.query(Message).count(),
         "total_revenue":  db.query(Transaction).filter_by(type="payment")
                             .with_entities(func.sum(Transaction.amount_rub)).scalar() or 0,
+    }
+
+
+@router.get("/usage")
+def admin_usage_stats(days: int = 30, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Статистика использования моделей — токены и CH по каждой модели."""
+    require_admin(user)
+    from datetime import datetime, timedelta
+    since = datetime.utcnow() - timedelta(days=days)
+    rows = db.query(
+        UsageLog.model,
+        func.count(UsageLog.id).label("requests"),
+        func.sum(UsageLog.input_tokens).label("input_tokens"),
+        func.sum(UsageLog.output_tokens).label("output_tokens"),
+        func.sum(UsageLog.cached_tokens).label("cached_tokens"),
+        func.sum(UsageLog.ch_charged).label("ch_charged"),
+    ).filter(UsageLog.created_at >= since).group_by(UsageLog.model).all()
+
+    total_ch = sum(r.ch_charged or 0 for r in rows)
+    total_requests = sum(r.requests or 0 for r in rows)
+
+    return {
+        "days": days,
+        "total_requests": total_requests,
+        "total_ch_charged": total_ch,
+        "per_model": [
+            {
+                "model": r.model,
+                "requests": r.requests or 0,
+                "input_tokens": r.input_tokens or 0,
+                "output_tokens": r.output_tokens or 0,
+                "cached_tokens": r.cached_tokens or 0,
+                "ch_charged": r.ch_charged or 0,
+                "avg_ch_per_req": round((r.ch_charged or 0) / (r.requests or 1), 2),
+            } for r in rows
+        ],
     }
 
 

@@ -5,9 +5,23 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 
 from server.routes.deps import get_db, current_user, optional_user, _user_dict
-from server.models import User, Message, Transaction
+from server.models import User, Message, Transaction, ModelPricing, UsageLog
 from server.ai import generate_response, get_token_cost, resolve_model
 from server.security import validate_upload_filename
+
+
+def calculate_cost(model_id: str, input_tokens: int, output_tokens: int, db: Session) -> int:
+    """Посчитать CH за реальное использование токенов."""
+    pricing = db.query(ModelPricing).filter_by(model_id=model_id).first()
+    if pricing and (pricing.ch_per_1k_input > 0 or pricing.ch_per_1k_output > 0):
+        cost = (input_tokens / 1000.0) * pricing.ch_per_1k_input + \
+               (output_tokens / 1000.0) * pricing.ch_per_1k_output
+        cost = max(int(round(cost)), pricing.min_ch_per_req or 1)
+        return cost
+    # Fallback — старая per-request схема
+    if pricing and pricing.cost_per_req:
+        return pricing.cost_per_req
+    return get_token_cost(model_id)
 
 log = logging.getLogger(__name__)
 
@@ -108,29 +122,33 @@ def get_chats(model: str, db: Session = Depends(get_db), user=Depends(optional_u
 @router.post("/message")
 def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depends(optional_user)):
     cfg = resolve_model(req.model)
-    cost = get_token_cost(cfg["real_model"] if cfg else req.model)
+    real_model = cfg["real_model"] if cfg else req.model
+
     if user and not user.is_verified:
         raise HTTPException(403, "Подтвердите email для отправки сообщений")
 
+    # Предварительная блокировка: списываем минимум, чтобы отсечь пустые балансы
+    min_cost = 1
+    pricing = db.query(ModelPricing).filter_by(model_id=real_model).first()
+    if pricing:
+        min_cost = pricing.min_ch_per_req or 1
+    else:
+        min_cost = get_token_cost(real_model) or 1
+
+    if user:
+        db_user = db.query(User).filter_by(id=user.id).first()
+        if db_user.tokens_balance < min_cost:
+            raise HTTPException(402, "Недостаточно токенов. Пополните баланс в личном кабинете.")
+
     existing = db.query(Message).filter_by(chat_id=req.chat_id).first()
-    title = None
-    if not existing:
-        title = req.message[:40] if req.message else "Файл"
+    title = req.message[:40] if (not existing and req.message) else ("Файл" if not existing else None)
 
     stored = json.dumps({"text": req.message, "file_url": req.file_url}) \
              if req.file_url else req.message
 
-    if user:
-        db_user = db.query(User).filter_by(id=user.id).first()
-        if db_user.tokens_balance < cost:
-            raise HTTPException(402, "Недостаточно токенов. Пополните баланс в личном кабинете.")
-        db_user.tokens_balance -= cost
-        db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
-                           description=f"Запрос к {req.model}", model=req.model))
-
     db.add(Message(chat_id=req.chat_id, role="user", content=stored,
                    model=req.model, title=title,
-                   user_id=user.id if user else None, tokens_used=cost))
+                   user_id=user.id if user else None, tokens_used=0))
     db.commit()
 
     history = db.query(Message).filter_by(chat_id=req.chat_id)\
@@ -149,20 +167,41 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
         answer = generate_response(req.model, formatted, req.extra)
     except Exception as e:
         log.error(f"AI error [{req.model}]: {e}")
-        if user:
-            db_user = db.query(User).filter_by(id=user.id).first()
-            if db_user:
-                db_user.tokens_balance += cost
-                log.info(f"Refunded {cost} CH to user {user.id} (AI error)")
         return {"error": "Сервис временно недоступен. Попробуйте ещё раз."}
 
     content   = answer.get("content", "") if isinstance(answer, dict) else answer
     resp_type = answer.get("type", "text") if isinstance(answer, dict) else "text"
+    input_tokens  = answer.get("input_tokens", 0) if isinstance(answer, dict) else 0
+    output_tokens = answer.get("output_tokens", 0) if isinstance(answer, dict) else 0
+
+    # Реальная стоимость по токенам
+    cost = calculate_cost(real_model, input_tokens, output_tokens, db)
+
+    # Списание с баланса и логирование
+    if user and cost > 0:
+        db_user = db.query(User).filter_by(id=user.id).first()
+        if db_user:
+            db_user.tokens_balance = max(0, (db_user.tokens_balance or 0) - cost)
+            desc = f"{req.model}: {input_tokens}→{output_tokens} ток."
+            db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+                               description=desc, model=req.model))
+            db.add(UsageLog(user_id=user.id, model=real_model,
+                            input_tokens=input_tokens, output_tokens=output_tokens,
+                            cached_tokens=answer.get("cached_tokens", 0) if isinstance(answer, dict) else 0,
+                            ch_charged=cost))
 
     db.add(Message(chat_id=req.chat_id, role="assistant", content=content,
-                   model=req.model, user_id=user.id if user else None))
+                   model=req.model, user_id=user.id if user else None,
+                   tokens_used=cost))
     db.commit()
-    return {"response": {"type": resp_type, "content": content}}
+    return {
+        "response": {
+            "type": resp_type, "content": content,
+            "ch_charged": cost,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+        }
+    }
 
 
 @router.post("/upload")

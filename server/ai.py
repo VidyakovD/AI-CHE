@@ -176,7 +176,13 @@ def openai_response(model: str, messages: list, extra: dict = None,
             for attempt in range(2):
                 try:
                     resp = client.chat.completions.create(model=model, messages=formatted)
-                    return {"type": "text", "content": resp.choices[0].message.content}
+                    usage = getattr(resp, "usage", None)
+                    return {
+                        "type": "text",
+                        "content": resp.choices[0].message.content,
+                        "input_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
+                        "output_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
+                    }
                 except Exception as e:
                     err = str(e).lower()
                     if "401" in err or "invalid" in err:
@@ -627,57 +633,80 @@ def anthropic_response(model: str, messages: list, extra: dict = None,
     claude_msgs = []
     for m in user_msgs:
         claude_msgs.append({"role": m["role"], "content": _prepare_claude_content(m["content"])})
+    # Prompt caching: если system prompt длинный (>1024 символов), кэшируем его
+    system_text = system if isinstance(system, str) else "Ты полезный ассистент."
+    use_caching = len(system_text) > 1024
+    system_block = (
+        [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
+        if use_caching else system_text
+    )
+
     for key in keys:
         try:
             if base_url:
                 # Non-streaming request (проще и надёжнее)
+                headers = {"x-api-key": key, "anthropic-version": "2023-06-01",
+                           "content-type": "application/json"}
                 r = httpx.post(
                     f"{base_url.rstrip('/')}/v1/messages",
                     json={"model": model, "max_tokens": 8192,
                           "thinking": {"type": "disabled"},
-                          "system": system if isinstance(system, str) else "Ты полезный ассистент.",
+                          "system": system_block,
                           "messages": claude_msgs},
-                    headers={"x-api-key": key, "anthropic-version": "2023-06-01",
-                             "content-type": "application/json"},
+                    headers=headers,
                     timeout=180,
                 )
                 if r.status_code != 200:
                     raise RuntimeError(f"proxy HTTP {r.status_code}: {r.text[:200]}")
                 data = r.json()
-                # Собираем текст из всех text-блоков (может быть несколько)
                 text_parts = []
                 for block in data.get("content", []):
                     if block.get("type") == "text":
                         text_parts.append(block.get("text", ""))
                 text = "".join(text_parts)
-                log.info(f"[Anthropic] proxy OK model={model} chars={len(text)} blocks={len(data.get('content', []))}")
+                usage = data.get("usage", {})
+                log.info(f"[Anthropic] proxy OK model={model} chars={len(text)} in={usage.get('input_tokens',0)} out={usage.get('output_tokens',0)} cached={usage.get('cache_read_input_tokens',0)}")
                 if text:
-                    return {"type": "text", "content": text}
-                # Если пусто — пробуем без thinking параметра (старые прокси могут не понимать)
-                log.warning(f"[Anthropic] empty response, retrying without thinking param")
+                    return {
+                        "type": "text", "content": text,
+                        "input_tokens": usage.get("input_tokens", 0) + usage.get("cache_creation_input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cached_tokens": usage.get("cache_read_input_tokens", 0),
+                    }
+                # Fallback: без thinking и без caching
+                log.warning(f"[Anthropic] empty response, retrying basic")
                 r2 = httpx.post(
                     f"{base_url.rstrip('/')}/v1/messages",
                     json={"model": model, "max_tokens": 8192,
-                          "system": system if isinstance(system, str) else "Ты полезный ассистент.",
+                          "system": system_text,
                           "messages": claude_msgs},
-                    headers={"x-api-key": key, "anthropic-version": "2023-06-01",
-                             "content-type": "application/json"},
+                    headers=headers,
                     timeout=180,
                 )
                 if r2.status_code == 200:
                     data2 = r2.json()
                     text2 = "".join(b.get("text", "") for b in data2.get("content", []) if b.get("type") == "text")
+                    usage2 = data2.get("usage", {})
                     if text2:
-                        return {"type": "text", "content": text2}
+                        return {
+                            "type": "text", "content": text2,
+                            "input_tokens": usage2.get("input_tokens", 0),
+                            "output_tokens": usage2.get("output_tokens", 0),
+                        }
                 raise RuntimeError(f"Empty response from proxy. Raw: {json.dumps(data)[:300]}")
             else:
                 import anthropic as _ant
                 resp = _ant.Anthropic(api_key=key).messages.create(
                     model=model, max_tokens=8192,
                     messages=claude_msgs,
-                    system=system if isinstance(system, str) else "Ты полезный ассистент.",
+                    system=system_block if use_caching else system_text,
                 )
-                return {"type":"text","content":resp.content[0].text}
+                return {
+                    "type": "text", "content": resp.content[0].text,
+                    "input_tokens": getattr(resp.usage, "input_tokens", 0) + getattr(resp.usage, "cache_creation_input_tokens", 0),
+                    "output_tokens": getattr(resp.usage, "output_tokens", 0),
+                    "cached_tokens": getattr(resp.usage, "cache_read_input_tokens", 0),
+                }
         except Exception as e:
             log.error(f"[Anthropic] key=...{key[-6:]} model={model} error={e}")
             if key == keys[-1]:
@@ -700,7 +729,12 @@ def gemini_response(model: str, messages: list, extra: dict = None) -> dict:
             )
             data = resp.json()
             text = data["candidates"][0]["content"]["parts"][0]["text"]
-            return {"type":"text","content":text}
+            usage = data.get("usageMetadata", {})
+            return {
+                "type": "text", "content": text,
+                "input_tokens": usage.get("promptTokenCount", 0),
+                "output_tokens": usage.get("candidatesTokenCount", 0),
+            }
         except:
             if key == keys[-1]:
                 _notify_admin(f"Gemini: все ключи исчерпаны (модель {model})")
@@ -715,10 +749,16 @@ def grok_response(model: str, messages: list, extra: dict = None) -> dict:
     from openai import OpenAI
     for key in keys:
         try:
-            client = OpenAI(api_key=key, base_url="https://api.x.ai/v1")
+            client = OpenAI(api_key=key, base_url="https://api.x.ai/v1", timeout=90)
             resp = client.chat.completions.create(model=model, messages=messages)
-            return {"type": "text", "content": resp.choices[0].message.content}
-        except:
+            usage = getattr(resp, "usage", None)
+            return {
+                "type": "text", "content": resp.choices[0].message.content,
+                "input_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
+                "output_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
+            }
+        except Exception as e:
+            log.error(f"[Grok] key=...{key[-6:]} error={e}")
             if key == keys[-1]:
                 _notify_admin(f"Grok: все ключи исчерпаны (модель {model})")
                 return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
@@ -732,10 +772,16 @@ def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
     from openai import OpenAI
     for key in keys:
         try:
-            client = OpenAI(api_key=key, base_url="https://api.perplexity.ai")
+            client = OpenAI(api_key=key, base_url="https://api.perplexity.ai", timeout=90)
             resp = client.chat.completions.create(model=model or "sonar-small-chat", messages=messages)
-            return {"type":"text","content":resp.choices[0].message.content}
-        except:
+            usage = getattr(resp, "usage", None)
+            return {
+                "type": "text", "content": resp.choices[0].message.content,
+                "input_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
+                "output_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
+            }
+        except Exception as e:
+            log.error(f"[Perplexity] key=...{key[-6:]} error={e}")
             if key == keys[-1]:
                 _notify_admin(f"Perplexity: все ключи исчерпаны")
                 return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}

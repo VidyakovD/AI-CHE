@@ -186,16 +186,36 @@ class PricingSetting(Base):
 
 
 class ModelPricing(Base):
-    """Стоимость запроса к каждой модели в CH-токенах."""
+    """Стоимость модели — поддерживает per-request и per-token тарификацию."""
     __tablename__ = "model_pricing"
 
     id           = Column(Integer, primary_key=True)
-    model_id     = Column(String, unique=True, nullable=False)  # "gpt", "claude", etc.
+    model_id     = Column(String, unique=True, nullable=False)
     label        = Column(String, nullable=False)
-    cost_per_req = Column(Integer, default=10)   # CH за один запрос
-    usd_per_req  = Column(Float, default=0.001)  # реальная себестоимость в $
-    markup       = Column(Float, default=1.5)    # наценка × (итого = usd × markup × курс / ch_rub)
+    # Per-request (legacy, если per-token не заданы):
+    cost_per_req = Column(Integer, default=10)
+    usd_per_req  = Column(Float, default=0.001)
+    markup       = Column(Float, default=3.0)
+    # Per-token (новая схема):
+    ch_per_1k_input  = Column(Float, default=0.0)   # CH за 1000 input токенов
+    ch_per_1k_output = Column(Float, default=0.0)   # CH за 1000 output токенов
+    min_ch_per_req   = Column(Integer, default=1)   # минимум CH за запрос
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UsageLog(Base):
+    """Логирование каждого вызова AI для статистики."""
+    __tablename__ = "usage_logs"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    model        = Column(String, nullable=False, index=True)
+    input_tokens = Column(Integer, default=0)
+    output_tokens= Column(Integer, default=0)
+    cached_tokens= Column(Integer, default=0)
+    ch_charged   = Column(Integer, default=0)
+    used_own_key = Column(Boolean, default=False)
+    created_at   = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class TokenPackage(Base):

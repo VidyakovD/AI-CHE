@@ -3,8 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
+from datetime import datetime, timedelta
+
 from server.routes.deps import get_db, current_user, _user_dict, _sub_dict, _tx_dict
-from server.models import User, Subscription, Transaction, Message, SupportRequest
+from server.models import User, Subscription, Transaction, Message, SupportRequest, UsageLog
 
 log = logging.getLogger(__name__)
 
@@ -30,10 +33,32 @@ def cabinet_stats(user=Depends(current_user), db: Session = Depends(get_db)):
          "status": r.status, "admin_response": r.admin_response,
          "created_at": r.created_at.isoformat(), "updated_at": r.updated_at.isoformat() if r.updated_at else None}
         for r in reqs]
+    # Детальная статистика по токенам (из UsageLog) за 30 дней
+    since = datetime.utcnow() - timedelta(days=30)
+    usage_rows = db.query(
+        UsageLog.model,
+        func.count(UsageLog.id).label("requests"),
+        func.sum(UsageLog.input_tokens).label("in_tok"),
+        func.sum(UsageLog.output_tokens).label("out_tok"),
+        func.sum(UsageLog.ch_charged).label("ch"),
+    ).filter(UsageLog.user_id == user.id, UsageLog.created_at >= since)\
+     .group_by(UsageLog.model).all()
+    token_usage = [
+        {
+            "model": r.model,
+            "requests": r.requests or 0,
+            "input_tokens": r.in_tok or 0,
+            "output_tokens": r.out_tok or 0,
+            "ch_charged": r.ch or 0,
+            "avg_ch": round((r.ch or 0) / (r.requests or 1), 1),
+        } for r in usage_rows
+    ]
+
     return {"user": u,
             "subscription": _sub_dict(sub) if sub else None,
             "transactions": [_tx_dict(t) for t in txs],
-            "model_usage": model_usage}
+            "model_usage": model_usage,
+            "token_usage": token_usage}
 
 
 @router.post("/subscription/cancel")

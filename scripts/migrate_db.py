@@ -63,6 +63,27 @@ print('✓ chatbots')
 # Если таблица уже существовала без workflow_json — добавим колонку
 migrate('ALTER TABLE chatbots ADD COLUMN workflow_json TEXT', 'chatbots.workflow_json')
 
+# ── Usage Logs (подсчёт токенов по запросам) ──────────────────────────────────
+c.execute("""CREATE TABLE IF NOT EXISTS usage_logs (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    model TEXT NOT NULL,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cached_tokens INTEGER DEFAULT 0,
+    ch_charged INTEGER DEFAULT 0,
+    used_own_key BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now'))
+)""")
+print('✓ usage_logs')
+migrate('CREATE INDEX IF NOT EXISTS idx_usage_logs_user ON usage_logs(user_id)', 'usage_logs.idx_user')
+migrate('CREATE INDEX IF NOT EXISTS idx_usage_logs_created ON usage_logs(created_at)', 'usage_logs.idx_created')
+
+# ── ModelPricing: per-token колонки ───────────────────────────────────────────
+migrate('ALTER TABLE model_pricing ADD COLUMN ch_per_1k_input REAL DEFAULT 0', 'model_pricing.ch_per_1k_input')
+migrate('ALTER TABLE model_pricing ADD COLUMN ch_per_1k_output REAL DEFAULT 0', 'model_pricing.ch_per_1k_output')
+migrate('ALTER TABLE model_pricing ADD COLUMN min_ch_per_req INTEGER DEFAULT 1', 'model_pricing.min_ch_per_req')
+
 conn.commit()
 conn.close()
 print('\n✅ Миграции завершены')
