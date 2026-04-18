@@ -143,16 +143,18 @@ select.inp option{background:#272018;color:#f0e6d8}
           </div>
         </div>
       </div>
-      <!-- Лимиты -->
-      <div class="grid grid-cols-2 gap-3">
-        <div>
-          <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Макс. ответов в день</label>
-          <input id="bot_limit" type="number" value="100" class="inp"/>
-        </div>
-        <div>
-          <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">CH за ответ</label>
-          <input id="bot_cost" type="number" value="5" class="inp"/>
-        </div>
+      <!-- Лимит -->
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Макс. ответов в день</label>
+        <input id="bot_limit" type="number" value="100" class="inp"/>
+      </div>
+      <!-- Инфо: стоимость рассчитывается автоматически по токенам -->
+      <div class="bg-surface2/60 rounded-xl p-3 border border-outline/20 text-xs text-on-dim leading-relaxed">
+        <p class="font-semibold text-on-surface mb-1">💰 Стоимость ответа</p>
+        <p>Списывается <b class="text-primary">автоматически по реальным токенам</b> выбранной модели.
+        Цены моделей (CH/1000 токенов): GPT-4o mini ~0.35, Claude Sonnet ~8.3,
+        Grok 3 ~5.5, Perplexity ~0.6. Средний ответ 300-800 токенов = 1-10 CH.</p>
+        <p class="mt-1 text-on-dim/70">Минимум 1 CH за ответ. Превью стоимости — в истории транзакций ЛК.</p>
       </div>
       <div id="bot_err" class="text-error text-xs hidden"></div>
       <div class="flex gap-3 pt-2">
@@ -234,7 +236,7 @@ function render(){
         <div class="flex flex-wrap gap-1.5">
           ${ch.map(c=>`<span class="text-[10px] bg-surface2 px-2 py-0.5 rounded-full border border-outline/20">${c}</span>`).join('')}
         </div>
-        <p class="text-[10px] text-on-dim/40 mt-2">${b.cost_per_reply||5} CH/ответ</p>
+        <p class="text-[10px] text-on-dim/40 mt-2">Модель: ${modelLabels[b.model]||b.model}</p>
       </div>`;
   }).join('');
 }
@@ -249,7 +251,6 @@ function openCreate(){
   document.getElementById('bot_model').value='gpt';
   document.getElementById('bot_system').value='';
   document.getElementById('bot_limit').value='100';
-  document.getElementById('bot_cost').value='5';
   document.getElementById('widget_enabled').checked=false;
   document.getElementById('widgetCodeWrap').classList.add('hidden');
   document.getElementById('bot_err').classList.add('hidden');
@@ -276,7 +277,6 @@ async function editBot(id){
     document.getElementById('avito_client_secret').value='';
     document.getElementById('avito_user_id').value=b.avito_user_id||'';
     document.getElementById('bot_limit').value=b.max_replies_day||100;
-    document.getElementById('bot_cost').value=b.cost_per_reply||5;
     document.getElementById('widget_enabled').checked=b.widget_enabled||false;
     // Виджет код
     if(b.widget_url){
@@ -303,7 +303,6 @@ async function saveBot(){
     system_prompt:document.getElementById('bot_system').value.trim(),
     widget_enabled:document.getElementById('widget_enabled').checked,
     max_replies_day:parseInt(document.getElementById('bot_limit').value)||100,
-    cost_per_reply:parseInt(document.getElementById('bot_cost').value)||5,
   };
   // Токены — только если заполнены (при редактировании пустое = не менять)
   const tg=document.getElementById('tg_token').value.trim();

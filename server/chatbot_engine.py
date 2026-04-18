@@ -48,28 +48,41 @@ async def handle_message(bot, chat_id: str, user_text: str,
                          extra_ctx: dict | None = None) -> str | None:
     """
     Обработать входящее сообщение.
-    Если у бота есть граф (workflow) — исполняет его.
-    Иначе — простой режим (system_prompt → AI → ответ).
-    extra_ctx — флаги типа is_voice/is_file/is_callback + file_id.
+    Списание — по РЕАЛЬНЫМ токенам модели (из ctx['_usage']).
     """
     if not _check_daily_limit(bot):
         return None
 
-    # Определяем режим: граф или простой
+    # Проверим что у владельца есть хоть какой-то баланс (минимум 1 CH)
+    if not _owner_has_balance(bot, minimum=1):
+        log.warning(f"[Bot {bot.id}] У владельца {bot.user_id} закончились токены")
+        return None
+
     workflow = _get_bot_workflow(bot)
+    # Инициализируем usage в ctx чтобы провайдеры могли его заполнить
+    usage_acc = {"input": 0, "output": 0, "cached": 0, "model": bot.model or "gpt"}
 
     if workflow:
         answer = await _execute_workflow(bot, chat_id, user_text, platform, user_name, workflow,
-                                         extra_ctx=extra_ctx or {})
+                                         extra_ctx={**(extra_ctx or {}), "_usage": usage_acc})
     else:
-        answer = await _simple_reply(bot, chat_id, user_text, platform, user_name)
+        answer = await _simple_reply(bot, chat_id, user_text, platform, user_name, usage_acc)
 
     if answer:
         _save_for_summary(bot.id, chat_id, user_text, answer, user_name, platform)
-        _deduct_bot_cost(bot)
+        _deduct_bot_usage(bot, usage_acc)
         _increment_replies(bot)
 
     return answer
+
+
+def _owner_has_balance(bot, minimum: int = 1) -> bool:
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter_by(id=bot.user_id).first()
+        return bool(owner and (owner.tokens_balance or 0) >= minimum)
+    finally:
+        db.close()
 
 
 def _get_bot_workflow(bot) -> dict | None:
@@ -96,7 +109,8 @@ def _get_bot_workflow(bot) -> dict | None:
 #  ПРОСТОЙ РЕЖИМ (без графа)
 # ══════════════════════════════════════════════════════════════════════════════
 
-async def _simple_reply(bot, chat_id, user_text, platform, user_name) -> str:
+async def _simple_reply(bot, chat_id, user_text, platform, user_name,
+                        usage_acc: dict | None = None) -> str:
     """Простой режим: system_prompt → AI модель → ответ."""
     key = f"bot_{bot.id}:chat_{chat_id}"
     history = _conversations[key]
@@ -114,6 +128,10 @@ async def _simple_reply(bot, chat_id, user_text, platform, user_name) -> str:
     try:
         result = generate_response(bot.model or "gpt", messages)
         answer = result.get("content", "") if isinstance(result, dict) else str(result)
+        if usage_acc and isinstance(result, dict):
+            usage_acc["input"] += result.get("input_tokens", 0) or 0
+            usage_acc["output"] += result.get("output_tokens", 0) or 0
+            usage_acc["cached"] += result.get("cached_tokens", 0) or 0
     except Exception as e:
         log.error(f"[Bot {bot.id}] AI error: {e}")
         return "Произошла ошибка. Попробуйте позже."
@@ -231,7 +249,6 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
     if ntype in ("node_gpt", "node_claude", "node_gemini", "node_grok"):
         model = NODE_MODEL_MAP.get(ntype, "gpt")
         system = cfg.get("system", "Ты полезный ассистент.")
-        # Автоподстановка role из активной секции, если есть
         if ctx.get("active_role_prompt"):
             system = ctx["active_role_prompt"] + "\n\n" + system
         messages = [{"role": "system", "content": system}]
@@ -240,6 +257,13 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         messages.append({"role": "user", "content": input_text})
         result = generate_response(model, messages)
         answer = result.get("content", "") if isinstance(result, dict) else str(result)
+        # Копим usage для финального списания
+        usage_acc = ctx.get("_usage")
+        if usage_acc and isinstance(result, dict):
+            usage_acc["input"] += result.get("input_tokens", 0) or 0
+            usage_acc["output"] += result.get("output_tokens", 0) or 0
+            usage_acc["cached"] += result.get("cached_tokens", 0) or 0
+            usage_acc["model"] = model
         # Пост-обработка RAG-маркеров в ответе
         answer = await _resolve_rag_markers(answer, ctx, model)
         return answer
@@ -678,23 +702,49 @@ def _increment_replies(bot):
         db.close()
 
 
-def _deduct_bot_cost(bot):
-    if not bot.cost_per_reply:
-        return
+def _deduct_bot_usage(bot, usage: dict):
+    """Списать стоимость ответа бота по реальным токенам модели."""
+    from server.models import ModelPricing, UsageLog
+    input_tokens = usage.get("input", 0)
+    output_tokens = usage.get("output", 0)
+    cached_tokens = usage.get("cached", 0)
+    model = usage.get("model", bot.model or "gpt")
+
     db = SessionLocal()
     try:
+        # Расчёт по per-token цене (как в chat.py calculate_cost)
+        pricing = db.query(ModelPricing).filter_by(model_id=model).first()
+        if pricing and (pricing.ch_per_1k_input > 0 or pricing.ch_per_1k_output > 0):
+            cost = (input_tokens / 1000.0) * pricing.ch_per_1k_input + \
+                   (output_tokens / 1000.0) * pricing.ch_per_1k_output
+            cost = max(int(round(cost)), pricing.min_ch_per_req or 1)
+        elif pricing and pricing.cost_per_req:
+            cost = pricing.cost_per_req
+        else:
+            cost = 1  # fallback
+
         owner = db.query(User).filter_by(id=bot.user_id).first()
-        if owner and owner.tokens_balance >= bot.cost_per_reply:
-            owner.tokens_balance -= bot.cost_per_reply
-            db.add(Transaction(
-                user_id=owner.id, type="usage",
-                tokens_delta=-bot.cost_per_reply,
-                description=f"Бот «{bot.name}» — ответ",
-                model=bot.model,
-            ))
-            db.commit()
-        elif owner:
-            log.warning(f"[Bot {bot.id}] Недостаточно токенов у пользователя {owner.id}")
+        if not owner:
+            return
+        actual_balance = int(owner.tokens_balance or 0)
+        charged = min(actual_balance, cost)
+        owner.tokens_balance = max(0, actual_balance - cost)
+
+        desc = f"Бот «{bot.name}» [{model}]: {input_tokens}→{output_tokens} ток."
+        if charged < cost:
+            desc += f" (списано {charged}/{cost})"
+
+        db.add(Transaction(
+            user_id=owner.id, type="usage",
+            tokens_delta=-charged,
+            description=desc, model=model,
+        ))
+        db.add(UsageLog(
+            user_id=owner.id, model=model,
+            input_tokens=input_tokens, output_tokens=output_tokens,
+            cached_tokens=cached_tokens, ch_charged=charged,
+        ))
+        db.commit()
     finally:
         db.close()
 
