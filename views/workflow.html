@@ -667,11 +667,42 @@ function updateNodeBody(node){
 
   if(node.type==='text_input'){
     const txt=node.props.text||'';
-    body.innerHTML=txt?`<p style="font-size:10px;color:#f0e6d8;line-height:1.4">${esc(txt.slice(0,80))}${txt.length>80?'…':''}</p>`
-      :`<p style="font-size:10px;color:rgba(168,152,128,0.4)">нажмите для ввода текста</p>`;
-    // Allow inline editing by clicking body
-    body.style.cursor='text';
-    body.onclick=()=>{ selectNode(node.id); document.getElementById('pr_text')?.focus(); };
+    body.innerHTML=`<textarea class="inline-text-input"
+      data-node-id="${node.id}" rows="3"
+      placeholder="Введите текст..."
+      style="width:100%;min-height:52px;background:rgba(39,32,24,0.6);color:#f0e6d8;border:1px solid rgba(74,63,47,0.4);border-radius:6px;padding:6px 8px;font-size:11px;font-family:inherit;line-height:1.4;resize:vertical;outline:none;box-sizing:border-box">${esc(txt)}</textarea>`;
+    const ta=body.querySelector('textarea');
+    // Блокируем drag/pan/delete хоткеи когда печатаем
+    ta.addEventListener('mousedown',e=>e.stopPropagation());
+    ta.addEventListener('keydown',e=>e.stopPropagation());
+    ta.addEventListener('focus',()=>selectNode(node.id));
+    ta.addEventListener('input',e=>{
+      node.props.text=e.target.value;
+      // Если панель свойств открыта — синхронизируем textarea там
+      const side=document.getElementById('pr_text');
+      if(side && side.value!==e.target.value) side.value=e.target.value;
+    });
+    return;
+  }
+
+  // Inline-редактирование system prompt для AI-нод (assistant/gpt4o/claude/gemini/perplexity/nano)
+  const hasSystemField = ['assistant','gpt4o','claude','gemini','perplexity','nano'].includes(node.type);
+  if(hasSystemField){
+    const val=node.props.system||'';
+    const ph = node.type==='assistant' ? 'Системный промпт...' : 'Ты полезный ассистент...';
+    body.innerHTML=`<textarea class="inline-system-input"
+      data-node-id="${node.id}" rows="2"
+      placeholder="${ph}"
+      style="width:100%;min-height:40px;background:rgba(39,32,24,0.6);color:#f0e6d8;border:1px solid rgba(74,63,47,0.4);border-radius:6px;padding:5px 7px;font-size:10px;font-family:inherit;line-height:1.4;resize:vertical;outline:none;box-sizing:border-box">${esc(val)}</textarea>`;
+    const ta=body.querySelector('textarea');
+    ta.addEventListener('mousedown',e=>e.stopPropagation());
+    ta.addEventListener('keydown',e=>e.stopPropagation());
+    ta.addEventListener('focus',()=>selectNode(node.id));
+    ta.addEventListener('input',e=>{
+      node.props.system=e.target.value;
+      const side=document.getElementById('pr_system');
+      if(side && side.value!==e.target.value) side.value=e.target.value;
+    });
     return;
   }
 
