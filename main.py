@@ -25,6 +25,7 @@ from server.routes.agent import router as agent_router, init_agent_queue
 import server.agents.registry  # noqa: F401 — registers all agent types on import
 from server.routes.public import router as public_router, startup_public
 from server.routes.user_apikeys import router as user_apikeys_router
+from server.routes.oauth import router as oauth_router
 from server.routes.chatbots import router as chatbots_router
 from server.routes.webhook import router as webhook_router
 from server.routes.widget import router as widget_router
@@ -67,6 +68,7 @@ app.include_router(sites_router)
 app.include_router(presentations_router)
 app.include_router(agent_router)
 app.include_router(user_apikeys_router)
+app.include_router(oauth_router)
 app.include_router(chatbots_router)
 app.include_router(webhook_router)
 app.include_router(widget_router)

@@ -20,6 +20,8 @@ def migrate(sql, label):
 
 # ── Users ─────────────────────────────────────────────────────────────────────
 migrate('ALTER TABLE users ADD COLUMN is_banned BOOLEAN DEFAULT 0', 'users.is_banned')
+migrate('ALTER TABLE users ADD COLUMN oauth_provider TEXT', 'users.oauth_provider')
+migrate('ALTER TABLE users ADD COLUMN oauth_sub TEXT', 'users.oauth_sub')
 
 # ── Support Requests ──────────────────────────────────────────────────────────
 c.execute("""CREATE TABLE IF NOT EXISTS support_requests (

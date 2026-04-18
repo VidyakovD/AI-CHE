@@ -19,6 +19,8 @@ class User(Base):
     agreed_to_terms  = Column(Boolean, default=False)
     referral_code    = Column(String, unique=True, nullable=True)
     referred_by      = Column(String, nullable=True)
+    oauth_provider   = Column(String, nullable=True)  # google / vk / None (email)
+    oauth_sub        = Column(String, nullable=True)  # ID юзера у провайдера
     created_at       = Column(DateTime, default=datetime.utcnow)
 
     messages      = relationship("Message",      back_populates="user")
