@@ -395,7 +395,9 @@ def _rebuild_env_keys(provider: str, db: Session):
             value = ";;".join(k.key_value for k in all_keys)
         else:
             value = ",".join(k.key_value for k in all_keys)
-        os.environ[env_var] = value
+        # Не затираем env если в БД нет ключей — возможно они есть в .env
+        if value:
+            os.environ[env_var] = value
 
     if provider == "yookassa":
         key = db.query(ApiKey).filter_by(provider="yookassa").first()

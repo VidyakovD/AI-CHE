@@ -83,41 +83,51 @@ app.mount("/sites/hosted", StaticFiles(directory=_sites_dir), name="sites-hosted
 # ── HTML pages ─────────────────────────────────────────────────────────────────
 _BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "views")
 
+# no-cache headers для HTML чтобы браузер всегда брал свежую версию после деплоя
+_NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+
+def _html(name: str) -> FileResponse:
+    return FileResponse(os.path.join(_BASE, name), headers=_NO_CACHE)
+
 @app.get("/", include_in_schema=False)
 def serve_root():
-    return FileResponse(os.path.join(_BASE, "index.html"))
+    return _html("index.html")
 
 @app.get("/index.html", include_in_schema=False)
 def serve_index():
-    return FileResponse(os.path.join(_BASE, "index.html"))
+    return _html("index.html")
 
 @app.get("/admin.html", include_in_schema=False)
 def serve_admin():
-    return FileResponse(os.path.join(_BASE, "admin.html"))
+    return _html("admin.html")
 
 @app.get("/agents.html", include_in_schema=False)
 def serve_agents():
-    return FileResponse(os.path.join(_BASE, "agents.html"))
+    return _html("agents.html")
 
 @app.get("/chatbots.html", include_in_schema=False)
 def serve_chatbots():
-    return FileResponse(os.path.join(_BASE, "chatbots.html"))
+    return _html("chatbots.html")
 
 @app.get("/workflows.html", include_in_schema=False)
 def serve_workflows():
-    return FileResponse(os.path.join(_BASE, "workflows.html"))
+    return _html("workflows.html")
 
 @app.get("/workflow.html", include_in_schema=False)
 def serve_workflow_editor():
-    return FileResponse(os.path.join(_BASE, "workflow.html"))
+    return _html("workflow.html")
 
 @app.get("/sites.html", include_in_schema=False)
 def serve_sites():
-    return FileResponse(os.path.join(_BASE, "sites.html"))
+    return _html("sites.html")
 
 @app.get("/presentations.html", include_in_schema=False)
 def serve_presentations():
-    return FileResponse(os.path.join(_BASE, "presentations.html"))
+    return _html("presentations.html")
+
+@app.get("/terms.html", include_in_schema=False)
+def serve_terms():
+    return _html("terms.html")
 
 # ── Deploy endpoint ────────────────────────────────────────────────────────────
 import subprocess as _subprocess  # noqa: E402

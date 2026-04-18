@@ -1227,7 +1227,7 @@ function clearCodes(sel){document.querySelectorAll(sel).forEach(i=>i.value="");}
 async function openCabinet(){
   if(!currentUser){openM("loginModal");return;}
   openM("cabinetModal");
-  const r=await api("/cabinet/stats");
+  const r=await api("/user/cabinet/stats");
   cabinetData=r;currentUser=r.user;updateAuthUI();
   document.getElementById("cabAvatar").textContent=(r.user.name||"U").charAt(0).toUpperCase();
   document.getElementById("cabName").textContent=r.user.name||"—";
@@ -1412,7 +1412,7 @@ async function doChangeEmailReq(){
   const ne=document.getElementById("s_newemail").value.trim();
   const p=document.getElementById("s_epass").value;
   const msg=document.getElementById("s_emsg");msg.style.display="none";
-  try{await apiPost("/auth/change-email/request",{new_email:ne,password:p});
+  try{await apiPost("/auth/change-email",{new_email:ne,password:p});
     document.getElementById("s_email_form").classList.add("hidden");
     document.getElementById("s_email_code").classList.remove("hidden");
     setupCodes(".em-code-cell");
@@ -1897,7 +1897,7 @@ function updateSendBtn(){
   const a=ta.value.trim().length>0||!!pendingAttachment;
   btn.disabled=!a;btn.classList.toggle("opacity-50",!a);btn.classList.toggle("cursor-not-allowed",!a);
 }
-function fmtT(n){let v=n||0;return v.toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmtT(n){let v=n||0;return Math.round(v).toLocaleString('ru-RU');}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
 function openM(id){document.getElementById(id).classList.remove("hidden");}
 function closeM(id){document.getElementById(id).classList.add("hidden");}

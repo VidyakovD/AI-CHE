@@ -10,8 +10,21 @@ log = logging.getLogger(__name__)
 _api_key_cache: dict[str, tuple[float, list[str]]] = {}
 _API_KEY_CACHE_TTL = 60  # секунд
 
+_ENV_MAP = {
+    "openai":     "OPENAI_API_KEYS",
+    "anthropic":  "ANTHROPIC_API_KEYS",
+    "gemini":     "GOOGLE_API_KEYS",
+    "google":     "GOOGLE_API_KEYS",
+    "nanobanana": "GOOGLE_API_KEYS",
+    "veo":        "GOOGLE_API_KEYS",
+    "grok":       "GROK_API_KEYS",
+    "perplexity": "PERPLEXITY_API_KEYS",
+    "kling":      "KLING_API_KEYS",
+}
+
+
 def _get_api_keys(provider: str, sep=","):
-    """Читает ключи из БД с кэшированием на 60 сек."""
+    """Читает ключи сначала из БД, fallback на env. Кэш 60 сек."""
     now = time.time()
     cached = _api_key_cache.get(provider)
     if cached and (now - cached[0]) < _API_KEY_CACHE_TTL:
@@ -29,6 +42,18 @@ def _get_api_keys(provider: str, sep=","):
             result = []
             for r in rows:
                 result.extend(k.strip() for k in r.key_value.split(sep) if k.strip())
+
+        # Fallback: если в БД нет — читаем из env
+        if not result:
+            env_var = _ENV_MAP.get(provider)
+            if env_var:
+                env_val = os.getenv(env_var, "")
+                if env_val:
+                    if provider == "kling":
+                        result = [k.strip() for k in env_val.split(";;") if k.strip()]
+                    else:
+                        result = [k.strip() for k in env_val.split(sep) if k.strip()]
+
         _api_key_cache[provider] = (now, result)
         return list(result)
     finally:
@@ -605,31 +630,46 @@ def anthropic_response(model: str, messages: list, extra: dict = None,
     for key in keys:
         try:
             if base_url:
-                text_parts = []
-                with httpx.stream(
-                    "POST",
+                # Non-streaming request (проще и надёжнее)
+                r = httpx.post(
                     f"{base_url.rstrip('/')}/v1/messages",
-                    json={"model": model, "max_tokens": 8192, "stream": True,
+                    json={"model": model, "max_tokens": 8192,
                           "thinking": {"type": "disabled"},
                           "system": system if isinstance(system, str) else "Ты полезный ассистент.",
                           "messages": claude_msgs},
-                    headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+                    headers={"x-api-key": key, "anthropic-version": "2023-06-01",
+                             "content-type": "application/json"},
                     timeout=180,
-                ) as r:
-                    for line in r.iter_lines():
-                        if line.startswith("data: "):
-                            try:
-                                d = json.loads(line[6:])
-                                if d.get("type") == "content_block_delta":
-                                    delta = d.get("delta", {})
-                                    if delta.get("type") == "text_delta":
-                                        text_parts.append(delta.get("text", ""))
-                            except Exception:
-                                pass
-                log.info(f"[Anthropic] proxy OK model={model} chars={sum(len(p) for p in text_parts)}")
-                if text_parts:
-                    return {"type": "text", "content": "".join(text_parts)}
-                raise RuntimeError("Пустой текстовый ответ от прокси")
+                )
+                if r.status_code != 200:
+                    raise RuntimeError(f"proxy HTTP {r.status_code}: {r.text[:200]}")
+                data = r.json()
+                # Собираем текст из всех text-блоков (может быть несколько)
+                text_parts = []
+                for block in data.get("content", []):
+                    if block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                text = "".join(text_parts)
+                log.info(f"[Anthropic] proxy OK model={model} chars={len(text)} blocks={len(data.get('content', []))}")
+                if text:
+                    return {"type": "text", "content": text}
+                # Если пусто — пробуем без thinking параметра (старые прокси могут не понимать)
+                log.warning(f"[Anthropic] empty response, retrying without thinking param")
+                r2 = httpx.post(
+                    f"{base_url.rstrip('/')}/v1/messages",
+                    json={"model": model, "max_tokens": 8192,
+                          "system": system if isinstance(system, str) else "Ты полезный ассистент.",
+                          "messages": claude_msgs},
+                    headers={"x-api-key": key, "anthropic-version": "2023-06-01",
+                             "content-type": "application/json"},
+                    timeout=180,
+                )
+                if r2.status_code == 200:
+                    data2 = r2.json()
+                    text2 = "".join(b.get("text", "") for b in data2.get("content", []) if b.get("type") == "text")
+                    if text2:
+                        return {"type": "text", "content": text2}
+                raise RuntimeError(f"Empty response from proxy. Raw: {json.dumps(data)[:300]}")
             else:
                 import anthropic as _ant
                 resp = _ant.Anthropic(api_key=key).messages.create(
