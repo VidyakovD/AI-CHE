@@ -250,6 +250,14 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       </div>
       <!-- Preview tab -->
       <div id="dtab-preview" class="tab-pane flex-1 min-h-0 flex flex-col p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <button id="editModeBtn" onclick="toggleEditMode()" class="btn-g text-xs py-1.5 flex items-center gap-1.5">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+            <span id="editModeLabel">Редактировать</span>
+          </button>
+          <button id="replaceImgBtn" onclick="replaceSelectedImage()" class="btn-g text-xs py-1.5 hidden">🖼 Заменить картинку</button>
+          <span id="editHint" class="text-xs text-on-dim hidden">Клик на элемент → правка текста · Клик на картинку → замена</span>
+        </div>
         <iframe id="previewFrame" class="preview-frame flex-1"></iframe>
       </div>
       <!-- Spec tab -->
@@ -807,12 +815,108 @@ function copyCode(){
 }
 
 // ── Preview ───────────────────────────────────────────────────────────────
+let editMode = false;
+let selectedImg = null;
+
 function refreshPreview(){
   const code = document.getElementById('codeEditor').value;
   const frame = document.getElementById('previewFrame');
   if(!frame || !code) return;
-  const blob = new Blob([code],{type:'text/html'});
+  // Inject editing runtime into preview iframe
+  const injected = code.replace(/<\/body>/i, `
+<script>
+  window.__editMode = ${editMode};
+  const TEXT_TAGS=['H1','H2','H3','H4','H5','H6','P','SPAN','A','LI','BUTTON','LABEL','STRONG','EM','DIV'];
+  function applyEditMode(){
+    document.querySelectorAll('*').forEach(el=>{
+      el.removeAttribute('contenteditable');
+      el.style.outline='';
+      el.style.cursor='';
+    });
+    if(!window.__editMode) return;
+    document.querySelectorAll('*').forEach(el=>{
+      const tag = el.tagName;
+      // Только "листовые" текстовые элементы
+      const hasOnlyText = [...el.childNodes].every(n=>n.nodeType===3 || (n.nodeType===1 && n.tagName==='BR'));
+      if(TEXT_TAGS.includes(tag) && hasOnlyText && el.textContent.trim()){
+        el.setAttribute('contenteditable','true');
+        el.style.cursor='text';
+        el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.5)');
+        el.addEventListener('mouseleave',()=>el.style.outline='');
+      }
+      if(tag==='IMG'){
+        el.style.cursor='pointer';
+        el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.7)');
+        el.addEventListener('mouseleave',()=>el.style.outline='');
+        el.addEventListener('click',()=>{
+          window.parent.postMessage({type:'site:imgClick',src:el.src,alt:el.alt||''},'*');
+        });
+      }
+    });
+    document.addEventListener('input',e=>{
+      // Сохранить HTML обратно в родитель
+      window.parent.postMessage({type:'site:htmlChange',html:document.documentElement.outerHTML},'*');
+    });
+  }
+  applyEditMode();
+<\/script>
+</body>`);
+  const blob = new Blob([injected],{type:'text/html'});
   frame.src = URL.createObjectURL(blob);
+}
+
+function toggleEditMode(){
+  editMode = !editMode;
+  document.getElementById('editModeLabel').textContent = editMode ? 'Готово' : 'Редактировать';
+  document.getElementById('editHint').classList.toggle('hidden', !editMode);
+  refreshPreview();
+}
+
+// Слушаем сообщения от iframe
+window.addEventListener('message', e => {
+  if(!e.data || typeof e.data !== 'object') return;
+  if(e.data.type === 'site:htmlChange'){
+    // Обновляем исходный код в textarea (только если редактирование активно)
+    if(editMode) document.getElementById('codeEditor').value = e.data.html;
+  }
+  if(e.data.type === 'site:imgClick'){
+    selectedImg = e.data.src;
+    replaceSelectedImage();
+  }
+});
+
+async function replaceSelectedImage(){
+  if(!selectedImg){ alert('Сначала кликни на картинку в превью'); return; }
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async ev => {
+    const file = ev.target.files[0];
+    if(!file) return;
+    try{
+      const fd = new FormData();
+      fd.append('file', file);
+      const tok = localStorage.getItem('obs_token');
+      const r = await fetch(`${API}/upload`, {
+        method:'POST', headers:{'Authorization':'Bearer '+tok}, body: fd
+      });
+      if(!r.ok) throw new Error('Загрузка провалилась');
+      const d = await r.json();
+      const newUrl = (API.startsWith('http') ? API : window.location.origin) + d.url;
+      // Заменяем в текущем коде
+      let code = document.getElementById('codeEditor').value;
+      code = code.split(selectedImg).join(newUrl);
+      // Также учитываем случай без домена
+      try {
+        const old = new URL(selectedImg).pathname;
+        if(old.startsWith('/uploads/')) code = code.split(old).join(newUrl);
+      } catch(e){}
+      document.getElementById('codeEditor').value = code;
+      refreshPreview();
+      selectedImg = null;
+    }catch(e){ alert('Ошибка загрузки: '+e.message); }
+  };
+  input.click();
 }
 
 // ── Host / Download ───────────────────────────────────────────────────────
