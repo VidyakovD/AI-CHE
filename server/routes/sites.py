@@ -293,11 +293,19 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
 
     # Build prompt with images context
     img_context = ""
+    full_urls = []
     try:
         imgs = json.loads(p.image_paths) if p.image_paths else []
         if imgs:
-            img_context = f"\n\nИзображения/логотипы пользователя: {', '.join(imgs)}"
-            img_context += "\nИспользуй ссылки на эти изображения в коде сайта."
+            # Даём AI полные URL чтобы картинки работали на любом хостинге
+            base_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+            full_urls = [f"{base_url}{u}" if u.startswith("/") else u for u in imgs]
+            lines = "\n".join(f"  {i+1}. {u}" for i, u in enumerate(full_urls))
+            img_context = (
+                f"\n\nЗАГРУЖЕННЫЕ ИЗОБРАЖЕНИЯ ПОЛЬЗОВАТЕЛЯ (используй ИХ, не placeholder'ы):\n{lines}\n"
+                f"Обязательно вставь эти URL в <img src=\"...\"> в подходящих местах сайта. "
+                f"Не придумывай несуществующие картинки."
+            )
     except Exception:
         pass
 
@@ -310,6 +318,7 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
         f"- Без внешних фреймворков (только inline CSS или <style>)\n"
         f"- Семантичная разметка, доступность\n"
         f"- Красивый современный дизайн\n"
+        f"- Картинки: используй ТОЛЬКО URL из списка выше (если он есть)\n"
         f"- Ответ: ТОЛЬКО HTML-код, без markdown-обёрток и объяснений\n"
     )
 
@@ -456,6 +465,59 @@ def site_project_download(project_id: int, db: Session = Depends(get_db),
     p.hosted_path = f"/sites/hosted/{project_id}/"
     db.commit()
     return {"url": f"/sites/hosted/{project_id}/", "status": "ready"}
+
+
+@router.get("/sites/projects/{project_id}/zip")
+def site_project_zip(project_id: int, db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
+    """Скачать сайт целиком ZIP-ом: index.html + все картинки в /images/."""
+    import io, zipfile, re
+    from fastapi.responses import StreamingResponse
+
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.code_html:
+        raise HTTPException(400, "Сначала сгенерируйте код")
+
+    html = p.code_html
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    project_root = os.path.dirname(base_dir)
+    app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+
+    # Собираем все URL картинок из HTML (полные и /uploads/...)
+    pattern = re.compile(r'(?:src|href)=["\']([^"\']+)["\']', re.IGNORECASE)
+    found = set()
+    for m in pattern.finditer(html):
+        url = m.group(1)
+        if "/uploads/" in url:
+            # Извлекаем локальный путь
+            idx = url.find("/uploads/")
+            local_rel = url[idx:]  # /uploads/xxx.png
+            found.add((url, local_rel))
+
+    # Заменяем URL в HTML на images/filename
+    html_zip = html
+    for orig_url, local_rel in found:
+        fname = os.path.basename(local_rel)
+        html_zip = html_zip.replace(orig_url, f"images/{fname}")
+
+    # Пакуем ZIP
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("index.html", html_zip)
+        for orig_url, local_rel in found:
+            local_abs = os.path.join(project_root, local_rel.lstrip("/"))
+            if os.path.exists(local_abs):
+                fname = os.path.basename(local_rel)
+                zf.write(local_abs, f"images/{fname}")
+    buf.seek(0)
+
+    safe_name = re.sub(r'[^\w\-]', '_', p.name or 'site')[:40]
+    return StreamingResponse(
+        buf, media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.zip"'},
+    )
 
 
 # ---------------------------------------------------------------------------
