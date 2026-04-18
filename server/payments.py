@@ -1,9 +1,17 @@
 """YooKassa payment integration."""
 import os, uuid
+from dotenv import load_dotenv
+load_dotenv()
 from yookassa import Configuration, Payment
 
-Configuration.account_id = os.getenv("YOOKASSA_SHOP_ID", "")
-Configuration.secret_key  = os.getenv("YOOKASSA_SECRET_KEY", "")
+
+def _init_yookassa():
+    """Инициализирует YooKassa credentials из env (динамически, не при импорте)."""
+    Configuration.account_id = os.getenv("YOOKASSA_SHOP_ID", "")
+    Configuration.secret_key = os.getenv("YOOKASSA_SECRET_KEY", "")
+
+
+_init_yookassa()
 
 # ── Правильные цены ───────────────────────────────────────────────────────────
 PLANS = {
@@ -25,6 +33,7 @@ def get_plan(plan_id: str) -> dict:
 def create_payment(plan: str, user_id: int, return_url: str,
                    user_email: str = None, promo_code: str = None,
                    discount_pct: int = 0) -> dict:
+    _init_yookassa()  # на случай если env появился после импорта
     plan_cfg = PLANS.get(plan)
     if not plan_cfg:
         raise ValueError(f"Unknown plan: {plan}")
