@@ -1729,6 +1729,13 @@ function wfcInitDefs() {
       fields:[{k:'tg_token',l:'Bot Token',t:'password',p:'1234:AAF...'},{k:'tg_chat_id',l:'Chat ID',t:'text',p:'-10012345'}]},
     trigger_webhook: {cat:'trigger',      label:'Webhook',        icon:'bolt',       color:'#ab47bc',
       fields:[{k:'path',l:'URL путь',t:'text',p:'/webhook/agent'}]},
+    trigger_imap:    {cat:'trigger',      label:'Email (IMAP)',   icon:'mail',       color:'#ff7043',
+      fields:[
+        {k:'cred_id',l:'ID credentials (см. Настройки)',t:'text',p:'1'},
+        {k:'filter_from',l:'Фильтр по From (опц.)',t:'text',p:'noreply@'},
+      ]},
+    trigger_avito:   {cat:'trigger',      label:'Авито',          icon:'storefront', color:'#00b894',
+      fields:[]},
     trigger_schedule:{cat:'trigger',      label:'Расписание',     icon:'schedule',   color:'#ef5350',
       fields:[
         {k:'mode',l:'Режим',t:'select',def:'daily',
@@ -1749,6 +1756,16 @@ function wfcInitDefs() {
       fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},{k:'temp',l:'Температура',t:'select',opts:['0.3','0.7','1.0']}]},
     node_gemini:     {cat:'ai',           label:'Gemini 1.5 Pro', icon:'psychology', color:'#4285f4',
       fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'}]},
+    node_grok:       {cat:'ai',           label:'Grok 3',         icon:'psychology', color:'#111111',
+      fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},
+              {k:'temp',l:'Температура',t:'select',def:'0.7',opts:['0.3','0.7','1.0']}]},
+    grok_search:     {cat:'tools',        label:'Grok + Web/X поиск', icon:'travel_explore', color:'#111111',
+      fields:[
+        {k:'prompt',l:'Задача',t:'textarea',p:'Найди новости из X об ИИ за последние 24ч. Верни JSON {posts: [{headline, source, source_url, summary}]}'},
+        {k:'enable_web',l:'Web поиск',t:'select',def:'да',opts:['да','нет']},
+        {k:'enable_x',l:'X (Twitter) поиск',t:'select',def:'да',opts:['да','нет']},
+        {k:'model',l:'Модель',t:'select',def:'grok-4-fast-reasoning',opts:['grok-4-fast-reasoning','grok-3']},
+      ]},
     prompt:          {cat:'ai',           label:'Инструкция',     icon:'edit_note',  color:'#66bb6a',
       fields:[{k:'system',l:'Текст инструкции',t:'textarea',p:'Ты полезный ассистент. Отвечай кратко...'}]},
     condition:       {cat:'logic',        label:'Условие',        icon:'call_split', color:'#78909c',
@@ -1826,6 +1843,17 @@ function wfcInitDefs() {
     tts:             {cat:'tools',        label:'TTS (озвучка)',  icon:'volume_up',  color:'#ff7043',
       fields:[
         {k:'voice',l:'Голос',t:'select',def:'onyx',opts:['alloy','echo','fable','onyx','nova','shimmer']},
+      ]},
+    yd_list:         {cat:'tools',        label:'Я.Диск: список файлов', icon:'folder_open', color:'#ffcc29',
+      fields:[
+        {k:'token',l:'OAuth токен (или пусто = env)',t:'password',p:''},
+        {k:'limit',l:'Сколько файлов',t:'number',def:'30'},
+      ]},
+    yd_upload:       {cat:'tools',        label:'Я.Диск: загрузить',     icon:'cloud_upload', color:'#ffcc29',
+      fields:[
+        {k:'token',l:'OAuth токен (или пусто = env)',t:'password',p:''},
+        {k:'remote',l:'Путь на Я.Диске',t:'text',p:'диск:/Inbox/{{input}}.txt'},
+        {k:'local',l:'Локальный файл',t:'text',p:'{{input}}'},
       ]},
   };
   // Add all library agents

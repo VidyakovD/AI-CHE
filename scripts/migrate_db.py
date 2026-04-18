@@ -95,6 +95,21 @@ c.execute("""CREATE TABLE IF NOT EXISTS workflow_store (
 print('✓ workflow_store')
 migrate('CREATE INDEX IF NOT EXISTS idx_wfstore_bot_key ON workflow_store(bot_id, key)', 'workflow_store.idx')
 
+# ── IMAP Credentials ──────────────────────────────────────────────────────────
+c.execute("""CREATE TABLE IF NOT EXISTS imap_credentials (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    label TEXT DEFAULT 'Main',
+    host TEXT NOT NULL,
+    port INTEGER DEFAULT 993,
+    username TEXT NOT NULL,
+    password TEXT NOT NULL,
+    use_ssl BOOLEAN DEFAULT 1,
+    last_uid INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now'))
+)""")
+print('✓ imap_credentials')
+
 conn.commit()
 conn.close()
 print('\n✅ Миграции завершены')

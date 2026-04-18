@@ -7,7 +7,7 @@ from sqlalchemy import func
 from datetime import datetime, timedelta
 
 from server.routes.deps import get_db, current_user, _user_dict, _sub_dict, _tx_dict
-from server.models import User, Subscription, Transaction, Message, SupportRequest, UsageLog
+from server.models import User, Subscription, Transaction, Message, SupportRequest, UsageLog, ImapCredential
 
 log = logging.getLogger(__name__)
 
@@ -98,3 +98,43 @@ def list_support_requests(user=Depends(current_user), db: Session = Depends(get_
              "status": r.status, "admin_response": r.admin_response,
              "created_at": r.created_at.isoformat(), "updated_at": r.updated_at.isoformat() if r.updated_at else None}
             for r in db.query(SupportRequest).filter_by(user_id=user.id).order_by(SupportRequest.created_at.desc()).all()]
+
+
+# ── IMAP credentials ──────────────────────────────────────────────────────────
+
+class ImapCredCreate(BaseModel):
+    label: str = "Main"
+    host: str
+    port: int = 993
+    username: str
+    password: str
+    use_ssl: bool = True
+
+
+@router.get("/imap")
+def list_imap(user=Depends(current_user), db: Session = Depends(get_db)):
+    rows = db.query(ImapCredential).filter_by(user_id=user.id).all()
+    return [{"id": r.id, "label": r.label, "host": r.host, "port": r.port,
+             "username": r.username, "use_ssl": r.use_ssl,
+             "password_preview": "***" + r.password[-2:] if r.password else "",
+             "last_uid": r.last_uid or 0} for r in rows]
+
+
+@router.post("/imap")
+def create_imap(body: ImapCredCreate, user=Depends(current_user), db: Session = Depends(get_db)):
+    cred = ImapCredential(
+        user_id=user.id, label=body.label,
+        host=body.host, port=body.port,
+        username=body.username, password=body.password, use_ssl=body.use_ssl,
+    )
+    db.add(cred); db.commit(); db.refresh(cred)
+    return {"id": cred.id, "status": "created"}
+
+
+@router.delete("/imap/{cred_id}")
+def delete_imap(cred_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
+    cred = db.query(ImapCredential).filter_by(id=cred_id, user_id=user.id).first()
+    if not cred:
+        raise HTTPException(404)
+    db.delete(cred); db.commit()
+    return {"status": "deleted"}

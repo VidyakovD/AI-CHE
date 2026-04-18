@@ -31,6 +31,7 @@ NODE_MODEL_MAP = {
     "node_gpt":     "gpt-4o",
     "node_claude":  "claude",
     "node_gemini":  "gemini",
+    "node_grok":    "grok",
     "orchestrator": "gpt",
     "prompt":       None,  # не вызывает AI, просто передаёт system prompt дальше
     "agent_smm":    "gpt",
@@ -227,7 +228,7 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         return ctx["input_text"]
 
     # ── AI модели ──────────────────────────────────────────────────────────
-    if ntype in ("node_gpt", "node_claude", "node_gemini"):
+    if ntype in ("node_gpt", "node_claude", "node_gemini", "node_grok"):
         model = NODE_MODEL_MAP.get(ntype, "gpt")
         system = cfg.get("system", "Ты полезный ассистент.")
         messages = [{"role": "system", "content": system}]
@@ -378,6 +379,40 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         audio_path = await _tts_generate(input_text, voice)
         ctx["audio_path"] = audio_path
         return audio_path
+
+    # ── Yandex.Disk ────────────────────────────────────────────────────────
+    if ntype == "yd_list":
+        from server.yandex_disk import yd_list_recent
+        token = cfg.get("token") or None
+        limit = int(cfg.get("limit", 30) or 30)
+        items = await yd_list_recent(token, limit)
+        return "\n".join(f"{i.get('path','?')} [{i.get('modified','?')}]" for i in items)
+
+    if ntype == "yd_upload":
+        from server.yandex_disk import yd_upload
+        import os as _os
+        token = cfg.get("token") or None
+        remote = (cfg.get("remote") or "").replace("{{input}}", input_text)
+        local = (cfg.get("local") or input_text).replace("{{input}}", input_text)
+        base = _os.path.dirname(_os.path.abspath(__file__))
+        local_abs = _os.path.join(base, local.lstrip("/")) if not _os.path.isabs(local) else local
+        r = await yd_upload(token, remote, local_abs)
+        import json as _j
+        return _j.dumps(r, ensure_ascii=False)
+
+    # ── Grok Search (Web + X) ─────────────────────────────────────────────
+    if ntype == "grok_search":
+        from server.ai import grok_search_response
+        prompt = (cfg.get("prompt") or input_text).replace("{{input}}", input_text)
+        enable_web = (cfg.get("enable_web", "да") == "да")
+        enable_x = (cfg.get("enable_x", "да") == "да")
+        model = cfg.get("model", "grok-4-fast-reasoning")
+        # grok_search_response синхронная, оборачиваем в thread
+        import asyncio as _asyncio
+        loop = _asyncio.get_event_loop()
+        result = await loop.run_in_executor(None,
+            lambda: grok_search_response(prompt, enable_web, enable_x, model))
+        return result.get("content", "") if isinstance(result, dict) else str(result)
 
     # ── Выходные ноды ──────────────────────────────────────────────────────
     if ntype == "output_tg":

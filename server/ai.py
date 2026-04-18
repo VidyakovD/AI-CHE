@@ -70,8 +70,22 @@ def invalidate_api_key_cache(provider: str = None):
 def _shuffle(lst): random.shuffle(lst); return lst
 
 
-def _notify_admin(error_msg: str):
-    """Отправляет ошибку в Telegram админу."""
+def _notify_admin(error_msg: str, context: dict | None = None):
+    """Отправляет ошибку в Telegram админу + в ERROR_WEBHOOK если настроен."""
+    # 1. Custom webhook (для интеграции с внешним error-handler)
+    err_hook = os.getenv("ERROR_WEBHOOK_URL")
+    if err_hook:
+        try:
+            httpx.post(err_hook, json={
+                "source": "aiche",
+                "error": error_msg,
+                "context": context or {},
+                "ts": int(time.time()),
+            }, timeout=5)
+        except Exception:
+            pass
+
+    # 2. Telegram
     token = os.getenv("TG_BOT_TOKEN")
     chat_id = os.getenv("TG_ADMIN_CHAT_ID")
     if not token or not chat_id:
@@ -739,6 +753,59 @@ def gemini_response(model: str, messages: list, extra: dict = None) -> dict:
             if key == keys[-1]:
                 _notify_admin(f"Gemini: все ключи исчерпаны (модель {model})")
                 return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
+
+def grok_search_response(prompt: str, enable_web: bool = True, enable_x: bool = True,
+                         model: str = "grok-4-fast-reasoning") -> dict:
+    """
+    Grok через /v1/responses с tools web_search + x_search.
+    prompt — задача для Grok.
+    Возвращает {content, input_tokens, output_tokens}.
+    """
+    keys = _shuffle(_get_api_keys("grok"))
+    if not keys:
+        return {"type": "text", "content": "[Grok: нет ключей]"}
+
+    tools = []
+    if enable_web: tools.append({"type": "web_search"})
+    if enable_x:   tools.append({"type": "x_search"})
+
+    for key in keys:
+        try:
+            r = httpx.post(
+                "https://api.x.ai/v1/responses",
+                json={
+                    "model": model,
+                    "input": prompt,
+                    "tools": tools,
+                },
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                timeout=180,
+            )
+            if r.status_code != 200:
+                log.error(f"[Grok Search] {r.status_code}: {r.text[:200]}")
+                if key == keys[-1]:
+                    return {"type": "text", "content": f"[Grok error: {r.status_code}]"}
+                continue
+            data = r.json()
+            # Собираем текст из output[].content[].text
+            text_parts = []
+            for out in data.get("output", []):
+                for c in out.get("content", []) or []:
+                    if c.get("type") in ("output_text", "text"):
+                        text_parts.append(c.get("text", ""))
+            text = "".join(text_parts)
+            usage = data.get("usage", {})
+            return {
+                "type": "text", "content": text,
+                "input_tokens": usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
+            }
+        except Exception as e:
+            log.error(f"[Grok Search] exception: {e}")
+            if key == keys[-1]:
+                return {"type": "text", "content": f"[Grok exception: {e}]"}
+    return {"type": "text", "content": "[Grok: недоступен]"}
+
 
 # ── GROK (xAI) ───────────────────────────────────────────────────────────────
 def grok_response(model: str, messages: list, extra: dict = None) -> dict:

@@ -85,6 +85,7 @@ def _seed_pricing(db: Session):
             ("tg_bot_token",   "",     "Токен Telegram бота (для уведомлений об ошибках)"),
             ("tg_admin_chat_id","",     "Chat ID админа в Telegram (куда приходят уведомления)"),
             ("anthropic_base_url","",   "Базовый URL для Anthropic API (если используете прокси, напр. https://api.aws-us-east-3.com)"),
+            ("error_webhook_url","",    "URL куда пересылать ошибки сервиса (n8n error-handler или другой webhook)"),
         ]:
             db.add(PricingSetting(key=k, value=v, description=d))
     if db.query(TokenPackage).count() == 0:

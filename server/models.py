@@ -430,6 +430,22 @@ class WorkflowStore(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ImapCredential(Base):
+    """Credentials для IMAP (email trigger)."""
+    __tablename__ = "imap_credentials"
+
+    id         = Column(Integer, primary_key=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    label      = Column(String, default="Main")
+    host       = Column(String, nullable=False)      # imap.yandex.ru
+    port       = Column(Integer, default=993)
+    username   = Column(String, nullable=False)
+    password   = Column(String, nullable=False)      # TODO: зашифровать
+    use_ssl    = Column(Boolean, default=True)
+    last_uid   = Column(Integer, default=0)          # последний обработанный UID
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ChatBot(Base):
     """Постоянный бот — слушает входящие и отвечает через AI 24/7."""
     __tablename__ = "chatbots"

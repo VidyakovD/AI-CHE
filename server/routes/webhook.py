@@ -194,7 +194,10 @@ async def avito_webhook(bot_id: int, request: Request,
     if not text or not chat_id:
         return {"ok": True}
 
-    answer = await handle_message(bot, chat_id, text, "avito", user_id)
+    answer = await handle_message(bot, chat_id, text, "avito", user_id,
+                                  extra_ctx={"avito_user_id": user_id,
+                                             "avito_chat_id": chat_id,
+                                             "is_avito": True})
     if answer:
         await send_avito(bot, chat_id, answer)
 

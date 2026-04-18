@@ -454,7 +454,8 @@ def _load_all_apikeys_from_db():
             _rebuild_env_keys(provider, db)
         # TG bot settings for error notifications
         for setting in db.query(PricingSetting).filter(
-            PricingSetting.key.in_(["tg_bot_token", "tg_admin_chat_id", "anthropic_base_url"])
+            PricingSetting.key.in_(["tg_bot_token", "tg_admin_chat_id",
+                                    "anthropic_base_url", "error_webhook_url"])
         ).all():
             os.environ[setting.key.upper()] = setting.value
     finally:
