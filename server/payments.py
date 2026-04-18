@@ -44,7 +44,7 @@ def create_payment(plan: str, user_id: int, return_url: str,
     # Электронный чек (54-ФЗ)
     if user_email:
         payment_data["receipt"] = {
-            "customer_email": user_email,
+            "customer": {"email": user_email},
             "items": [{
                 "description": f"Подписка {plan_cfg['name']}" + (" (–10% промокод)" if promo_code else ""),
                 "quantity": "1",

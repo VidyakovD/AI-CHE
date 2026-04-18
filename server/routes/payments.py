@@ -236,7 +236,7 @@ def buy_tokens(req: BuyTokenRequest, user: User = Depends(current_user),
         }
         if user.email:
             payment_data["receipt"] = {
-                "customer_email": user.email,
+                "customer": {"email": user.email},
                 "items": [{
                     "description": f"Пакет токенов: {pkg.name}",
                     "quantity": "1",
