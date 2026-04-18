@@ -361,8 +361,14 @@ function render(){
     const phase = phaseLabel(p.conversation_phase);
 
     return `
-      <div class="card project-card p-4" onclick="openProject(${p.id})">
-        <div class="flex items-start justify-between gap-2 mb-3">
+      <div class="card project-card p-4" onclick="openProject(${p.id})" style="position:relative">
+        <button onclick="event.stopPropagation();deleteProjectFromList(${p.id},'${esc(p.name||'Без названия').replace(/'/g,"\\'")}')"
+          class="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 hover:bg-error/20 text-on-dim hover:text-error flex items-center justify-center transition opacity-0 group-hover:opacity-100"
+          title="Удалить проект"
+          style="opacity:.5">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+        </button>
+        <div class="flex items-start justify-between gap-2 mb-3 pr-8">
           <div class="flex-1 min-w-0">
             <p class="font-bold font-headline truncate text-sm">${esc(p.name||'Без названия')}</p>
             <p class="text-xs text-on-dim mt-0.5">${date}</p>
@@ -848,6 +854,20 @@ async function startRename(){
     if(!r.ok) throw new Error('Ошибка');
     document.getElementById('detailTitle').textContent = newName.trim();
     currentProject.name = newName.trim();
+    await loadProjects();
+  }catch(e){
+    alert('Ошибка: '+e.message);
+  }
+}
+
+// ── Delete from list ──────────────────────────────────────────────────────
+async function deleteProjectFromList(id, name){
+  if(!confirm(`Удалить проект «${name}»? Это действие нельзя отменить.`)) return;
+  try{
+    const r = await fetch(`${API}/sites/projects/${id}`,{
+      method:'DELETE', headers:authHeaders(),
+    });
+    if(!r.ok) throw new Error('Ошибка удаления');
     await loadProjects();
   }catch(e){
     alert('Ошибка: '+e.message);

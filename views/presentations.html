@@ -316,8 +316,13 @@ function render() {
     const badge = p.doc_type === 'kp'
       ? '<span class="type-badge badge-kp">КП</span>'
       : '<span class="type-badge badge-pres">Презентация</span>';
-    return `<div class="proj-card" onclick="openProject(${p.id})">
-      <div class="flex items-start justify-between gap-2 mb-3">
+    return `<div class="proj-card" onclick="openProject(${p.id})" style="position:relative">
+      <button onclick="event.stopPropagation();deleteProjectFromList(${p.id},'${esc(p.name||'').replace(/'/g,"\\'")}')"
+        class="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 hover:bg-error/20 text-on-dim hover:text-error flex items-center justify-center transition"
+        title="Удалить" style="opacity:.5">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+      </button>
+      <div class="flex items-start justify-between gap-2 mb-3 pr-8">
         <p class="font-bold font-headline text-sm truncate flex-1">${esc(p.name)}</p>
         ${badge}
       </div>
@@ -470,6 +475,15 @@ async function deleteCurrentProject() {
   try {
     await fetch(`${API}/presentations/projects/${currentProjectId}`, {method: 'DELETE', headers: hdrs()});
     closeDetail();
+    await loadProjects();
+  } catch(e) { alert('Ошибка: ' + e.message); }
+}
+
+async function deleteProjectFromList(id, name) {
+  if (!confirm(`Удалить проект «${name}»? Это действие нельзя отменить.`)) return;
+  try {
+    const r = await fetch(`${API}/presentations/projects/${id}`, {method: 'DELETE', headers: hdrs()});
+    if (!r.ok) throw new Error('Ошибка удаления');
     await loadProjects();
   } catch(e) { alert('Ошибка: ' + e.message); }
 }
