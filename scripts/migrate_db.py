@@ -128,6 +128,14 @@ c.execute("""CREATE TABLE IF NOT EXISTS knowledge_files (
 print('✓ knowledge_files')
 migrate('CREATE INDEX IF NOT EXISTS idx_kb_bot ON knowledge_files(bot_id)', 'knowledge_files.idx')
 
+# ── Нормализуем tokens_balance (раньше был Float, теперь Integer) ────────────
+try:
+    c.execute("UPDATE users SET tokens_balance = CAST(tokens_balance AS INTEGER) WHERE tokens_balance IS NOT NULL")
+    n = c.rowcount
+    print(f'✓ users.tokens_balance → INTEGER ({n} rows)')
+except Exception as e:
+    print(f'- tokens_balance normalize: {e}')
+
 conn.commit()
 conn.close()
 print('\n✅ Миграции завершены')

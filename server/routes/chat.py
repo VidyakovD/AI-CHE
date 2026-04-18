@@ -181,14 +181,19 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
     if user and cost > 0:
         db_user = db.query(User).filter_by(id=user.id).first()
         if db_user:
-            db_user.tokens_balance = max(0, (db_user.tokens_balance or 0) - cost)
+            # Если не хватает — списываем сколько есть, но в лог пишем полную стоимость
+            actual_balance = int(db_user.tokens_balance or 0)
+            db_user.tokens_balance = max(0, actual_balance - cost)
+            charged = min(actual_balance, cost)
             desc = f"{req.model}: {input_tokens}→{output_tokens} ток."
-            db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+            if charged < cost:
+                desc += f" (списано {charged}/{cost})"
+            db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
                                description=desc, model=req.model))
             db.add(UsageLog(user_id=user.id, model=real_model,
                             input_tokens=input_tokens, output_tokens=output_tokens,
                             cached_tokens=answer.get("cached_tokens", 0) if isinstance(answer, dict) else 0,
-                            ch_charged=cost))
+                            ch_charged=charged))
 
     db.add(Message(chat_id=req.chat_id, role="assistant", content=content,
                    model=req.model, user_id=user.id if user else None,
