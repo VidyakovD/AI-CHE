@@ -123,8 +123,9 @@ def get_solutions(category: str | None = None, db: Session = Depends(get_db)):
     q = db.query(Solution).filter_by(is_active=True)
     if category:
         cat = db.query(SolutionCategory).filter_by(slug=category).first()
-        if cat:
-            q = q.filter_by(category_id=cat.id)
+        if not cat:
+            return []  # неизвестная категория — пустой список (а не все решения)
+        q = q.filter_by(category_id=cat.id)
     return [_sol_dict(s) for s in q.order_by(Solution.sort_order).all()]
 
 

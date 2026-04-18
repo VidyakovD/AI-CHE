@@ -557,7 +557,14 @@ BUSINESS_PROMPTS = [
 def seed():
     db = SessionLocal()
     try:
-        # Найти или создать категорию "Бизнес-решения"
+        # Категория "Готовые промпты" (на будущее — для простых шаблонов)
+        cat_prompts = db.query(SolutionCategory).filter_by(slug="prompts").first()
+        if not cat_prompts:
+            cat_prompts = SolutionCategory(slug="prompts", title="Готовые промпты", sort_order=1)
+            db.add(cat_prompts); db.commit(); db.refresh(cat_prompts)
+            print(f"✓ Категория 'Готовые промпты' создана (id={cat_prompts.id})")
+
+        # Категория "Бизнес-решения"
         cat = db.query(SolutionCategory).filter_by(slug="business").first()
         if not cat:
             cat = SolutionCategory(slug="business", title="Бизнес-решения", sort_order=2)
@@ -580,7 +587,7 @@ def seed():
                 category_id=cat.id,
                 title=p["title"],
                 description=f"[{p['cat']}] {p['description']}",
-                price_tokens=0,
+                price_tokens=50,  # фикс-плата за экспертный шаблон + Claude сверху по токенам
                 is_active=True,
                 sort_order=i,
             )
