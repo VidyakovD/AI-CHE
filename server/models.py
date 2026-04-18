@@ -430,6 +430,24 @@ class WorkflowStore(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class KnowledgeFile(Base):
+    """Файл в базе знаний бота: metadata + summary + facts для RAG."""
+    __tablename__ = "knowledge_files"
+
+    id           = Column(Integer, primary_key=True)
+    bot_id       = Column(Integer, index=True, nullable=False)
+    name         = Column(String, nullable=False)
+    path         = Column(String, nullable=False)     # /uploads/...
+    mime         = Column(String, nullable=True)
+    size         = Column(Integer, default=0)
+    description  = Column(String, nullable=True)      # одна строка
+    tags         = Column(String, nullable=True)      # через запятую
+    summary      = Column(Text, nullable=True)        # 2-4 предложения
+    facts        = Column(Text, nullable=True)        # через "; "
+    content_text = Column(Text, nullable=True)        # полный текст (для fulltext search)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+
 class ImapCredential(Base):
     """Credentials для IMAP (email trigger)."""
     __tablename__ = "imap_credentials"

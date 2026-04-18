@@ -203,3 +203,45 @@ async def bot_summary(bot_id: int, db: Session = Depends(get_db),
     if not bot:
         raise HTTPException(404, "Бот не найден")
     return await get_summary(bot)
+
+
+# ── База знаний бота ──────────────────────────────────────────────────────────
+
+@router.get("/{bot_id}/kb")
+def bot_kb_list(bot_id: int, db: Session = Depends(get_db),
+                user: User = Depends(current_user)):
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
+    if not bot: raise HTTPException(404)
+    from server.knowledge import get_all_files
+    return get_all_files(bot.id)
+
+
+@router.post("/{bot_id}/kb/add")
+def bot_kb_add(bot_id: int, body: dict,
+               db: Session = Depends(get_db),
+               user: User = Depends(current_user)):
+    """Добавить файл в БЗ. body: {name, path, content_text (опц.)}"""
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
+    if not bot: raise HTTPException(404)
+    from server.knowledge import add_file
+    from server.chatbot_engine import _extract_text_from_file
+    import os as _os
+    path = body.get("path", "")
+    name = body.get("name") or _os.path.basename(path) or "file"
+    content = body.get("content_text") or _extract_text_from_file(path)
+    result = add_file(bot_id=bot.id, name=name, path=path,
+                      size=body.get("size", 0), content_text=content)
+    return result
+
+
+@router.delete("/{bot_id}/kb/{file_id}")
+def bot_kb_delete(bot_id: int, file_id: int,
+                  db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
+    if not bot: raise HTTPException(404)
+    from server.models import KnowledgeFile
+    f = db.query(KnowledgeFile).filter_by(id=file_id, bot_id=bot.id).first()
+    if not f: raise HTTPException(404)
+    db.delete(f); db.commit()
+    return {"status": "deleted"}

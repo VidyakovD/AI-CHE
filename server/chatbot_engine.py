@@ -231,13 +231,17 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
     if ntype in ("node_gpt", "node_claude", "node_gemini", "node_grok"):
         model = NODE_MODEL_MAP.get(ntype, "gpt")
         system = cfg.get("system", "Ты полезный ассистент.")
+        # Автоподстановка role из активной секции, если есть
+        if ctx.get("active_role_prompt"):
+            system = ctx["active_role_prompt"] + "\n\n" + system
         messages = [{"role": "system", "content": system}]
-        # Добавляем контекст из истории
         for msg in ctx.get("history", [])[-10:]:
             messages.append(msg)
         messages.append({"role": "user", "content": input_text})
         result = generate_response(model, messages)
         answer = result.get("content", "") if isinstance(result, dict) else str(result)
+        # Пост-обработка RAG-маркеров в ответе
+        answer = await _resolve_rag_markers(answer, ctx, model)
         return answer
 
     # ── Оркестратор (выбирает агента или просто прокидывает) ───────────────
@@ -380,6 +384,101 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         ctx["audio_path"] = audio_path
         return audio_path
 
+    # ── База знаний ────────────────────────────────────────────────────────
+    if ntype == "kb_add":
+        from server.knowledge import add_file
+        import os as _os
+        base = _os.path.dirname(_os.path.abspath(__file__))
+        # path может быть из cfg или ctx (если файл только что прилетел)
+        path = (cfg.get("path") or ctx.get("file_path") or "").replace("{{input}}", input_text)
+        name = (cfg.get("name") or ctx.get("file_name") or _os.path.basename(path) or "file").replace("{{input}}", input_text)
+        abs_path = _os.path.join(base, path.lstrip("/")) if not _os.path.isabs(path) else path
+        content = _extract_text_from_file(path)
+        import json as _j
+        result = add_file(bot_id=ctx["bot"].id, name=name, path=path,
+                          size=_os.path.getsize(abs_path) if _os.path.exists(abs_path) else 0,
+                          content_text=content)
+        return _j.dumps(result, ensure_ascii=False)
+
+    if ntype == "kb_search_file":
+        from server.knowledge import search_file
+        query = (cfg.get("query", "{{input}}") or "{{input}}").replace("{{input}}", input_text)
+        top = int(cfg.get("top", 5) or 5)
+        results = search_file(ctx["bot"].id, query, top)
+        if not results: return "[Файл не найден]"
+        lines = [f"{r['name']} — {r['description']}" for r in results]
+        ctx["found_files"] = results  # для последующего output_tg_file
+        return "\n".join(lines)
+
+    if ntype == "kb_search":
+        from server.knowledge import search_kb
+        query = (cfg.get("query", "{{input}}") or "{{input}}").replace("{{input}}", input_text)
+        top = int(cfg.get("top", 5) or 5)
+        results = search_kb(ctx["bot"].id, query, top)
+        if not results: return "[В базе знаний ничего не найдено]"
+        return "\n\n".join(
+            f"### {r['name']}\n{r['summary']}\n\nФакты: {r['facts']}"
+            for r in results
+        )
+
+    if ntype == "kb_rag":
+        from server.knowledge import search_kb
+        query = (cfg.get("query", "{{input}}") or "{{input}}").replace("{{input}}", input_text)
+        top = int(cfg.get("top", 5) or 5)
+        model = cfg.get("model", "claude")
+        results = search_kb(ctx["bot"].id, query, top)
+        if not results:
+            return "В базе знаний нет релевантной информации по запросу."
+        context_text = "\n\n".join(
+            f"[Файл: {r['name']}]\nОписание: {r['description']}\nРезюме: {r['summary']}\nФакты: {r['facts']}"
+            for r in results
+        )
+        prompt = (
+            "Ответь на вопрос пользователя используя ТОЛЬКО контекст ниже. "
+            "Если ответа нет в контексте — скажи об этом прямо.\n\n"
+            f"КОНТЕКСТ:\n{context_text}\n\n"
+            f"ВОПРОС: {query}"
+        )
+        result = generate_response(model, [
+            {"role": "system", "content": "Ты ассистент, отвечающий строго по предоставленному контексту."},
+            {"role": "user", "content": prompt},
+        ])
+        return result.get("content", "") if isinstance(result, dict) else str(result)
+
+    # ── Роль / Секция ──────────────────────────────────────────────────────
+    if ntype == "role_switch":
+        field = cfg.get("field", "chat_id")
+        default_role = cfg.get("default", "chat")
+        # Карта roles: "name=prompt" (prompt может быть многострочным, но парсим по строкам с =)
+        roles_map = {}
+        current_role = None
+        for line in (cfg.get("roles") or "").splitlines():
+            if "=" in line and line.split("=")[0].strip().replace("_","").replace("-","").isalnum():
+                name, prompt = line.split("=", 1)
+                current_role = name.strip()
+                roles_map[current_role] = prompt.strip()
+            elif current_role:
+                roles_map[current_role] += "\n" + line
+
+        # Определяем активную роль
+        if field == "text_first_word":
+            words = input_text.strip().split()
+            key = words[0].lower() if words else default_role
+        else:
+            # Роль хранится per-user в storage
+            sk = f"role_{field}_{ctx.get(field, ctx.get('chat_id', 'default'))}"
+            key = _storage_get(ctx["bot"].id, sk) or default_role
+
+        active_prompt = roles_map.get(key, roles_map.get(default_role, ""))
+        ctx["active_role"] = key
+        ctx["active_role_prompt"] = active_prompt
+        return input_text
+
+    # ── Code (Python sandbox) ──────────────────────────────────────────────
+    if ntype == "code_python":
+        code = cfg.get("code", "output = input_text")
+        return _run_python_sandbox(code, input_text, ctx)
+
     # ── Yandex.Disk ────────────────────────────────────────────────────────
     if ntype == "yd_list":
         from server.yandex_disk import yd_list_recent
@@ -444,7 +543,12 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         tg_chat = cfg.get("tg_chat_id") or ctx.get("chat_id")
         path = (cfg.get("file_path") or "").replace("{{input}}", input_text)
         caption = (cfg.get("caption") or "").replace("{{input}}", input_text)
-        if tg_token and tg_chat and path:
+        # Если path пуст и есть found_files в ctx — отправить их
+        if not path and ctx.get("found_files"):
+            for f in ctx["found_files"][:3]:
+                if tg_token and tg_chat and f.get("path"):
+                    await send_telegram_document(tg_token, tg_chat, f["path"], f.get("name", ""))
+        elif tg_token and tg_chat and path:
             await send_telegram_document(tg_token, tg_chat, path, caption)
         return input_text
 
@@ -1011,3 +1115,139 @@ async def send_avito(bot, chat_id: str, text: str) -> dict:
 
 def generate_widget_secret() -> str:
     return secrets.token_urlsafe(16)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  RAG MARKERS — автообработка [KB_SEARCH]/[FILE_SEARCH]/[EMAIL_CONTEXT] в AI-ответе
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _resolve_rag_markers(answer: str, ctx: dict, model: str) -> str:
+    """
+    Если в ответе AI содержится маркер [KB_SEARCH: query] / [FILE_SEARCH: query] /
+    [EMAIL_CONTEXT: query] — делаем поиск и заменяем маркер на результат.
+    Для KB — дополнительно просим AI переформулировать ответ с учётом контекста.
+    """
+    import re as _re
+    if not answer: return answer
+
+    bot_id = ctx["bot"].id if ctx.get("bot") else None
+    if not bot_id: return answer
+
+    # [FILE_SEARCH: ...] — найти файл и отметить для отправки
+    file_match = _re.search(r"\[FILE_SEARCH:\s*(.+?)\]", answer)
+    if file_match:
+        from server.knowledge import search_file
+        q = file_match.group(1).strip()
+        results = search_file(bot_id, q, top=1)
+        if results:
+            ctx["found_files"] = results  # для отправки через output_tg_file
+            replacement = f"Отправляю файл: {results[0]['name']}"
+            answer = answer.replace(file_match.group(0), replacement)
+        else:
+            answer = answer.replace(file_match.group(0), f"Файл не найден по запросу «{q}».")
+
+    # [KB_SEARCH: ...] — найти контекст и вызвать AI повторно
+    kb_match = _re.search(r"\[KB_SEARCH:\s*(.+?)\]", answer)
+    if kb_match:
+        from server.knowledge import search_kb
+        q = kb_match.group(1).strip()
+        results = search_kb(bot_id, q, top=5)
+        if results:
+            context_text = "\n\n".join(
+                f"[{r['name']}] {r['summary']}\nФакты: {r['facts']}" for r in results
+            )
+            prompt = (
+                f"Используя ТОЛЬКО контекст ниже, ответь на исходный вопрос пользователя.\n\n"
+                f"КОНТЕКСТ:\n{context_text}\n\n"
+                f"ВОПРОС: {q}\n\n"
+                f"Предыдущая заготовка ответа (замени её):\n{answer}"
+            )
+            try:
+                result = generate_response(model, [
+                    {"role": "system", "content": "Ты отвечаешь строго по контексту. Без маркеров."},
+                    {"role": "user", "content": prompt},
+                ])
+                answer = result.get("content", "") if isinstance(result, dict) else str(result)
+            except Exception as e:
+                log.error(f"[KB_SEARCH resolve] {e}")
+                answer = answer.replace(kb_match.group(0), context_text[:500])
+        else:
+            answer = answer.replace(kb_match.group(0), "[в базе знаний не найдено]")
+
+    # [EMAIL_CONTEXT: ...] — найти письма через storage.emails
+    em_match = _re.search(r"\[EMAIL_CONTEXT:\s*(.+?)\]", answer)
+    if em_match:
+        import json as _j
+        q = em_match.group(1).strip()
+        emails_raw = _storage_get(bot_id, "emails") or "[]"
+        try:
+            emails = _j.loads(emails_raw) if isinstance(emails_raw, str) else []
+        except Exception:
+            emails = []
+        ql = q.lower()
+        matched = [e for e in emails if isinstance(e, dict) and
+                   (ql in (e.get("from","")).lower() or ql in (e.get("subject","")).lower()
+                    or ql in (e.get("body","")).lower())][:5]
+        if matched:
+            ctx_text = "\n\n".join(
+                f"From: {m.get('from','')}\nSubject: {m.get('subject','')}\n{(m.get('body','') or '')[:500]}"
+                for m in matched
+            )
+            try:
+                result = generate_response(model, [
+                    {"role": "system", "content": "Отвечай по контексту писем."},
+                    {"role": "user", "content": f"Контекст писем:\n{ctx_text}\n\nВопрос: {q}"},
+                ])
+                ai_resp = result.get("content", "") if isinstance(result, dict) else str(result)
+                answer = answer.replace(em_match.group(0), ai_resp)
+            except Exception:
+                answer = answer.replace(em_match.group(0), ctx_text[:500])
+        else:
+            answer = answer.replace(em_match.group(0), "[писем не найдено]")
+
+    return answer
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PYTHON SANDBOX (ограниченный)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _run_python_sandbox(code: str, input_text: str, ctx: dict) -> str:
+    """
+    Выполняет пользовательский Python код в ограниченной среде.
+    Доступны: input_text, ctx (только чтение для безопасности — копия).
+    Должен записать результат в переменную `output`.
+    """
+    import json as _j
+    # Делаем безопасный контекст — только базовые builtins
+    safe_globals = {
+        "__builtins__": {
+            "len": len, "range": range, "str": str, "int": int, "float": float,
+            "bool": bool, "list": list, "dict": dict, "tuple": tuple, "set": set,
+            "sum": sum, "min": min, "max": max, "abs": abs, "round": round,
+            "sorted": sorted, "reversed": reversed, "enumerate": enumerate, "zip": zip,
+            "map": map, "filter": filter, "print": lambda *a, **k: None,
+            "True": True, "False": False, "None": None,
+            "isinstance": isinstance, "any": any, "all": all,
+        },
+        "json": _j,
+        "re": __import__("re"),
+        "datetime": __import__("datetime"),
+    }
+    # Копия контекста (чтобы пользовательский код не мог всё поломать)
+    ctx_copy = {k: v for k, v in ctx.items() if k not in ("bot", "history")}
+    safe_locals = {
+        "input_text": input_text,
+        "ctx": ctx_copy,
+        "output": "",
+    }
+    try:
+        exec(code, safe_globals, safe_locals)
+        out = safe_locals.get("output", "")
+        if not isinstance(out, str):
+            try: out = _j.dumps(out, ensure_ascii=False)
+            except Exception: out = str(out)
+        return out[:10000]
+    except Exception as e:
+        log.error(f"[Python sandbox] error: {e}")
+        return f"[Ошибка Python: {e}]"

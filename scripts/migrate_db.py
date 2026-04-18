@@ -110,6 +110,24 @@ c.execute("""CREATE TABLE IF NOT EXISTS imap_credentials (
 )""")
 print('✓ imap_credentials')
 
+# ── Knowledge Files (база знаний ботов) ───────────────────────────────────────
+c.execute("""CREATE TABLE IF NOT EXISTS knowledge_files (
+    id INTEGER PRIMARY KEY,
+    bot_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    mime TEXT,
+    size INTEGER DEFAULT 0,
+    description TEXT,
+    tags TEXT,
+    summary TEXT,
+    facts TEXT,
+    content_text TEXT,
+    created_at DATETIME DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now'))
+)""")
+print('✓ knowledge_files')
+migrate('CREATE INDEX IF NOT EXISTS idx_kb_bot ON knowledge_files(bot_id)', 'knowledge_files.idx')
+
 conn.commit()
 conn.close()
 print('\n✅ Миграции завершены')

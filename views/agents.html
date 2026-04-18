@@ -1855,6 +1855,41 @@ function wfcInitDefs() {
         {k:'remote',l:'Путь на Я.Диске',t:'text',p:'диск:/Inbox/{{input}}.txt'},
         {k:'local',l:'Локальный файл',t:'text',p:'{{input}}'},
       ]},
+    kb_add:          {cat:'kb',           label:'БЗ: добавить файл',      icon:'library_add', color:'#26a69a',
+      fields:[
+        {k:'name',l:'Имя файла',t:'text',p:'{{input_name}}'},
+        {k:'path',l:'Путь /uploads/...',t:'text',p:'{{input_path}}'},
+      ]},
+    kb_search_file:  {cat:'kb',           label:'БЗ: найти файл',         icon:'search',      color:'#26a69a',
+      fields:[
+        {k:'query',l:'Запрос',t:'text',def:'{{input}}',p:'презентация бюджет'},
+        {k:'top',l:'Сколько',t:'number',def:'5'},
+      ]},
+    kb_search:       {cat:'kb',           label:'БЗ: поиск по содержимому', icon:'manage_search', color:'#26a69a',
+      fields:[
+        {k:'query',l:'Запрос',t:'text',def:'{{input}}'},
+        {k:'top',l:'Сколько',t:'number',def:'5'},
+      ]},
+    kb_rag:          {cat:'kb',           label:'БЗ: RAG-ответ',          icon:'psychology',  color:'#26a69a',
+      fields:[
+        {k:'query',l:'Вопрос',t:'text',def:'{{input}}'},
+        {k:'model',l:'Модель',t:'select',def:'claude',opts:['claude','gpt','gemini']},
+        {k:'top',l:'Top-K контекста',t:'number',def:'5'},
+      ]},
+    role_switch:     {cat:'logic',        label:'Роль (секция)',          icon:'badge',       color:'#78909c',
+      fields:[
+        {k:'field',l:'Откуда брать',t:'select',def:'chat_id',opts:['chat_id','user_id','text_first_word']},
+        {k:'default',l:'Роль по умолчанию',t:'text',def:'chat'},
+        {k:'roles',l:'Роли (name=system prompt)',t:'textarea',
+          p:'chat=Ты дружелюбный ассистент\nsales=Ты менеджер по продажам\nwriter=Ты копирайтер',
+          def:'chat=Ты дружелюбный ассистент.'},
+      ]},
+    code_python:     {cat:'logic',        label:'Код (Python)',           icon:'code',        color:'#5c6bc0',
+      fields:[
+        {k:'code',l:'Python код (доступны: input_text, ctx, output=результат)',t:'textarea',
+          p:'# input_text — входящий текст\n# ctx — dict контекста\noutput = input_text.upper()',
+          def:'output = input_text'},
+      ]},
   };
   // Add all library agents
   AGENT_BLOCKS.forEach(b => {
@@ -1872,6 +1907,7 @@ const WFC_CATS = {
   agent:        {label:'Агенты библиотеки',color:'#ffa726'},
   logic:        {label:'Логика',           color:'#78909c'},
   storage:      {label:'Хранилище',        color:'#9575cd'},
+  kb:           {label:'База знаний',       color:'#26a69a'},
   tools:        {label:'Инструменты',      color:'#ff7043'},
   output:       {label:'Вывод',            color:'#29b6f6'},
 };
