@@ -2166,15 +2166,19 @@ async function wfcDeployAsBot() {
     const bot=await r.json();
 
     // Если есть TG токен — сразу deploy
+    let deployMsg = '';
     if(tg_token){
       const dr=await fetch(`${API}/chatbots/${bot.id}/deploy`,{method:'POST',headers:hdrs()});
       const dd=await dr.json();
-      m.className='text-xs';m.style.color='#6bff9e';
-      m.textContent=dd.channels?.telegram?.ok?'✓ Бот запущен! Telegram webhook установлен':'✓ Бот создан → Чат-боты';
-    }else{
-      m.className='text-xs';m.style.color='#6bff9e';m.textContent='✓ Бот создан → откройте Чат-боты для настройки';
+      deployMsg = dd.channels?.telegram?.ok
+        ? `Бот «${bot.name}» запущен, Telegram webhook установлен`
+        : `Бот «${bot.name}» создан (webhook не установлен)`;
+    } else {
+      deployMsg = `Бот «${bot.name}» создан`;
     }
-    setTimeout(()=>m.classList.add('hidden'),5000);
+    m.className='text-xs';m.style.color='#6bff9e';m.textContent='✓ '+deployMsg+' → переход...';
+    // Автопереход на страницу чат-ботов через 1 сек
+    setTimeout(()=>{window.location.href='chatbots.html';}, 1000);
   }catch(e){m.className='text-xs text-error';m.textContent=e.message;setTimeout(()=>m.classList.add('hidden'),5000);}
 }
 
