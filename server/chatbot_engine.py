@@ -206,9 +206,17 @@ async def _execute_workflow(bot, chat_id, user_text, platform, user_name,
 
     # Индекс нод
     node_map = {n["id"]: n for n in nodes}
+    # Прокидываем для оркестратора и switch
+    ctx["_edges"] = edges
+    ctx["_nodes_map"] = node_map
+    # Набор "отключённых" нод (оркестратор выбрал другую ветку)
+    skipped_by_routing: set[str] = set()
 
     # Исполнение по порядку
     for nid in order:
+        if nid in skipped_by_routing:
+            continue
+
         node = node_map.get(nid)
         if not node:
             continue
@@ -224,6 +232,33 @@ async def _execute_workflow(bot, chat_id, user_text, platform, user_name,
         try:
             output = await _execute_node(node, input_text, ctx)
             ctx["results"][nid] = output
+
+            # После оркестратора — отключаем все ветки кроме выбранной
+            if node.get("type") == "orchestrator":
+                chosen = ctx.get("orchestrator_choice")
+                my_id = node.get("id")
+                all_downstream = [e["to"] for e in edges if e["from"] == my_id]
+                for branch_id in all_downstream:
+                    if branch_id != chosen:
+                        # Рекурсивно отключаем всё ниже этой ветки
+                        _collect_downstream(branch_id, edges, skipped_by_routing)
+                        skipped_by_routing.add(branch_id)
+
+            # После switch — отключаем ветки чьё имя не совпало с ctx["switch_branch"]
+            if node.get("type") == "switch":
+                active_branch = ctx.get("switch_branch", "default")
+                my_id = node.get("id")
+                for edge in edges:
+                    if edge["from"] != my_id:
+                        continue
+                    branch_node = node_map.get(edge["to"])
+                    if not branch_node:
+                        continue
+                    # Имя ветки хранится в cfg.branch_name дочерней ноды (опц.)
+                    branch_name = (branch_node.get("cfg", {}) or {}).get("branch_name", "")
+                    if branch_name and branch_name != active_branch:
+                        _collect_downstream(edge["to"], edges, skipped_by_routing)
+                        skipped_by_routing.add(edge["to"])
         except Exception as e:
             log.error(f"[Bot {bot.id}] Node {nid} ({node['type']}) error: {e}")
             ctx["results"][nid] = f"[Ошибка: {e}]"
@@ -268,8 +303,76 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         answer = await _resolve_rag_markers(answer, ctx, model)
         return answer
 
-    # ── Оркестратор (выбирает агента или просто прокидывает) ───────────────
+    # ── Оркестратор: LLM-классификатор выбирает куда направить ─────────────
     if ntype == "orchestrator":
+        # Найдём все downstream ноды (куда можно направить)
+        edges = ctx.get("_edges", [])
+        nodes_map = ctx.get("_nodes_map", {})
+        my_id = node.get("id")
+        downstream_ids = [e["to"] for e in edges if e["from"] == my_id]
+        downstream_nodes = [nodes_map.get(nid) for nid in downstream_ids if nodes_map.get(nid)]
+
+        # Если всего одна нода дальше — просто прокидываем (классификация не нужна)
+        if len(downstream_nodes) <= 1:
+            return input_text
+
+        # Строим описание вариантов для классификатора
+        options = []
+        for n in downstream_nodes:
+            n_type = n.get("type", "")
+            n_cfg = n.get("cfg", {})
+            # Первые 100 символов из system prompt или label
+            hint = n_cfg.get("system") or n_cfg.get("check") or n_cfg.get("label") or n_type
+            options.append({
+                "id": n.get("id"),
+                "type": n_type,
+                "hint": (hint or "")[:150],
+            })
+
+        options_text = "\n".join(
+            f'{i+1}. id="{o["id"]}" тип={o["type"]}: {o["hint"]}'
+            for i, o in enumerate(options)
+        )
+
+        model = cfg.get("model", "gpt-4o-mini")
+        # Маппинг на наши алиасы
+        model_alias = {"gpt-4o-mini": "gpt", "gpt-4o": "gpt-4o",
+                       "claude-sonnet-4-6": "claude"}.get(model, "gpt")
+
+        classifier_prompt = (
+            "Ты классификатор сообщений для маршрутизации. Определи какой вариант лучше подходит "
+            "для обработки входящего запроса. Варианты:\n\n"
+            f"{options_text}\n\n"
+            f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: {input_text[:500]}\n\n"
+            'Ответь СТРОГО в JSON-формате: {"chosen_id": "id_выбранной_ноды", "reason": "краткое объяснение"}. '
+            'Выбирай только ОДИН вариант (id из списка выше). Никакого текста кроме JSON.'
+        )
+        try:
+            result = generate_response(model_alias, [
+                {"role": "system", "content": "Ты классификатор. Отвечаешь только JSON."},
+                {"role": "user", "content": classifier_prompt},
+            ])
+            raw = result.get("content", "") if isinstance(result, dict) else str(result)
+            # Копим usage
+            usage_acc = ctx.get("_usage")
+            if usage_acc and isinstance(result, dict):
+                usage_acc["input"] += result.get("input_tokens", 0) or 0
+                usage_acc["output"] += result.get("output_tokens", 0) or 0
+            # Парсим JSON
+            import re as _re, json as _json
+            m = _re.search(r'\{[^}]+\}', raw)
+            if m:
+                data = _json.loads(m.group())
+                chosen = data.get("chosen_id")
+                reason = data.get("reason", "")
+                log.info(f"[Orchestrator] выбрал {chosen}: {reason[:80]}")
+                ctx["orchestrator_choice"] = chosen
+            else:
+                # Fallback: первая нода
+                ctx["orchestrator_choice"] = downstream_nodes[0].get("id")
+        except Exception as e:
+            log.error(f"[Orchestrator] error: {e}")
+            ctx["orchestrator_choice"] = downstream_nodes[0].get("id")
         return input_text
 
     # ── Инструкция / Prompt Builder ────────────────────────────────────────
@@ -648,6 +751,17 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
     # По умолчанию — прокидываем текст дальше
     log.warning(f"Unknown node type: {ntype}, passing through")
     return input_text
+
+
+def _collect_downstream(start_id: str, edges: list, out: set):
+    """Собрать все ноды ниже start_id по графу (BFS)."""
+    stack = [start_id]
+    while stack:
+        cur = stack.pop()
+        for e in edges:
+            if e["from"] == cur and e["to"] not in out:
+                out.add(e["to"])
+                stack.append(e["to"])
 
 
 def _topo_sort(nodes: list, edges: list) -> list[str] | None:
