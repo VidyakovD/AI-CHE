@@ -33,19 +33,58 @@ async def telegram_webhook(bot_id: int, request: Request,
     except Exception:
         return {"ok": True}
 
+    # Обработка callback_query (нажатие inline-кнопки)
+    cb = body.get("callback_query")
+    if cb:
+        data = cb.get("data", "")
+        chat_id = str(cb.get("message", {}).get("chat", {}).get("id", ""))
+        user_name = cb.get("from", {}).get("first_name", "")
+        cb_id = cb.get("id")
+        # ACK callback чтобы кнопка перестала крутиться
+        try:
+            import httpx as _hx
+            async with _hx.AsyncClient(timeout=10) as c:
+                await c.post(f"https://api.telegram.org/bot{bot.tg_token}/answerCallbackQuery",
+                             json={"callback_query_id": cb_id})
+        except Exception:
+            pass
+        # Обрабатываем как обычное сообщение с флагом is_callback
+        answer = await handle_message(bot, chat_id, data, "tg", user_name,
+                                      extra_ctx={"is_callback": True})
+        if answer:
+            await send_telegram(bot.tg_token, chat_id, answer)
+        return {"ok": True}
+
     # Обработка message
     msg = body.get("message") or body.get("edited_message")
     if not msg:
-        # callback_query, etc. — пока пропускаем
-        return {"ok": True}
-
-    text = msg.get("text", "")
-    if not text:
         return {"ok": True}
 
     chat_id = str(msg["chat"]["id"])
     user_name = msg.get("from", {}).get("first_name", "")
     msg_id = msg.get("message_id")
+    extra_ctx = {}
+
+    # Voice / audio сообщение
+    text = msg.get("text", "")
+    if msg.get("voice") or msg.get("audio"):
+        extra_ctx["is_voice"] = True
+        extra_ctx["file_id"] = (msg.get("voice") or msg.get("audio")).get("file_id")
+        text = text or "[voice message]"
+    elif msg.get("document"):
+        extra_ctx["is_file"] = True
+        extra_ctx["file_id"] = msg["document"].get("file_id")
+        extra_ctx["file_name"] = msg["document"].get("file_name", "file")
+        text = text or msg.get("caption", "[document]")
+    elif msg.get("photo"):
+        extra_ctx["is_file"] = True
+        photos = msg["photo"]
+        if photos:
+            extra_ctx["file_id"] = photos[-1].get("file_id")
+        text = text or msg.get("caption", "[photo]")
+
+    if not text:
+        return {"ok": True}
 
     # Команда /start
     if text.strip() == "/start":
@@ -54,7 +93,7 @@ async def telegram_webhook(bot_id: int, request: Request,
         return {"ok": True}
 
     # Генерация ответа через AI
-    answer = await handle_message(bot, chat_id, text, "tg", user_name)
+    answer = await handle_message(bot, chat_id, text, "tg", user_name, extra_ctx=extra_ctx)
     if answer:
         await send_telegram(bot.tg_token, chat_id, answer, reply_to=msg_id)
     else:

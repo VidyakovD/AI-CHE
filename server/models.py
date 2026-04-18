@@ -419,6 +419,17 @@ class AgentConfig(Base):
 
 # ── Persistent Chatbots ──────────────────────────────────────────────────────
 
+class WorkflowStore(Base):
+    """Key-value хранилище для воркфлоу (static data)."""
+    __tablename__ = "workflow_store"
+
+    id         = Column(Integer, primary_key=True)
+    bot_id     = Column(Integer, index=True, nullable=False)
+    key        = Column(String, index=True, nullable=False)
+    value      = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class ChatBot(Base):
     """Постоянный бот — слушает входящие и отвечает через AI 24/7."""
     __tablename__ = "chatbots"

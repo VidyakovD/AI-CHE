@@ -84,6 +84,17 @@ migrate('ALTER TABLE model_pricing ADD COLUMN ch_per_1k_input REAL DEFAULT 0', '
 migrate('ALTER TABLE model_pricing ADD COLUMN ch_per_1k_output REAL DEFAULT 0', 'model_pricing.ch_per_1k_output')
 migrate('ALTER TABLE model_pricing ADD COLUMN min_ch_per_req INTEGER DEFAULT 1', 'model_pricing.min_ch_per_req')
 
+# ── Workflow Store (key-value для воркфлоу) ───────────────────────────────────
+c.execute("""CREATE TABLE IF NOT EXISTS workflow_store (
+    id INTEGER PRIMARY KEY,
+    bot_id INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT,
+    updated_at DATETIME DEFAULT (strftime('%Y-%m-%d %H:%M:%S','now'))
+)""")
+print('✓ workflow_store')
+migrate('CREATE INDEX IF NOT EXISTS idx_wfstore_bot_key ON workflow_store(bot_id, key)', 'workflow_store.idx')
+
 conn.commit()
 conn.close()
 print('\n✅ Миграции завершены')

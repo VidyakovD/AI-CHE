@@ -43,11 +43,13 @@ NODE_MODEL_MAP = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def handle_message(bot, chat_id: str, user_text: str,
-                         platform: str, user_name: str = "") -> str | None:
+                         platform: str, user_name: str = "",
+                         extra_ctx: dict | None = None) -> str | None:
     """
     Обработать входящее сообщение.
     Если у бота есть граф (workflow) — исполняет его.
     Иначе — простой режим (system_prompt → AI → ответ).
+    extra_ctx — флаги типа is_voice/is_file/is_callback + file_id.
     """
     if not _check_daily_limit(bot):
         return None
@@ -56,7 +58,8 @@ async def handle_message(bot, chat_id: str, user_text: str,
     workflow = _get_bot_workflow(bot)
 
     if workflow:
-        answer = await _execute_workflow(bot, chat_id, user_text, platform, user_name, workflow)
+        answer = await _execute_workflow(bot, chat_id, user_text, platform, user_name, workflow,
+                                         extra_ctx=extra_ctx or {})
     else:
         answer = await _simple_reply(bot, chat_id, user_text, platform, user_name)
 
@@ -127,7 +130,7 @@ async def _simple_reply(bot, chat_id, user_text, platform, user_name) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _execute_workflow(bot, chat_id, user_text, platform, user_name,
-                            workflow: dict) -> str:
+                            workflow: dict, extra_ctx: dict | None = None) -> str:
     """
     Исполнить граф воркфлоу.
     nodes = [{id, type, cfg: {...}}, ...]
@@ -173,6 +176,8 @@ async def _execute_workflow(bot, chat_id, user_text, platform, user_name,
         "bot": bot,
         "final_output": "",
     }
+    if extra_ctx:
+        ctx.update(extra_ctx)
 
     # Топологическая сортировка
     order = _topo_sort(nodes, edges)
@@ -252,20 +257,168 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         matched = any(w in text_lower for w in check_words) if check_words else True
         return input_text if matched else ""
 
+    # ── Switch / Router ────────────────────────────────────────────────────
+    if ntype == "switch":
+        field = cfg.get("field", "text")
+        check_value = input_text.lower() if field == "text" else str(ctx.get(field, ""))
+        # Парсим ветки: "name=keyword1,keyword2"
+        branches_raw = cfg.get("branches", "")
+        matched_branch = None
+        for line in branches_raw.splitlines():
+            if "=" not in line: continue
+            name, keywords = line.split("=", 1)
+            name = name.strip()
+            for kw in keywords.split(","):
+                kw = kw.strip().lower()
+                if not kw: continue
+                if kw == "*" or (kw == "__voice__" and ctx.get("is_voice")) \
+                   or (kw == "__file__" and ctx.get("is_file")) \
+                   or (kw == "__callback__" and ctx.get("is_callback")) \
+                   or kw in check_value:
+                    matched_branch = name
+                    break
+            if matched_branch: break
+        ctx["switch_branch"] = matched_branch or "default"
+        return input_text
+
     # ── Задержка ───────────────────────────────────────────────────────────
     if ntype == "delay":
         secs = min(int(cfg.get("secs", 2)), 30)  # макс 30 сек
         await asyncio.sleep(secs)
         return input_text
 
+    # ── HTTP Request ───────────────────────────────────────────────────────
+    if ntype == "http_request":
+        import json as _json
+        method = (cfg.get("method") or "GET").upper()
+        url = cfg.get("url", "")
+        if not url: return ""
+        # Подстановка переменных {{input}} в url/body/headers
+        def subst(s): return s.replace("{{input}}", input_text) if s else s
+        url = subst(url)
+        try:
+            headers = _json.loads(subst(cfg.get("headers") or "{}"))
+        except Exception:
+            headers = {}
+        body_raw = subst(cfg.get("body") or "")
+        kwargs = {"headers": headers}
+        if body_raw:
+            try:
+                kwargs["json"] = _json.loads(body_raw)
+            except Exception:
+                kwargs["content"] = body_raw
+        try:
+            if method == "GET":
+                r = await HTTP.get(url, headers=headers)
+            else:
+                r = await HTTP.request(method, url, **kwargs)
+            text = r.text
+            # Попытка извлечь JSONPath
+            extract = cfg.get("extract", "")
+            if extract and extract.startswith("$"):
+                try:
+                    data = r.json()
+                    # Простая реализация: $.key.key или $.key[0].key
+                    path = extract[2:].split(".")
+                    cur = data
+                    for p in path:
+                        if "[" in p and "]" in p:
+                            name, idx = p.split("[", 1)
+                            idx = int(idx.rstrip("]"))
+                            cur = cur[name][idx] if name else cur[idx]
+                        else:
+                            cur = cur[p]
+                    return str(cur)
+                except Exception:
+                    pass
+            return text
+        except Exception as e:
+            log.error(f"[HTTP] {url}: {e}")
+            return f"[HTTP error: {e}]"
+
+    # ── Storage ────────────────────────────────────────────────────────────
+    if ntype == "storage_get":
+        key = cfg.get("key", "")
+        return _storage_get(ctx["bot"].id, key)
+
+    if ntype == "storage_set":
+        key = cfg.get("key", "")
+        val = (cfg.get("value", "{{input}}") or "{{input}}").replace("{{input}}", input_text)
+        _storage_set(ctx["bot"].id, key, val)
+        return val
+
+    if ntype == "storage_push":
+        key = cfg.get("key", "")
+        val = (cfg.get("value", "{{input}}") or "{{input}}").replace("{{input}}", input_text)
+        max_items = int(cfg.get("max", 100) or 100)
+        _storage_push(ctx["bot"].id, key, val, max_items)
+        return val
+
+    # ── RSS ────────────────────────────────────────────────────────────────
+    if ntype == "rss":
+        urls = [u.strip() for u in (cfg.get("urls", "")).splitlines() if u.strip()]
+        hours = int(cfg.get("hours", 48) or 48)
+        limit = int(cfg.get("limit", 30) or 30)
+        articles = await _fetch_rss(urls, hours, limit)
+        return "\n\n".join(f"[{a['date']}] {a['title']}\n{a['link']}\n{a['summary']}" for a in articles)
+
+    # ── Extract text (PDF/DOCX/TXT) ────────────────────────────────────────
+    if ntype == "extract_text":
+        path = (cfg.get("file_path", "{{input}}") or "").replace("{{input}}", input_text)
+        return _extract_text_from_file(path)
+
+    # ── Whisper STT ────────────────────────────────────────────────────────
+    if ntype == "whisper":
+        path = (cfg.get("file_path", "{{input}}") or "").replace("{{input}}", input_text)
+        return await _whisper_transcribe(path)
+
+    # ── TTS ────────────────────────────────────────────────────────────────
+    if ntype == "tts":
+        voice = cfg.get("voice", "onyx")
+        audio_path = await _tts_generate(input_text, voice)
+        ctx["audio_path"] = audio_path
+        return audio_path
+
     # ── Выходные ноды ──────────────────────────────────────────────────────
     if ntype == "output_tg":
         ctx["final_output"] = input_text
-        # Если указан конкретный chat_id в ноде — отправить туда тоже
         tg_token = cfg.get("tg_token") or (ctx["bot"].tg_token if hasattr(ctx["bot"], "tg_token") else None)
-        tg_chat = cfg.get("tg_chat_id")
+        tg_chat = cfg.get("tg_chat_id") or ctx.get("chat_id")
+        parse_mode = cfg.get("parse_mode", "Markdown")
+        if parse_mode == "None": parse_mode = None
         if tg_token and tg_chat and tg_chat != ctx["chat_id"]:
-            await send_telegram(tg_token, tg_chat, input_text)
+            await send_telegram(tg_token, tg_chat, input_text, parse_mode=parse_mode)
+        return input_text
+
+    if ntype == "output_tg_buttons":
+        ctx["final_output"] = input_text
+        tg_token = cfg.get("tg_token") or (ctx["bot"].tg_token if hasattr(ctx["bot"], "tg_token") else None)
+        tg_chat = cfg.get("tg_chat_id") or ctx.get("chat_id")
+        buttons = []
+        for line in (cfg.get("buttons") or "").splitlines():
+            line = line.strip()
+            if "=" in line:
+                text, data = line.split("=", 1)
+                buttons.append({"text": text.strip(), "callback_data": data.strip()})
+        if tg_token and tg_chat and buttons:
+            await send_telegram_with_buttons(tg_token, tg_chat, input_text, buttons)
+        return input_text
+
+    if ntype == "output_tg_file":
+        tg_token = cfg.get("tg_token") or (ctx["bot"].tg_token if hasattr(ctx["bot"], "tg_token") else None)
+        tg_chat = cfg.get("tg_chat_id") or ctx.get("chat_id")
+        path = (cfg.get("file_path") or "").replace("{{input}}", input_text)
+        caption = (cfg.get("caption") or "").replace("{{input}}", input_text)
+        if tg_token and tg_chat and path:
+            await send_telegram_document(tg_token, tg_chat, path, caption)
+        return input_text
+
+    if ntype == "output_tg_audio":
+        tg_token = cfg.get("tg_token") or (ctx["bot"].tg_token if hasattr(ctx["bot"], "tg_token") else None)
+        tg_chat = cfg.get("tg_chat_id") or ctx.get("chat_id")
+        path = (cfg.get("file_path") or ctx.get("audio_path") or "").replace("{{input}}", input_text)
+        if tg_token and tg_chat and path:
+            await send_telegram_audio(tg_token, tg_chat, path)
         return input_text
 
     if ntype == "output_save":
@@ -476,10 +629,10 @@ async def delete_telegram_webhook(tg_token: str) -> dict:
 
 
 async def send_telegram(token: str, chat_id: str, text: str,
-                        reply_to: int = None) -> dict:
-    payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
-    if reply_to:
-        payload["reply_to_message_id"] = reply_to
+                        reply_to: int = None, parse_mode: str = "Markdown") -> dict:
+    payload = {"chat_id": chat_id, "text": text}
+    if parse_mode: payload["parse_mode"] = parse_mode
+    if reply_to: payload["reply_to_message_id"] = reply_to
     try:
         r = await HTTP.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload)
         return r.json()
@@ -491,6 +644,279 @@ async def send_telegram(token: str, chat_id: str, text: str,
             return r.json()
         except Exception:
             return {"ok": False}
+
+
+async def send_telegram_with_buttons(token: str, chat_id: str, text: str,
+                                     buttons: list) -> dict:
+    """Отправить сообщение с inline-кнопками. buttons = [{text, callback_data}, ...]"""
+    # Располагаем кнопки по одной в ряд
+    keyboard = [[b] for b in buttons]
+    payload = {
+        "chat_id": chat_id, "text": text,
+        "reply_markup": {"inline_keyboard": keyboard},
+    }
+    try:
+        r = await HTTP.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload)
+        return r.json()
+    except Exception as e:
+        log.error(f"[TG buttons] {e}")
+        return {"ok": False}
+
+
+async def send_telegram_document(token: str, chat_id: str, file_path: str,
+                                 caption: str = "") -> dict:
+    """Отправить документ. file_path — относительно корня проекта."""
+    import os as _os
+    base = _os.path.dirname(_os.path.abspath(__file__))
+    abs_path = _os.path.join(base, file_path.lstrip("/"))
+    if not _os.path.exists(abs_path):
+        log.error(f"[TG doc] file not found: {abs_path}")
+        return {"ok": False}
+    try:
+        with open(abs_path, "rb") as f:
+            files = {"document": (_os.path.basename(abs_path), f)}
+            data = {"chat_id": str(chat_id)}
+            if caption: data["caption"] = caption
+            r = await HTTP.post(f"https://api.telegram.org/bot{token}/sendDocument",
+                                files=files, data=data)
+        return r.json()
+    except Exception as e:
+        log.error(f"[TG doc] {e}")
+        return {"ok": False}
+
+
+async def send_telegram_audio(token: str, chat_id: str, file_path: str) -> dict:
+    import os as _os
+    base = _os.path.dirname(_os.path.abspath(__file__))
+    abs_path = _os.path.join(base, file_path.lstrip("/"))
+    if not _os.path.exists(abs_path):
+        log.error(f"[TG audio] file not found: {abs_path}")
+        return {"ok": False}
+    try:
+        with open(abs_path, "rb") as f:
+            files = {"voice": (_os.path.basename(abs_path), f)}
+            r = await HTTP.post(f"https://api.telegram.org/bot{token}/sendVoice",
+                                files=files, data={"chat_id": str(chat_id)})
+        return r.json()
+    except Exception as e:
+        log.error(f"[TG audio] {e}")
+        return {"ok": False}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  STORAGE (key-value per bot)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _storage_get(bot_id: int, key: str) -> str:
+    from server.db import SessionLocal
+    from server.models import WorkflowStore
+    db = SessionLocal()
+    try:
+        row = db.query(WorkflowStore).filter_by(bot_id=bot_id, key=key).first()
+        return row.value if row else ""
+    finally:
+        db.close()
+
+
+def _storage_set(bot_id: int, key: str, value: str):
+    from server.db import SessionLocal
+    from server.models import WorkflowStore
+    db = SessionLocal()
+    try:
+        row = db.query(WorkflowStore).filter_by(bot_id=bot_id, key=key).first()
+        if row:
+            row.value = value
+        else:
+            db.add(WorkflowStore(bot_id=bot_id, key=key, value=value))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _storage_push(bot_id: int, key: str, value: str, max_items: int = 100):
+    """Пушит в массив (JSON-list), обрезает по max."""
+    import json as _json
+    from server.db import SessionLocal
+    from server.models import WorkflowStore
+    db = SessionLocal()
+    try:
+        row = db.query(WorkflowStore).filter_by(bot_id=bot_id, key=key).first()
+        arr = []
+        if row:
+            try:
+                arr = _json.loads(row.value) if row.value else []
+                if not isinstance(arr, list): arr = []
+            except Exception:
+                arr = []
+        arr.insert(0, value)
+        arr = arr[:max_items]
+        payload = _json.dumps(arr, ensure_ascii=False)
+        if row:
+            row.value = payload
+        else:
+            db.add(WorkflowStore(bot_id=bot_id, key=key, value=payload))
+        db.commit()
+    finally:
+        db.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  RSS
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _fetch_rss(urls: list, hours: int = 48, limit: int = 30) -> list:
+    """Забирает и парсит RSS-ленты. Возвращает отсортированные статьи."""
+    import re as _re
+    from email.utils import parsedate_to_datetime
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    cutoff = _dt.now(_tz.utc) - _td(hours=hours)
+    results = []
+    for url in urls:
+        try:
+            r = await HTTP.get(url, headers={"User-Agent": "Mozilla/5.0 AICHE-bot"},
+                               timeout=15, follow_redirects=True)
+            if r.status_code != 200: continue
+            xml = r.text
+            # Очень простой парсер: ищем <item>...</item> (RSS) или <entry> (Atom)
+            items = _re.findall(r"<(?:item|entry)[^>]*>(.*?)</(?:item|entry)>", xml, _re.DOTALL | _re.IGNORECASE)
+            for item in items[:20]:
+                def extract(tag):
+                    m = _re.search(rf"<{tag}[^>]*>(.*?)</{tag}>", item, _re.DOTALL | _re.IGNORECASE)
+                    if not m: return ""
+                    txt = m.group(1)
+                    txt = _re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", txt, flags=_re.DOTALL)
+                    txt = _re.sub(r"<[^>]+>", "", txt)
+                    return txt.strip()
+                title = extract("title")
+                link = extract("link") or _re.search(r'<link[^>]+href="([^"]+)"', item)
+                if hasattr(link, "group"): link = link.group(1) if link else ""
+                pubdate = extract("pubDate") or extract("published") or extract("updated")
+                summary = extract("description") or extract("summary") or extract("content")
+                article_date = None
+                if pubdate:
+                    try:
+                        article_date = parsedate_to_datetime(pubdate)
+                    except Exception:
+                        try:
+                            article_date = _dt.fromisoformat(pubdate.replace("Z", "+00:00"))
+                        except Exception:
+                            pass
+                if article_date and article_date < cutoff:
+                    continue
+                if title and link:
+                    results.append({
+                        "title": title[:200], "link": link[:300],
+                        "summary": summary[:400],
+                        "date": (article_date or _dt.now(_tz.utc)).strftime("%Y-%m-%d %H:%M"),
+                        "_sort": (article_date or _dt.now(_tz.utc)).timestamp(),
+                    })
+        except Exception as e:
+            log.warning(f"[RSS] {url}: {e}")
+            continue
+    results.sort(key=lambda x: x["_sort"], reverse=True)
+    return results[:limit]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  FILE EXTRACT (TXT / PDF / DOCX)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _extract_text_from_file(file_path: str) -> str:
+    """Извлечь текст из файла. Поддерживает txt, pdf, docx."""
+    import os as _os
+    base = _os.path.dirname(_os.path.abspath(__file__))
+    abs_path = _os.path.join(base, file_path.lstrip("/")) if not _os.path.isabs(file_path) else file_path
+    if not _os.path.exists(abs_path):
+        return f"[Файл не найден: {file_path}]"
+    ext = _os.path.splitext(abs_path)[1].lower()
+    try:
+        if ext in (".txt", ".md", ".csv", ".json"):
+            with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
+                return f.read()[:20000]
+        if ext == ".pdf":
+            try:
+                from PyPDF2 import PdfReader
+                reader = PdfReader(abs_path)
+                text = "\n\n".join((p.extract_text() or "") for p in reader.pages)
+                return text[:20000]
+            except Exception as e:
+                return f"[PDF error: {e}]"
+        if ext == ".docx":
+            try:
+                import zipfile, xml.etree.ElementTree as ET
+                with zipfile.ZipFile(abs_path) as z:
+                    with z.open("word/document.xml") as f:
+                        tree = ET.parse(f)
+                ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+                text = "\n".join(el.text or "" for el in tree.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"))
+                return text[:20000]
+            except Exception as e:
+                return f"[DOCX error: {e}]"
+        return f"[Неподдерживаемый формат: {ext}]"
+    except Exception as e:
+        return f"[Ошибка извлечения: {e}]"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  WHISPER / TTS (OpenAI)
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _whisper_transcribe(file_path: str) -> str:
+    """Транскрибировать аудио через OpenAI Whisper."""
+    import os as _os
+    from server.ai import _get_api_keys
+    keys = _get_api_keys("openai")
+    if not keys:
+        return "[Whisper: нет OpenAI ключей]"
+    base = _os.path.dirname(_os.path.abspath(__file__))
+    abs_path = _os.path.join(base, file_path.lstrip("/")) if not _os.path.isabs(file_path) else file_path
+    if not _os.path.exists(abs_path):
+        return f"[Файл не найден: {file_path}]"
+    try:
+        with open(abs_path, "rb") as f:
+            files = {"file": (_os.path.basename(abs_path), f, "audio/mpeg")}
+            data = {"model": "whisper-1"}
+            r = await HTTP.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                files=files, data=data,
+                headers={"Authorization": f"Bearer {keys[0]}"},
+                timeout=120,
+            )
+        if r.status_code == 200:
+            return r.json().get("text", "")
+        return f"[Whisper error {r.status_code}: {r.text[:200]}]"
+    except Exception as e:
+        return f"[Whisper exception: {e}]"
+
+
+async def _tts_generate(text: str, voice: str = "onyx") -> str:
+    """Генерирует речь через OpenAI TTS, возвращает путь к файлу."""
+    import os as _os, uuid as _uuid
+    from server.ai import _get_api_keys
+    keys = _get_api_keys("openai")
+    if not keys:
+        return ""
+    try:
+        r = await HTTP.post(
+            "https://api.openai.com/v1/audio/speech",
+            json={"model": "tts-1", "voice": voice, "input": text[:4000], "response_format": "mp3"},
+            headers={"Authorization": f"Bearer {keys[0]}"},
+            timeout=60,
+        )
+        if r.status_code != 200:
+            log.error(f"[TTS] {r.status_code}: {r.text[:200]}")
+            return ""
+        base = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        upload_dir = _os.path.join(base, "uploads")
+        _os.makedirs(upload_dir, exist_ok=True)
+        fname = f"tts_{_uuid.uuid4().hex[:12]}.mp3"
+        path = _os.path.join(upload_dir, fname)
+        with open(path, "wb") as f:
+            f.write(r.content)
+        return f"/uploads/{fname}"
+    except Exception as e:
+        log.error(f"[TTS] {e}")
+        return ""
 
 
 async def send_vk(token: str, user_id: str, text: str) -> dict:

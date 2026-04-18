@@ -176,4 +176,7 @@ async def startup():
     _load_all_apikeys_from_db()
     # Start agent queue
     await init_agent_queue()
+    # Start workflow scheduler
+    from server.scheduler import start_scheduler
+    start_scheduler()
     log.info("AI Студия Че запущена")

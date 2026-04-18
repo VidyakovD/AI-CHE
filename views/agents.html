@@ -1730,7 +1730,16 @@ function wfcInitDefs() {
     trigger_webhook: {cat:'trigger',      label:'Webhook',        icon:'bolt',       color:'#ab47bc',
       fields:[{k:'path',l:'URL путь',t:'text',p:'/webhook/agent'}]},
     trigger_schedule:{cat:'trigger',      label:'Расписание',     icon:'schedule',   color:'#ef5350',
-      fields:[{k:'cron',l:'Cron',t:'text',p:'0 9 * * 1-5'}]},
+      fields:[
+        {k:'mode',l:'Режим',t:'select',def:'daily',
+          opts:['daily','weekly','hourly','interval','custom']},
+        {k:'time',l:'Время (ЧЧ:ММ)',t:'time',p:'09:00',def:'09:00'},
+        {k:'weekdays',l:'Дни недели',t:'weekdays',def:'1,2,3,4,5'},
+        {k:'interval_min',l:'Интервал, мин',t:'number',def:'15',p:'15'},
+        {k:'cron',l:'Cron (если custom)',t:'text',p:'0 9 * * 1-5'},
+        {k:'tz',l:'Часовой пояс',t:'select',def:'Asia/Yekaterinburg',
+          opts:['Europe/Moscow','Europe/Kaliningrad','Europe/Samara','Asia/Yekaterinburg','Asia/Omsk','Asia/Krasnoyarsk','Asia/Irkutsk','Asia/Yakutsk','Asia/Vladivostok','Asia/Magadan','Asia/Kamchatka','UTC','Europe/Kiev','Asia/Almaty','Asia/Tashkent','Asia/Tbilisi']},
+      ]},
     orchestrator:    {cat:'orchestrator', label:'Оркестратор',    icon:'hub',        color:'#ff8c42',
       fields:[{k:'model',l:'Классификатор',t:'select',opts:['gpt-4o-mini','gpt-4o','claude-sonnet-4-6']},
               {k:'strategy',l:'Стратегия',t:'select',opts:['один агент','несколько параллельно']}]},
@@ -1744,13 +1753,80 @@ function wfcInitDefs() {
       fields:[{k:'system',l:'Текст инструкции',t:'textarea',p:'Ты полезный ассистент. Отвечай кратко...'}]},
     condition:       {cat:'logic',        label:'Условие',        icon:'call_split', color:'#78909c',
       fields:[{k:'check',l:'Если содержит',t:'text',p:'да, ок'}]},
+    switch:          {cat:'logic',        label:'Switch / Роутер', icon:'alt_route',  color:'#78909c',
+      fields:[
+        {k:'field',l:'Поле для проверки',t:'select',def:'text',opts:['text','chat_type','command','user_role']},
+        {k:'branches',l:'Ветки (name=keywords)',t:'textarea',
+          p:'admin=/курсы,/добавить,/промпт\nvoice=__voice__\nfile=__file__\ncallback=__callback__',
+          def:'admin=/start,/help\ntext=*'},
+      ]},
     delay:           {cat:'logic',        label:'Задержка',       icon:'timer',      color:'#78909c',
       fields:[{k:'secs',l:'Секунд',t:'number',p:'5'}]},
+    http_request:    {cat:'logic',        label:'HTTP Request',   icon:'api',        color:'#78909c',
+      fields:[
+        {k:'method',l:'Метод',t:'select',def:'GET',opts:['GET','POST','PUT','DELETE','PATCH']},
+        {k:'url',l:'URL',t:'text',p:'https://api.example.com/endpoint'},
+        {k:'headers',l:'Headers (JSON)',t:'textarea',p:'{"Authorization":"Bearer ..."}'},
+        {k:'body',l:'Body (JSON или текст)',t:'textarea',p:'{"key":"value"}'},
+        {k:'extract',l:'Вытащить поле (JSONPath)',t:'text',p:'$.data.text'},
+      ]},
+    storage_get:     {cat:'storage',      label:'Storage Get',    icon:'download',   color:'#9575cd',
+      fields:[{k:'key',l:'Ключ',t:'text',p:'my_data'}]},
+    storage_set:     {cat:'storage',      label:'Storage Set',    icon:'upload',     color:'#9575cd',
+      fields:[
+        {k:'key',l:'Ключ',t:'text',p:'my_data'},
+        {k:'value',l:'Значение (или {{input}})',t:'textarea',p:'{{input}}',def:'{{input}}'},
+      ]},
+    storage_push:    {cat:'storage',      label:'Storage Push',   icon:'playlist_add', color:'#9575cd',
+      fields:[
+        {k:'key',l:'Ключ массива',t:'text',p:'messages'},
+        {k:'value',l:'Добавить (или {{input}})',t:'textarea',def:'{{input}}'},
+        {k:'max',l:'Макс. элементов',t:'number',def:'100'},
+      ]},
     output_tg:       {cat:'output',       label:'Ответить в TG',  icon:'send',       color:'#29b6f6',
-      fields:[{k:'tg_token',l:'Bot Token',t:'password',p:'оставьте пустым'},{k:'tg_chat_id',l:'Chat ID',t:'text',p:'оставьте пустым'}]},
+      fields:[
+        {k:'tg_token',l:'Bot Token',t:'password',p:'оставьте пустым'},
+        {k:'tg_chat_id',l:'Chat ID',t:'text',p:'оставьте пустым'},
+        {k:'parse_mode',l:'Форматирование',t:'select',def:'Markdown',opts:['None','Markdown','HTML']},
+      ]},
+    output_tg_buttons:{cat:'output',      label:'TG кнопки',      icon:'smart_button', color:'#29b6f6',
+      fields:[
+        {k:'tg_token',l:'Bot Token',t:'password',p:'оставьте пустым'},
+        {k:'tg_chat_id',l:'Chat ID',t:'text',p:'оставьте пустым'},
+        {k:'buttons',l:'Кнопки (text=callback_data, по одной на строку)',t:'textarea',
+          p:'Да=yes\nНет=no',def:'✅=approve\n❌=reject'},
+      ]},
+    output_tg_file:  {cat:'output',       label:'TG отправить файл', icon:'attach_file', color:'#29b6f6',
+      fields:[
+        {k:'tg_token',l:'Bot Token',t:'password',p:'оставьте пустым'},
+        {k:'tg_chat_id',l:'Chat ID',t:'text',p:'оставьте пустым'},
+        {k:'file_path',l:'Путь к файлу',t:'text',p:'/uploads/xxx.pdf'},
+        {k:'caption',l:'Подпись',t:'text',p:''},
+      ]},
+    output_tg_audio: {cat:'output',       label:'TG отправить аудио', icon:'mic',   color:'#29b6f6',
+      fields:[
+        {k:'tg_token',l:'Bot Token',t:'password',p:'оставьте пустым'},
+        {k:'tg_chat_id',l:'Chat ID',t:'text',p:'оставьте пустым'},
+        {k:'file_path',l:'Путь к аудио',t:'text',p:'/uploads/voice.mp3'},
+      ]},
     output_save:     {cat:'output',       label:'Сохранить',      icon:'save',       color:'#66bb6a', fields:[]},
     output_hook:     {cat:'output',       label:'POST Webhook',   icon:'bolt',       color:'#ab47bc',
       fields:[{k:'url',l:'URL',t:'text',p:'https://...'}]},
+    rss:             {cat:'tools',        label:'RSS-парсер',     icon:'rss_feed',   color:'#ff7043',
+      fields:[
+        {k:'urls',l:'URL-ы RSS (по одному на строку)',t:'textarea',
+          p:'https://habr.com/ru/rss/all/\nhttps://techcrunch.com/feed/'},
+        {k:'hours',l:'Окно часов',t:'number',def:'48'},
+        {k:'limit',l:'Макс. статей',t:'number',def:'30'},
+      ]},
+    extract_text:    {cat:'tools',        label:'Извлечь текст',   icon:'description', color:'#ff7043',
+      fields:[{k:'file_path',l:'Путь к файлу',t:'text',p:'{{input}}'}]},
+    whisper:         {cat:'tools',        label:'Whisper STT',    icon:'record_voice_over', color:'#ff7043',
+      fields:[{k:'file_path',l:'Путь к аудио',t:'text',p:'{{input}}'}]},
+    tts:             {cat:'tools',        label:'TTS (озвучка)',  icon:'volume_up',  color:'#ff7043',
+      fields:[
+        {k:'voice',l:'Голос',t:'select',def:'onyx',opts:['alloy','echo','fable','onyx','nova','shimmer']},
+      ]},
   };
   // Add all library agents
   AGENT_BLOCKS.forEach(b => {
@@ -1767,6 +1843,8 @@ const WFC_CATS = {
   ai:           {label:'AI / Инструкция',  color:'#66bb6a'},
   agent:        {label:'Агенты библиотеки',color:'#ffa726'},
   logic:        {label:'Логика',           color:'#78909c'},
+  storage:      {label:'Хранилище',        color:'#9575cd'},
+  tools:        {label:'Инструменты',      color:'#ff7043'},
   output:       {label:'Вывод',            color:'#29b6f6'},
 };
 
@@ -2062,21 +2140,47 @@ function wfcShowPanel(id) {
   const savedKey = provider && (userKeys||[]).find(k=>k.provider===provider);
 
   const fEl=document.getElementById('wfcPanelFields');
+  // Условная видимость полей для trigger_schedule
+  const mode = n.cfg.mode || 'daily';
+  const visible = f => {
+    if(n.type!=='trigger_schedule') return true;
+    if(f.k==='time')         return ['daily','weekly'].includes(mode);
+    if(f.k==='weekdays')     return mode==='weekly';
+    if(f.k==='interval_min') return mode==='interval';
+    if(f.k==='cron')         return mode==='custom';
+    return true;
+  };
   fEl.innerHTML=(d.fields?.length
-    ? d.fields.map(f=>`<div>
+    ? d.fields.filter(visible).map(f=>{
+      const val = n.cfg[f.k] ?? f.def ?? '';
+      return `<div>
         <label style="display:block;font-size:11px;color:#a89880;margin-bottom:4px">${esc(f.l)}</label>
         ${f.t==='textarea'
           ?`<textarea rows="3" class="inp" style="font-size:12px;resize:vertical"
              placeholder="${esc(f.p||'')}"
-             oninput="wfcSaveF('${id}','${f.k}',this.value)">${esc(n.cfg[f.k]||'')}</textarea>`
+             oninput="wfcSaveF('${id}','${f.k}',this.value)">${esc(val)}</textarea>`
           :f.t==='select'
-          ?`<select class="inp" style="font-size:12px" onchange="wfcSaveF('${id}','${f.k}',this.value)">
-             ${(f.opts||[]).map(o=>`<option${n.cfg[f.k]===o?' selected':''}>${esc(o)}</option>`).join('')}
+          ?`<select class="inp" style="font-size:12px" onchange="wfcSaveF('${id}','${f.k}',this.value);${n.type==='trigger_schedule'&&f.k==='mode'?`wfcShowPanel('${id}');`:''}">
+             ${(f.opts||[]).map(o=>`<option${val===o?' selected':''}>${esc(o)}</option>`).join('')}
            </select>`
+          :f.t==='time'
+          ?`<input type="time" class="inp" style="font-size:12px" value="${esc(val||'09:00')}"
+             oninput="wfcSaveF('${id}','${f.k}',this.value)"/>`
+          :f.t==='weekdays'
+          ?(()=>{
+            const days=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+            const sel=new Set(String(val||'1,2,3,4,5').split(',').map(s=>s.trim()));
+            return `<div style="display:flex;gap:3px;flex-wrap:wrap">${days.map((d,i)=>{
+              const num=String(i+1);
+              const on=sel.has(num);
+              return `<button type="button" onclick="wfcToggleDay('${id}','${f.k}','${num}')" style="padding:4px 8px;font-size:10px;border-radius:6px;border:1px solid ${on?'#ff8c42':'rgba(74,63,47,.4)'};background:${on?'rgba(255,140,66,.15)':'#272018'};color:${on?'#ff8c42':'#a89880'};cursor:pointer">${d}</button>`;
+            }).join('')}</div>`;
+          })()
           :`<input type="${f.t||'text'}" class="inp" style="font-size:12px"
-             placeholder="${esc(f.p||'')}" value="${esc(n.cfg[f.k]||'')}"
+             placeholder="${esc(f.p||'')}" value="${esc(val)}"
              oninput="wfcSaveF('${id}','${f.k}',this.value)"/>`}
-      </div>`).join('')
+      </div>`;
+    }).join('')
     : '<p style="font-size:12px;color:#a89880">Настройка не требуется.</p>')
   + (provider ? `<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:${savedKey?'rgba(107,255,158,.08)':'rgba(74,63,47,.2)'};border:1px solid ${savedKey?'rgba(107,255,158,.3)':'rgba(74,63,47,.4)'}">
     <p style="font-size:11px;font-weight:600;color:${savedKey?'#6bff9e':'#a89880'}">
@@ -2087,6 +2191,15 @@ function wfcShowPanel(id) {
     </p></div>` : '');
   document.getElementById('wfcPanel').classList.remove('hidden');
 }
+function wfcToggleDay(nid, k, day) {
+  const n=wfc.nodes.find(x=>x.id===nid); if(!n) return;
+  const cur=String(n.cfg[k]||'1,2,3,4,5').split(',').map(s=>s.trim()).filter(Boolean);
+  const idx=cur.indexOf(day);
+  if(idx>=0) cur.splice(idx,1); else { cur.push(day); cur.sort(); }
+  n.cfg[k]=cur.join(',');
+  wfcShowPanel(nid);
+}
+
 function wfcSaveF(nid,k,v) {
   const n=wfc.nodes.find(x=>x.id===nid); if(!n) return;
   n.cfg[k]=v;

@@ -52,7 +52,16 @@
       "Bash(curl:*)",
       "Bash(grep -l \"admin/apikeys\\\\|/admin/promos\\\\|/admin/faq\\\\|/admin/solutions\\\\|/admin/pricing/packages\\\\|/admin/presentations/templates\\\\|/sites/projects\\\\|/presentations/projects\\\\|/chat/{chat_id}\\\\|/admin/steps\\\\|/admin/features\" server/routes/*.py)",
       "Bash(grep -n \"race\\\\|lock\\\\|transaction\\\\|PRAGMA\" /c/Users/Денис/Desktop/ai-service/server/*.py)",
-      "Bash(grep -n \"Subscription.*filter.*first\\\\|Transaction.*filter.*first\" /c/Users/Денис/Desktop/ai-service/server/routes/*.py)"
+      "Bash(grep -n \"Subscription.*filter.*first\\\\|Transaction.*filter.*first\" /c/Users/Денис/Desktop/ai-service/server/routes/*.py)",
+      "Bash(wc -l /c/Users/Денис/Desktop/ai-service/.claude/worktrees/interesting-shaw/server/*.py /c/Users/Денис/Desktop/ai-service/.claude/worktrees/interesting-shaw/server/agents/*.py)",
+      "Bash(grep -o \"fetch\\('[^']*'\" *.html)",
+      "Bash(grep -o 'fetch\\(`[^`]*`' *.html)",
+      "Bash(gh run *)",
+      "Bash(ssh-keygen -R 194.104.9.219)",
+      "Bash(pip show *)",
+      "Bash(export HOME=\"/c/Users/Денис\")",
+      "Bash(HOME=\"C:\\\\Users\\\\Денис\" ssh-keygen -R 194.104.9.219)",
+      "Bash(HOME=\"C:\\\\Users\\\\Денис\" ssh root@194.104.9.219 \"echo ok\")"
     ]
   }
 }
