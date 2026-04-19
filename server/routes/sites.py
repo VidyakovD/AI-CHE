@@ -19,9 +19,9 @@ router = APIRouter(tags=["sites"])
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-SPEC_CONVERSATION_CH_COST = 5   # per chat turn
-CODE_GEN_CH_COST = 30           # per code generation call
-CODE_ITER_CH_COST = 15          # per iteration call
+SPEC_CONVERSATION_CH_COST = 5   # per chat turn (~0.5 ₽)
+CODE_GEN_CH_COST = 50           # per code generation call (~5 ₽)
+CODE_ITER_CH_COST = 25          # per iteration call (~2.5 ₽)
 
 _sites_host_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "uploads", "sites")
 

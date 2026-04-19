@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["presentations"])
 
-PRES_CH_COST = 30
+PRES_CH_COST = 50   # ~5 ₽ за генерацию КП/презентации
 
 
 class CreatePresentationRequest(BaseModel):

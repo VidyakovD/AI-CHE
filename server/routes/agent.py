@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
-AGENT_SERVICE_COST = 50   # CH за запуск с сервисным ключом
+AGENT_SERVICE_COST = 100  # CH за запуск с сервисным ключом (~10 ₽, агент делает много вызовов)
 AGENT_OWN_KEY_COST = 5    # CH (платформенный сбор) за запуск с собственным ключом
 
 

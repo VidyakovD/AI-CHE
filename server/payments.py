@@ -13,18 +13,18 @@ def _init_yookassa():
 
 _init_yookassa()
 
-# ── Правильные цены ───────────────────────────────────────────────────────────
+# ── Подписки (база: 1 CH = 0.10 ₽; подписка даёт скидку 16-39% против базы) ───
+# Старт    590 ₽ → 7 000 CH  = 0.084 ₽/CH (−16%)
+# Про     1590 ₽ → 22 000 CH = 0.072 ₽/CH (−28%)
+# Ультра  4590 ₽ → 75 000 CH = 0.061 ₽/CH (−39%)
 PLANS = {
-    "starter": {"id":"starter", "name":"Старт",  "price_rub": 590,  "tokens": 1_000},
-    "pro":     {"id":"pro",     "name":"Про",     "price_rub": 1590, "tokens": 3_000},
-    "ultra":   {"id":"ultra",   "name":"Ультра",  "price_rub": 4590, "tokens": 9_000},
+    "starter": {"id":"starter", "name":"Старт",  "price_rub": 590,  "tokens": 7_000},
+    "pro":     {"id":"pro",     "name":"Про",     "price_rub": 1590, "tokens": 22_000},
+    "ultra":   {"id":"ultra",   "name":"Ультра",  "price_rub": 4590, "tokens": 75_000},
 }
 
-TOKEN_PACKAGES = {
-    1: {"name":"1 000 CH",  "tokens":1_000, "price_rub":600},
-    2: {"name":"2 000 CH",  "tokens":2_000, "price_rub":1150},
-    3: {"name":"5 000 CH",  "tokens":5_000, "price_rub":2700},
-}
+# Legacy — фактические пакеты живут в таблице token_packages
+TOKEN_PACKAGES = {}
 
 def get_plan(plan_id: str) -> dict:
     return PLANS.get(plan_id, PLANS["starter"])

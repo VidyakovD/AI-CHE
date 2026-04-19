@@ -260,7 +260,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
             <label class="block text-xs text-on-dim mb-2">Режим API</label>
             <div class="api-toggle">
               <button class="api-opt active" id="apiOptSvc" onclick="setApiMode('service')">
-                🔧 Сервисный — <span class="text-primary">50 CH</span>
+                🔧 Сервисный — <span class="text-primary">100 CH</span>
               </button>
               <button class="api-opt" id="apiOptOwn" onclick="setApiMode('own')">
                 🔑 Свой ключ — <span class="text-green-400">5 CH</span>
@@ -279,7 +279,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
           <button id="runBtn" onclick="runAgent()" class="btn-p w-full justify-center">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            <span id="runBtnLabel">Запустить (50 CH)</span>
+            <span id="runBtnLabel">Запустить (100 CH)</span>
           </button>
           <p id="runError" class="text-error text-xs hidden text-center"></p>
         </div>
@@ -352,7 +352,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <label class="block text-xs text-on-dim mb-2">Режим API</label>
       <div class="api-toggle">
         <button class="api-opt active" id="launchApiSvc" onclick="setLaunchApiMode('service')">
-          🔧 Сервисный — <span class="text-primary">50 CH</span>
+          🔧 Сервисный — <span class="text-primary">100 CH</span>
         </button>
         <button class="api-opt" id="launchApiOwn" onclick="setLaunchApiMode('own')">
           🔑 Свой ключ — <span class="text-green-400">5 CH</span>
@@ -371,7 +371,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     <div id="launchConfigFields" class="space-y-3"></div>
     <button id="launchRunBtn" onclick="launchAgent()" class="btn-p w-full justify-center">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      <span id="launchRunLabel">Запустить (50 CH)</span>
+      <span id="launchRunLabel">Запустить (100 CH)</span>
     </button>
     <p id="launchError" class="text-error text-xs hidden text-center"></p>
   </div>
@@ -390,7 +390,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     </button>
   </div>
   <div class="p-6 space-y-4">
-    <p class="text-sm text-on-dim leading-relaxed">Добавьте собственные API-ключи. Запуск агентов будет стоить <span class="text-green-400 font-bold">5 CH</span> вместо 50 CH — вы платите только платформенный сбор, AI-токены списываются с вашего ключа напрямую.</p>
+    <p class="text-sm text-on-dim leading-relaxed">Добавьте собственные API-ключи. Запуск агентов будет стоить <span class="text-green-400 font-bold">5 CH</span> вместо 100 CH — вы платите только платформенный сбор, AI-токены списываются с вашего ключа напрямую.</p>
     <div id="keysList" class="space-y-2"></div>
     <div class="border border-outline/20 rounded-xl p-4 space-y-3">
       <p class="text-xs font-bold text-on-dim uppercase tracking-wider">Добавить ключ</p>
@@ -1571,7 +1571,7 @@ function renderLibrary(cat) {
           </div>
         </div>
         <div class="flex flex-col gap-1 items-end flex-shrink-0">
-          <span class="price-badge price-svc">50 CH</span>
+          <span class="price-badge price-svc">100 CH</span>
           <span class="price-badge price-own">5 CH 🔑</span>
         </div>
       </div>

@@ -193,12 +193,12 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         </div>
         <button onclick="generateCurrent()" class="btn-p" id="genBtn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
-          <span id="genBtnLabel">Сгенерировать (30 CH)</span>
+          <span id="genBtnLabel">Сгенерировать (50 CH)</span>
         </button>
         <script>
           setTimeout(()=>{
             const lbl = document.getElementById('genBtnLabel');
-            if(lbl && window.formatCH) lbl.textContent = 'Сгенерировать (' + window.formatCH(30) + ')';
+            if(lbl && window.formatCH) lbl.textContent = 'Сгенерировать (' + window.formatCH(50) + ')';
           }, 800);
         </script>
       </div>
@@ -210,7 +210,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <div class="flex gap-2">
             <button onclick="copyContent()" class="btn-g text-xs">Копировать</button>
             <button onclick="downloadContent()" class="btn-g text-xs">Скачать .txt</button>
-            <button onclick="regenerateCurrent()" class="btn-g text-xs">Перегенерировать (30 CH)</button>
+            <button onclick="regenerateCurrent()" class="btn-g text-xs">Перегенерировать (50 CH)</button>
           </div>
         </div>
         <div id="detailContent" class="bg-surface2 rounded-xl p-6 border border-outline/15 result-content"></div>
@@ -465,7 +465,7 @@ async function generateCurrent() {
     });
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
-      if (r.status === 402) throw new Error('Недостаточно токенов (нужно 30 CH)');
+      if (r.status === 402) throw new Error('Недостаточно токенов (нужно 50 CH)');
       throw new Error(d.detail || 'Ошибка генерации');
     }
     const data = await r.json();
@@ -478,7 +478,7 @@ async function generateCurrent() {
   } catch(e) {
     alert('Ошибка: ' + e.message);
   }
-  btn.disabled = false; btn.textContent = window.formatCH ? ('Сгенерировать (' + window.formatCH(30) + ')') : 'Сгенерировать (30 CH)';
+  btn.disabled = false; btn.textContent = window.formatCH ? ('Сгенерировать (' + window.formatCH(50) + ')') : 'Сгенерировать (50 CH)';
 }
 
 async function regenerateCurrent() {
