@@ -49,6 +49,42 @@ class BotUpdate(BaseModel):
     cost_per_reply: int | None = None
 
 
+async def _auto_setup_channels(bot: ChatBot) -> dict:
+    """
+    Автоматически настраивает webhook'и для всех каналов где есть креды.
+    Возвращает dict со статусами по каналам. Идемпотентно — можно звать каждый save.
+    """
+    out = {}
+    if bot.tg_token:
+        wh_url = f"{APP_URL}/webhook/tg/{bot.id}"
+        try:
+            r = await setup_telegram_webhook(bot.tg_token, wh_url)
+            bot.tg_webhook_set = bool(r.get("ok"))
+            out["telegram"] = {"ok": bot.tg_webhook_set, "detail": r.get("description", "")}
+        except Exception as e:
+            log.error(f"[Bot {bot.id}] TG setup failed: {e}")
+            out["telegram"] = {"ok": False, "detail": str(e)}
+    if bot.vk_token and bot.vk_group_id:
+        out["vk"] = {"ok": True, "callback_url": f"{APP_URL}/webhook/vk/{bot.id}",
+                     "hint": "Укажите этот URL в Callback API группы VK"}
+    if bot.avito_client_id and bot.avito_client_secret:
+        out["avito"] = {"ok": True, "webhook_url": f"{APP_URL}/webhook/avito/{bot.id}"}
+    if bot.widget_enabled:
+        if not bot.widget_secret:
+            bot.widget_secret = generate_widget_secret()
+        out["widget"] = {"ok": True, "url": f"{APP_URL}/widget/{bot.id}.js"}
+    return out
+
+
+def _has_any_channel(bot: ChatBot) -> bool:
+    return bool(
+        bot.tg_token
+        or (bot.vk_token and bot.vk_group_id)
+        or (bot.avito_client_id and bot.avito_client_secret)
+        or bot.widget_enabled
+    )
+
+
 def _bot_dict(b: ChatBot) -> dict:
     return {
         "id": b.id, "name": b.name, "model": b.model,
@@ -79,8 +115,8 @@ def list_bots(db: Session = Depends(get_db), user: User = Depends(current_user))
 
 
 @router.post("")
-def create_bot(req: BotCreate, db: Session = Depends(get_db),
-               user: User = Depends(current_user)):
+async def create_bot(req: BotCreate, db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
     bot = ChatBot(
         user_id=user.id,
         name=req.name,
@@ -101,15 +137,30 @@ def create_bot(req: BotCreate, db: Session = Depends(get_db),
     db.add(bot)
     db.commit()
     db.refresh(bot)
-    return _bot_dict(bot)
+    # Авто-deploy если есть хоть один канал
+    setup = {}
+    if _has_any_channel(bot):
+        setup = await _auto_setup_channels(bot)
+        bot.status = "active"
+        db.commit()
+        db.refresh(bot)
+    out = _bot_dict(bot)
+    out["setup"] = setup
+    return out
 
 
 @router.put("/{bot_id}")
-def update_bot(bot_id: int, req: BotUpdate, db: Session = Depends(get_db),
-               user: User = Depends(current_user)):
+async def update_bot(bot_id: int, req: BotUpdate, db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
     bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
     if not bot:
         raise HTTPException(404, "Бот не найден")
+
+    # Запоминаем какие каналы изменились — чтобы переустановить webhook
+    old_tg = bot.tg_token
+    old_vk = (bot.vk_token, bot.vk_group_id)
+    old_avito = (bot.avito_client_id, bot.avito_client_secret)
+    old_widget = bot.widget_enabled
 
     for field in ["name", "model", "system_prompt", "workflow_json", "tg_token",
                   "vk_token", "vk_group_id", "avito_client_id", "avito_client_secret",
@@ -123,9 +174,33 @@ def update_bot(bot_id: int, req: BotUpdate, db: Session = Depends(get_db),
         if req.widget_enabled and not bot.widget_secret:
             bot.widget_secret = generate_widget_secret()
 
+    # Если бот выключен и у него вдруг появились креды — снимаем со «спящего».
+    # Если изменились креды активного бота — переустанавливаем webhook.
+    channels_changed = (
+        bot.tg_token != old_tg
+        or (bot.vk_token, bot.vk_group_id) != old_vk
+        or (bot.avito_client_id, bot.avito_client_secret) != old_avito
+        or bot.widget_enabled != old_widget
+    )
+    setup = {}
+    if channels_changed and _has_any_channel(bot):
+        # Если поменялся TG-токен — снять старый webhook
+        if bot.tg_token != old_tg and old_tg:
+            try:
+                await delete_telegram_webhook(old_tg)
+            except Exception as e:
+                log.warning(f"[Bot {bot.id}] failed to delete old TG webhook: {e}")
+        setup = await _auto_setup_channels(bot)
+        bot.status = "active"
+    elif not _has_any_channel(bot):
+        bot.status = "off"
+
     db.commit()
     db.refresh(bot)
-    return _bot_dict(bot)
+    out = _bot_dict(bot)
+    if setup:
+        out["setup"] = setup
+    return out
 
 
 @router.delete("/{bot_id}")

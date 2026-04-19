@@ -9,6 +9,36 @@ from server.db import SessionLocal
 from server.models import SolutionCategory, Solution, SolutionStep
 
 
+# ── Тарификация (3 уровня) ───────────────────────────────────────────────
+# Цена = фикс-плата за экспертный шаблон. Сверху Claude списывается по токенам.
+TIER_PRICES = {"light": 30, "medium": 50, "heavy": 100}
+
+# Классификация по ключевым словам в title (порядок важен — heavy/light перевешивают medium)
+HEAVY_KEYWORDS = (
+    "Симулятор", "90-дневный", "Контент-план", "Email-цепочка", "Полный SWOT",
+    "Регламент", "Финансовая диагностика", "Конкурентный анализ",
+    "Описание и оптимизация", "Программа лояльности",
+    "Подготовка к переговорам", "Онбординг",
+)
+LIGHT_KEYWORDS = (
+    "Заголовки", "Рекламные тексты", "Деловое письмо", "Скрытые расходы",
+)
+
+
+def _tier_for(title: str) -> str:
+    for kw in HEAVY_KEYWORDS:
+        if kw in title:
+            return "heavy"
+    for kw in LIGHT_KEYWORDS:
+        if kw in title:
+            return "light"
+    return "medium"
+
+
+def price_for(title: str) -> int:
+    return TIER_PRICES[_tier_for(title)]
+
+
 # 30 промптов из PDF (все работают через Claude Sonnet)
 # Для каждого: title, description, user_hint (что заполнить), prompt_template (с плейсхолдерами)
 
@@ -574,20 +604,28 @@ def seed():
             print(f"— Категория 'Бизнес-решения' уже есть (id={cat.id})")
 
         added = 0
-        skipped = 0
+        updated = 0
         for i, p in enumerate(BUSINESS_PROMPTS, 1):
-            # Проверяем — возможно уже добавлен
+            new_price = price_for(p["title"])
+            tier = _tier_for(p["title"])
             existing = db.query(Solution).filter_by(title=p["title"]).first()
             if existing:
-                print(f"  {i:2}. [skip] {p['title']}")
-                skipped += 1
+                # Обновляем цену если поменялся тариф
+                if existing.price_tokens != new_price:
+                    old = existing.price_tokens
+                    existing.price_tokens = new_price
+                    db.commit()
+                    print(f"  {i:2}. ↻ {tier:<6} {old:>3}→{new_price:<3} CH  {p['title']}")
+                    updated += 1
+                else:
+                    print(f"  {i:2}.   {tier:<6}     {new_price:<3} CH  {p['title']}")
                 continue
 
             sol = Solution(
                 category_id=cat.id,
                 title=p["title"],
                 description=f"[{p['cat']}] {p['description']}",
-                price_tokens=50,  # фикс-плата за экспертный шаблон + Claude сверху по токенам
+                price_tokens=new_price,
                 is_active=True,
                 sort_order=i,
             )
@@ -604,10 +642,11 @@ def seed():
                 user_hint=p["hint"],
             )
             db.add(step); db.commit()
-            print(f"  {i:2}. ✓ {p['title']}")
+            print(f"  {i:2}. + {tier:<6}     {new_price:<3} CH  {p['title']}")
             added += 1
 
-        print(f"\n✅ Готово: добавлено {added}, пропущено {skipped}, всего в БД: {len(BUSINESS_PROMPTS)}")
+        print(f"\n✅ Готово: добавлено {added}, обновлено {updated}, всего {len(BUSINESS_PROMPTS)}")
+        print(f"   Тарифы: light={TIER_PRICES['light']} CH, medium={TIER_PRICES['medium']} CH, heavy={TIER_PRICES['heavy']} CH")
     finally:
         db.close()
 
