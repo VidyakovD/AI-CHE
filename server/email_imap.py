@@ -85,11 +85,13 @@ def _fetch_new_emails_sync(host, port, user, password, use_ssl, last_uid, limit=
 
 async def check_imap_for_user(cred):
     """Проверить одного юзера, вернуть новые письма."""
+    from server.secrets_crypto import decrypt
+    password_plain = decrypt(cred.password)
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,
         lambda: _fetch_new_emails_sync(
-            cred.host, cred.port, cred.username, cred.password,
+            cred.host, cred.port, cred.username, password_plain,
             cred.use_ssl, cred.last_uid or 0, 10
         )
     )

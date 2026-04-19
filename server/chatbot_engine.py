@@ -77,12 +77,10 @@ async def handle_message(bot, chat_id: str, user_text: str,
 
 
 def _owner_has_balance(bot, minimum: int = 1) -> bool:
-    db = SessionLocal()
-    try:
+    from server.db import db_session
+    with db_session() as db:
         owner = db.query(User).filter_by(id=bot.user_id).first()
         return bool(owner and (owner.tokens_balance or 0) >= minimum)
-    finally:
-        db.close()
 
 
 def _get_bot_workflow(bot) -> dict | None:
@@ -802,9 +800,9 @@ def _check_daily_limit(bot) -> bool:
 
 
 def _increment_replies(bot):
-    db = SessionLocal()
-    try:
-        from server.models import ChatBot
+    from server.db import db_session
+    from server.models import ChatBot
+    with db_session() as db:
         db_bot = db.query(ChatBot).filter_by(id=bot.id).first()
         if db_bot:
             db_bot.replies_today = (db_bot.replies_today or 0) + 1
@@ -812,20 +810,19 @@ def _increment_replies(bot):
                 db_bot.replies_reset_at = datetime.utcnow().replace(
                     hour=0, minute=0, second=0) + timedelta(days=1)
             db.commit()
-    finally:
-        db.close()
 
 
 def _deduct_bot_usage(bot, usage: dict):
-    """Списать стоимость ответа бота по реальным токенам модели."""
+    """Списать стоимость ответа бота по реальным токенам модели (атомарно)."""
     from server.models import ModelPricing, UsageLog
+    from server.db import db_session
+    from server.billing import deduct_atomic
     input_tokens = usage.get("input", 0)
     output_tokens = usage.get("output", 0)
     cached_tokens = usage.get("cached", 0)
     model = usage.get("model", bot.model or "gpt")
 
-    db = SessionLocal()
-    try:
+    with db_session() as db:
         # Расчёт по per-token цене (как в chat.py calculate_cost)
         pricing = db.query(ModelPricing).filter_by(model_id=model).first()
         if pricing and (pricing.ch_per_1k_input > 0 or pricing.ch_per_1k_output > 0):
@@ -837,30 +834,23 @@ def _deduct_bot_usage(bot, usage: dict):
         else:
             cost = 1  # fallback
 
-        owner = db.query(User).filter_by(id=bot.user_id).first()
-        if not owner:
-            return
-        actual_balance = int(owner.tokens_balance or 0)
-        charged = min(actual_balance, cost)
-        owner.tokens_balance = max(0, actual_balance - cost)
+        charged = deduct_atomic(db, bot.user_id, cost)
 
         desc = f"Бот «{bot.name}» [{model}]: {input_tokens}→{output_tokens} ток."
         if charged < cost:
             desc += f" (списано {charged}/{cost})"
 
         db.add(Transaction(
-            user_id=owner.id, type="usage",
+            user_id=bot.user_id, type="usage",
             tokens_delta=-charged,
             description=desc, model=model,
         ))
         db.add(UsageLog(
-            user_id=owner.id, model=model,
+            user_id=bot.user_id, model=model,
             input_tokens=input_tokens, output_tokens=output_tokens,
             cached_tokens=cached_tokens, ch_charged=charged,
         ))
         db.commit()
-    finally:
-        db.close()
 
 
 def _save_for_summary(bot_id, chat_id, user_text, answer, user_name, platform):
@@ -910,10 +900,15 @@ async def get_summary(bot) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def setup_telegram_webhook(tg_token: str, webhook_url: str) -> dict:
+    from server.security import tg_webhook_secret
+    secret = tg_webhook_secret(tg_token)
+    payload = {"url": webhook_url, "allowed_updates": ["message", "callback_query"]}
+    if secret:
+        payload["secret_token"] = secret
     try:
         r = await HTTP.post(
             f"https://api.telegram.org/bot{tg_token}/setWebhook",
-            json={"url": webhook_url, "allowed_updates": ["message", "callback_query"]},
+            json=payload,
         )
         data = r.json()
         log.info(f"[TG] setWebhook → {data}")
@@ -1011,38 +1006,31 @@ async def send_telegram_audio(token: str, chat_id: str, file_path: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _storage_get(bot_id: int, key: str) -> str:
-    from server.db import SessionLocal
+    from server.db import db_session
     from server.models import WorkflowStore
-    db = SessionLocal()
-    try:
+    with db_session() as db:
         row = db.query(WorkflowStore).filter_by(bot_id=bot_id, key=key).first()
         return row.value if row else ""
-    finally:
-        db.close()
 
 
 def _storage_set(bot_id: int, key: str, value: str):
-    from server.db import SessionLocal
+    from server.db import db_session
     from server.models import WorkflowStore
-    db = SessionLocal()
-    try:
+    with db_session() as db:
         row = db.query(WorkflowStore).filter_by(bot_id=bot_id, key=key).first()
         if row:
             row.value = value
         else:
             db.add(WorkflowStore(bot_id=bot_id, key=key, value=value))
         db.commit()
-    finally:
-        db.close()
 
 
 def _storage_push(bot_id: int, key: str, value: str, max_items: int = 100):
     """Пушит в массив (JSON-list), обрезает по max."""
     import json as _json
-    from server.db import SessionLocal
+    from server.db import db_session
     from server.models import WorkflowStore
-    db = SessionLocal()
-    try:
+    with db_session() as db:
         row = db.query(WorkflowStore).filter_by(bot_id=bot_id, key=key).first()
         arr = []
         if row:
@@ -1059,8 +1047,6 @@ def _storage_push(bot_id: int, key: str, value: str, max_items: int = 100):
         else:
             db.add(WorkflowStore(bot_id=bot_id, key=key, value=payload))
         db.commit()
-    finally:
-        db.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1376,14 +1362,58 @@ async def _resolve_rag_markers(answer: str, ctx: dict, model: str) -> str:
 #  PYTHON SANDBOX (ограниченный)
 # ══════════════════════════════════════════════════════════════════════════════
 
+_PY_SANDBOX_FORBIDDEN_NAMES = {
+    "eval", "exec", "compile", "open", "__import__",
+    "globals", "locals", "vars", "getattr", "setattr", "delattr",
+    "input", "breakpoint", "exit", "quit", "help",
+    "memoryview", "bytearray", "bytes",
+}
+
+
+def _ast_validate_python(code: str) -> str | None:
+    """
+    Возвращает текст ошибки, если код содержит запрещённые конструкции.
+    Не идеален (не гарантирует безопасность), но отсекает большинство атак.
+    """
+    import ast
+    try:
+        tree = ast.parse(code, mode="exec")
+    except SyntaxError as e:
+        return f"Синтаксическая ошибка: {e}"
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            return "Импорты запрещены в sandbox"
+        if isinstance(node, ast.Attribute):
+            # Запрещаем dunder-доступ (.__class__, .__bases__, ...)
+            if node.attr.startswith("_"):
+                return f"Доступ к скрытым атрибутам ({node.attr}) запрещён"
+        if isinstance(node, ast.Name) and node.id in _PY_SANDBOX_FORBIDDEN_NAMES:
+            return f"Использование {node.id} запрещено"
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id in _PY_SANDBOX_FORBIDDEN_NAMES:
+                return f"Вызов {node.func.id}() запрещён"
+    return None
+
+
 def _run_python_sandbox(code: str, input_text: str, ctx: dict) -> str:
     """
-    Выполняет пользовательский Python код в ограниченной среде.
-    Доступны: input_text, ctx (только чтение для безопасности — копия).
-    Должен записать результат в переменную `output`.
+    Выполняет пользовательский Python код. По умолчанию ВЫКЛЮЧЕН
+    (ENABLE_PYTHON_SANDBOX=true чтобы включить).
+
+    Даже с AST-валидацией exec() не безопасен — это RCE-вектор.
+    Включать только в доверенной среде.
     """
     import json as _j
-    # Делаем безопасный контекст — только базовые builtins
+    import os as _os
+    if _os.getenv("ENABLE_PYTHON_SANDBOX", "false").lower() not in ("1", "true", "yes"):
+        return "[Python sandbox выключен. Установите ENABLE_PYTHON_SANDBOX=true]"
+
+    err = _ast_validate_python(code)
+    if err:
+        return f"[Python sandbox: {err}]"
+
+    log.warning(f"[Python sandbox] executing user code (len={len(code)})")
     safe_globals = {
         "__builtins__": {
             "len": len, "range": range, "str": str, "int": int, "float": float,
@@ -1398,7 +1428,6 @@ def _run_python_sandbox(code: str, input_text: str, ctx: dict) -> str:
         "re": __import__("re"),
         "datetime": __import__("datetime"),
     }
-    # Копия контекста (чтобы пользовательский код не мог всё поломать)
     ctx_copy = {k: v for k, v in ctx.items() if k not in ("bot", "history")}
     safe_locals = {
         "input_text": input_text,

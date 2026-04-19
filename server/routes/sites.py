@@ -10,6 +10,7 @@ import logging
 from server.routes.deps import get_db, current_user, optional_user
 from server.models import SiteProject, User, Transaction
 from server.ai import generate_response
+from server.billing import deduct_strict
 
 log = logging.getLogger(__name__)
 
@@ -77,11 +78,9 @@ def create_site_project(req: CreateSiteProjectRequest, db: Session = Depends(get
         phase = "collecting_images"
         status = "has_spec"
         # Deduct small amount for spec analysis
-        user_obj = db.query(User).filter_by(id=user.id).first()
         cost = SPEC_CONVERSATION_CH_COST
-        if user_obj.tokens_balance < cost:
+        if not deduct_strict(db, user.id, cost):
             raise HTTPException(402, "Недостаточно токенов")
-        user_obj.tokens_balance -= cost
         price = cost
     elif req.creation_mode == "create_together":
         phase = "gathering_spec"
@@ -173,10 +172,8 @@ def site_project_chat(project_id: int, body: dict, db: Session = Depends(get_db)
 
     # Deduct tokens
     cost = SPEC_CONVERSATION_CH_COST
-    user_obj = db.query(User).filter_by(id=user.id).first()
-    if user_obj.tokens_balance < cost:
+    if not deduct_strict(db, user.id, cost):
         raise HTTPException(402, "Недостаточно токенов")
-    user_obj.tokens_balance -= cost
     p.price_tokens += cost
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
                        description="Чат по ТЗ сайта", model="claude"))
@@ -283,10 +280,8 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
         raise HTTPException(400, "Сначала создайте ТЗ")
 
     cost = CODE_GEN_CH_COST
-    if db.query(User).filter_by(id=user.id).first().tokens_balance < cost:
+    if not deduct_strict(db, user.id, cost):
         raise HTTPException(402, "Недостаточно токенов")
-    db_user = db.query(User).filter_by(id=user.id).first()
-    db_user.tokens_balance -= cost
     p.price_tokens += cost
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
                        description="Генерация кода сайта"))
@@ -379,10 +374,8 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
         raise HTTPException(400, "Пустая инструкция")
 
     cost = CODE_ITER_CH_COST
-    if db.query(User).filter_by(id=user.id).first().tokens_balance < cost:
+    if not deduct_strict(db, user.id, cost):
         raise HTTPException(402, "Недостаточно токенов")
-    db_user = db.query(User).filter_by(id=user.id).first()
-    db_user.tokens_balance -= cost
     p.price_tokens += cost
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
                        description="Доработка сайта"))
@@ -437,14 +430,18 @@ def site_project_host(project_id: int, db: Session = Depends(get_db),
 
 @router.get("/sites/hosted/{project_id}/{full_path:path}")
 def site_project_serve(project_id: int, full_path: str = ""):
-    """Serve hosted site files."""
-    host_dir = os.path.join(_sites_host_base, str(project_id))
-    file_path = os.path.normpath(os.path.join(host_dir, full_path or "index.html"))
-    if not file_path.startswith(os.path.normpath(host_dir)):
+    """Serve hosted site files (защита от path traversal через Path.resolve)."""
+    from pathlib import Path
+    host_dir = Path(_sites_host_base, str(project_id)).resolve()
+    try:
+        file_path = (host_dir / (full_path or "index.html")).resolve()
+        # is_relative_to проверяет реальный путь после раскрытия .. и symlinks
+        file_path.relative_to(host_dir)
+    except (ValueError, OSError):
         raise HTTPException(403, "Доступ запрещён")
-    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+    if not file_path.is_file():
         raise HTTPException(404, "Файл не найден")
-    return FileResponse(file_path, media_type="text/html; charset=utf-8")
+    return FileResponse(str(file_path), media_type="text/html; charset=utf-8")
 
 
 @router.post("/sites/projects/{project_id}/download")

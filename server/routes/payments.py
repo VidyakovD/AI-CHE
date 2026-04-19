@@ -7,26 +7,30 @@ from sqlalchemy.orm import Session
 from server.routes.deps import get_db, current_user, _user_dict, _sub_dict
 from server.models import User, Subscription, Transaction, PromoUse, PromoCode, TokenPackage
 from server.payments import create_payment, check_payment, get_plan, PLANS, credit_referral_bonus
+from server.billing import credit_atomic
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="", tags=["payments"])
 
 
+_DEFAULT_RETURN_URL = os.getenv("APP_URL", "http://localhost:8000").rstrip("/") + "/?payment=success"
+
+
 class BuyPlanRequest(BaseModel):
     plan: str
-    return_url: str = "http://localhost:8000/?payment=success"
+    return_url: str = _DEFAULT_RETURN_URL
     promo_code: str | None = None
 
 
 class BuyTokenRequest(BaseModel):
     package_id: int
-    return_url: str = "http://localhost:8000/?payment=success"
+    return_url: str = _DEFAULT_RETURN_URL
 
 
 class BuyPackageRequest(BaseModel):
     package_id: int
-    return_url: str = "http://localhost:8000/?payment=success"
+    return_url: str = _DEFAULT_RETURN_URL
 
 
 @router.get("/plans", tags=["payments"])
@@ -79,10 +83,15 @@ def payment_confirm(payment_id: str, user: User = Depends(current_user),
         return {"status": "already_activated", "subscription": _sub_dict(existing)}
     from yookassa import Payment as YKP
     p = YKP.find_one(payment_id)
+    # Защита от кражи: payment_id должен принадлежать текущему пользователю
+    meta_user_id = (p.metadata or {}).get("user_id")
+    if str(meta_user_id) != str(user.id):
+        log.warning(f"User {user.id} tried to confirm payment {payment_id} of user {meta_user_id}")
+        raise HTTPException(403, "Этот платёж принадлежит другому пользователю")
     plan = p.metadata.get("plan", "starter")
     plan_cfg = get_plan(plan)
     db_user = db.query(User).filter_by(id=user.id).first()
-    db_user.tokens_balance += plan_cfg["tokens"]
+    credit_atomic(db, user.id, plan_cfg["tokens"])
     credit_referral_bonus(db, db_user, plan_cfg["tokens"], plan_cfg["name"])
     sub = Subscription(
         user_id=user.id, plan=plan, tokens_total=plan_cfg["tokens"],
@@ -117,38 +126,38 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
     hmac_header = request.headers.get("X-Content-Signature")
     secret = os.getenv("YOOKASSA_SECRET_KEY", "")
     if hmac_header and secret:
-        try:
-            import re
-            match = re.match(r"^sha256=([0-9a-f]{64})$", hmac_header)
-            if match:
-                computed = hmac.new(
-                    secret.encode(),
-                    await request.body(),
-                    hashlib.sha256
-                ).hexdigest()
-                if not hmac.compare_digest(computed, match.group(1)):
-                    log.warning("Webhook: invalid HMAC signature")
-                    raise HTTPException(401, "Invalid signature")
-        except HTTPException:
-            raise
-        except Exception:
-            pass
+        import re
+        match = re.match(r"^sha256=([0-9a-f]{64})$", hmac_header)
+        if not match:
+            log.warning("Webhook: malformed X-Content-Signature")
+            raise HTTPException(401, "Malformed signature")
+        computed = hmac.new(
+            secret.encode(),
+            await request.body(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(computed, match.group(1)):
+            log.warning("Webhook: invalid HMAC signature")
+            raise HTTPException(401, "Invalid signature")
 
     obj = body.get("object", body)
     payment_id = obj.get("id")
     if not payment_id:
         raise HTTPException(400, "No payment id in webhook")
 
+    # Источник истины — ЮKassa API. Если не подтвердили статус через API, НЕ зачисляем
+    # (тело webhook без подписи можно подделать).
     from yookassa import Payment as YKP
     try:
         p = YKP.find_one(payment_id)
-        if p.status != "succeeded":
-            return {"status": "not_yet_paid"}
-        yk_meta = p.metadata or {}
-        amount = float(p.amount.value) if p.amount else 0
-    except Exception:
-        yk_meta = obj.get("metadata", {})
-        amount = float(obj.get("amount", {}).get("value", 0))
+    except Exception as e:
+        log.error(f"Webhook: cannot verify payment {payment_id} via YooKassa API: {e}")
+        # Возвращаем 200, чтобы YooKassa не ретраила бесконечно, но НЕ зачисляем
+        return {"status": "verification_failed"}
+    if p.status != "succeeded":
+        return {"status": "not_yet_paid"}
+    yk_meta = p.metadata or {}
+    amount = float(p.amount.value) if p.amount else 0
 
     existing = db.query(Subscription).filter_by(yookassa_payment_id=payment_id).first()
     if existing:
@@ -180,7 +189,7 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
             tokens = pkg.tokens
             pkg_name = pkg.name
 
-        db_user.tokens_balance += tokens
+        credit_atomic(db, db_user.id, tokens)
         credit_referral_bonus(db, db_user, tokens, pkg_name)
         db.add(Transaction(
             user_id=db_user.id, type="payment", amount_rub=amount,
@@ -193,7 +202,7 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
         return {"status": "ok"}
 
     plan_cfg = get_plan(plan)
-    db_user.tokens_balance += plan_cfg["tokens"]
+    credit_atomic(db, db_user.id, plan_cfg["tokens"])
     credit_referral_bonus(db, db_user, plan_cfg["tokens"], plan_cfg["name"])
     sub = Subscription(
         user_id=db_user.id, plan=plan, tokens_total=plan_cfg["tokens"],
@@ -270,13 +279,18 @@ def confirm_tokens(payment_id: str, user: User = Depends(current_user),
 
     from yookassa import Payment as YKP
     p = YKP.find_one(payment_id)
+    # Защита от кражи: payment_id должен принадлежать текущему пользователю
+    meta_user_id = (p.metadata or {}).get("user_id")
+    if str(meta_user_id) != str(user.id):
+        log.warning(f"User {user.id} tried to confirm token-payment {payment_id} of user {meta_user_id}")
+        raise HTTPException(403, "Этот платёж принадлежит другому пользователю")
     pkg_id = int(p.metadata.get("package_id", 0))
     pkg = db.query(TokenPackage).filter_by(id=pkg_id).first()
     if not pkg:
         raise HTTPException(404, "Пакет не найден")
 
     db_user = db.query(User).filter_by(id=user.id).first()
-    db_user.tokens_balance += pkg.tokens
+    credit_atomic(db, user.id, pkg.tokens)
     credit_referral_bonus(db, db_user, pkg.tokens, pkg.name)
     db.add(Transaction(
         user_id=user.id, type="payment",

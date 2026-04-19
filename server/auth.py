@@ -26,6 +26,8 @@ SECRET_KEY = _get_jwt_secret()
 ALGORITHM  = "HS256"
 ACCESS_TTL  = 60 * 24        # 1 day in minutes (short-lived access token)
 REFRESH_TTL = 60 * 24 * 30   # 30 days in minutes (long-lived refresh token)
+JWT_ISS     = os.getenv("JWT_ISS", "aiche")
+JWT_AUD     = os.getenv("JWT_AUD", "aiche-web")
 
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -40,7 +42,8 @@ def create_token(user_id: int, email: str) -> str:
     """Create short-lived access token (1 day)."""
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TTL)
     return jwt.encode(
-        {"sub": str(user_id), "email": email, "exp": expire, "type": "access"},
+        {"sub": str(user_id), "email": email, "exp": expire, "type": "access",
+         "iss": JWT_ISS, "aud": JWT_AUD},
         SECRET_KEY, algorithm=ALGORITHM
     )
 
@@ -48,13 +51,24 @@ def create_refresh_token(user_id: int, email: str) -> str:
     """Create long-lived refresh token (30 days)."""
     expire = datetime.utcnow() + timedelta(minutes=REFRESH_TTL)
     return jwt.encode(
-        {"sub": str(user_id), "email": email, "exp": expire, "type": "refresh"},
+        {"sub": str(user_id), "email": email, "exp": expire, "type": "refresh",
+         "iss": JWT_ISS, "aud": JWT_AUD},
         SECRET_KEY, algorithm=ALGORITHM
     )
 
 def decode_token(token: str, require_type: str = None) -> dict | None:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        # options.verify_aud=False для совместимости со старыми токенами без aud
+        payload = jwt.decode(
+            token, SECRET_KEY, algorithms=[ALGORITHM],
+            audience=JWT_AUD, issuer=JWT_ISS,
+            options={"verify_aud": False, "verify_iss": False},
+        )
+        # Если aud/iss присутствуют — проверяем строго
+        if payload.get("aud") and payload["aud"] != JWT_AUD:
+            return None
+        if payload.get("iss") and payload["iss"] != JWT_ISS:
+            return None
         if require_type and payload.get("type") != require_type:
             return None
         return payload

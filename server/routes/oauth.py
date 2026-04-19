@@ -2,19 +2,22 @@
 OAuth регистрация/вход через Google и ВКонтакте.
 
 Flow:
-  GET /auth/oauth/{provider}/start?return_url=...  — редирект на consent-экран
-  GET /auth/oauth/{provider}/callback?code=...     — обмен code → token → user
-                                                     → создание/логин → редирект
-                                                     назад на APP_URL с токеном
+  GET /auth/oauth/{provider}/start                 — редирект на consent-экран
+  GET /auth/oauth/{provider}/callback?code=...     — обмен code → user
+                                                     → создаёт одноразовый exchange-код
+                                                     → редирект назад с code (не токеном)
+  POST /auth/oauth/exchange { code }               — фронт обменивает code на access/refresh
 """
 import os, uuid, logging, urllib.parse
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import httpx
 
-from server.routes.deps import get_db
-from server.models import User, Transaction
+from server.routes.deps import get_db, _user_dict
+from server.models import User, Transaction, VerifyToken
 from server.auth import create_token, create_refresh_token, hash_password
 
 log = logging.getLogger("oauth")
@@ -70,15 +73,43 @@ def _login_or_create(db: Session, email: str, name: str, provider: str, sub: str
     return user
 
 
-def _frontend_redirect(user: User) -> RedirectResponse:
-    """Редирект на главную с токеном в URL-фрагменте."""
-    tok = create_token(user.id, user.email)
-    refresh = create_refresh_token(user.id, user.email)
-    # Токены передаём во фрагменте (не в query) — чтобы не светить в access логах
-    params = urllib.parse.urlencode({
-        "access": tok, "refresh": refresh, "email": user.email,
-    })
-    return RedirectResponse(f"{APP_URL}/#oauth={params}")
+def _frontend_redirect(db: Session, user: User) -> RedirectResponse:
+    """
+    Создаёт одноразовый exchange-код (TTL 60s) и редиректит фронт с этим кодом.
+    Фронт меняет код на токены через POST /auth/oauth/exchange.
+    Так токены не попадают ни в URL, ни в браузерную историю, ни в referrer.
+    """
+    code = uuid.uuid4().hex
+    db.add(VerifyToken(
+        user_id=user.id, token=code, purpose="oauth_exchange",
+        expires_at=datetime.utcnow() + timedelta(seconds=60),
+    ))
+    db.commit()
+    return RedirectResponse(f"{APP_URL}/?oauth_code={code}")
+
+
+class OAuthExchangeRequest(BaseModel):
+    code: str
+
+
+@router.post("/exchange")
+def oauth_exchange(req: OAuthExchangeRequest, db: Session = Depends(get_db)):
+    """Обмен одноразового OAuth-кода на access/refresh токены."""
+    vt = db.query(VerifyToken).filter_by(
+        token=req.code, purpose="oauth_exchange", used=False,
+    ).first()
+    if not vt or vt.expires_at < datetime.utcnow():
+        raise HTTPException(400, "Код недействителен или истёк")
+    vt.used = True
+    db.commit()
+    user = db.query(User).filter_by(id=vt.user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    return {
+        "access": create_token(user.id, user.email),
+        "refresh": create_refresh_token(user.id, user.email),
+        "user": _user_dict(user),
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -135,7 +166,7 @@ async def google_callback(code: str | None = None, error: str | None = None,
         return RedirectResponse(f"{APP_URL}/?oauth_error=no_sub")
 
     user = _login_or_create(db, email, name, "google", sub)
-    return _frontend_redirect(user)
+    return _frontend_redirect(db, user)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -193,4 +224,4 @@ async def vk_callback(code: str | None = None, error: str | None = None,
         return RedirectResponse(f"{APP_URL}/?oauth_error=exchange")
 
     user = _login_or_create(db, email, name, "vk", str(user_id))
-    return _frontend_redirect(user)
+    return _frontend_redirect(db, user)

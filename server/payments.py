@@ -71,16 +71,17 @@ def create_payment(plan: str, user_id: int, return_url: str,
 
 
 def credit_referral_bonus(db, db_user, tokens, description):
-    """Начисляет рефереру 10% от токенов тарифа при каждой оплате."""
+    """Начисляет рефереру 10% от токенов тарифа при каждой оплате (атомарно)."""
     referred_by = getattr(db_user, 'referred_by', None)
     if not referred_by:
         return
     from server.models import User, Transaction
+    from server.billing import credit_atomic
     referrer = db.query(User).filter_by(referral_code=referred_by).first()
     if not referrer:
         return
     bonus = max(1, round(tokens * 0.10))
-    referrer.tokens_balance += bonus
+    credit_atomic(db, referrer.id, bonus)
     db.add(Transaction(user_id=referrer.id, type="bonus", tokens_delta=bonus,
                        description=f"Реферальный бонус за оплату {description}"))
 

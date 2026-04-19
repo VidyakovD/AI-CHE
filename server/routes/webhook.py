@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from server.routes.deps import get_db
 from server.models import ChatBot
 from server.chatbot_engine import handle_message, send_telegram, send_vk, send_avito
+from server.security import tg_webhook_secret
 
 log = logging.getLogger("webhook")
 router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -27,6 +28,17 @@ async def telegram_webhook(bot_id: int, request: Request,
     bot = _get_active_bot(bot_id, db)
     if not bot or not bot.tg_token:
         return {"ok": True}  # Telegram ожидает 200
+
+    # Проверка X-Telegram-Bot-Api-Secret-Token (защита от подделки webhook'а)
+    expected_secret = tg_webhook_secret(bot.tg_token)
+    if expected_secret:
+        got = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if got and got != expected_secret:
+            log.warning(f"[TG Bot {bot_id}] Invalid secret token")
+            raise HTTPException(401, "Invalid secret")
+        if not got:
+            # Старый webhook без secret — лог warning, но принимаем
+            log.warning(f"[TG Bot {bot_id}] webhook без secret — пересоздайте через 'Запуск'")
 
     try:
         body = await request.json()

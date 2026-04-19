@@ -66,14 +66,24 @@ RULES = {
     "/upload":                   (20,  60),
 }
 
+_TRUSTED_PROXIES = {p.strip() for p in os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1").split(",") if p.strip()}
+
+
 def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
-    return request.client.host if request.client else "unknown"
+    """
+    Возвращает IP клиента. X-Forwarded-For доверяем только если запрос пришёл
+    от proxy из TRUSTED_PROXIES (по умолчанию — только 127.0.0.1).
+    Иначе атакующий мог бы подделать заголовок и обойти rate-limit.
+    """
+    direct_ip = request.client.host if request.client else "unknown"
+    if direct_ip in _TRUSTED_PROXIES:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            return real_ip.strip()
+    return direct_ip
 
 
 async def rate_limit_middleware(request: Request, call_next):
@@ -138,3 +148,20 @@ ADMIN_EMAILS = set(
 def require_admin(user) -> None:
     if user.email.lower() not in ADMIN_EMAILS:
         raise HTTPException(403, "Доступ запрещён")
+
+
+# ── webhook signing ───────────────────────────────────────────────────────────
+
+def tg_webhook_secret(tg_token: str) -> str:
+    """
+    Производный secret для X-Telegram-Bot-Api-Secret-Token.
+    Не требует хранения в БД — выводится из tg_token + JWT_SECRET.
+    Меняется только если меняется JWT_SECRET или tg_token.
+    """
+    import hmac, hashlib
+    base = os.getenv("JWT_SECRET", "")
+    if not base:
+        return ""
+    return hmac.new(
+        base.encode(), f"tg-webhook:{tg_token}".encode(), hashlib.sha256
+    ).hexdigest()[:32]

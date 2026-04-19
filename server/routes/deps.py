@@ -85,11 +85,10 @@ def _use_verify_token(db, user_id, code, purpose):
 
 
 def _deduct(db, user, cost, description, model=None):
-    """Списать токены и записать транзакцию."""
-    db_user = db.query(User).filter_by(id=user.id).first()
-    if db_user.tokens_balance < cost:
+    """Списать токены и записать транзакцию (атомарно — защита от lost update)."""
+    from server.billing import deduct_strict
+    if not deduct_strict(db, user.id, cost):
         raise HTTPException(402, "Недостаточно токенов. Пополните баланс в личном кабинете.")
-    db_user.tokens_balance -= cost
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
                        description=description, model=model))
     db.commit()

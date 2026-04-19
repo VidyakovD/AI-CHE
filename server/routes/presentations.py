@@ -84,7 +84,7 @@ def list_presentations(db: Session = Depends(get_db), user=Depends(optional_user
     for p in projects:
         inp = {}
         try: inp = json.loads(p.input_data) if p.input_data else {}
-        except: pass
+        except (json.JSONDecodeError, TypeError): pass
         result.append({
             "id": p.id, "name": p.name, "status": p.status,
             "doc_type": inp.get("doc_type", "kp"),
@@ -114,7 +114,7 @@ def get_presentation_project(project_id: int, db: Session = Depends(get_db),
     if not p: raise HTTPException(404, "Проект не найден")
     inp = {}
     try: inp = json.loads(p.input_data) if p.input_data else {}
-    except: pass
+    except (json.JSONDecodeError, TypeError): pass
     return {"id": p.id, "name": p.name, "status": p.status,
             "doc_type": inp.get("doc_type", "kp"),
             "input_data": p.input_data, "generated_content": p.generated_content,
@@ -149,17 +149,16 @@ def generate_presentation(project_id: int, body: dict = None,
     if not user: raise HTTPException(401, "Нужна авторизация")
     p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
     if not p: raise HTTPException(404, "Проект не найден")
-    db_user = db.query(User).filter_by(id=user.id).first()
-    if db_user.tokens_balance < PRES_CH_COST:
+    from server.billing import deduct_strict
+    if not deduct_strict(db, user.id, PRES_CH_COST):
         raise HTTPException(402, "Недостаточно токенов")
-    db_user.tokens_balance -= PRES_CH_COST
     p.price_tokens += PRES_CH_COST
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-PRES_CH_COST,
                        description="Генерация презентации/КП"))
 
     inp = {}
     try: inp = json.loads(p.input_data) if p.input_data else {}
-    except: pass
+    except (json.JSONDecodeError, TypeError): pass
     doc_type = inp.get("doc_type", "kp")
     description = inp.get("description", "")
 

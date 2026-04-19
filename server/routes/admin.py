@@ -489,10 +489,15 @@ def admin_adjust_balance(user_id: int, body: dict,
     target = db.query(User).filter_by(id=user_id).first()
     if not target:
         raise HTTPException(404)
-    target.tokens_balance += delta
+    from server.billing import credit_atomic, deduct_atomic
+    if delta > 0:
+        credit_atomic(db, user_id, delta)
+    elif delta < 0:
+        deduct_atomic(db, user_id, -delta)
     db.add(Transaction(user_id=user_id, type="bonus" if delta > 0 else "usage",
                        tokens_delta=delta, description=reason))
     db.commit()
+    db.refresh(target)
     return {"tokens_balance": target.tokens_balance}
 
 

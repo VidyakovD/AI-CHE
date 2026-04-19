@@ -113,19 +113,25 @@ class ImapCredCreate(BaseModel):
 
 @router.get("/imap")
 def list_imap(user=Depends(current_user), db: Session = Depends(get_db)):
+    from server.secrets_crypto import decrypt
     rows = db.query(ImapCredential).filter_by(user_id=user.id).all()
-    return [{"id": r.id, "label": r.label, "host": r.host, "port": r.port,
-             "username": r.username, "use_ssl": r.use_ssl,
-             "password_preview": "***" + r.password[-2:] if r.password else "",
-             "last_uid": r.last_uid or 0} for r in rows]
+    out = []
+    for r in rows:
+        pw_plain = decrypt(r.password)
+        out.append({"id": r.id, "label": r.label, "host": r.host, "port": r.port,
+                    "username": r.username, "use_ssl": r.use_ssl,
+                    "password_preview": "***" + pw_plain[-2:] if pw_plain else "",
+                    "last_uid": r.last_uid or 0})
+    return out
 
 
 @router.post("/imap")
 def create_imap(body: ImapCredCreate, user=Depends(current_user), db: Session = Depends(get_db)):
+    from server.secrets_crypto import encrypt
     cred = ImapCredential(
         user_id=user.id, label=body.label,
         host=body.host, port=body.port,
-        username=body.username, password=body.password, use_ssl=body.use_ssl,
+        username=body.username, password=encrypt(body.password), use_ssl=body.use_ssl,
     )
     db.add(cred); db.commit(); db.refresh(cred)
     return {"id": cred.id, "status": "created"}

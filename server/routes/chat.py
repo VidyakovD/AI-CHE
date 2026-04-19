@@ -8,6 +8,7 @@ from server.routes.deps import get_db, current_user, optional_user, _user_dict
 from server.models import User, Message, Transaction, ModelPricing, UsageLog
 from server.ai import generate_response, get_token_cost, resolve_model
 from server.security import validate_upload_filename
+from server.billing import deduct_atomic, get_balance
 
 
 def calculate_cost(model_id: str, input_tokens: int, output_tokens: int, db: Session) -> int:
@@ -136,8 +137,7 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
         min_cost = get_token_cost(real_model) or 1
 
     if user:
-        db_user = db.query(User).filter_by(id=user.id).first()
-        if db_user.tokens_balance < min_cost:
+        if get_balance(db, user.id) < min_cost:
             raise HTTPException(402, "Недостаточно токенов. Пополните баланс в личном кабинете.")
 
     existing = db.query(Message).filter_by(chat_id=req.chat_id).first()
@@ -158,7 +158,8 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
         try:
             p = json.loads(c)
             if isinstance(p, dict) and "file_url" in p: return p
-        except: pass
+        except (json.JSONDecodeError, TypeError):
+            pass
         return c
 
     formatted = [{"role": "system", "content": "Ты полезный AI ассистент."}] + \
@@ -177,23 +178,18 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
     # Реальная стоимость по токенам
     cost = calculate_cost(real_model, input_tokens, output_tokens, db)
 
-    # Списание с баланса и логирование
+    # Атомарное списание (защита от race condition при параллельных запросах)
     if user and cost > 0:
-        db_user = db.query(User).filter_by(id=user.id).first()
-        if db_user:
-            # Если не хватает — списываем сколько есть, но в лог пишем полную стоимость
-            actual_balance = int(db_user.tokens_balance or 0)
-            db_user.tokens_balance = max(0, actual_balance - cost)
-            charged = min(actual_balance, cost)
-            desc = f"{req.model}: {input_tokens}→{output_tokens} ток."
-            if charged < cost:
-                desc += f" (списано {charged}/{cost})"
-            db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
-                               description=desc, model=req.model))
-            db.add(UsageLog(user_id=user.id, model=real_model,
-                            input_tokens=input_tokens, output_tokens=output_tokens,
-                            cached_tokens=answer.get("cached_tokens", 0) if isinstance(answer, dict) else 0,
-                            ch_charged=charged))
+        charged = deduct_atomic(db, user.id, cost)
+        desc = f"{req.model}: {input_tokens}→{output_tokens} ток."
+        if charged < cost:
+            desc += f" (списано {charged}/{cost})"
+        db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
+                           description=desc, model=req.model))
+        db.add(UsageLog(user_id=user.id, model=real_model,
+                        input_tokens=input_tokens, output_tokens=output_tokens,
+                        cached_tokens=answer.get("cached_tokens", 0) if isinstance(answer, dict) else 0,
+                        ch_charged=charged))
 
     db.add(Message(chat_id=req.chat_id, role="assistant", content=content,
                    model=req.model, user_id=user.id if user else None,

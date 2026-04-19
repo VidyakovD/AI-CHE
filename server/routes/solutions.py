@@ -5,6 +5,7 @@ import json, uuid, logging
 from server.routes.deps import get_db, optional_user
 from server.models import Solution, SolutionCategory, SolutionStep, SolutionRun, User, Message, Transaction
 from server.ai import generate_response, get_token_cost, resolve_model
+from server.billing import deduct_strict, get_balance
 
 log = logging.getLogger(__name__)
 
@@ -58,11 +59,9 @@ def _execute_step(run: SolutionRun, step: SolutionStep, user_input,
     # Списываем токены за шаг — до сохранения, чтобы при ошибке запрос не прошёл
     if user:
         cost = get_token_cost(resolve_model(step.model)["real_model"] if resolve_model(step.model) else step.model)
-        db_user = db.query(User).filter_by(id=user.id).first()
-        if db_user.tokens_balance < cost:
+        if not deduct_strict(db, user.id, cost):
             run.status = "error"; db.commit()
             return {"status": "error", "error": "Недостаточно токенов для выполнения шага"}
-        db_user.tokens_balance -= cost
         db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
                            description=f"Решение: {step.title or step.step_number}", model=step.model))
 
@@ -86,11 +85,9 @@ def _execute_step(run: SolutionRun, step: SolutionStep, user_input,
         run.status = "done"
         # Списываем фиксированную цену решения (если есть)
         if user and solution.price_tokens > 0:
-            db_user = db.query(User).filter_by(id=user.id).first()
-            if db_user.tokens_balance < solution.price_tokens:
+            if not deduct_strict(db, user.id, solution.price_tokens):
                 run.status = "error"; db.commit()
                 return {"status": "error", "error": "Недостаточно токенов для завершения решения"}
-            db_user.tokens_balance -= solution.price_tokens
             db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-solution.price_tokens,
                                description=f"Готовое решение: {solution.title}"))
         db.commit()
@@ -148,8 +145,7 @@ def run_solution(solution_id: int, db: Session = Depends(get_db),
     if user:
         if not user.is_verified:
             raise HTTPException(403, "Подтвердите email")
-        db_user = db.query(User).filter_by(id=user.id).first()
-        if s.price_tokens > 0 and db_user.tokens_balance < s.price_tokens:
+        if s.price_tokens > 0 and get_balance(db, user.id) < s.price_tokens:
             raise HTTPException(402, "Недостаточно токенов")
     chat_id = str(uuid.uuid4())
     run = SolutionRun(user_id=user.id if user else None,

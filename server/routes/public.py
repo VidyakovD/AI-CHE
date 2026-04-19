@@ -267,7 +267,8 @@ def apply_promo(body: PromoApplyBody, user: User = Depends(current_user),
     code.used_count += 1
     db.add(PromoUse(code_id=code.id, user_id=user.id))
     if code.bonus_tokens:
-        db.query(User).filter_by(id=user.id).first().tokens_balance += code.bonus_tokens
+        from server.billing import credit_atomic
+        credit_atomic(db, user.id, code.bonus_tokens)
         db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=code.bonus_tokens,
                            description=f"Промокод: {code.code}"))
     db.commit()

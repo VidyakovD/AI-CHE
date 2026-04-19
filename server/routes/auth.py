@@ -88,7 +88,8 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
             ).first()
             referred_by = req.referral_code.upper()
             if not already_used:
-                referrer.tokens_balance += 10_000
+                from server.billing import credit_atomic
+                credit_atomic(db, referrer.id, 10_000)
                 db.add(Transaction(user_id=referrer.id, type="bonus", tokens_delta=10_000,
                                    description=f"Реферальный бонус за {email}"))
 

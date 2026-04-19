@@ -699,17 +699,22 @@ document.addEventListener("visibilitychange", async()=>{
 
 // ── init ───────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded",async()=>{
-  // OAuth callback: parse #oauth=access=...&refresh=...
-  if(location.hash.startsWith("#oauth=")){
-    const params=new URLSearchParams(location.hash.slice(7));
-    const access=params.get("access");
-    const refresh=params.get("refresh");
-    if(access){
-      localStorage.setItem("obs_token", access);
-      if(refresh) localStorage.setItem("obs_refresh", refresh);
-      authToken = access;
-      history.replaceState(null,"","/"); // убираем хэш
-    }
+  // OAuth callback: одноразовый код → POST /auth/oauth/exchange → токены
+  const oauthCode = new URLSearchParams(location.search).get("oauth_code");
+  if(oauthCode){
+    try{
+      const r = await fetch("/auth/oauth/exchange", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ code: oauthCode })
+      });
+      if(r.ok){
+        const j = await r.json();
+        localStorage.setItem("obs_token", j.access);
+        if(j.refresh) localStorage.setItem("obs_refresh", j.refresh);
+        authToken = j.access;
+      }
+    }catch(e){ console.error("OAuth exchange failed", e); }
+    history.replaceState(null,"","/"); // убираем код из URL
   }
   // Показать ошибку OAuth
   const err = new URLSearchParams(location.search).get("oauth_error");

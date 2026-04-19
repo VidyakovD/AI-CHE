@@ -35,6 +35,8 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 models.Base.metadata.create_all(bind=engine)
+from server.db import apply_lightweight_migrations  # noqa: E402
+apply_lightweight_migrations()
 
 app = FastAPI(title="AI Студия Че")
 
@@ -44,12 +46,21 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ── CORS ───────────────────────────────────────────────────────────────────────
 _raw_origins = os.getenv("ALLOWED_ORIGINS", "")
 _origins = [o.strip() for o in _raw_origins.split(",") if o.strip()] if _raw_origins else []
+_dev_mode = os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
 if not _origins:
-    log.warning("ALLOWED_ORIGINS not set — CORS will allow all origins WITHOUT credentials")
+    if _dev_mode:
+        log.warning("DEV_MODE: CORS allows all origins — НЕ ВКЛЮЧАЙТЕ В ПРОДЕ")
+        _origins = ["*"]
+    else:
+        raise RuntimeError(
+            "ALLOWED_ORIGINS не задан. В проде укажите домены через запятую "
+            "(например: https://aiche.ru,https://www.aiche.ru). "
+            "Для локальной разработки установите DEV_MODE=true."
+        )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins if _origins else ["*"],
-    allow_credentials=bool(_origins),  # credentials нельзя с "*"
+    allow_origins=_origins,
+    allow_credentials=bool(_origins) and _origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )

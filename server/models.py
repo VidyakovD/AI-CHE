@@ -460,7 +460,7 @@ class ImapCredential(Base):
     host       = Column(String, nullable=False)      # imap.yandex.ru
     port       = Column(Integer, default=993)
     username   = Column(String, nullable=False)
-    password   = Column(String, nullable=False)      # TODO: зашифровать
+    password   = Column(String, nullable=False)      # шифруется через server.secrets_crypto
     use_ssl    = Column(Boolean, default=True)
     last_uid   = Column(Integer, default=0)          # последний обработанный UID
     created_at = Column(DateTime, default=datetime.utcnow)

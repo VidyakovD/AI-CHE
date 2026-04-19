@@ -9,6 +9,7 @@ import logging
 
 from server.routes.deps import get_db, optional_user
 from server.models import User, Transaction, UserApiKey
+from server.billing import deduct_strict
 from server.agent_runner import (
     create_task, submit_task, tasks as agent_tasks,
     init_agent_queue, TOOL_SCHEMAS, subscribe_task,
@@ -57,10 +58,8 @@ async def agent_run(
     if user:
         if not user.is_verified:
             raise HTTPException(403, "Подтвердите email")
-        db_user = db.query(User).filter_by(id=user.id).first()
-        if db_user.tokens_balance < cost:
+        if not deduct_strict(db, user.id, cost):
             raise HTTPException(402, f"Недостаточно токенов (нужно {cost} CH)")
-        db_user.tokens_balance -= cost
         mode_label = "свой ключ" if req.api_mode == "own" else "сервис"
         db.add(Transaction(
             user_id=user.id, type="usage", tokens_delta=-cost,
