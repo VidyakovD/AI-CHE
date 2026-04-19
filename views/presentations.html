@@ -193,8 +193,14 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         </div>
         <button onclick="generateCurrent()" class="btn-p" id="genBtn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
-          Сгенерировать (30 CH)
+          <span id="genBtnLabel">Сгенерировать (30 CH)</span>
         </button>
+        <script>
+          setTimeout(()=>{
+            const lbl = document.getElementById('genBtnLabel');
+            if(lbl && window.formatCH) lbl.textContent = 'Сгенерировать (' + window.formatCH(30) + ')';
+          }, 800);
+        </script>
       </div>
 
       <!-- Generated content -->
@@ -216,6 +222,19 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <script>
 const API = localStorage.getItem('obs_api') || window.location.origin;
 const authToken = localStorage.getItem('obs_token');
+
+// ── Pricing helper (CH → ₽) ─────────────────────────────────────────────
+window._chRate = parseFloat(localStorage.getItem('obs_ch_rate')) || 0.1;
+fetch(API+'/pricing/settings').then(r=>r.json()).then(d=>{
+  const v = parseFloat(d?.ch_to_rub);
+  if(v>0){ window._chRate = v; localStorage.setItem('obs_ch_rate', String(v)); }
+}).catch(()=>{});
+window.chToRub = (ch) => {
+  const n = +ch; if(!n || n<=0) return '';
+  const r = n * window._chRate;
+  return r<1 ? '~'+r.toFixed(2)+' ₽' : r<10 ? '~'+r.toFixed(1)+' ₽' : '~'+Math.round(r)+' ₽';
+};
+window.formatCH = (ch) => { const e = chToRub(ch); return ch+' CH'+(e?' ('+e+')':''); };
 
 let projects = [];
 let currentTab = 'kp';
@@ -459,7 +478,7 @@ async function generateCurrent() {
   } catch(e) {
     alert('Ошибка: ' + e.message);
   }
-  btn.disabled = false; btn.textContent = 'Сгенерировать (30 CH)';
+  btn.disabled = false; btn.textContent = window.formatCH ? ('Сгенерировать (' + window.formatCH(30) + ')') : 'Сгенерировать (30 CH)';
 }
 
 async function regenerateCurrent() {

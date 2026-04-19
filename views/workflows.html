@@ -34,13 +34,32 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
   <!-- Grid -->
   <div id="wfGrid" class="grid grid-cols-2 md:grid-cols-3 gap-4"></div>
-  <div id="emptyState" class="hidden text-center py-24">
+  <div id="emptyState" class="hidden text-center py-12 px-4">
     <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="#1e1a14"><path d="M22 11V3h-7v3H9V3H2v8h7V8h2v10h4v3h7v-8h-7v3h-2V8h2v3z"/></svg>
     </div>
-    <h2 class="text-xl font-bold font-headline mb-2">Нет воркфлоу</h2>
-    <p class="text-on-dim text-sm mb-6">Создайте первый воркфлоу для автоматизации задач</p>
-    <button onclick="createNew()" class="sig text-[#1e1a14] font-bold px-6 py-3 rounded-xl text-sm hover:opacity-88 transition">Создать</button>
+    <h2 class="text-xl font-bold font-headline mb-2">Создайте свой первый воркфлоу</h2>
+    <p class="text-on-dim text-sm mb-6 max-w-md mx-auto">Воркфлоу — это конструктор из блоков (триггер → AI → действие → отправка). Соединяйте блоки, чтобы автоматизировать рутину.</p>
+    <button onclick="createNew()" class="sig text-[#1e1a14] font-bold px-6 py-3 rounded-xl text-sm hover:opacity-88 transition mb-8">+ Создать с нуля</button>
+
+    <p class="text-xs text-on-dim/60 uppercase tracking-wider mb-4">Или начните с готового шаблона</p>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto">
+      <div onclick="createFromTemplate('tg-bot')" class="card p-4 cursor-pointer hover:border-primary/40 transition text-left">
+        <div class="text-2xl mb-2">✈️</div>
+        <p class="font-bold text-sm mb-1">TG-бот «Менеджер»</p>
+        <p class="text-xs text-on-dim">Telegram → Claude → ответ. Настройте system_prompt под свой бизнес.</p>
+      </div>
+      <div onclick="createFromTemplate('content')" class="card p-4 cursor-pointer hover:border-primary/40 transition text-left">
+        <div class="text-2xl mb-2">📝</div>
+        <p class="font-bold text-sm mb-1">Контент-конвейер</p>
+        <p class="text-xs text-on-dim">Тема → Claude (текст) → DALL-E (картинка) → готовый пост.</p>
+      </div>
+      <div onclick="createFromTemplate('email')" class="card p-4 cursor-pointer hover:border-primary/40 transition text-left">
+        <div class="text-2xl mb-2">📧</div>
+        <p class="font-bold text-sm mb-1">Авто-ответы на email</p>
+        <p class="text-xs text-on-dim">IMAP-триггер → классификация → AI-ответ → отправка.</p>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -112,6 +131,47 @@ function createNew(){
   workflows.push(wf);
   save();
   window.location.href=`workflow.html?id=${id}`;
+}
+
+const WF_TEMPLATES = {
+  'tg-bot': {
+    name: 'TG-бот «Менеджер»',
+    nodes: [
+      {id:'n1', type:'trigger_tg', x:60,  y:120, cfg:{}},
+      {id:'n2', type:'claude',     x:340, y:120, cfg:{system:'Ты вежливый менеджер. Кратко отвечай по делу, предлагай помощь.'}},
+      {id:'n3', type:'output_tg',  x:620, y:120, cfg:{}},
+    ],
+    conns: [{from:'n1', to:'n2', fi:0, ti:0}, {from:'n2', to:'n3', fi:0, ti:0}],
+  },
+  'content': {
+    name: 'Контент-конвейер',
+    nodes: [
+      {id:'n1', type:'input',  x:60,  y:140, cfg:{value:'Тема поста'}},
+      {id:'n2', type:'claude', x:300, y:80,  cfg:{system:'Напиши вовлекающий пост для соцсетей по теме. До 200 слов.'}},
+      {id:'n3', type:'dalle',  x:300, y:240, cfg:{prompt:'Иллюстрация для поста'}},
+      {id:'n4', type:'output', x:560, y:140, cfg:{}},
+    ],
+    conns: [{from:'n1',to:'n2',fi:0,ti:0}, {from:'n1',to:'n3',fi:0,ti:0}, {from:'n2',to:'n4',fi:0,ti:0}],
+  },
+  'email': {
+    name: 'Авто-ответы на email',
+    nodes: [
+      {id:'n1', type:'trigger_imap', x:60,  y:120, cfg:{}},
+      {id:'n2', type:'claude',       x:340, y:120, cfg:{system:'Ответь на письмо клиента вежливо и кратко.'}},
+      {id:'n3', type:'output_email', x:620, y:120, cfg:{}},
+    ],
+    conns: [{from:'n1',to:'n2',fi:0,ti:0}, {from:'n2',to:'n3',fi:0,ti:0}],
+  },
+};
+
+function createFromTemplate(key){
+  const tpl = WF_TEMPLATES[key];
+  if(!tpl) return createNew();
+  const id = Date.now();
+  const wf = { id, name: tpl.name, nodes: tpl.nodes, conns: tpl.conns, savedAt: new Date().toISOString() };
+  workflows.push(wf);
+  save();
+  window.location.href = `workflow.html?id=${id}`;
 }
 
 function toggleMenu(id){

@@ -304,7 +304,11 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
             <button onclick="clearSteps()" class="text-xs text-on-dim hover:text-primary transition">Очистить</button>
           </div>
           <div class="p-5 space-y-2" id="stepsTimeline">
-            <p class="text-on-dim/40 text-sm text-center py-8">Запустите задачу — шаги появятся здесь</p>
+            <div class="text-center py-10">
+              <div class="w-12 h-12 rounded-2xl bg-surface3 flex items-center justify-center mx-auto mb-3 text-2xl opacity-60">⚙️</div>
+              <p class="text-on-dim/70 text-sm mb-1">Шаги выполнения появятся здесь</p>
+              <p class="text-on-dim/50 text-xs">Введите задачу слева или выберите готовую — справа</p>
+            </div>
           </div>
         </div>
         <div id="resultCard" class="hidden card">
@@ -551,6 +555,19 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
 <script>
 const API = localStorage.getItem('obs_api') || window.location.origin;
+
+// ── Pricing helper (CH → ₽) ─────────────────────────────────────────────
+window._chRate = parseFloat(localStorage.getItem('obs_ch_rate')) || 0.1;
+fetch(API+'/pricing/settings').then(r=>r.json()).then(d=>{
+  const v = parseFloat(d?.ch_to_rub);
+  if(v>0){ window._chRate = v; localStorage.setItem('obs_ch_rate', String(v)); }
+}).catch(()=>{});
+window.chToRub = (ch) => {
+  const n = +ch; if(!n || n<=0) return '';
+  const r = n * window._chRate;
+  return r<1 ? '~'+r.toFixed(2)+' ₽' : r<10 ? '~'+r.toFixed(1)+' ₽' : '~'+Math.round(r)+' ₽';
+};
+window.formatCH = (ch) => { const e = chToRub(ch); return ch+' CH'+(e?' ('+e+')':''); };
 const authToken = localStorage.getItem('obs_token');
 
 // ── SVG Icon system (Material-style, 24×24) ───────────────────────────────────
@@ -1396,8 +1413,45 @@ async function runAgent() {
   }
 }
 
+let _agentStart = 0;
+let _statusTimer = null;
+function _startStatusTimer(){
+  _agentStart = Date.now();
+  if(_statusTimer) clearInterval(_statusTimer);
+  _statusTimer = setInterval(()=>{
+    const el = document.getElementById('statusTitle');
+    if(!el || document.getElementById('runStatusBar').classList.contains('hidden')){
+      clearInterval(_statusTimer); _statusTimer=null; return;
+    }
+    const sec = Math.floor((Date.now()-_agentStart)/1000);
+    const mm = String(Math.floor(sec/60)).padStart(2,'0');
+    const ss = String(sec%60).padStart(2,'0');
+    el.textContent = `Агент работает… ${mm}:${ss}`;
+  }, 1000);
+}
+function _stopStatusTimer(){
+  if(_statusTimer){ clearInterval(_statusTimer); _statusTimer=null; }
+}
+
+function _renderResult(text, isError, cost){
+  const card = document.getElementById('resultCard');
+  const content = document.getElementById('resultContent');
+  card.classList.remove('hidden');
+  if(isError){
+    content.innerHTML = `<div class="rounded-xl border p-3" style="background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:#fca5a5">
+      <div class="font-semibold mb-1">⚠️ Что-то пошло не так</div>
+      <div class="text-xs whitespace-pre-wrap">${esc(text || 'Агент завершился с ошибкой. Попробуйте переформулировать задачу или проверить баланс.')}</div>
+    </div>`;
+  } else {
+    const costLine = cost ? `<div class="mt-3 pt-3 border-t border-outline/15 text-xs text-on-dim">💰 Списано: <b>${cost} CH</b></div>` : '';
+    // text может быть JSON, может markdown — отображаем как есть с пробелами
+    content.innerHTML = `<div class="whitespace-pre-wrap">${esc(text || '')}</div>${costLine}`;
+  }
+}
+
 function pollStatus() {
   if (pollInterval) clearInterval(pollInterval);
+  _startStatusTimer();
   pollInterval = setInterval(async () => {
     if (!currentTaskId) return;
     try {
@@ -1405,15 +1459,15 @@ function pollStatus() {
       if (!r.ok) return;
       const t = await r.json();
       renderSteps(t.steps || []);
-      if (t.status === 'done' || t.status === 'error') {
+      if (t.status === 'done' || t.status === 'error' || t.status === 'failed' || t.status === 'cancelled') {
         clearInterval(pollInterval);
+        _stopStatusTimer();
         document.getElementById('runBtn').disabled = false;
         document.getElementById('runStatusBar').classList.add('hidden');
-        if (t.result) {
-          document.getElementById('resultContent').textContent = t.result;
-          document.getElementById('resultCard').classList.remove('hidden');
-        }
-        document.getElementById('statusTitle').textContent = t.status === 'done' ? 'Готово!' : 'Ошибка';
+        const isErr = (t.status !== 'done');
+        const text = t.result || t.error || (isErr ? '' : 'Готово');
+        _renderResult(text, isErr, t.cost || t.ch_charged || null);
+        document.getElementById('statusTitle').textContent = isErr ? 'Ошибка' : 'Готово!';
       }
     } catch {}
   }, 1500);
@@ -1436,8 +1490,15 @@ function renderSteps(steps) {
   el.scrollTop = el.scrollHeight;
 }
 
-function stopAgent() {
+async function stopAgent() {
+  // Попытка отменить на сервере (если эндпоинт существует), иначе закрываем локально
+  if (currentTaskId) {
+    try {
+      await fetch(`${API}/agent/${currentTaskId}/cancel`, {method:'POST', headers:hdrs()});
+    } catch {}
+  }
   if (pollInterval) clearInterval(pollInterval);
+  _stopStatusTimer();
   currentTaskId = null;
   document.getElementById('runBtn').disabled = false;
   document.getElementById('runStatusBar').classList.add('hidden');
@@ -1445,7 +1506,11 @@ function stopAgent() {
 
 function clearSteps() {
   document.getElementById('stepsTimeline').innerHTML =
-    '<p class="text-on-dim/40 text-sm text-center py-8">Запустите задачу — шаги появятся здесь</p>';
+    '<div class="text-center py-10">
+              <div class="w-12 h-12 rounded-2xl bg-surface3 flex items-center justify-center mx-auto mb-3 text-2xl opacity-60">⚙️</div>
+              <p class="text-on-dim/70 text-sm mb-1">Шаги выполнения появятся здесь</p>
+              <p class="text-on-dim/50 text-xs">Введите задачу слева или выберите готовую — справа</p>
+            </div>';
   document.getElementById('resultCard').classList.add('hidden');
 }
 

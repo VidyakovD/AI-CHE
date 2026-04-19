@@ -86,13 +86,14 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   <div id="projectGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
 
   <!-- Empty state -->
-  <div id="emptyState" class="hidden text-center py-24">
+  <div id="emptyState" class="hidden text-center py-12 px-4">
     <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="#1C1C1C"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6v-2zm0 4h8v2H6v-2zm10 0h2v2h-2v-2zm-6-4h8v2h-8v-2z"/></svg>
     </div>
-    <h2 class="text-xl font-bold font-headline mb-2">Нет проектов</h2>
-    <p class="text-on-dim text-sm mb-6">Создайте первый проект — с готовым ТЗ или соберём вместе</p>
-    <button onclick="openCreate()" class="btn-p">Создать первый проект</button>
+    <h2 class="text-xl font-bold font-headline mb-2">Соберите свой первый сайт</h2>
+    <p class="text-on-dim text-sm mb-6 max-w-md mx-auto">AI поможет составить ТЗ через диалог, сгенерирует код и опубликует на нашем хостинге. Уйдёт 5–15 минут.</p>
+    <button onclick="openCreate()" class="btn-p w-full sm:w-auto">+ Создать первый проект</button>
+    <p class="text-xs text-on-dim/60 mt-6 max-w-md mx-auto">💡 Подсказка: начните с одностраничника — лендинг, визитка, портфолио. Потом можно дорабатывать «Доделай по инструкции…».</p>
   </div>
 </div>
 
@@ -298,6 +299,19 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
 <script>
 const API = localStorage.getItem('obs_api')||window.location.origin;
+
+// ── Pricing helper (CH → ₽) ─────────────────────────────────────────────
+window._chRate = parseFloat(localStorage.getItem('obs_ch_rate')) || 0.1;
+fetch(API+'/pricing/settings').then(r=>r.json()).then(d=>{
+  const v = parseFloat(d?.ch_to_rub);
+  if(v>0){ window._chRate = v; localStorage.setItem('obs_ch_rate', String(v)); }
+}).catch(()=>{});
+window.chToRub = (ch) => {
+  const n = +ch; if(!n || n<=0) return '';
+  const r = n * window._chRate;
+  return r<1 ? '~'+r.toFixed(2)+' ₽' : r<10 ? '~'+r.toFixed(1)+' ₽' : '~'+Math.round(r)+' ₽';
+};
+window.formatCH = (ch) => { const e = chToRub(ch); return ch+' CH'+(e?' ('+e+')':''); };
 const authToken = localStorage.getItem('obs_token');
 const CODE_GEN_CH_COST = 30;
 const CODE_ITER_CH_COST = 15;
@@ -368,7 +382,7 @@ function render(){
 
   grid.innerHTML = list.map(p=>{
     const date = p.created_at ? new Date(p.created_at).toLocaleDateString('ru-RU') : '—';
-    const tokens = p.price_tokens ? `${p.price_tokens} CH` : '';
+    const tokens = p.price_tokens ? (window.formatCH ? window.formatCH(p.price_tokens) : `${p.price_tokens} CH`) : '';
     const mode = (p.creation_mode==='have_spec') ? 'По ТЗ' : 'Вместе';
     const phase = phaseLabel(p.conversation_phase);
 
@@ -473,7 +487,7 @@ async function openProject(id){
 
   const proj = currentProject;
   document.getElementById('detailTitle').textContent = proj.name || 'Проект';
-  document.getElementById('detailCost').textContent = (proj.price_tokens||0) + ' CH';
+  document.getElementById('detailCost').textContent = window.formatCH ? window.formatCH(proj.price_tokens||0) : ((proj.price_tokens||0) + ' CH');
 
   // Hide all phases, show relevant one
   hideAllPhases();
@@ -595,7 +609,7 @@ async function sendChat(){
 
     // Update project
     currentProject = await getProjectDetail();
-    document.getElementById('detailCost').textContent = (currentProject.price_tokens||0) + ' CH';
+    document.getElementById('detailCost').textContent = window.formatCH ? window.formatCH(currentProject.price_tokens||0) : ((currentProject.price_tokens||0) + ' CH');
 
     // Check if spec is ready
     if(data.phase === 'spec_ready'){
@@ -777,7 +791,7 @@ async function iterateCode(){
     const data = await r.json();
     document.getElementById('codeEditor').value = data.code_html || '';
     currentProject = await getProjectDetail();
-    document.getElementById('detailCost').textContent = (currentProject.price_tokens||0) + ' CH';
+    document.getElementById('detailCost').textContent = window.formatCH ? window.formatCH(currentProject.price_tokens||0) : ((currentProject.price_tokens||0) + ' CH');
   }catch(e){
     alert(e.message);
   }

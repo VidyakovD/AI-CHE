@@ -106,9 +106,27 @@ def agent_status(task_id: str):
         "steps": t["steps"],
         "outputs": t.get("outputs", []),
         "result": t.get("result"),
+        "error": t.get("error"),
+        "cost": t.get("cost") or t.get("ch_charged"),
         "created_at": t.get("created_at"),
         "updated_at": t.get("updated_at"),
     }
+
+
+@router.post("/{task_id}/cancel")
+def agent_cancel(task_id: str, user=Depends(optional_user)):
+    """Отменить задачу агента. Помечает в очереди как cancelled."""
+    t = agent_tasks.get(task_id)
+    if not t:
+        raise HTTPException(404, "Задача не найдена")
+    # Если есть user — проверим что задача его (если у task есть user_id)
+    if user and t.get("user_id") and t["user_id"] != user.id:
+        raise HTTPException(403, "Нет доступа к задаче")
+    if t["status"] in ("done", "error", "cancelled"):
+        return {"status": t["status"]}
+    t["status"] = "cancelled"
+    t["error"] = "Отменено пользователем"
+    return {"status": "cancelled"}
 
 
 @router.websocket("/{task_id}/ws")

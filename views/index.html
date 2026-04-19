@@ -125,7 +125,7 @@ body.welcome #inputArea{display:none!important}
 <body class="bg-background text-on-surface font-body welcome">
 
 <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════════ -->
-<aside class="fixed left-0 top-0 z-40 p-4 h-screen w-68 flex-col hidden lg:flex bg-surface border-r border-outline/20 shadow-2xl overflow-hidden" style="width:272px">
+<aside id="appSidebar" class="fixed left-0 top-0 z-40 p-4 h-screen w-68 flex-col hidden lg:flex bg-surface border-r border-outline/20 shadow-2xl overflow-hidden" style="width:272px">
   <!-- Logo -->
   <div class="flex items-center gap-3 px-2 mb-6">
     <div class="w-10 h-10 rounded-xl sig flex items-center justify-center shadow-[0_0_24px_rgba(255,140,66,0.35)]">
@@ -196,8 +196,12 @@ body.welcome #inputArea{display:none!important}
 <!-- ══ MAIN ══════════════════════════════════════════════════════════════════ -->
 <main class="lg:ml-[272px] h-screen flex flex-col overflow-hidden">
   <!-- Topnav -->
-  <nav class="fixed top-0 right-0 left-0 lg:left-[272px] z-30 flex items-center justify-between px-5 bg-surface/85 backdrop-blur-xl h-14 border-b border-outline/15">
-    <div class="flex items-center gap-3">
+  <nav class="fixed top-0 right-0 left-0 lg:left-[272px] z-30 flex items-center justify-between px-3 sm:px-5 bg-surface/85 backdrop-blur-xl h-14 border-b border-outline/15">
+    <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+      <!-- Mobile hamburger -->
+      <button id="mobileMenuBtn" onclick="toggleMobileSidebar()" class="lg:hidden p-2 -ml-1 text-on-surface-dim hover:text-primary transition" aria-label="Меню">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+      </button>
       <div class="relative" id="modelMenuWrapper">
         <button id="modelMenuBtn" class="flex items-center gap-2 bg-surface2 px-3 py-1.5 rounded-full text-on-surface hover:bg-surface3 transition active:scale-95 border border-outline/20">
           <span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
@@ -221,6 +225,9 @@ body.welcome #inputArea{display:none!important}
       <button onclick="openM('loginModal')" id="navLoginBtn" class="px-3 py-1.5 text-sm rounded-full bg-surface2 text-on-surface-dim hover:text-primary border border-outline/20 transition">Войти</button>
     </div>
   </nav>
+
+  <!-- Mobile sidebar overlay -->
+  <div id="sidebarOverlay" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-black/60 z-30 hidden lg:hidden" aria-hidden="true"></div>
 
   <!-- Chat -->
   <section id="chatContainer" class="flex-1 pt-20 pb-4 px-4 md:px-8 max-w-4xl mx-auto w-full flex flex-col gap-5 overflow-y-auto" style="padding-bottom:160px"></section>
@@ -567,6 +574,19 @@ body.welcome #inputArea{display:none!important}
 <!-- ══ SCRIPT ════════════════════════════════════════════════════════════════ -->
 <script>
 const API=localStorage.getItem("obs_api")||window.location.origin;
+
+// ── Pricing helper (CH → ₽) ─────────────────────────────────────────────
+window._chRate = parseFloat(localStorage.getItem('obs_ch_rate')) || 0.1;
+fetch(API+'/pricing/settings').then(r=>r.json()).then(d=>{
+  const v = parseFloat(d?.ch_to_rub);
+  if(v>0){ window._chRate = v; localStorage.setItem('obs_ch_rate', String(v)); }
+}).catch(()=>{});
+window.chToRub = (ch) => {
+  const n = +ch; if(!n || n<=0) return '';
+  const r = n * window._chRate;
+  return r<1 ? '~'+r.toFixed(2)+' ₽' : r<10 ? '~'+r.toFixed(1)+' ₽' : '~'+Math.round(r)+' ₽';
+};
+window.formatCH = (ch) => { const e = chToRub(ch); return ch+' CH'+(e?' ('+e+')':''); };
 let currentChat=null,currentChatInit=false,currentChatTitle="",currentModel="gpt";
 let pendingAttachment=null;
 let authToken=localStorage.getItem("obs_token")||null;
@@ -1620,16 +1640,30 @@ async function sendMessage(){
     const hdrs={"Content-Type":"application/json"};
     if(authToken)hdrs["Authorization"]="Bearer "+authToken;
     const res=await fetch(`${API}/message`,{method:"POST",headers:hdrs,body:JSON.stringify(body)});
-    const data=await res.json();
-    removeTyping();
     if(res.status===402){
-      addInsufficientBalanceMsg();
+      removeTyping();
+      const bal = await fetchBalanceQuiet();
+      addInsufficientBalanceMsg(bal);
       return;
     }
-    if(data.error)addMsg(data.error,"ai","error");
-    else{
+    let data;
+    try { data = await res.json(); }
+    catch(je) {
+      removeTyping();
+      addFriendlyError("Сервер вернул некорректный ответ. Попробуйте ещё раз через минуту.");
+      return;
+    }
+    removeTyping();
+    if(!res.ok){
+      addFriendlyError(data?.detail || data?.error ||
+        `Сервер ответил с ошибкой ${res.status}. Если повторяется — напишите в поддержку.`);
+      return;
+    }
+    if(data.error){
+      addFriendlyError(data.error);
+    } else {
       const r=data.response;
-      if(!r){addMsg("Ошибка ответа сервера","ai","error");}
+      if(!r){addFriendlyError("Сервер не вернул ответ. Попробуйте повторить запрос.");}
       else if(r.type==="video_task"||r.type==="video_base64")addVideoMsg(r);
       else if(r.type==="image"){addMsg(r.content||"","ai","image");}
       else addMsg(r.content||"Ошибка","ai");
@@ -1641,23 +1675,88 @@ async function sendMessage(){
         showNotify(currentChatTitle||currentModel,preview);
       }catch(pe){console.error("Post-send error:",pe);}
     }
-  }catch(e){removeTyping();console.error("Send error:",e);addMsg("Ошибка сети или сервера","ai");}
+  }catch(e){
+    removeTyping();
+    console.error("Send error:",e);
+    const offline = !navigator.onLine;
+    addFriendlyError(offline
+      ? "Нет интернета. Проверьте соединение и повторите."
+      : "Не удалось связаться с сервером. Попробуйте через минуту или обновите страницу.");
+  }
   btn.disabled=false;btn.classList.remove("opacity-50","cursor-not-allowed");
 }
 
-async function addInsufficientBalanceMsg(){
+async function fetchBalanceQuiet(){
+  try{
+    if(!authToken) return null;
+    const r = await fetch(`${API}/me`, {headers:{"Authorization":"Bearer "+authToken}});
+    if(!r.ok) return null;
+    const j = await r.json();
+    return j.tokens_balance ?? null;
+  }catch{ return null; }
+}
+
+function toggleMobileSidebar(){
+  const sb = document.getElementById('appSidebar');
+  const ov = document.getElementById('sidebarOverlay');
+  if(!sb || !ov) return;
+  const open = sb.classList.contains('!flex');
+  if(open){
+    sb.classList.remove('!flex');
+    sb.classList.add('hidden');
+    ov.classList.add('hidden');
+    document.body.style.overflow = '';
+  } else {
+    sb.classList.remove('hidden');
+    sb.classList.add('!flex');
+    ov.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+}
+// Авто-закрытие drawer при переходе на пункт меню (на mobile)
+document.addEventListener('click', (e)=>{
+  if(window.innerWidth >= 1024) return;
+  const sb = document.getElementById('appSidebar');
+  if(!sb || !sb.classList.contains('!flex')) return;
+  const t = e.target.closest('a,#newChatBtn,[onclick*="openSolutions"],[onclick*="openCabinet"]');
+  if(t && sb.contains(t)) toggleMobileSidebar();
+});
+
+function addFriendlyError(text){
+  const c=document.getElementById("chatContainer");
+  const w=document.createElement("div");
+  w.className="flex items-start gap-2 my-3 max-w-[90%] self-start";
+  w.innerHTML=`
+    <div class="rounded-2xl px-4 py-3 shadow border" style="background:var(--md-sys-color-error-container,#3a1a1a);border-color:rgba(239,68,68,.3);color:var(--md-sys-color-on-error-container,#fecaca)">
+      <div class="flex items-start gap-2">
+        <span style="font-size:18px;line-height:1">⚠️</span>
+        <div class="flex-1">
+          <div class="text-sm">${esc(text)}</div>
+          <button onclick="document.getElementById('messageInput').focus()" class="mt-2 text-xs underline opacity-80 hover:opacity-100">Повторить</button>
+        </div>
+      </div>
+    </div>`;
+  c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
+}
+
+async function addInsufficientBalanceMsg(currentBalance){
   removeTyping();
   const container=document.getElementById("chatContainer");
   const wrap=document.createElement("div");
   wrap.className="flex items-center justify-center my-6";
+  const balLine = (currentBalance!==null && currentBalance!==undefined)
+    ? `<div class="text-xs mb-3" style="color:var(--md-sys-color-on-surface-dim)">Сейчас на балансе: <b>${currentBalance} CH</b></div>`
+    : "";
   wrap.innerHTML=`
-    <div class="rounded-2xl px-8 py-6 text-center shadow-xl" style="background:var(--md-sys-color-surface-container-high);max-width:360px;width:100%">
-      <div class="text-2xl mb-2">💎</div>
-      <div class="text-base font-semibold mb-2" style="color:var(--md-sys-color-on-surface)">Недостаточно средств</div>
-      <div class="text-sm mb-4" style="color:var(--md-sys-color-on-surface-dim)">Пополните баланс или смените тариф</div>
-      <button onclick="openCabinet()" class="px-6 py-2.5 rounded-full text-sm font-semibold transition hover:opacity-90" style="background:#FFD700;color:#1a1a1a">
+    <div class="rounded-2xl px-8 py-6 text-center shadow-xl" style="background:var(--md-sys-color-surface-container-high);max-width:380px;width:100%;border:1px solid rgba(255,140,66,.25)">
+      <div class="text-3xl mb-2">💳</div>
+      <div class="text-base font-semibold mb-1" style="color:var(--md-sys-color-on-surface)">Недостаточно токенов</div>
+      <div class="text-sm mb-2" style="color:var(--md-sys-color-on-surface-dim)">Этот запрос стоит дороже, чем у вас осталось</div>
+      ${balLine}
+      <button onclick="openCabinet()" class="block w-full px-6 py-3 rounded-full text-sm font-semibold transition hover:opacity-90 sig" style="color:#1e1a14">
         Пополнить баланс
       </button>
+      <button onclick="this.closest('.flex').remove()" class="mt-2 text-xs opacity-60 hover:opacity-100">Позже</button>
     </div>
   `;
   container.appendChild(wrap);
@@ -1825,18 +1924,36 @@ function addVideoMsg(r){
   c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
 }
 
+let _typingStart = 0;
+let _typingTimer = null;
 function addTyping(){
   const c=document.getElementById("chatContainer");
   const w=document.createElement("div");w.id="typing";
   w.className="flex flex-col items-start space-y-1.5 max-w-[90%] self-start";
-  w.innerHTML=`<div class="glass ghost px-5 py-4 rounded-2xl rounded-bl-sm shadow"><div class="flex gap-1.5">
-    <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce"></div>
-    <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay:150ms"></div>
-    <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay:300ms"></div>
-  </div></div>`;
+  w.innerHTML=`<div class="glass ghost px-5 py-4 rounded-2xl rounded-bl-sm shadow">
+    <div class="flex items-center gap-3">
+      <div class="flex gap-1.5">
+        <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce"></div>
+        <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay:150ms"></div>
+        <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style="animation-delay:300ms"></div>
+      </div>
+      <span id="typingTimer" class="text-[11px] opacity-50"></span>
+    </div>
+  </div>`;
   c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
+  _typingStart = Date.now();
+  if(_typingTimer) clearInterval(_typingTimer);
+  _typingTimer = setInterval(()=>{
+    const t = document.getElementById("typingTimer");
+    if(!t){ clearInterval(_typingTimer); _typingTimer=null; return; }
+    const sec = Math.floor((Date.now()-_typingStart)/1000);
+    if(sec >= 3) t.textContent = sec >= 60 ? `${Math.floor(sec/60)}:${String(sec%60).padStart(2,"0")} — генерирую…` : `${sec} сек — генерирую…`;
+  }, 1000);
 }
-function removeTyping(){const e=document.getElementById("typing");if(e)e.remove();}
+function removeTyping(){
+  const e=document.getElementById("typing");if(e)e.remove();
+  if(_typingTimer){ clearInterval(_typingTimer); _typingTimer=null; }
+}
 
 function buildUserHTML(text,fileUrl,isImg){
   let h="";

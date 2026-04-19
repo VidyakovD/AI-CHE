@@ -792,33 +792,73 @@ async function refreshNode(nodeId){
 }
 
 // ── Run workflow ───────────────────────────────────────────────────────────
+function _highlightNodeError(nodeId){
+  // Помечаем ноду красной рамкой пока юзер не закроет run-panel
+  const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+  if(!el) return;
+  el.style.boxShadow = '0 0 0 2px #ef4444, 0 0 20px rgba(239,68,68,.4)';
+  el.dataset.errorHighlight = '1';
+}
+function _clearAllNodeHighlights(){
+  document.querySelectorAll('[data-error-highlight="1"]').forEach(el=>{
+    el.style.boxShadow=''; delete el.dataset.errorHighlight;
+  });
+}
+
 async function runWorkflow(){
   const panel=document.getElementById('runPanel');
   panel.classList.add('show');
   document.getElementById('runLog').innerHTML='';
+  _clearAllNodeHighlights();
   if(!authToken){logRun('⚠️ Требуется авторизация. Войдите в аккаунт на главной странице.','err');return;}
-  if(!nodes.length){logRun('⚠️ Добавьте блоки','warn');return;}
+  if(!nodes.length){logRun('⚠️ Добавьте блоки в граф','warn');return;}
   const order=topoSort();
-  if(!order){logRun('⚠️ Обнаружен цикл','err');return;}
+  if(!order){logRun('⚠️ Обнаружен цикл — уберите соединение, замыкающее граф','err');return;}
+
+  // Валидация: терминальные ноды должны иметь хотя бы один выходящий output (предупреждение)
+  // и ни одна нода не должна быть полностью изолирована при наличии других
+  if(nodes.length > 1){
+    const isolated = nodes.filter(n => !conns.some(c => c.from===n.id || c.to===n.id));
+    if(isolated.length){
+      const names = isolated.map(n => (NODE_DEF[n.type]?.label)||n.type).join(', ');
+      logRun(`⚠️ Изолированы (не соединены): ${names}`,'warn');
+    }
+  }
+
+  const t0 = Date.now();
   const results={};
   for(const nodeId of order){
     const node=nodes.find(n=>n.id===nodeId);if(!node)continue;
     const def=NODE_DEF[node.type]||{};
-    logRun(`▶ ${def.emoji} ${def.label}`,'info');
+    const nodeStart = Date.now();
+    logRun(`▶ ${def.emoji} ${def.label}…`,'info');
     const upConns=conns.filter(c=>c.to===nodeId).sort((a,b)=>a.ti-b.ti);
     const inputs=upConns.map(c=>results[c.from]||null);
     node.generating=true;updateNodeBody(node);
     try{
       const r=await executeNode(node,inputs);
       results[nodeId]=r;node.result=r;
-    }catch(e){logRun('❌ '+e.message,'err');node.generating=false;updateNodeBody(node);break;}
+    }catch(e){
+      const sec = ((Date.now()-nodeStart)/1000).toFixed(1);
+      const friendly = (!navigator.onLine) ? 'Нет интернета' :
+        (e.message?.includes('402')||/недостаточно/i.test(e.message)) ? 'Недостаточно токенов' :
+        (e.message?.includes('401')) ? 'Сессия истекла — обновите страницу' :
+        (e.message?.includes('500')||e.message?.includes('503')) ? 'Сервер временно недоступен' :
+        e.message || 'Неизвестная ошибка';
+      logRun(`❌ Блок «${def.label}» упал через ${sec} сек: ${friendly}`,'err');
+      node.generating=false;updateNodeBody(node);
+      _highlightNodeError(nodeId);
+      return;  // не продолжаем выполнение после ошибки
+    }
     node.generating=false;updateNodeBody(node);
     if(node.result){
       const txt=node.result.content||node.result.url||node.result.task_id||'ok';
-      logRun('✓ '+String(txt).slice(0,80),'ok');
+      const sec = ((Date.now()-nodeStart)/1000).toFixed(1);
+      logRun(`✓ ${sec}s · ${String(txt).slice(0,80)}`,'ok');
     }
   }
-  logRun('🏁 Выполнено','done');
+  const total = ((Date.now()-t0)/1000).toFixed(1);
+  logRun(`🏁 Выполнено за ${total} сек`,'done');
 }
 
 async function executeNode(node,inputs){

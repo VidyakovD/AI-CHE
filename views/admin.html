@@ -129,7 +129,7 @@ select.inp option{background:#272018;color:#f0e6d8}
       <div id="sec-users" class="sec hidden">
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-lg font-bold font-headline">Пользователи</h2>
-          <input id="userSearch" type="text" placeholder="Поиск по email..." class="inp w-64" style="width:256px" oninput="filterUsers()"/>
+          <input id="userSearch" type="text" placeholder="Поиск по email или имени..." class="inp w-64" style="width:256px" oninput="filterUsers()" onkeydown="if(event.key==='Enter')filterUsers()"/>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
@@ -619,19 +619,38 @@ function filterCat(slug){
   loadSolutions(slug);
 }
 
-// ── Users ──────────────────────────────────────────────────────────────────
+// ── Users (с пагинацией) ──────────────────────────────────────────────────
+let _usersPage = 1;
+const USERS_PER_PAGE = 50;
+let _usersFiltered = [];
+
 async function loadUsers(){
-  allUsers=await get("/admin/users/full");
-  renderUsers(allUsers);
+  allUsers = await get("/admin/users/full");
+  _usersPage = 1;
+  filterUsers();
 }
 
 function filterUsers(){
-  const q=document.getElementById("userSearch").value.toLowerCase();
-  renderUsers(allUsers.filter(u=>u.email.toLowerCase().includes(q)||(u.name||"").toLowerCase().includes(q)));
+  const q = document.getElementById("userSearch").value.toLowerCase();
+  _usersFiltered = q
+    ? allUsers.filter(u=>u.email.toLowerCase().includes(q)||(u.name||"").toLowerCase().includes(q))
+    : allUsers;
+  _usersPage = 1;
+  renderUsers();
 }
 
-function renderUsers(users){
-  document.getElementById("usersTable").innerHTML=users.map(u=>`
+function changeUsersPage(delta){
+  const total = Math.max(1, Math.ceil(_usersFiltered.length / USERS_PER_PAGE));
+  _usersPage = Math.min(Math.max(1, _usersPage + delta), total);
+  renderUsers();
+}
+
+function renderUsers(){
+  const total = _usersFiltered.length;
+  const pages = Math.max(1, Math.ceil(total / USERS_PER_PAGE));
+  const start = (_usersPage - 1) * USERS_PER_PAGE;
+  const slice = _usersFiltered.slice(start, start + USERS_PER_PAGE);
+  document.getElementById("usersTable").innerHTML = slice.map(u=>`
     <tr class="border-b border-outline/10 hover:bg-surface2/40 transition ${u.is_banned?'bg-error/5':''}">
       <td class="py-2 px-3 text-xs font-mono text-on-dim">${esc(u.email)}</td>
       <td class="py-2 px-3 text-xs">${esc(u.name||"—")}</td>
@@ -646,6 +665,23 @@ function renderUsers(users){
         <button onclick="openBalanceModal(${u.id},'${esc(u.email)}')" class="btn btn-g text-xs py-1">Баланс</button>
       </td>
     </tr>`).join("");
+  // Pagination footer
+  let pager = document.getElementById("usersPager");
+  if(!pager){
+    const tbl = document.getElementById("usersTable");
+    pager = document.createElement("div");
+    pager.id = "usersPager";
+    pager.className = "flex items-center justify-between gap-3 mt-3 text-xs text-on-dim";
+    tbl.closest("table")?.parentNode?.appendChild(pager);
+  }
+  pager.innerHTML = total === 0
+    ? `<span class="opacity-60">Не найдено</span>`
+    : `<span>Показано ${start+1}–${Math.min(start+USERS_PER_PAGE, total)} из <b>${total}</b></span>
+       <div class="flex items-center gap-2">
+         <button onclick="changeUsersPage(-1)" class="btn-g text-xs py-1 px-3 ${_usersPage<=1?'opacity-40 pointer-events-none':''}">‹ Назад</button>
+         <span>Стр. ${_usersPage} / ${pages}</span>
+         <button onclick="changeUsersPage(1)" class="btn-g text-xs py-1 px-3 ${_usersPage>=pages?'opacity-40 pointer-events-none':''}">Вперёд ›</button>
+       </div>`;
 }
 
 async function toggleBan(userId,email){
@@ -830,7 +866,22 @@ async function loadApiKeys(){
   const grouped={};
   keys.forEach(k=>{if(!grouped[k.provider])grouped[k.provider]=[];grouped[k.provider].push(k);});
 
-  content.innerHTML=Object.entries(grouped).map(([prov,pkeys])=>`
+  // Глобальный warning, если есть проблемные ключи
+  const broken = keys.filter(k => k.status === 'error');
+  const brokenProviders = [...new Set(broken.map(k => PROVIDER_LABELS[k.provider] || k.provider))];
+  const banner = broken.length
+    ? `<div class="card mb-3" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.4)">
+         <div class="flex items-start gap-3">
+           <div class="text-2xl">⚠️</div>
+           <div class="flex-1">
+             <p class="font-bold text-sm text-error mb-1">${broken.length} ${broken.length===1?'ключ не работает':'ключей не работают'}</p>
+             <p class="text-xs text-on-dim">Провайдеры с проблемами: <b>${brokenProviders.join(', ')}</b>. Юзеры получают «Сервис временно недоступен» — обновите ключ ниже.</p>
+           </div>
+         </div>
+       </div>`
+    : '';
+
+  content.innerHTML = banner + Object.entries(grouped).map(([prov,pkeys])=>`
     <div class="card">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-headline font-bold text-sm">${PROVIDER_LABELS[prov]||prov}</h3>
@@ -863,7 +914,7 @@ async function loadApiKeys(){
 }
 
 async function deleteKey(id){
-  if(!confirm("Удалить ключ?"))return;
+  if(!confirm("Точно удалить ключ? Юзеры с этим провайдером перестанут работать."))return;
   await del(`/admin/apikeys/${id}`);
   await loadApiKeys();
 }
