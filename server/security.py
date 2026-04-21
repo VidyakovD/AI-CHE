@@ -1,57 +1,49 @@
 """
 Rate limiting + input validation middleware.
-Persistent store: saves to JSON file for crash/restart resilience.
+Shared store в SQLite — работает между несколькими uvicorn workers.
 """
-import time, re, os, json, threading
-from collections import defaultdict
+import time, re, os, sqlite3
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 
-# ── persistent rate limit store ───────────────────────────────────────────────
-# { key: [timestamp, ...] }
-_store: dict[str, list[float]] = defaultdict(list)
-_store_lock = threading.Lock()
-_STORE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".rate_limit_store.json")
+# ── SQLite-based rate limit store (shared across workers) ─────────────────────
+# Используем отдельный файл чтобы не блокировать основную БД chat.db
+_RL_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".rate_limit.db")
+_RL_INITIALIZED = False
 
-def _persist_store():
-    """Save active (non-expired) entries to disk."""
-    now = time.time()
-    data = {k: [t for t in v if now - t < 600] for k, v in _store.items()}
-    # Remove empty entries
-    data = {k: v for k, v in data.items() if v}
-    try:
-        with open(_STORE_FILE, "w") as f:
-            json.dump(data, f)
-    except Exception:
-        pass
 
-def _load_store():
-    """Restore entries from disk on startup."""
-    if not os.path.exists(_STORE_FILE):
-        return
-    try:
-        with open(_STORE_FILE, "r") as f:
-            data = json.load(f)
-        now = time.time()
-        for k, v in data.items():
-            _store[k] = [t for t in v if now - t < 600]
-    except Exception:
-        pass
+def _rl_conn():
+    """Открывает соединение к SQLite rate-limit БД. WAL для конкурентности."""
+    global _RL_INITIALIZED
+    conn = sqlite3.connect(_RL_DB_PATH, timeout=5.0, isolation_level=None)
+    if not _RL_INITIALIZED:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("CREATE TABLE IF NOT EXISTS rl (k TEXT NOT NULL, t REAL NOT NULL)")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_rl_k_t ON rl(k, t)")
+        _RL_INITIALIZED = True
+    return conn
 
-# Load persisted data at module import
-_load_store()
 
 def _check(key: str, max_calls: int, window_sec: int) -> bool:
-    with _store_lock:
-        now = time.time()
-        calls = [t for t in _store[key] if now - t < window_sec]
-        _store[key] = calls
-        if len(calls) >= max_calls:
-            return False
-        _store[key].append(now)
-        # Persist periodically (every 10th call approximately)
-        if len(calls) % 10 == 0:
-            _persist_store()
+    """Атомарная проверка через SQLite: DELETE старых → COUNT → INSERT."""
+    now = time.time()
+    try:
+        conn = _rl_conn()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            # Чистим старые записи этого ключа
+            conn.execute("DELETE FROM rl WHERE k=? AND t < ?", (key, now - window_sec))
+            count = conn.execute("SELECT COUNT(*) FROM rl WHERE k=?", (key,)).fetchone()[0]
+            if count >= max_calls:
+                conn.execute("COMMIT")
+                return False
+            conn.execute("INSERT INTO rl(k, t) VALUES (?, ?)", (key, now))
+            conn.execute("COMMIT")
+            return True
+        finally:
+            conn.close()
+    except Exception:
+        # При сбое БД пропускаем (лучше доступно, чем падать)
         return True
 
 RULES = {
