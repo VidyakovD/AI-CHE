@@ -144,10 +144,9 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   <!-- Main tabs -->
   <div class="border-b border-outline/20 mb-6 flex gap-0 items-center justify-between">
     <div class="flex">
-      <button class="main-tab active" id="tab-library" onclick="switchTab('library')">Библиотека агентов</button>
-      <button class="main-tab" id="tab-my" onclick="switchTab('my')">Мои агенты</button>
-      <button class="main-tab" id="tab-catalog" onclick="switchTab('catalog')">Конструктор</button>
-      <button class="main-tab" id="tab-run" onclick="switchTab('run')">Запустить</button>
+      <button class="main-tab active" id="tab-library" onclick="switchTab('library')" title="Каталог готовых ролей (юрист, SMM, копирайтер…) — выберите и настройте через мастер за 2 минуты">Библиотека</button>
+      <button class="main-tab" id="tab-my" onclick="switchTab('my')" title="Ваши созданные агенты — тест, деплой в Telegram, редактирование">Мои агенты</button>
+      <button class="main-tab" id="tab-catalog" onclick="switchTab('catalog')" title="Продвинутый режим — drag-n-drop граф из блоков. Для сложных воркфлоу с ветвлениями.">Конструктор</button>
     </div>
     <button onclick="openKeysModal()" class="btn-g text-xs flex items-center gap-1.5 mr-1">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
@@ -158,6 +157,9 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   <!-- ── Tab: Библиотека ── -->
   <div id="pane-library" class="tab-pane active">
     <div class="max-w-6xl">
+      <div class="mb-5 p-3 rounded-xl text-xs" style="background:rgba(255,140,66,.06);border:1px solid rgba(255,140,66,.2);color:#bfb09a">
+        📚 <b style="color:#ff8c42">Библиотека</b> — готовые роли для бизнеса. Выберите карточку → мастер за 4 шага соберёт агента под ваши задачи.
+      </div>
       <div class="flex flex-wrap gap-2 mb-6" id="libCatFilter"></div>
       <div id="libGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
     </div>
@@ -165,6 +167,9 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
   <!-- ── Tab: Мои агенты ── -->
   <div id="pane-my" class="tab-pane">
+    <div class="mb-4 p-3 rounded-xl text-xs max-w-4xl" style="background:rgba(255,140,66,.06);border:1px solid rgba(255,140,66,.2);color:#bfb09a">
+      🤖 <b style="color:#ff8c42">Мои агенты</b> — ваши собранные агенты. На каждой карточке: <b>▶ Тест</b> (разовый запуск в этом окне) · <b>🤖 В Telegram</b> (создать бота, который отвечает 24/7) · ✏️ (изменить в мастере).
+    </div>
     <div id="agentsList" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl"></div>
     <div id="agentsEmpty" class="hidden text-center py-12 px-4">
       <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
@@ -207,13 +212,13 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <span id="wfcMsg" class="text-xs hidden"></span>
           <button onclick="wfcUndo()" class="btn-g text-xs py-1.5" title="Отменить (Ctrl+Z)">↶</button>
           <button onclick="wfcRedo()" class="btn-g text-xs py-1.5" title="Повторить (Ctrl+Shift+Z)">↷</button>
-          <button onclick="wfcOpenTemplates()" class="btn-g text-xs py-1.5" title="Шаблоны">📋 Шаблоны</button>
-          <button onclick="wfcExportJSON()" class="btn-g text-xs py-1.5" title="Скачать JSON">⬇</button>
-          <button onclick="wfcImportJSON()" class="btn-g text-xs py-1.5" title="Загрузить JSON">⬆</button>
+          <button onclick="wfcOpenTemplates()" class="btn-g text-xs py-1.5" title="Сохранённые шаблоны">📋 Шаблоны</button>
+          <button onclick="wfcExportJSON()" class="btn-g text-xs py-1.5" title="Скачать граф в JSON">⬇</button>
+          <button onclick="wfcImportJSON()" class="btn-g text-xs py-1.5" title="Загрузить граф из JSON">⬆</button>
           <button onclick="wfcClear()" class="btn-g text-xs py-1.5">Очистить</button>
-          <button onclick="wfcSave()" class="btn-g text-xs py-1.5">💾 Сохранить</button>
-          <button onclick="wfcDeployAsBot()" class="btn-g text-xs py-1.5" style="border-color:rgba(107,255,158,0.4);color:#6bff9e">🤖 Как бота</button>
-          <button onclick="wfcRun()" class="btn-p text-xs py-1.5 px-4">▶ Запустить</button>
+          <button onclick="wfcSave()" class="btn-g text-xs py-1.5" title="Сохранить граф в «Мои агенты» как черновик">💾 Сохранить</button>
+          <button onclick="wfcRun()" class="btn-g text-xs py-1.5" title="Разовый тест прямо тут — без создания бота в TG">▶ Тест</button>
+          <button onclick="wfcDeployAsBot()" class="btn-p text-xs py-1.5 px-4" style="background:linear-gradient(135deg,#6bff9e,#42d4a8);color:#0d2418" title="Создать TG-бота: установит webhook, даст ссылку @username">🤖 Запустить в Telegram</button>
         </div>
         <!-- Hidden file input для импорта JSON -->
         <input type="file" id="wfcImportFile" accept=".json,application/json" style="display:none" onchange="wfcImportJSONFile(event)"/>
@@ -450,6 +455,36 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     </div>
   </div>
 </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TEST-AGENT MODAL (разовый запуск из «Мои агенты»)
+════════════════════════════════════════════════════════════ -->
+<div id="testAgentModal" class="hidden fixed inset-0 z-50" style="background:rgba(0,0,0,.7);backdrop-filter:blur(6px)" onclick="if(event.target===this)closeTestModal()">
+  <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-2xl border border-outline/25 shadow-2xl w-full max-w-xl mx-4 overflow-hidden">
+    <div class="sig px-5 py-3 flex items-center justify-between">
+      <div>
+        <h3 class="font-bold text-[#1e1a14] font-headline text-sm" id="testAgentTitle">Тест агента</h3>
+        <p class="text-[10px] text-[#1e1a14]/70 mt-0.5">Разовый запуск без создания TG-бота. Результат тут же в окне.</p>
+      </div>
+      <button onclick="closeTestModal()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]">✕</button>
+    </div>
+    <div class="p-5 space-y-3">
+      <div>
+        <label class="block text-xs text-on-dim mb-1.5">Задача для агента</label>
+        <textarea id="testAgentGoal" rows="3" class="inp text-sm resize-none" placeholder="Напр: составь коммерческое предложение для ООО «Ромашка»"></textarea>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="runTestAgent()" class="btn-p flex-1" id="testAgentRunBtn">▶ Запустить</button>
+        <button onclick="closeTestModal()" class="btn-g">Отмена</button>
+      </div>
+      <div id="testAgentStatus" class="hidden text-xs text-on-dim flex items-center gap-2 pt-2 border-t border-outline/15">
+        <span class="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></span>
+        <span id="testAgentStatusText">Запускаю…</span>
+      </div>
+      <div id="testAgentResult" class="hidden max-h-80 overflow-y-auto bg-surface2 rounded-xl p-3 border border-outline/15 text-sm whitespace-pre-wrap"></div>
+    </div>
+  </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
@@ -1066,13 +1101,14 @@ function renderAgents() {
 
     return `<div class="agent-item" style="cursor:default">
       <div class="flex items-start justify-between gap-3">
-        <div class="flex items-start gap-3 flex-1 min-w-0 cursor-pointer" onclick="openAgent(${a.id})">
+        <div class="flex items-start gap-3 flex-1 min-w-0">
           <div class="status-dot ${dot} mt-1.5"></div>
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 mb-0.5">
               <p class="font-headline font-bold text-sm truncate">${esc(a.name)}</p>
               ${chLabels ? `<span class="flex gap-1">${chLabels}</span>` : ''}
               <span class="text-[10px] text-on-dim/80 px-2 py-0.5 rounded-full bg-surface3/60">${stLabel}</span>
+              ${a.bot_username ? `<a href="https://t.me/${esc(a.bot_username)}" target="_blank" class="text-[10px] text-primary hover:underline">@${esc(a.bot_username)}</a>` : ''}
             </div>
             <p class="text-xs text-on-dim">
               ${blockCount} блоков${hasGraph ? ` · граф из ${orchSettings.wfc_nodes.length} узлов` : ''}
@@ -1081,22 +1117,22 @@ function renderAgents() {
           </div>
         </div>
         <div class="flex items-center gap-1 flex-shrink-0">
-          <button onclick="event.stopPropagation();runAgentFromList(${a.id})"
-            class="btn-g text-xs py-1 px-2.5 flex items-center gap-1" title="Протестировать разово">
+          <button onclick="runAgentModal(${a.id})"
+            class="btn-g text-xs py-1 px-2.5 flex items-center gap-1" title="Протестировать разово — не создавая бота">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             Тест
           </button>
-          <button onclick="event.stopPropagation();deployAgentAsBot(${a.id})"
+          <button onclick="deployAgentAsBot(${a.id})"
             class="text-xs py-1 px-2.5 rounded-lg flex items-center gap-1 transition"
             style="background:rgba(107,255,158,.12);color:#6bff9e;border:1px solid rgba(107,255,158,.3)"
-            title="Создать TG-бота с этим воркфлоу">
+            title="Создать TG-бота — он начнёт отвечать клиентам 24/7">
             🤖 В Telegram
           </button>
-          <button onclick="event.stopPropagation();openAgent(${a.id})"
-            class="btn-g text-xs py-1 px-2" title="Редактировать">
+          <button onclick="openAgent(${a.id})"
+            class="btn-g text-xs py-1 px-2" title="Редактировать в мастере">
             ✏️
           </button>
-          <button onclick="event.stopPropagation();deleteAgent(${a.id})"
+          <button onclick="deleteAgent(${a.id})"
             class="text-error/40 hover:text-error transition p-1" title="Удалить">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
           </button>
@@ -1104,23 +1140,115 @@ function renderAgents() {
       </div>
     </div>`;
   }).join('');
-
-  // fill agent select in run tab
-  const sel = document.getElementById('agentSelect');
-  sel.innerHTML = '<option value="">Автоматически (оркестратор решит)</option>' +
-    myAgents.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
 }
 
-// Запустить агента во вкладке «Запустить»
-function runAgentFromList(agentId) {
+// Success-модалка после деплоя бота — показывает @username и t.me ссылку
+function showDeploySuccess(botName, username, tmeUrl) {
+  const m = document.createElement('div');
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(8px);z-index:9999;display:flex;align-items:center;justify-content:center';
+  m.onclick = (e) => { if (e.target === m) m.remove(); };
+  m.innerHTML = `
+    <div style="background:#1a1510;border:1px solid rgba(107,255,158,.35);border-radius:16px;max-width:460px;width:90%;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.6)">
+      <div style="background:linear-gradient(135deg,#6bff9e,#42d4a8);padding:20px;text-align:center">
+        <div style="font-size:48px;line-height:1">🤖</div>
+        <h3 style="color:#0d2418;font-weight:800;font-size:18px;margin-top:8px">Бот «${esc(botName)}» готов!</h3>
+        <p style="color:#0d2418;opacity:.75;font-size:13px;margin-top:4px">Webhook установлен — бот уже отвечает</p>
+      </div>
+      <div style="padding:20px;color:#f0e6d8">
+        <p style="font-size:13px;color:#a89880;margin-bottom:10px">Ваш бот в Telegram:</p>
+        <div style="display:flex;align-items:center;gap:10px;background:#231d16;border:1px solid rgba(107,255,158,.25);border-radius:10px;padding:12px;margin-bottom:14px">
+          <div style="width:36px;height:36px;background:#29b6f6;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </div>
+          <div style="flex:1;min-width:0">
+            <p style="font-weight:700;font-size:14px;color:#6bff9e">@${esc(username)}</p>
+            <p style="font-size:11px;color:#6b5d4a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(tmeUrl)}</p>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <a href="${esc(tmeUrl)}" target="_blank" style="flex:1;padding:11px;background:linear-gradient(135deg,#29b6f6,#0288d1);color:#fff;border-radius:10px;text-align:center;font-weight:700;font-size:13px;text-decoration:none">Открыть в Telegram →</a>
+          <button onclick="navigator.clipboard.writeText('${esc(tmeUrl)}').then(()=>{this.textContent='✓'});" style="padding:11px 14px;background:#231d16;color:#a89880;border:1px solid rgba(74,63,47,.4);border-radius:10px;font-size:13px;cursor:pointer">📋</button>
+        </div>
+        <p style="font-size:11px;color:#6b5d4a;margin-top:14px;line-height:1.5">
+          ✓ Напишите боту «Привет» — проверка займёт 5 секунд.<br>
+          ✓ Управление, статистика, пауза — <a href="/chatbots.html" style="color:#ff8c42;text-decoration:underline">в «Чат-боты»</a>
+        </p>
+        <button onclick="this.closest('[style*=\\'rgba(0,0,0,.75)\\']').remove();loadAgents();" style="width:100%;margin-top:12px;padding:10px;background:#231d16;color:#a89880;border:1px solid rgba(74,63,47,.4);border-radius:10px;font-size:12px;cursor:pointer">Закрыть</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+// Открыть модалку «Тест» (разовый запуск без создания бота)
+let _testAgentId = null;
+let _testPollTimer = null;
+function runAgentModal(agentId) {
   const a = myAgents.find(x => x.id === agentId); if (!a) return;
-  switchTab('run');
-  setTimeout(() => {
-    const sel = document.getElementById('agentSelect');
-    if (sel) sel.value = agentId;
-    const goalEl = document.getElementById('goalInput');
-    if (goalEl) { goalEl.placeholder = `Что должен сделать «${a.name}»?`; goalEl.focus(); }
-  }, 100);
+  _testAgentId = agentId;
+  document.getElementById('testAgentTitle').textContent = `▶ Тест: ${a.name}`;
+  document.getElementById('testAgentGoal').value = '';
+  document.getElementById('testAgentGoal').placeholder = `Что должен сделать «${a.name}»?`;
+  document.getElementById('testAgentResult').classList.add('hidden');
+  document.getElementById('testAgentResult').textContent = '';
+  document.getElementById('testAgentStatus').classList.add('hidden');
+  document.getElementById('testAgentModal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('testAgentGoal').focus(), 50);
+}
+function closeTestModal() {
+  document.getElementById('testAgentModal').classList.add('hidden');
+  if (_testPollTimer) { clearInterval(_testPollTimer); _testPollTimer = null; }
+}
+async function runTestAgent() {
+  const goal = document.getElementById('testAgentGoal').value.trim();
+  if (!goal) { document.getElementById('testAgentGoal').focus(); return; }
+  if (!_testAgentId) return;
+  const btn = document.getElementById('testAgentRunBtn');
+  const st  = document.getElementById('testAgentStatus');
+  const stT = document.getElementById('testAgentStatusText');
+  const res = document.getElementById('testAgentResult');
+  btn.disabled = true; btn.textContent = 'Запускаю…';
+  st.classList.remove('hidden'); stT.textContent = 'Отправляю задачу…';
+  res.classList.add('hidden'); res.textContent = '';
+  const t0 = Date.now();
+  try {
+    const r = await fetch(`${API}/agent/run`, {
+      method: 'POST', headers: hdrs(),
+      body: JSON.stringify({goal, agent_config_id: _testAgentId, api_mode: 'service'}),
+    });
+    if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.detail || 'Ошибка'); }
+    const data = await r.json();
+    const taskId = data.task_id;
+    // Polling статуса
+    _testPollTimer = setInterval(async () => {
+      try {
+        const r2 = await fetch(`${API}/agent/${taskId}/status`, {headers: hdrs()});
+        if (!r2.ok) return;
+        const t = await r2.json();
+        const sec = Math.floor((Date.now()-t0)/1000);
+        stT.textContent = `${t.status === 'running' ? 'Работаю' : t.status}… ${sec} сек (шагов: ${(t.steps||[]).length})`;
+        if (['done','error','failed','cancelled'].includes(t.status)) {
+          clearInterval(_testPollTimer); _testPollTimer = null;
+          st.classList.add('hidden');
+          btn.disabled = false; btn.textContent = '▶ Запустить';
+          const text = t.result || t.error || 'Готово (пустой ответ)';
+          const isErr = t.status !== 'done';
+          res.classList.remove('hidden');
+          res.textContent = text;
+          res.style.color = isErr ? '#fca5a5' : '';
+          if (t.cost) {
+            const rub = window.chToRub ? window.chToRub(t.cost) : '';
+            res.textContent += `\n\n— — —\n💰 Списано: ${t.cost} CH${rub ? ` (${rub})` : ''} · ${sec} сек`;
+          }
+        }
+      } catch {}
+    }, 1500);
+  } catch(e) {
+    btn.disabled = false; btn.textContent = '▶ Запустить';
+    st.classList.add('hidden');
+    res.classList.remove('hidden');
+    res.textContent = 'Ошибка: ' + e.message;
+    res.style.color = '#fca5a5';
+  }
 }
 
 // Создать TG-бота из AgentConfig (с графом или без)
@@ -1210,14 +1338,20 @@ async function deployAgentAsBot(agentId) {
     if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка создания бота');
     const bot = await r.json();
     const tgOk = bot.setup?.telegram?.ok;
-    alert(
-      `✅ Бот «${bot.name}» создан!\n\n`
-      + (tgOk
-        ? `Telegram webhook установлен — можете писать боту прямо сейчас.\n\nЧтобы проверить: откройте бота в Telegram и напишите «Привет»`
-        : `ChatBot создан, но webhook не подтвердился. Проверьте токен в /chatbots.html → ▶ Запуск`)
-    );
-    // Переход на chatbots чтобы юзер видел
-    window.location.href = '/chatbots.html';
+    const username = bot.setup?.telegram?.username;
+    const tmeUrl = bot.setup?.telegram?.url;
+    if (tgOk && username) {
+      // Красивая модалка вместо alert
+      showDeploySuccess(bot.name, username, tmeUrl);
+    } else {
+      alert(
+        `✅ Бот «${bot.name}» создан!\n\n`
+        + (tgOk
+          ? `Telegram webhook установлен — можете писать боту прямо сейчас.`
+          : `ChatBot создан, но webhook не подтвердился. Проверьте токен в /chatbots.html → ▶ Запуск`)
+      );
+      window.location.href = '/chatbots.html';
+    }
   } catch (e) {
     alert('Ошибка: ' + e.message);
   }
@@ -3085,21 +3219,19 @@ async function wfcDeployAsBot() {
     })});
     if(!r.ok)throw new Error((await r.json()).detail||'Ошибка');
     const bot=await r.json();
-
-    // Если есть TG токен — сразу deploy
-    let deployMsg = '';
-    if(tg_token){
-      const dr=await fetch(`${API}/chatbots/${bot.id}/deploy`,{method:'POST',headers:hdrs()});
-      const dd=await dr.json();
-      deployMsg = dd.channels?.telegram?.ok
-        ? `Бот «${bot.name}» запущен, Telegram webhook установлен`
-        : `Бот «${bot.name}» создан (webhook не установлен)`;
+    // POST /chatbots теперь делает auto-deploy → setup есть в ответе
+    const tgInfo = bot.setup?.telegram;
+    if (tgInfo?.ok && tgInfo?.username) {
+      m.classList.add('hidden');
+      showDeploySuccess(bot.name, tgInfo.username, tgInfo.url);
+    } else if (tg_token && tgInfo?.ok === false) {
+      m.className='text-xs text-error';
+      m.textContent=`Бот создан, но webhook не подтвердился: ${tgInfo.detail || 'проверьте токен'}`;
     } else {
-      deployMsg = `Бот «${bot.name}» создан`;
+      m.className='text-xs';m.style.color='#6bff9e';
+      m.textContent=`✓ Бот «${bot.name}" создан (без TG) → переход в Чат-боты...`;
+      setTimeout(()=>{window.location.href='chatbots.html';}, 1000);
     }
-    m.className='text-xs';m.style.color='#6bff9e';m.textContent='✓ '+deployMsg+' → переход...';
-    // Автопереход на страницу чат-ботов через 1 сек
-    setTimeout(()=>{window.location.href='chatbots.html';}, 1000);
   }catch(e){m.className='text-xs text-error';m.textContent=e.message;setTimeout(()=>m.classList.add('hidden'),5000);}
 }
 

@@ -49,6 +49,20 @@ class BotUpdate(BaseModel):
     cost_per_reply: int | None = None
 
 
+async def _fetch_tg_username(tg_token: str) -> str | None:
+    """Вызывает Telegram getMe чтобы узнать @username бота."""
+    try:
+        import httpx as _hx
+        async with _hx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"https://api.telegram.org/bot{tg_token}/getMe")
+            data = r.json()
+            if data.get("ok"):
+                return data.get("result", {}).get("username")
+    except Exception:
+        pass
+    return None
+
+
 async def _auto_setup_channels(bot: ChatBot) -> dict:
     """
     Автоматически настраивает webhook'и для всех каналов где есть креды.
@@ -60,7 +74,13 @@ async def _auto_setup_channels(bot: ChatBot) -> dict:
         try:
             r = await setup_telegram_webhook(bot.tg_token, wh_url)
             bot.tg_webhook_set = bool(r.get("ok"))
-            out["telegram"] = {"ok": bot.tg_webhook_set, "detail": r.get("description", "")}
+            username = await _fetch_tg_username(bot.tg_token)
+            out["telegram"] = {
+                "ok": bot.tg_webhook_set,
+                "detail": r.get("description", ""),
+                "username": username,
+                "url": f"https://t.me/{username}" if username else None,
+            }
         except Exception as e:
             log.error(f"[Bot {bot.id}] TG setup failed: {e}")
             out["telegram"] = {"ok": False, "detail": str(e)}
