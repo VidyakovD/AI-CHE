@@ -193,10 +193,32 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <input id="wfcName" class="inp text-sm font-bold py-1.5" style="max-width:200px" placeholder="Название" value="TG-бот с AI"/>
           <div class="flex-1"></div>
           <span id="wfcMsg" class="text-xs hidden"></span>
+          <button onclick="wfcUndo()" class="btn-g text-xs py-1.5" title="Отменить (Ctrl+Z)">↶</button>
+          <button onclick="wfcRedo()" class="btn-g text-xs py-1.5" title="Повторить (Ctrl+Shift+Z)">↷</button>
+          <button onclick="wfcOpenTemplates()" class="btn-g text-xs py-1.5" title="Шаблоны">📋 Шаблоны</button>
+          <button onclick="wfcExportJSON()" class="btn-g text-xs py-1.5" title="Скачать JSON">⬇</button>
+          <button onclick="wfcImportJSON()" class="btn-g text-xs py-1.5" title="Загрузить JSON">⬆</button>
           <button onclick="wfcClear()" class="btn-g text-xs py-1.5">Очистить</button>
           <button onclick="wfcSave()" class="btn-g text-xs py-1.5">💾 Сохранить</button>
           <button onclick="wfcDeployAsBot()" class="btn-g text-xs py-1.5" style="border-color:rgba(107,255,158,0.4);color:#6bff9e">🤖 Как бота</button>
           <button onclick="wfcRun()" class="btn-p text-xs py-1.5 px-4">▶ Запустить</button>
+        </div>
+        <!-- Hidden file input для импорта JSON -->
+        <input type="file" id="wfcImportFile" accept=".json,application/json" style="display:none" onchange="wfcImportJSONFile(event)"/>
+
+        <!-- Templates modal -->
+        <div id="wfcTemplatesModal" class="hidden fixed inset-0 z-50" style="background:rgba(0,0,0,.7);backdrop-filter:blur(6px)" onclick="if(event.target===this)wfcCloseTemplates()">
+          <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-2xl border border-outline/25 shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+            <div class="sig px-5 py-3 flex items-center justify-between">
+              <h3 class="font-bold text-[#1e1a14] font-headline text-sm">📋 Мои шаблоны</h3>
+              <button onclick="wfcCloseTemplates()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]">✕</button>
+            </div>
+            <div class="p-4 space-y-2 max-h-[60vh] overflow-y-auto" id="wfcTemplatesList"></div>
+            <div class="p-4 border-t border-outline/15 flex gap-2">
+              <button onclick="wfcSaveAsTemplate()" class="btn-p text-xs flex-1 py-2">💾 Сохранить текущий как шаблон</button>
+              <button onclick="wfcCloseTemplates()" class="btn-g text-xs py-2 px-4">Закрыть</button>
+            </div>
+          </div>
         </div>
 
         <!-- Canvas -->
@@ -919,8 +941,7 @@ function switchTab(t) {
 }
 
 // Escape — выход из полноэкранного конструктора
-// Ctrl/Cmd+D — дублировать выделенный блок
-// Delete/Backspace — удалить выделенный (если не в input/textarea)
+// Ctrl/Cmd+D — дублировать, Ctrl+Z/Y — undo/redo, Del/Backspace — удалить
 document.addEventListener('keydown', e => {
   const inCanvas = document.getElementById('pane-catalog')?.classList.contains('active');
   if (e.key === 'Escape' && inCanvas) {
@@ -931,13 +952,19 @@ document.addEventListener('keydown', e => {
   const tag = (e.target && e.target.tagName) || '';
   const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ||
                  (e.target && e.target.isContentEditable);
-  // Ctrl+D / Cmd+D — дублировать (работает даже если фокус в input: сохраним через preventDefault)
+  // Ctrl+D — дублировать (работает даже в input)
   if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
-    if (wfc.sel) {
-      e.preventDefault();
-      wfcDupNode(wfc.sel);
-    }
+    if (wfc.sel) { e.preventDefault(); wfcDupNode(wfc.sel); }
     return;
+  }
+  // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y — undo/redo
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+    e.preventDefault();
+    if (e.shiftKey) wfcRedo(); else wfcUndo();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+    e.preventDefault(); wfcRedo(); return;
   }
   if (typing) return;
   if ((e.key === 'Delete' || e.key === 'Backspace') && wfc.sel) {
@@ -2111,6 +2138,186 @@ function wfcInitDefault() {
   wfc.ctr = 10;
 }
 
+// ── Undo / Redo (wfc) ─────────────────────────────────────────────────────────
+const WFC_HISTORY_LIMIT = 50;
+let _wfcHistory = [];
+let _wfcFuture = [];
+let _wfcSnapSkip = false;
+
+function _wfcSnap() {
+  return JSON.stringify({ nodes: wfc.nodes, edges: wfc.edges, ctr: wfc.ctr });
+}
+function wfcPushHistory() {
+  if (_wfcSnapSkip) return;
+  const s = _wfcSnap();
+  if (_wfcHistory.length && _wfcHistory[_wfcHistory.length-1] === s) return;
+  _wfcHistory.push(s);
+  if (_wfcHistory.length > WFC_HISTORY_LIMIT) _wfcHistory.shift();
+  _wfcFuture = [];
+}
+function _wfcRestore(snap) {
+  const d = JSON.parse(snap);
+  wfc.nodes = d.nodes; wfc.edges = d.edges; wfc.ctr = d.ctr;
+  wfc.sel = null;
+  document.getElementById('wfcPanel')?.classList.add('hidden');
+  wfcRender();
+}
+function wfcUndo() {
+  if (_wfcHistory.length < 2) return;
+  _wfcSnapSkip = true;
+  _wfcFuture.push(_wfcHistory.pop());
+  _wfcRestore(_wfcHistory[_wfcHistory.length-1]);
+  _wfcSnapSkip = false;
+}
+function wfcRedo() {
+  if (!_wfcFuture.length) return;
+  _wfcSnapSkip = true;
+  const s = _wfcFuture.pop();
+  _wfcHistory.push(s);
+  _wfcRestore(s);
+  _wfcSnapSkip = false;
+}
+
+// ── Export / Import JSON ────────────────────────────────────────────────────
+function wfcExportJSON() {
+  const name = document.getElementById('wfcName')?.value?.trim() || 'workflow';
+  const data = {
+    format: 'aiche-workflow-v1',
+    name: name,
+    nodes: wfc.nodes,
+    edges: wfc.edges,
+    exportedAt: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safe = name.replace(/[^\w.\-]+/g, '_').slice(0, 50);
+  a.href = url; a.download = `${safe}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function wfcImportJSON() {
+  document.getElementById('wfcImportFile').click();
+}
+async function wfcImportJSONFile(ev) {
+  const file = ev.target.files[0]; if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!data || !Array.isArray(data.nodes)) throw new Error('Неверный формат');
+    if (wfc.nodes.length && !confirm('Заменить текущий воркфлоу на импортированный?')) {
+      ev.target.value = ''; return;
+    }
+    // Пере-генерируем ID чтобы не было конфликтов
+    const idMap = {};
+    wfc.ctr = 1;
+    wfc.nodes = data.nodes.map(n => {
+      const newId = 'n' + (wfc.ctr++);
+      idMap[n.id] = newId;
+      return { ...n, id: newId };
+    });
+    wfc.edges = (data.edges || []).map(e => ({
+      id: 'e' + (wfc.ctr++),
+      from: idMap[e.from] || e.from,
+      to: idMap[e.to] || e.to,
+    })).filter(e => e.from && e.to);
+    wfc.sel = null;
+    if (data.name) document.getElementById('wfcName').value = data.name;
+    wfcRender();
+    wfcPushHistory();
+    const m = document.getElementById('wfcMsg');
+    if (m) { m.className = 'text-xs text-green-400'; m.textContent = `✓ Импортировано: ${wfc.nodes.length} блоков`; m.classList.remove('hidden'); setTimeout(()=>m.classList.add('hidden'), 3000); }
+  } catch (e) {
+    alert('Ошибка импорта: ' + e.message);
+  }
+  ev.target.value = '';  // allow re-import same file
+}
+
+// ── Мои шаблоны (localStorage) ──────────────────────────────────────────────
+const WFC_TEMPLATES_KEY = 'obs_wfc_templates';
+function _wfcLoadTemplates() {
+  try { return JSON.parse(localStorage.getItem(WFC_TEMPLATES_KEY) || '[]'); }
+  catch { return []; }
+}
+function _wfcSaveTemplates(list) {
+  localStorage.setItem(WFC_TEMPLATES_KEY, JSON.stringify(list));
+}
+function wfcSaveAsTemplate() {
+  const defaultName = document.getElementById('wfcName')?.value?.trim() || 'Мой шаблон';
+  const name = prompt('Название шаблона:', defaultName);
+  if (!name) return;
+  const list = _wfcLoadTemplates();
+  list.push({
+    id: Date.now(),
+    name: name,
+    nodes: JSON.parse(JSON.stringify(wfc.nodes)),
+    edges: JSON.parse(JSON.stringify(wfc.edges)),
+    createdAt: new Date().toISOString(),
+  });
+  _wfcSaveTemplates(list);
+  wfcOpenTemplates();
+}
+function wfcOpenTemplates() {
+  const modal = document.getElementById('wfcTemplatesModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  wfcRenderTemplates();
+}
+function wfcCloseTemplates() {
+  document.getElementById('wfcTemplatesModal')?.classList.add('hidden');
+}
+function wfcRenderTemplates() {
+  const list = _wfcLoadTemplates();
+  const el = document.getElementById('wfcTemplatesList');
+  if (!el) return;
+  if (!list.length) {
+    el.innerHTML = `<p class="text-sm text-on-dim text-center py-6">
+      У вас пока нет шаблонов. Соберите воркфлоу и нажмите «💾 Сохранить как шаблон» ниже.
+    </p>`;
+    return;
+  }
+  el.innerHTML = list.map(t => {
+    const date = new Date(t.createdAt).toLocaleDateString('ru');
+    const nCount = t.nodes?.length || 0;
+    const eCount = t.edges?.length || 0;
+    return `<div class="flex items-center justify-between p-3 bg-surface2 rounded-lg border border-outline/20 gap-2">
+      <div class="flex-1 min-w-0">
+        <p class="font-semibold text-sm truncate">${esc(t.name)}</p>
+        <p class="text-xs text-on-dim">${nCount} блоков · ${eCount} связей · ${date}</p>
+      </div>
+      <button onclick="wfcApplyTemplate(${t.id})" class="btn-p text-xs py-1 px-3">Применить</button>
+      <button onclick="wfcDeleteTemplate(${t.id})" class="btn-g text-xs py-1 px-2" style="color:#ff6b6b;border-color:rgba(255,107,107,.25)">✕</button>
+    </div>`;
+  }).join('');
+}
+function wfcApplyTemplate(id) {
+  const t = _wfcLoadTemplates().find(x => x.id === id);
+  if (!t) return;
+  if (wfc.nodes.length && !confirm(`Заменить текущий воркфлоу на «${t.name}»?`)) return;
+  const idMap = {}; wfc.ctr = 1;
+  wfc.nodes = (t.nodes || []).map(n => {
+    const nid = 'n' + (wfc.ctr++);
+    idMap[n.id] = nid;
+    return { ...n, id: nid };
+  });
+  wfc.edges = (t.edges || []).map(e => ({
+    id: 'e' + (wfc.ctr++),
+    from: idMap[e.from] || e.from,
+    to: idMap[e.to] || e.to,
+  })).filter(e => e.from && e.to);
+  wfc.sel = null;
+  document.getElementById('wfcName').value = t.name;
+  wfcCloseTemplates();
+  wfcRender();
+  wfcPushHistory();
+}
+function wfcDeleteTemplate(id) {
+  if (!confirm('Удалить шаблон?')) return;
+  _wfcSaveTemplates(_wfcLoadTemplates().filter(x => x.id !== id));
+  wfcRenderTemplates();
+}
+
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 function wfcBuildSidebar(filter='') {
   const el = document.getElementById('wfcSidebarInner');
@@ -2235,6 +2442,7 @@ function wfcDupNode(id) {
   });
   wfcRender();
   wfcSelNode(newId);
+  wfcPushHistory();
 }
 
 function wfcToggleHelp(ev, id) {
@@ -2398,10 +2606,13 @@ function wfcWrapUp(e) {
       const tid=t.dataset.nid;
       if (!wfc.edges.find(ed=>ed.from===wfc.conn.fromId&&ed.to===tid))
         wfc.edges.push({id:'e'+(wfc.ctr++), from:wfc.conn.fromId, to:tid});
+        wfcPushHistory();
     }
     wfc.conn=null; wfcRender(); return;
   }
-  wfc.drag=null; wfc.pan=null;
+  // Drag-end snapshot (только если действительно был drag, не pan)
+  if (wfc.drag) { wfc.drag = null; wfcPushHistory(); }
+  wfc.pan = null;
 }
 function wfcWheel(e) {
   e.preventDefault();
@@ -2452,6 +2663,7 @@ function wfcDelNode(id) {
   wfc.edges=wfc.edges.filter(e=>e.from!==id&&e.to!==id);
   if(wfc.sel===id){wfc.sel=null;document.getElementById('wfcPanel')?.classList.add('hidden');}
   wfcRender();
+  wfcPushHistory();
 }
 function wfcDeleteSel() { if(wfc.sel) wfcDelNode(wfc.sel); }
 
@@ -2580,6 +2792,7 @@ function wfcAddAt(type, x, y) {
   const id='n'+(wfc.ctr++);
   wfc.nodes.push({id,type,x:Math.round(x),y:Math.round(y),cfg:{}});
   wfcRender(); wfcSelNode(id);
+  wfcPushHistory();
 }
 
 // ── Save / Run / Clear ────────────────────────────────────────────────────────
@@ -2587,6 +2800,7 @@ function wfcClear() {
   if(!confirm('Очистить воркфлоу?')) return;
   wfc.nodes=[]; wfc.edges=[]; wfc.sel=null;
   document.getElementById('wfcPanel')?.classList.add('hidden'); wfcRender();
+  wfcPushHistory();
 }
 async function wfcSave() {
   const name=document.getElementById('wfcName')?.value?.trim()||'Воркфлоу';

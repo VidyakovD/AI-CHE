@@ -18,7 +18,14 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:Inter,sans-serif;co
 #nodes-layer{position:absolute;top:0;left:0;transform-origin:0 0;z-index:2}
 #nodes-layer *{user-select:none;-webkit-user-select:none}
 /* Node */
-.node{position:absolute;background:#1a1510;border:1.5px solid rgba(74,63,47,0.6);border-radius:14px;min-width:196px;max-width:196px;cursor:default;user-select:none;transition:border-color .15s,box-shadow .15s}
+.node{position:absolute;background:#1a1510;border:1.5px solid rgba(74,63,47,0.6);border-radius:14px;min-width:196px;max-width:560px;width:var(--wf-w,196px);cursor:default;user-select:none;transition:border-color .15s,box-shadow .15s;resize:horizontal;overflow:auto}
+.node-body textarea{overflow:hidden;resize:none}
+.node-tool{background:none;border:none;cursor:pointer;color:rgba(240,230,216,.35);padding:2px;border-radius:4px;line-height:0;transition:color .15s;flex-shrink:0}
+.node-tool:hover{color:#ff8c42}
+.node-tool.danger:hover{color:#ff6b6b}
+.node-help-pop{position:absolute;top:calc(100% + 6px);right:4px;z-index:30;width:280px;padding:10px 12px;background:#2a2318;border:1px solid rgba(255,140,66,.35);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);font-size:11px;line-height:1.5;color:#e8dfce;white-space:pre-wrap}
+.node-help-pop strong{color:#ff8c42;font-size:12px;display:block;margin-bottom:4px}
+.node-help-pop .hint{margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,140,66,.2);color:#bfb09a}
 .node:hover{border-color:rgba(255,140,66,0.5)}
 .node.selected{border-color:#ff8c42;box-shadow:0 0 0 2px rgba(255,140,66,0.2)}
 .node-hdr{padding:10px 12px 8px;display:flex;align-items:center;gap:7px;border-bottom:1px solid rgba(74,63,47,0.3);cursor:move;position:relative;border-radius:14px 14px 0 0}
@@ -98,9 +105,30 @@ select.inp option{background:#231d16;color:#f0e6d8}
   <div style="flex:1"></div>
   <input id="wf-name" type="text" placeholder="Название..." class="inp" style="width:180px;padding:5px 10px"/>
   <div id="wfCostEstimate" style="font-size:11px;color:rgba(168,152,128,0.8);padding:4px 10px;background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.25);border-radius:6px" title="Примерная стоимость запуска по прайсу моделей">💰 <span id="wfCostValue">0 CH</span></div>
+  <button onclick="wfUndo()" class="btn btn-g" style="font-size:12px;padding:4px 8px;min-width:28px" title="Отменить (Ctrl+Z)">↶</button>
+  <button onclick="wfRedo()" class="btn btn-g" style="font-size:12px;padding:4px 8px;min-width:28px" title="Повторить (Ctrl+Shift+Z)">↷</button>
+  <button onclick="wfOpenTemplates()" class="btn btn-g" style="font-size:11px;padding:5px 10px" title="Мои шаблоны">📋 Шаблоны</button>
+  <button onclick="wfExportJSON()" class="btn btn-g" style="font-size:12px;padding:4px 8px;min-width:28px" title="Скачать JSON">⬇</button>
+  <button onclick="wfImportJSON()" class="btn btn-g" style="font-size:12px;padding:4px 8px;min-width:28px" title="Загрузить JSON">⬆</button>
   <button onclick="clearCanvas()" class="btn btn-g" style="font-size:11px;padding:5px 10px">Очистить</button>
   <button onclick="saveWorkflow()" class="btn btn-g" style="font-size:11px;padding:5px 10px">💾 Сохранить</button>
   <button onclick="runWorkflow()" class="btn btn-p" style="font-size:11px;padding:5px 12px">▶ Запустить</button>
+  <input type="file" id="wfImportFile" accept=".json,application/json" style="display:none" onchange="wfImportJSONFile(event)"/>
+</div>
+
+<!-- Templates modal -->
+<div id="wfTemplatesModal" style="position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);z-index:600;display:none" onclick="if(event.target===this)wfCloseTemplates()">
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1510;border:1px solid rgba(74,63,47,0.5);border-radius:14px;width:min(520px,92vw);max-height:80vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="padding:12px 16px;border-bottom:1px solid rgba(74,63,47,0.4);display:flex;align-items:center;justify-content:space-between">
+      <h3 style="font-size:14px;font-weight:700;color:#ff8c42">📋 Мои шаблоны</h3>
+      <button onclick="wfCloseTemplates()" class="btn btn-g" style="padding:3px 8px;font-size:11px">✕</button>
+    </div>
+    <div id="wfTemplatesList" style="padding:12px;overflow-y:auto;flex:1"></div>
+    <div style="padding:10px 16px;border-top:1px solid rgba(74,63,47,0.4);display:flex;gap:8px">
+      <button onclick="wfSaveAsTemplate()" class="btn btn-p" style="flex:1;padding:7px;font-size:12px">💾 Сохранить текущий как шаблон</button>
+      <button onclick="wfCloseTemplates()" class="btn btn-g" style="padding:7px 14px;font-size:12px">Закрыть</button>
+    </div>
+  </div>
 </div>
 
 <div class="sidebar">
@@ -184,23 +212,57 @@ const PORT_TYPE_COLORS = {
 };
 
 const NODE_DEF = {
-  text_input:   {label:'Текст (ввод)',      emoji:'📝', color:'#ff8c42', ins:[],              outs:['text'],          price:0},
-  image_upload: {label:'Фото (загрузка)',   emoji:'🖼️', color:'#ff8c42', ins:[],              outs:['image'],         price:0},
-  video_upload: {label:'Видео (загрузка)',  emoji:'🎬', color:'#ff8c42', ins:[],              outs:['video'],         price:0},
-  output:       {label:'Вывод',            emoji:'📤', color:'#6bff9e', ins:['any'],          outs:[],                price:0},
-  assistant:    {label:'Помощник (GPT)',    emoji:'🤖', color:'#ff8c42', ins:['text','image'], outs:['prompt','text'], price:5,  desc:'Пишет промпты, анализирует текст и изображения'},
-  gpt4o:        {label:'GPT-4o',           emoji:'🧠', color:'#ff9a42', ins:['text','prompt'],outs:['text'],          price:20},
-  claude:       {label:'Claude Sonnet',    emoji:'🟣', color:'#a855f7', ins:['text','prompt'],outs:['text'],          price:25},
-  gemini:       {label:'Gemini Flash',     emoji:'✨', color:'#4285f4', ins:['text','prompt'],outs:['text'],          price:6},
-  perplexity:   {label:'Perplexity',       emoji:'🔍', color:'#3b82f6', ins:['text','prompt'],outs:['text'],          price:6},
-  nano:         {label:'Nano Banana',      emoji:'🍌', color:'#eab308', ins:['text','prompt'],outs:['text'],          price:3},
-  dalle:        {label:'DALL-E 3',         emoji:'🎨', color:'#10b981', ins:['text','prompt'],outs:['image'],         price:40},
-  kling:        {label:'Kling (T2V)',      emoji:'🎥', color:'#ef4444', ins:['text','prompt'],outs:['video'],         price:200},
-  kling_i2v:   {label:'Kling (I2V)',      emoji:'🎥', color:'#ef4444', ins:['text','image'], outs:['video'],         price:200},
-  kling_motion:{label:'Kling Motion',     emoji:'🎥', color:'#ef4444', ins:['image','video'],outs:['video'],         price:300},
-  veo:          {label:'Veo 3',           emoji:'🎞️', color:'#ef4444', ins:['text','prompt'],outs:['video'],         price:120},
-  merge:        {label:'Объединить',      emoji:'🔗', color:'#6366f1', ins:['any','any'],    outs:['text'],          price:0},
-  delay:        {label:'Задержка',        emoji:'⏱️', color:'#6b7280', ins:['any'],          outs:['any'],           price:0},
+  text_input:   {label:'Текст (ввод)',      emoji:'📝', color:'#ff8c42', ins:[],              outs:['text'],          price:0,
+    desc:'Стартовая точка — здесь вы вводите текст (промпт/задачу).',
+    howto:'Откройте панель свойств → впишите текст. Он будет подаваться на вход следующего блока через стрелку.'},
+  image_upload: {label:'Фото (загрузка)',   emoji:'🖼️', color:'#ff8c42', ins:[],              outs:['image'],         price:0,
+    desc:'Загрузка изображения (для image→video или анализа).',
+    howto:'Откройте свойства → выберите файл. JPEG/PNG/WebP до 10 МБ.'},
+  video_upload: {label:'Видео (загрузка)',  emoji:'🎬', color:'#ff8c42', ins:[],              outs:['video'],         price:0,
+    desc:'Загрузка видео (для обработки Kling Motion).',
+    howto:'Откройте свойства → выберите файл. MP4/MOV/WebM до 50 МБ.'},
+  output:       {label:'Вывод',            emoji:'📤', color:'#6bff9e', ins:['any'],          outs:[],                price:0,
+    desc:'Показывает финальный результат воркфлоу.',
+    howto:'Подключите последний блок к этому. В свойствах можно задать заголовок.'},
+  assistant:    {label:'Помощник (GPT)',    emoji:'🤖', color:'#ff8c42', ins:['text','image'], outs:['prompt','text'], price:5,
+    desc:'Пишет промпты, анализирует текст и изображения. Дёшево — для подготовки.',
+    howto:'На вход — текст и/или картинка. На выход даёт промпт (для DALL-E/Kling) и текст. ~5 CH за запуск.'},
+  gpt4o:        {label:'GPT-4o',           emoji:'🧠', color:'#ff9a42', ins:['text','prompt'],outs:['text'],          price:20,
+    desc:'OpenAI GPT-4o — мощная универсальная модель для текста.',
+    howto:'В свойствах напишите system-промпт. На вход придёт текст/промпт предыдущего блока. ~20 CH за типичный ответ.'},
+  claude:       {label:'Claude Sonnet',    emoji:'🟣', color:'#a855f7', ins:['text','prompt'],outs:['text'],          price:25,
+    desc:'Anthropic Claude 4 — лучший для длинных текстов, анализа и кода.',
+    howto:'Сильнее GPT в reasoning и написании. Дороже (~25 CH). Если нужен контент-план или КП — этот.'},
+  gemini:       {label:'Gemini Flash',     emoji:'✨', color:'#4285f4', ins:['text','prompt'],outs:['text'],          price:6,
+    desc:'Google Gemini Flash — быстрая и дешёвая.',
+    howto:'Для простых задач когда скорость важнее качества. ~6 CH.'},
+  perplexity:   {label:'Perplexity',       emoji:'🔍', color:'#3b82f6', ins:['text','prompt'],outs:['text'],          price:6,
+    desc:'Поиск в Web + ответ с цитатами.',
+    howto:'Когда нужна свежая информация с источниками. Perplexity сам гуглит + даёт ссылки.'},
+  nano:         {label:'Nano Banana',      emoji:'🍌', color:'#eab308', ins:['text','prompt'],outs:['text'],          price:3,
+    desc:'Nano (Gemini 1.5 nano) — очень быстрая и дешёвая.',
+    howto:'Простые задачи: классификация, короткие ответы. ~3 CH.'},
+  dalle:        {label:'DALL-E 3',         emoji:'🎨', color:'#10b981', ins:['text','prompt'],outs:['image'],         price:40,
+    desc:'OpenAI DALL-E 3 — генерация изображений по описанию.',
+    howto:'На вход — текст-промпт (лучше на английском). Размер / стиль — в свойствах. ~40 CH за картинку.'},
+  kling:        {label:'Kling (T2V)',      emoji:'🎥', color:'#ef4444', ins:['text','prompt'],outs:['video'],         price:200,
+    desc:'Kling — text-to-video генерация (5-10 сек).',
+    howto:'Промпт на английском. Std/Pro mode, формат 16:9 / 9:16 / 1:1. ~200-400 CH за ролик.'},
+  kling_i2v:   {label:'Kling (I2V)',      emoji:'🎥', color:'#ef4444', ins:['text','image'], outs:['video'],         price:200,
+    desc:'Kling image-to-video — оживляет статичную картинку.',
+    howto:'Подключите картинку + текст-описание движения. Результат — видео с этой картинкой.'},
+  kling_motion:{label:'Kling Motion',     emoji:'🎥', color:'#ef4444', ins:['image','video'],outs:['video'],         price:300,
+    desc:'Переносит движение из референса на картинку (motion-transfer).',
+    howto:'Подайте целевую картинку + видео-референс движения. Дорого (~300 CH) — используйте осознанно.'},
+  veo:          {label:'Veo 3',           emoji:'🎞️', color:'#ef4444', ins:['text','prompt'],outs:['video'],         price:120,
+    desc:'Google Veo 3 — text-to-video (со звуком). Premium качество.',
+    howto:'Промпт на английском. ~120 CH. Поддерживает длинные сцены с диалогами.'},
+  merge:        {label:'Объединить',      emoji:'🔗', color:'#6366f1', ins:['any','any'],    outs:['text'],          price:0,
+    desc:'Склеивает два входа в одну строку.',
+    howto:'Разделитель настраивается. Полезно чтобы подать нескольких блоков сразу в AI.'},
+  delay:        {label:'Задержка',        emoji:'⏱️', color:'#6b7280', ins:['any'],          outs:['any'],           price:0,
+    desc:'Пауза между блоками (1-30 сек).',
+    howto:'Когда нужно не спамить API или дать время асинхронной задаче (например Kling).'},
 };
 
 // Node properties forms
@@ -322,7 +384,7 @@ window.addEventListener('mousemove',e=>{
 });
 window.addEventListener('mouseup',e=>{
   isPan=false; ca.style.cursor=spaceDown?'grab':'';
-  dragId=null;
+  if(dragId){ dragId=null; wfPushHistory(); }
   if(connFrom){connFrom=null;redrawSvg();}
 });
 
@@ -360,6 +422,7 @@ function addNode(type,x=160,y=140){
   renderNode(node);
   selectNode(id);
   updateCostEstimate();
+  wfPushHistory();
   return node;
 }
 
@@ -371,13 +434,192 @@ function updateCostEstimate(){
   el.innerHTML = sum + ' CH' + (rub ? ` <span style="opacity:.7">${rub}</span>` : '');
 }
 
+// ── Undo / Redo ─────────────────────────────────────────────────────────────
+const WF_HISTORY_LIMIT = 50;
+let wfHistory = [];   // stack of snapshots
+let wfFuture = [];    // redo stack
+let _wfSnapSkip = false;  // чтобы undo/redo не записывал сам себя
+
+function _wfSnapshot() {
+  return JSON.stringify({
+    nodes: nodes.map(n => ({
+      id: n.id, type: n.type, x: n.x, y: n.y, w: n.w || null,
+      props: n.props, uploadedUrl: n.uploadedUrl,
+    })),
+    conns: conns,
+    ctr: nodeIdCtr,
+  });
+}
+function _wfRestore(snap) {
+  const data = JSON.parse(snap);
+  // Удалить все DOM-ноды
+  nodes.forEach(n => document.getElementById('el_'+n.id)?.remove());
+  nodes = data.nodes.map(n => ({ ...n, result: null, generating: false }));
+  conns = data.conns;
+  nodeIdCtr = data.ctr;
+  // Пере-рендер
+  nodes.forEach(renderNode);
+  redrawSvg();
+  closeProp();
+  selId = null;
+  updateCostEstimate();
+}
+function wfPushHistory() {
+  if (_wfSnapSkip) return;
+  const snap = _wfSnapshot();
+  if (wfHistory.length && wfHistory[wfHistory.length-1] === snap) return;
+  wfHistory.push(snap);
+  if (wfHistory.length > WF_HISTORY_LIMIT) wfHistory.shift();
+  wfFuture = [];  // любое новое действие стирает redo
+}
+function wfUndo() {
+  if (wfHistory.length < 2) return;
+  _wfSnapSkip = true;
+  const cur = wfHistory.pop();
+  wfFuture.push(cur);
+  const prev = wfHistory[wfHistory.length - 1];
+  _wfRestore(prev);
+  _wfSnapSkip = false;
+}
+function wfRedo() {
+  if (!wfFuture.length) return;
+  _wfSnapSkip = true;
+  const snap = wfFuture.pop();
+  wfHistory.push(snap);
+  _wfRestore(snap);
+  _wfSnapSkip = false;
+}
+// Сохраняем стартовый snapshot после первого рендера
+setTimeout(() => wfPushHistory(), 100);
+
+// ── Export / Import JSON ────────────────────────────────────────────────────
+function wfExportJSON() {
+  const name = document.getElementById('wf-name')?.value?.trim() || 'workflow';
+  const data = {
+    format: 'aiche-workflow-v1',
+    name: name,
+    nodes: nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, w: n.w || null, props: n.props })),
+    conns: conns,
+    exportedAt: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safe = name.replace(/[^\w.\-]+/g, '_').slice(0, 50);
+  a.href = url; a.download = `${safe}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function wfImportJSON() {
+  document.getElementById('wfImportFile').click();
+}
+async function wfImportJSONFile(ev) {
+  const file = ev.target.files[0]; if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!data || !Array.isArray(data.nodes)) throw new Error('Неверный формат');
+    if (nodes.length && !confirm('Заменить текущий граф на импортированный?')) { ev.target.value=''; return; }
+    _wfApplyGraph(data);
+  } catch (e) { alert('Ошибка импорта: ' + e.message); }
+  ev.target.value = '';
+}
+
+function _wfApplyGraph(data) {
+  // Чистим DOM
+  nodes.forEach(n => document.getElementById('el_'+n.id)?.remove());
+  const idMap = {}; nodeIdCtr = 1;
+  nodes = (data.nodes || []).map(n => {
+    const nid = 'n' + (nodeIdCtr++); idMap[n.id] = nid;
+    return { ...n, id: nid, result: null, generating: false, uploadedUrl: null };
+  });
+  conns = (data.conns || []).map(c => ({
+    id: 'c' + (nodeIdCtr++),
+    from: idMap[c.from] || c.from,
+    to: idMap[c.to] || c.to,
+    fi: c.fi || 0, ti: c.ti || 0,
+  })).filter(c => c.from && c.to);
+  selId = null; closeProp();
+  nodes.forEach(renderNode);
+  redrawSvg();
+  updateCostEstimate();
+  if (data.name) document.getElementById('wf-name').value = data.name;
+  wfPushHistory();
+}
+
+// ── Мои шаблоны ─────────────────────────────────────────────────────────────
+const WF_TEMPLATES_KEY = 'obs_wf_templates_v3';
+function _wfTplLoad() {
+  try { return JSON.parse(localStorage.getItem(WF_TEMPLATES_KEY) || '[]'); } catch { return []; }
+}
+function _wfTplSave(list) { localStorage.setItem(WF_TEMPLATES_KEY, JSON.stringify(list)); }
+
+function wfSaveAsTemplate() {
+  const def = document.getElementById('wf-name')?.value?.trim() || 'Мой шаблон';
+  const name = prompt('Название шаблона:', def); if (!name) return;
+  const list = _wfTplLoad();
+  list.push({
+    id: Date.now(), name,
+    nodes: nodes.map(n => ({ id: n.id, type: n.type, x: n.x, y: n.y, w: n.w || null, props: n.props })),
+    conns: conns,
+    createdAt: new Date().toISOString(),
+  });
+  _wfTplSave(list);
+  wfOpenTemplates();
+}
+function wfOpenTemplates() {
+  document.getElementById('wfTemplatesModal').style.display = 'block';
+  wfRenderTemplates();
+}
+function wfCloseTemplates() {
+  document.getElementById('wfTemplatesModal').style.display = 'none';
+}
+function wfRenderTemplates() {
+  const list = _wfTplLoad();
+  const el = document.getElementById('wfTemplatesList');
+  if (!list.length) {
+    el.innerHTML = `<p style="font-size:12px;color:#a89880;text-align:center;padding:18px">
+      Нет сохранённых шаблонов. Нажмите «Сохранить текущий как шаблон» ниже.
+    </p>`;
+    return;
+  }
+  el.innerHTML = list.map(t => {
+    const date = new Date(t.createdAt).toLocaleDateString('ru');
+    return `<div style="display:flex;align-items:center;gap:8px;padding:10px;background:#231d16;border:1px solid rgba(74,63,47,0.4);border-radius:8px;margin-bottom:6px">
+      <div style="flex:1;min-width:0">
+        <p style="font-size:12px;font-weight:600;color:#f0e6d8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}</p>
+        <p style="font-size:10px;color:#6b5d4a">${(t.nodes||[]).length} блоков · ${(t.conns||[]).length} связей · ${date}</p>
+      </div>
+      <button onclick="wfApplyTemplate(${t.id})" class="btn btn-p" style="font-size:10px;padding:4px 10px">Применить</button>
+      <button onclick="wfDeleteTemplate(${t.id})" class="btn btn-d" style="font-size:10px;padding:4px 8px">✕</button>
+    </div>`;
+  }).join('');
+}
+function wfApplyTemplate(id) {
+  const t = _wfTplLoad().find(x => x.id === id); if (!t) return;
+  if (nodes.length && !confirm(`Заменить текущий граф на «${t.name}»?`)) return;
+  _wfApplyGraph({ name: t.name, nodes: t.nodes, conns: t.conns });
+  wfCloseTemplates();
+}
+function wfDeleteTemplate(id) {
+  if (!confirm('Удалить шаблон?')) return;
+  _wfTplSave(_wfTplLoad().filter(x => x.id !== id));
+  wfRenderTemplates();
+}
+
 function renderNode(node){
   const def = NODE_DEF[node.type]||{label:node.type,emoji:'?',color:'#888',ins:[],outs:[],price:0};
   const el = document.createElement('div');
   el.className='node'; el.id='el_'+node.id;
   el.style.left=node.x+'px'; el.style.top=node.y+'px';
+  if (node.w) el.style.setProperty('--wf-w', node.w + 'px');
+  el.addEventListener('mouseup', () => {
+    const w = el.offsetWidth;
+    if (w >= 196 && node.w !== w) node.w = w;
+  });
 
   const hasRefresh = def.price > 0;
+  const hasHelp    = !!(def.desc || def.howto);
   const inCount  = def.ins.length;
   const outCount = def.outs.length;
 
@@ -400,8 +642,13 @@ function renderNode(node){
       <div class="node-icon" style="background:${def.color}22">${def.emoji}</div>
       <div style="flex:1;min-width:0">
         <p style="font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(def.label)}</p>
-        ${def.desc?`<p style="font-size:9px;color:#6b5d4a;line-height:1.3;white-space:normal;margin-top:1px">${def.desc}</p>`:''}
       </div>
+      ${hasHelp?`<button class="node-tool" onmousedown="event.stopPropagation()" onclick="wfToggleHelp(event,'${node.id}')" title="Что это и как настроить">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
+      </button>`:''}
+      <button class="node-tool" onmousedown="event.stopPropagation()" onclick="duplicateNode('${node.id}')" title="Дублировать (Ctrl+D)">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+      </button>
       ${hasRefresh?`<button class="rbadge" onclick="event.stopPropagation();refreshNode('${node.id}')" title="Обновить">↻</button><div class="ptip">${def.price} CH</div>`:''}
       <div style="display:flex;align-items:center;gap:3px;flex-shrink:0">${outPortsHtml}</div>
     </div>
@@ -502,9 +749,10 @@ function addConn(fromId,fromIdx,toId,toIdx){
   // no duplicates
   if(conns.find(c=>c.from===fromId&&c.fi===fromIdx&&c.to===toId&&c.ti===toIdx)) return;
   conns.push({id:'c'+(nodeIdCtr++),from:fromId,fi:fromIdx,to:toId,ti:toIdx});
+  wfPushHistory();
   redrawSvg();
 }
-function deleteConn(cid){ conns=conns.filter(c=>c.id!==cid); redrawSvg(); }
+function deleteConn(cid){ conns=conns.filter(c=>c.id!==cid); redrawSvg(); wfPushHistory(); }
 
 // ── SVG Lines ──────────────────────────────────────────────────────────────
 function portScreenPos(nodeId,ptype,idx){
@@ -655,10 +903,82 @@ function deleteSelected(){
   nodes=nodes.filter(n=>n.id!==selId);
   conns=conns.filter(c=>c.from!==selId&&c.to!==selId);
   selId=null;closeProp();redrawSvg();updateCostEstimate();
+  wfPushHistory();
+}
+
+function duplicateNode(id){
+  const src = nodes.find(n => n.id === id);
+  if (!src) return;
+  const node = {
+    id: 'n' + (nodeIdCtr++),
+    type: src.type,
+    x: src.x + 30,
+    y: src.y + 30,
+    w: src.w,
+    props: JSON.parse(JSON.stringify(src.props || {})),
+    result: null,
+    generating: false,
+    uploadedUrl: null,
+  };
+  nodes.push(node);
+  renderNode(node);
+  selectNode(node.id);
+  updateCostEstimate();
+  wfPushHistory();
+}
+
+function wfToggleHelp(ev, nodeId){
+  document.querySelectorAll('.node-help-pop').forEach(p => p.remove());
+  if (ev && ev.currentTarget && ev.currentTarget.dataset.opened === '1') {
+    delete ev.currentTarget.dataset.opened;
+    return;
+  }
+  const n = nodes.find(x => x.id === nodeId); if (!n) return;
+  const def = NODE_DEF[n.type]; if (!def) return;
+  const el = document.getElementById('el_' + nodeId); if (!el) return;
+  const pop = document.createElement('div');
+  pop.className = 'node-help-pop';
+  pop.innerHTML =
+    `<strong>${esc(def.label)}</strong>` +
+    (def.desc ? `<div>${esc(def.desc)}</div>` : '') +
+    (def.howto ? `<div class="hint"><b style="color:#ff8c42">Как настроить:</b>\n${esc(def.howto)}</div>` : '');
+  pop.onmousedown = e => e.stopPropagation();
+  pop.onclick = e => e.stopPropagation();
+  el.appendChild(pop);
+  if (ev && ev.currentTarget) ev.currentTarget.dataset.opened = '1';
+  setTimeout(() => {
+    const closer = (evt) => {
+      if (!pop.contains(evt.target)) {
+        pop.remove();
+        document.removeEventListener('mousedown', closer, true);
+      }
+    };
+    document.addEventListener('mousedown', closer, true);
+  }, 10);
 }
 
 window.addEventListener('keydown',e=>{
-  if((e.key==='Delete'||e.key==='Backspace')&&selId&&!e.target.matches('input,textarea,select')){
+  const typing = e.target.matches('input,textarea,select');
+  // Ctrl+D / Cmd+D — дублировать выделенный (даже если фокус на input, снимаем фокус)
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+    if (selId) {
+      e.preventDefault();
+      duplicateNode(selId);
+    }
+    return;
+  }
+  // Ctrl+Z / Ctrl+Shift+Z — undo/redo
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+    e.preventDefault();
+    if (e.shiftKey) wfRedo(); else wfUndo();
+    return;
+  }
+  // Ctrl+Y — redo (windows)
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+    e.preventDefault(); wfRedo(); return;
+  }
+  if (typing) return;
+  if((e.key==='Delete'||e.key==='Backspace')&&selId){
     deleteSelected();
   }
   if(e.key==='Escape'){closeCtx();selectNode(null);}
