@@ -1506,11 +1506,11 @@ async function stopAgent() {
 
 function clearSteps() {
   document.getElementById('stepsTimeline').innerHTML =
-    '<div class="text-center py-10">
-              <div class="w-12 h-12 rounded-2xl bg-surface3 flex items-center justify-center mx-auto mb-3 text-2xl opacity-60">⚙️</div>
-              <p class="text-on-dim/70 text-sm mb-1">Шаги выполнения появятся здесь</p>
-              <p class="text-on-dim/50 text-xs">Введите задачу слева или выберите готовую — справа</p>
-            </div>';
+    `<div class="text-center py-10">
+       <div class="w-12 h-12 rounded-2xl bg-surface3 flex items-center justify-center mx-auto mb-3 text-2xl opacity-60">⚙️</div>
+       <p class="text-on-dim/70 text-sm mb-1">Шаги выполнения появятся здесь</p>
+       <p class="text-on-dim/50 text-xs">Введите задачу слева или выберите готовую — справа</p>
+     </div>`;
   document.getElementById('resultCard').classList.add('hidden');
 }
 
