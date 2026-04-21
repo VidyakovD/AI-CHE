@@ -138,6 +138,95 @@ async def scheduler_loop():
         await asyncio.sleep(30)
 
 
+# ══ Auto-check API ключей раз в час + алерт админу при поломке ═══════════════
+_last_apikey_check: datetime | None = None
+_APIKEY_CHECK_INTERVAL = timedelta(hours=1)
+_last_alerted_broken_ids: set[int] = set()
+
+
+async def _apikey_check_tick():
+    """Проверяет все API-ключи раз в час. Шлёт email админу если статус сломался."""
+    global _last_apikey_check, _last_alerted_broken_ids
+    now = datetime.utcnow()
+    if _last_apikey_check and (now - _last_apikey_check) < _APIKEY_CHECK_INTERVAL:
+        return
+    _last_apikey_check = now
+
+    from server.models import ApiKey
+    from server.routes.admin import _test_key
+
+    db = SessionLocal()
+    try:
+        keys = db.query(ApiKey).all()
+    finally:
+        db.close()
+
+    # Проверяем в executor (OpenAI/Anthropic SDK синхронные)
+    loop = asyncio.get_event_loop()
+    broken = []
+    for key in keys:
+        try:
+            status, error = await loop.run_in_executor(None, _test_key, key.provider, key.key_value)
+        except Exception as e:
+            status, error = "error", str(e)
+        # Апдейт в БД в отдельной сессии
+        db = SessionLocal()
+        try:
+            k = db.query(ApiKey).filter_by(id=key.id).first()
+            if k:
+                k.status = status
+                k.last_error = error
+                k.last_check = datetime.utcnow()
+                db.commit()
+        finally:
+            db.close()
+        if status == "error":
+            broken.append((key, error))
+
+    # Алерт админу если появились новые сломанные ключи
+    new_broken = {k.id for k, _ in broken} - _last_alerted_broken_ids
+    if new_broken:
+        _alert_admin_broken_keys([b for b in broken if b[0].id in new_broken])
+        _last_alerted_broken_ids = {k.id for k, _ in broken}
+    else:
+        # Если ключи починились — сбросим
+        _last_alerted_broken_ids = {k.id for k, _ in broken}
+
+
+def _alert_admin_broken_keys(broken: list):
+    """Шлёт email админу со списком сломанных ключей."""
+    import os
+    admins = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+    if not admins:
+        return
+    try:
+        from server.email_service import _send, _base_template
+        items = "".join(f"<li><b>{k.provider}</b>: {e or 'нет ответа'}</li>" for k, e in broken)
+        body = f"""
+        <p style="color:rgba(199,196,215,0.8);line-height:1.6">Автоматическая проверка обнаружила {len(broken)} сломанных API-ключа:</p>
+        <ul style="color:rgba(199,196,215,0.8)">{items}</ul>
+        <p style="color:rgba(199,196,215,0.7);font-size:13px">Юзеры получают «Сервис временно недоступен». Обновите ключ в /admin.html → API Ключи.</p>"""
+        for admin_email in admins:
+            _send(admin_email, "⚠️ API-ключи сломаны — AI Студия Че",
+                  _base_template("Сломаны API-ключи", body))
+    except Exception as e:
+        log.error(f"[apikey alert] email failed: {e}")
+
+
+async def apikey_check_loop():
+    """Проверка API-ключей раз в час в фоне."""
+    log.info("API-key health-check started")
+    # Первая проверка через 5 минут после старта (чтобы не тормозить холодный старт)
+    await asyncio.sleep(300)
+    while True:
+        try:
+            await _apikey_check_tick()
+        except Exception as e:
+            log.error(f"[apikey check] error: {e}")
+        await asyncio.sleep(3600)
+
+
 def start_scheduler():
-    """Запустить scheduler в фоне."""
+    """Запустить scheduler и health-check API-ключей в фоне."""
     asyncio.create_task(scheduler_loop())
+    asyncio.create_task(apikey_check_loop())

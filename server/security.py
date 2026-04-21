@@ -64,6 +64,12 @@ RULES = {
     "/auth/reset-password":      (10,  60),
     "/message":                  (60,  60),    # 60 сообщений/мин
     "/upload":                   (20,  60),
+    # Webhook endpoints — анти-DDoS / анти-подделка (макс 60/мин на IP = 1 в секунду)
+    # ЮKassa может слать много retry, TG тоже — но 60/мин более чем достаточно
+    "/webhook/tg/":              (120, 60),
+    "/webhook/vk/":              (120, 60),
+    "/webhook/avito/":           (120, 60),
+    "/payment/webhook":          (60,  60),
 }
 
 _TRUSTED_PROXIES = {p.strip() for p in os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1").split(",") if p.strip()}

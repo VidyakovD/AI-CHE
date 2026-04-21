@@ -1,4 +1,5 @@
 """Auth router — registration, login, verification, password reset, email change, me."""
+import os
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -89,8 +90,9 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
             referred_by = req.referral_code.upper()
             if not already_used:
                 from server.billing import credit_atomic
-                credit_atomic(db, referrer.id, 10_000)
-                db.add(Transaction(user_id=referrer.id, type="bonus", tokens_delta=10_000,
+                _ref_bonus = int(os.getenv("REFERRAL_SIGNUP_BONUS", "1000"))  # было 10 000 (1 000 ₽ халявы)
+                credit_atomic(db, referrer.id, _ref_bonus)
+                db.add(Transaction(user_id=referrer.id, type="bonus", tokens_delta=_ref_bonus,
                                    description=f"Реферальный бонус за {email}"))
 
     user = User(email=email, password_hash=hash_password(req.password),
@@ -119,8 +121,9 @@ def verify_email(req: VerifyEmailRequest, db: Session = Depends(get_db)):
     if not _use_verify_token(db, user.id, req.code, "verify_email"):
         raise HTTPException(400, "Неверный или истёкший код")
     user.is_verified = True
-    user.tokens_balance = 5_000
-    db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=5_000,
+    _welcome = int(os.getenv("WELCOME_BONUS_CH", "500"))  # было 5 000 (500 ₽ халявы — фрод-вектор)
+    user.tokens_balance = _welcome
+    db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=_welcome,
                        description="Приветственный бонус"))
     db.commit()
     try:

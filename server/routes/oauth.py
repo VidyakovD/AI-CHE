@@ -54,11 +54,12 @@ def _login_or_create(db: Session, email: str, name: str, provider: str, sub: str
     # 3. Создаём нового
     if not email:
         email = f"{provider}_{sub}@oauth.local"
+    welcome = int(os.getenv("WELCOME_BONUS_CH", "500"))
     user = User(
         email=email,
         password_hash=hash_password(uuid.uuid4().hex),  # случайный, нельзя залогиниться паролем
         name=name or email.split("@")[0],
-        tokens_balance=5_000,
+        tokens_balance=welcome,
         is_active=True,
         is_verified=True,
         agreed_to_terms=True,
@@ -67,7 +68,7 @@ def _login_or_create(db: Session, email: str, name: str, provider: str, sub: str
         oauth_sub=sub,
     )
     db.add(user); db.commit(); db.refresh(user)
-    db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=5_000,
+    db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=welcome,
                        description=f"Приветственный бонус (через {provider})"))
     db.commit()
     return user
