@@ -272,16 +272,19 @@ async def _execute_workflow(bot, chat_id, user_text, platform, user_name,
             output = await _execute_node(node, input_text, ctx)
             ctx["results"][nid] = output
 
-            # После оркестратора — отключаем все ветки кроме выбранной
+            # После оркестратора — отключаем все ветки кроме выбранной.
+            # Если choice не установлен (редкий случай, напр. LLM упал) — не скипаем ничего,
+            # пропускаем сообщение дальше ко всем веткам (безопасный fallback).
             if node.get("type") == "orchestrator":
                 chosen = ctx.get("orchestrator_choice")
-                my_id = node.get("id")
-                all_downstream = [e["to"] for e in edges if e["from"] == my_id]
-                for branch_id in all_downstream:
-                    if branch_id != chosen:
-                        # Рекурсивно отключаем всё ниже этой ветки
-                        _collect_downstream(branch_id, edges, skipped_by_routing)
-                        skipped_by_routing.add(branch_id)
+                if chosen:
+                    my_id = node.get("id")
+                    all_downstream = [e["to"] for e in edges if e["from"] == my_id]
+                    for branch_id in all_downstream:
+                        if branch_id != chosen:
+                            # Рекурсивно отключаем всё ниже этой ветки
+                            _collect_downstream(branch_id, edges, skipped_by_routing)
+                            skipped_by_routing.add(branch_id)
 
             # После switch — отключаем ветки чьё имя не совпало с ctx["switch_branch"]
             if node.get("type") == "switch":
@@ -351,8 +354,11 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         downstream_ids = [e["to"] for e in edges if e["from"] == my_id]
         downstream_nodes = [nodes_map.get(nid) for nid in downstream_ids if nodes_map.get(nid)]
 
-        # Если всего одна нода дальше — просто прокидываем (классификация не нужна)
+        # Если всего одна нода дальше — выбираем её автоматически
+        # (иначе _execute_workflow отключит все ветки через routing)
         if len(downstream_nodes) <= 1:
+            if downstream_nodes:
+                ctx["orchestrator_choice"] = downstream_nodes[0].get("id")
             return input_text
 
         # Строим описание вариантов для классификатора
