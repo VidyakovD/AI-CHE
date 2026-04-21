@@ -430,41 +430,63 @@ def site_project_host(project_id: int, db: Session = Depends(get_db),
 
 @router.get("/sites/hosted/{project_id}/{full_path:path}")
 def site_project_serve(project_id: int, full_path: str = ""):
-    """Serve hosted site files (защита от path traversal через Path.resolve).
+    """Serve hosted site files.
 
-    XSS-митигация через CSP: разрешаем картинки и стили, блокируем script/connect
-    к сторонним хостам чтобы атакующий не смог через AI-генерированный JS украсть
-    JWT-токен жертвы из localStorage (sites на том же origin что aiche.ru).
-    TODO long-term: вынести sites на отдельный поддомен *.aiche-sites.ru.
+    HTML отдаётся ЧЕРЕЗ SANDBOX IFRAME с null-origin:
+      - sandbox="allow-scripts allow-forms allow-popups" — JS работает
+      - но origin=null → document.cookie/localStorage основного домена НЕДОСТУПНЫ
+      - strict CSP на обёртке как defense-in-depth
+      - даже если AI сгенерировал XSS-вектор (`<img onerror=fetch(...)>`) —
+        украсть токен пользователя не получится, т.к. sandbox в другом origin
+    Path traversal: через Path.resolve() + relative_to (raises на `..` и symlinks).
     """
     from pathlib import Path
+    from fastapi.responses import HTMLResponse as _HTMLResponse
     host_dir = Path(_sites_host_base, str(project_id)).resolve()
     try:
         file_path = (host_dir / (full_path or "index.html")).resolve()
-        # is_relative_to проверяет реальный путь после раскрытия .. и symlinks
         file_path.relative_to(host_dir)
     except (ValueError, OSError):
         raise HTTPException(403, "Доступ запрещён")
     if not file_path.is_file():
         raise HTTPException(404, "Файл не найден")
-    # Если HTML — добавляем strict CSP (у других типов — не трогаем, но в sandbox их нельзя)
     ext = file_path.suffix.lower()
-    headers = {}
+    # HTML — в sandbox iframe. Остальные (картинки/css) — напрямую.
     if ext in (".html", ".htm", ""):
-        # Запрещаем внешние скрипты и XHR/fetch к сторонним доменам
-        # (кража токена через document.cookie и localStorage всё равно возможна,
-        # но без возможности отправить его атакующему — практически бесполезна)
-        headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "  # AI-генерированный inline JS всё равно работает
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: https:; "
-            "connect-src 'self'; "   # ← главное: JS не может послать данные наружу
-            "frame-ancestors 'self'"
+        try:
+            inner_html = file_path.read_text(encoding="utf-8")
+        except Exception:
+            raise HTTPException(500, "Не удалось прочитать файл")
+        # Экранируем для вставки в srcdoc: кавычки и амперсанды
+        escaped = (inner_html
+                   .replace("&", "&amp;")
+                   .replace('"', "&quot;"))
+        wrapper = (
+            '<!doctype html><html lang="ru"><head>'
+            '<meta charset="utf-8"/>'
+            '<title>Site</title>'
+            '<style>html,body,iframe{margin:0;padding:0;border:0;width:100%;height:100vh;background:#fff}</style>'
+            '</head><body>'
+            '<iframe sandbox="allow-scripts allow-forms allow-popups" '
+            'referrerpolicy="no-referrer" '
+            f'srcdoc="{escaped}"></iframe>'
+            '</body></html>'
         )
-        headers["X-Content-Type-Options"] = "nosniff"
-    media = "text/html; charset=utf-8" if ext in (".html", ".htm", "") else None
-    return FileResponse(str(file_path), media_type=media, headers=headers)
+        return _HTMLResponse(wrapper, headers={
+            # На ОБЁРТКЕ — strict CSP (никакого JS, только style и frame).
+            # Пользовательский HTML запускается внутри iframe с null origin.
+            "Content-Security-Policy": (
+                "default-src 'none'; "
+                "style-src 'unsafe-inline'; "
+                "frame-src data: blob:; "
+                "child-src data: blob:; "
+                "frame-ancestors 'self'"
+            ),
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        })
+    # Картинки, css, прочие ассеты — как есть
+    return FileResponse(str(file_path))
 
 
 @router.post("/sites/projects/{project_id}/download")

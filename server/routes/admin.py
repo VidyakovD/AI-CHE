@@ -479,6 +479,42 @@ def admin_users_full(user: User = Depends(current_user), db: Session = Depends(g
     return result
 
 
+@router.post("/reencrypt-secrets")
+def admin_reencrypt_secrets(request: Request,
+                            user: User = Depends(current_user),
+                            db: Session = Depends(get_db)):
+    """
+    Перешифровывает все IMAP-пароли на текущий JWT_SECRET.
+    Используется после ротации JWT_SECRET (старый кладётся в LEGACY_JWT_SECRETS).
+    Возвращает: {migrated, unchanged, failed}.
+    """
+    require_admin(user)
+    from server.models import ImapCredential
+    from server.secrets_crypto import reencrypt
+    migrated = unchanged = failed = 0
+    rows = db.query(ImapCredential).all()
+    for r in rows:
+        if not r.password or not r.password.startswith("enc:"):
+            unchanged += 1  # plaintext-legacy или пусто — не трогаем
+            continue
+        new_val = reencrypt(r.password)
+        if new_val is None:
+            failed += 1
+            continue
+        if new_val == r.password:
+            unchanged += 1
+            continue
+        r.password = new_val
+        migrated += 1
+    db.commit()
+    from server.admin_audit import log_admin_action
+    log_admin_action(db, user, "reencrypt_secrets",
+                     details={"migrated": migrated, "unchanged": unchanged, "failed": failed},
+                     request=request)
+    return {"migrated": migrated, "unchanged": unchanged, "failed": failed,
+            "note": "Если failed > 0 — эти записи зашифрованы ключом, которого нет в LEGACY_JWT_SECRETS"}
+
+
 @router.get("/audit-log")
 def admin_audit_log(limit: int = 100, user: User = Depends(current_user),
                     db: Session = Depends(get_db)):

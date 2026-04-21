@@ -101,6 +101,9 @@ select.inp option{background:#272018;color:#f0e6d8}
       <button onclick="showSec('faq')" data-sec="faq" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>FAQ
       </button>
+      <button onclick="showSec('audit')" data-sec="audit" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 6h2v2h-2V7zm0 4h2v6h-2v-6z"/></svg>Audit Log
+      </button>
     </nav>
 
     <main class="flex-1 p-5 overflow-auto">
@@ -290,6 +293,35 @@ select.inp option{background:#272018;color:#f0e6d8}
           </button>
         </div>
         <div id="faqList" class="space-y-3"></div>
+      </div>
+
+      <!-- Audit Log -->
+      <div id="sec-audit" class="sec hidden">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-bold font-headline">Audit Log</h2>
+            <p class="text-xs text-on-dim">Критичные действия админов: баланс, баны, промокоды, ключи, тарифы.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <input id="auditFilter" placeholder="фильтр: email, action..." class="inp" style="width:220px" oninput="filterAudit()"/>
+            <button onclick="loadAudit()" class="btn btn-g text-xs">↻ Обновить</button>
+          </div>
+        </div>
+        <div class="card p-0 overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead class="bg-surface2 text-on-dim text-[10px] uppercase tracking-wider">
+              <tr>
+                <th class="py-2 px-3 text-left">Дата</th>
+                <th class="py-2 px-3 text-left">Админ</th>
+                <th class="py-2 px-3 text-left">Действие</th>
+                <th class="py-2 px-3 text-left">Объект</th>
+                <th class="py-2 px-3 text-left">Детали</th>
+                <th class="py-2 px-3 text-left">IP</th>
+              </tr>
+            </thead>
+            <tbody id="auditTable"></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Promos -->
@@ -563,6 +595,51 @@ function showSec(sec){
   if(sec==="promos")     loadPromos();
   if(sec==="features")   loadFeatures();
   if(sec==="support")    loadSupport();
+  if(sec==="audit")      loadAudit();
+}
+
+// ── Audit Log ─────────────────────────────────────────────────────────────
+let _auditAll = [];
+const ACTION_LABELS = {
+  adjust_balance: "💰 Корректировка баланса",
+  toggle_ban: "🔒 Бан/разбан юзера",
+  reencrypt_secrets: "🔑 Перешифр. секретов",
+};
+async function loadAudit(){
+  try{
+    _auditAll = await get("/admin/audit-log?limit=200");
+    renderAudit(_auditAll);
+  }catch(e){ document.getElementById("auditTable").innerHTML =
+    `<tr><td colspan="6" class="p-4 text-center text-error">Ошибка: ${esc(e.message||e)}</td></tr>`; }
+}
+function filterAudit(){
+  const q = document.getElementById("auditFilter").value.toLowerCase();
+  if(!q){ renderAudit(_auditAll); return; }
+  renderAudit(_auditAll.filter(r =>
+    (r.admin_email||"").toLowerCase().includes(q) ||
+    (r.action||"").toLowerCase().includes(q) ||
+    (r.target_type||"").toLowerCase().includes(q) ||
+    String(r.target_id||"").includes(q) ||
+    (r.ip||"").includes(q)
+  ));
+}
+function renderAudit(rows){
+  const el = document.getElementById("auditTable");
+  if(!rows.length){ el.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-on-dim">Записей нет</td></tr>'; return; }
+  el.innerHTML = rows.map(r => {
+    const date = r.created_at ? new Date(r.created_at).toLocaleString("ru") : "—";
+    const action = ACTION_LABELS[r.action] || r.action;
+    const target = r.target_type ? `${r.target_type}#${r.target_id}` : "—";
+    const details = r.details ? `<code style="font-size:10px;color:var(--md-sys-color-on-surface-dim)">${esc(JSON.stringify(r.details))}</code>` : "—";
+    return `<tr class="border-b border-outline/10 hover:bg-surface2/40">
+      <td class="py-2 px-3 text-on-dim font-mono text-[11px]">${date}</td>
+      <td class="py-2 px-3 text-on-dim">${esc(r.admin_email||"—")}</td>
+      <td class="py-2 px-3">${esc(action)}</td>
+      <td class="py-2 px-3 text-on-dim font-mono">${esc(target)}</td>
+      <td class="py-2 px-3 text-on-dim max-w-xs truncate" title="${esc(JSON.stringify(r.details||{}))}">${details}</td>
+      <td class="py-2 px-3 text-on-dim/60 font-mono text-[11px]">${esc(r.ip||"—")}</td>
+    </tr>`;
+  }).join("");
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
