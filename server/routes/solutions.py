@@ -170,6 +170,12 @@ def continue_run(run_id: int, body: dict, db: Session = Depends(get_db),
     run = db.query(SolutionRun).filter_by(id=run_id).first()
     if not run:
         raise HTTPException(404, "Run не найден")
+    # IDOR-защита: владелец run должен совпадать с текущим юзером
+    # (или оба быть None — анонимные сессии не связаны между юзерами)
+    run_owner = run.user_id
+    cur_owner = user.id if user else None
+    if run_owner != cur_owner:
+        raise HTTPException(403, "Нет доступа к этому запуску")
     if run.status == "done":
         return {"status": "done"}
 

@@ -56,7 +56,8 @@ class Subscription(Base):
     tokens_used        = Column(Integer, default=0)
     price_rub          = Column(Float, nullable=False)
     status             = Column(String, default="active")   # active / expired / cancelled
-    yookassa_payment_id= Column(String, nullable=True)
+    # UNIQUE защищает от double-spend между /payment/confirm и /payment/webhook.
+    yookassa_payment_id= Column(String, nullable=True, unique=True)
     started_at         = Column(DateTime, default=datetime.utcnow)
     expires_at         = Column(DateTime, nullable=True)
 
@@ -73,7 +74,8 @@ class Transaction(Base):
     tokens_delta        = Column(Integer, nullable=False)
     description         = Column(String, nullable=True)
     model               = Column(String, nullable=True)
-    yookassa_payment_id = Column(String, nullable=True)
+    # Индекс для быстрой проверки «этот payment уже зачислен?» в webhook
+    yookassa_payment_id = Column(String, nullable=True, index=True)
     created_at          = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="transactions")

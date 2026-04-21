@@ -56,12 +56,13 @@ def _check(key: str, max_calls: int, window_sec: int) -> bool:
 
 RULES = {
     # path_prefix: (max_calls, window_seconds)
-    "/auth/login":               (100,  60),    # 10 попыток/мин на IP
+    "/auth/login":               (10,  300),   # 10 попыток/5мин на IP (анти-брутфорс)
     "/auth/register":            (5,   60),
     "/auth/forgot-password":     (5,  300),
     "/auth/verify-email":        (10,  60),
     "/auth/resend-verify":       (3,   60),
     "/auth/reset-password":      (10,  60),
+    "/auth/oauth/exchange":      (30,  60),   # один юзер может пополнить несколько провайдеров
     "/message":                  (60,  60),    # 60 сообщений/мин
     "/upload":                   (20,  60),
     # Webhook endpoints — анти-DDoS / анти-подделка (макс 60/мин на IP = 1 в секунду)
@@ -70,6 +71,10 @@ RULES = {
     "/webhook/vk/":              (120, 60),
     "/webhook/avito/":           (120, 60),
     "/payment/webhook":          (60,  60),
+    # Админ-эндпоинты + deploy — защита от брут-форса DEPLOY_TOKEN
+    "/internal/deploy":          (10, 3600),
+    # Агент / воркфлоу / генерации — дорогие
+    "/agent/run":                (30,  60),
 }
 
 _TRUSTED_PROXIES = {p.strip() for p in os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1").split(",") if p.strip()}

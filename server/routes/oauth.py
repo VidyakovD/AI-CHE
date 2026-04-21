@@ -36,21 +36,26 @@ def _redirect_uri(provider: str) -> str:
 
 
 def _login_or_create(db: Session, email: str, name: str, provider: str, sub: str) -> User:
-    """Найти юзера по oauth_sub, или по email, или создать."""
+    """Найти юзера по oauth_sub, или по email (если он уже верифицирован), или создать."""
     email = (email or "").strip().lower()
-    # 1. Точный матч oauth_sub + provider
+    # 1. Точный матч oauth_sub + provider — уже линкованный OAuth-юзер
     user = db.query(User).filter_by(oauth_provider=provider, oauth_sub=sub).first()
     if user:
         return user
-    # 2. По email (линкуем OAuth)
+    # 2. Account Takeover защита: если email уже существует — НЕ линкуем автоматически.
+    # Иначе злоумышленник с чужим email на Google получит доступ к чужому акку.
+    # Исключение: можем линковать только если юзер никогда не логинился паролем
+    # (password_hash бессмысленный UUID) — но это нельзя отличить по хешу, поэтому отклоняем всегда.
     if email:
-        user = db.query(User).filter_by(email=email).first()
-        if user:
-            user.oauth_provider = provider
-            user.oauth_sub = sub
-            user.is_verified = True
-            db.commit()
-            return user
+        existing = db.query(User).filter_by(email=email).first()
+        if existing:
+            # Либо юзер зареган паролем (и тогда линкование = ATO),
+            # либо другой OAuth-провайдер. В обоих случаях просим войти привычным способом.
+            raise HTTPException(
+                400,
+                f"Email {email} уже зарегистрирован. Войдите паролем или через "
+                f"другого провайдера, и привяжите {provider} в личном кабинете."
+            )
     # 3. Создаём нового
     if not email:
         email = f"{provider}_{sub}@oauth.local"

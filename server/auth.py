@@ -58,16 +58,17 @@ def create_refresh_token(user_id: int, email: str) -> str:
 
 def decode_token(token: str, require_type: str = None) -> dict | None:
     try:
-        # options.verify_aud=False для совместимости со старыми токенами без aud
+        # Допускаем legacy-токены без aud/iss (были выданы до добавления claims).
+        # Но если claim присутствует — проверяем строго (не «мягкая» проверка).
+        # Явно фиксируем разрешённые алгоритмы — защита от alg:none и HS/RS confusion.
         payload = jwt.decode(
             token, SECRET_KEY, algorithms=[ALGORITHM],
-            audience=JWT_AUD, issuer=JWT_ISS,
             options={"verify_aud": False, "verify_iss": False},
         )
-        # Если aud/iss присутствуют — проверяем строго
-        if payload.get("aud") and payload["aud"] != JWT_AUD:
+        # Токены выданные после фикса всегда имеют aud+iss — проверяем
+        if payload.get("aud") is not None and payload["aud"] != JWT_AUD:
             return None
-        if payload.get("iss") and payload["iss"] != JWT_ISS:
+        if payload.get("iss") is not None and payload["iss"] != JWT_ISS:
             return None
         if require_type and payload.get("type") != require_type:
             return None

@@ -226,11 +226,39 @@ def upload_file(file: UploadFile = File(...), user=Depends(optional_user)):
     if len(data) > limit:
         raise HTTPException(413, f"Файл слишком большой (макс. {label})")
 
+    # Проверка магических байт — блокирует polyglot-файлы (JPEG с исполняемым кодом)
+    _MAGIC = {
+        b"\xff\xd8\xff": "jpg", b"\x89PNG\r\n\x1a\n": "png", b"GIF8": "gif",
+        b"RIFF": "webp/avi", b"%PDF-": "pdf", b"BM": "bmp",
+        b"\x00\x00\x00 ftyp": "mp4", b"\x1a\x45\xdf\xa3": "mkv/webm",
+        b"<?xml": "svg", b"<svg": "svg", b"II*\x00": "tiff", b"MM\x00*": "tiff",
+    }
+    head = data[:16]
+    detected = None
+    for magic, kind in _MAGIC.items():
+        if head.startswith(magic) or (magic == b"RIFF" and len(head) > 8 and (head[8:12] == b"WEBP" or head[8:12] == b"AVI ")):
+            detected = kind; break
+        if magic == b"\x00\x00\x00 ftyp" and len(data) > 8 and data[4:8] == b"ftyp":
+            detected = "mp4"; break
+    # .txt/.doc/.docx не проверяем по magic (офисные файлы — ZIP с хитрой структурой)
+    # Но любой img/video должен иметь magic
+    if ext in (".jpg", ".jpeg") and detected != "jpg":
+        raise HTTPException(400, "Файл не похож на JPEG (magic bytes не совпали)")
+    if ext == ".png" and detected != "png":
+        raise HTTPException(400, "Файл не похож на PNG")
+    if ext == ".gif" and detected != "gif":
+        raise HTTPException(400, "Файл не похож на GIF")
+    if ext in (".mp4", ".mov") and detected not in ("mp4",):
+        raise HTTPException(400, "Файл не похож на MP4/MOV")
+
     fid  = str(uuid.uuid4())
-    path = f"{UPLOAD_DIR}/{fid}_{file.filename}"
+    # Sanitize filename: убираем спецсимволы, оставляем только ASCII + . _ -
+    import re
+    safe_name = re.sub(r"[^\w.\-]+", "_", file.filename)[:80]
+    path = f"{UPLOAD_DIR}/{fid}_{safe_name}"
     with open(path, "wb") as buf:
         buf.write(data)
-    return {"url": f"/uploads/{fid}_{file.filename}"}
+    return {"url": f"/uploads/{fid}_{safe_name}"}
 
 
 @router.get("/kling/status/{task_id}")

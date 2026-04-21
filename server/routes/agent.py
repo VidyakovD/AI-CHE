@@ -94,11 +94,16 @@ async def agent_run(
 
 
 @router.get("/{task_id}/status")
-def agent_status(task_id: str):
-    """Получить статус задачи агента."""
+def agent_status(task_id: str, user=Depends(optional_user)):
+    """Получить статус задачи агента (только владелец)."""
     t = agent_tasks.get(task_id)
     if not t:
         raise HTTPException(404, "Задача не найдена")
+    # IDOR-защита: только владелец может видеть результат + costs
+    task_owner = t.get("user_id")
+    cur_owner = user.id if user else None
+    if task_owner != cur_owner:
+        raise HTTPException(403, "Нет доступа к задаче")
     return {
         "task_id": task_id,
         "status": t["status"],
@@ -119,8 +124,10 @@ def agent_cancel(task_id: str, user=Depends(optional_user)):
     t = agent_tasks.get(task_id)
     if not t:
         raise HTTPException(404, "Задача не найдена")
-    # Если есть user — проверим что задача его (если у task есть user_id)
-    if user and t.get("user_id") and t["user_id"] != user.id:
+    # IDOR-защита: только владелец (или тот же аноним)
+    task_owner = t.get("user_id")
+    cur_owner = user.id if user else None
+    if task_owner != cur_owner:
         raise HTTPException(403, "Нет доступа к задаче")
     if t["status"] in ("done", "error", "cancelled"):
         return {"status": t["status"]}

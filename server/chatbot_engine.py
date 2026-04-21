@@ -26,6 +26,47 @@ _recent_chats: dict[int, dict[str, list]] = defaultdict(lambda: defaultdict(list
 HTTP = httpx.AsyncClient(timeout=30)
 
 
+# ── SSRF защита для http_request node ─────────────────────────────────────────
+# Блокирует обращения к localhost / link-local / приватным сетям / cloud metadata.
+# Без этого владелец бота мог бы через http_request читать http://localhost:8000/admin,
+# http://169.254.169.254/ (AWS/Яндекс Cloud metadata), сканировать внутреннюю сеть и т.д.
+_SSRF_BLOCKED_HOSTS = {"localhost", "0.0.0.0", "metadata.google.internal"}
+
+
+def _ssrf_validate(url: str) -> str | None:
+    """Возвращает текст ошибки если URL ведёт в запрещённую сеть, иначе None."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return "invalid URL"
+    if parsed.scheme not in ("http", "https"):
+        return "только http/https"
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return "нет хоста"
+    if host in _SSRF_BLOCKED_HOSTS:
+        return "internal host blocked"
+    # Попытка резолва в IP (resolv первой A-записи). Если DNS-rebinding — не защищает
+    # на 100%, но отсекает прямое указание приватных IP.
+    try:
+        infos = socket.getaddrinfo(host, None)
+        for info in infos:
+            ip_str = info[4][0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+            except ValueError:
+                continue
+            if (ip.is_private or ip.is_loopback or ip.is_link_local
+                    or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+                return f"private/reserved IP: {ip_str}"
+    except socket.gaierror:
+        return "DNS-резолв не удался"
+    return None
+
+
 # ── Маппинг типов нод конструктора на модели AI ──────────────────────────────
 NODE_MODEL_MAP = {
     "node_gpt":     "gpt-4o",
@@ -426,12 +467,17 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         # Подстановка переменных {{input}} в url/body/headers
         def subst(s): return s.replace("{{input}}", input_text) if s else s
         url = subst(url)
+        # SSRF защита: блокируем internal/metadata/private IPs
+        err = _ssrf_validate(url)
+        if err:
+            log.warning(f"[HTTP] SSRF blocked: {url} ({err})")
+            return f"[HTTP blocked: {err}]"
         try:
             headers = _json.loads(subst(cfg.get("headers") or "{}"))
         except Exception:
             headers = {}
         body_raw = subst(cfg.get("body") or "")
-        kwargs = {"headers": headers}
+        kwargs = {"headers": headers, "timeout": 15.0}
         if body_raw:
             try:
                 kwargs["json"] = _json.loads(body_raw)
@@ -439,7 +485,7 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                 kwargs["content"] = body_raw
         try:
             if method == "GET":
-                r = await HTTP.get(url, headers=headers)
+                r = await HTTP.get(url, headers=headers, timeout=15.0)
             else:
                 r = await HTTP.request(method, url, **kwargs)
             text = r.text
@@ -1132,11 +1178,28 @@ def _extract_text_from_file(file_path: str) -> str:
                 return f"[PDF error: {e}]"
         if ext == ".docx":
             try:
-                import zipfile, xml.etree.ElementTree as ET
+                import zipfile
+                # XXE-защита: используем defusedxml если установлен, иначе строим
+                # безопасный parser вручную (без external entities)
+                try:
+                    from defusedxml.ElementTree import parse as _safe_parse  # type: ignore
+                except ImportError:
+                    import xml.etree.ElementTree as ET
+                    # Парсер с отключенными внешними сущностями
+                    def _safe_parse(f):
+                        parser = ET.XMLParser()
+                        # Явно блокируем DOCTYPE — если встретим, бросим ошибку.
+                        # xml.etree не expands external entities по умолчанию, но DTD
+                        # всё равно парсится; отключаем на всякий случай.
+                        try:
+                            parser.parser.DefaultHandler = lambda data: None
+                            parser.parser.EntityDeclHandler = lambda *a, **k: (_ for _ in ()).throw(ValueError("entities disabled"))
+                        except Exception:
+                            pass
+                        return ET.parse(f, parser=parser)
                 with zipfile.ZipFile(abs_path) as z:
                     with z.open("word/document.xml") as f:
-                        tree = ET.parse(f)
-                ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+                        tree = _safe_parse(f)
                 text = "\n".join(el.text or "" for el in tree.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"))
                 return text[:20000]
             except Exception as e:

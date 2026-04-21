@@ -177,6 +177,15 @@ def set_low_balance_threshold(body: LowBalanceThresholdBody,
 
 
 @router.get("/transactions.csv")
+def _csv_safe(v):
+    """Защита от CSV-injection: если поле начинается с =+-@, префиксим апострофом.
+    Excel/LibreOffice иначе воспримут как формулу (может выполнить команду через DDE)."""
+    s = str(v) if v is not None else ""
+    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + s
+    return s
+
+
 def export_transactions_csv(user=Depends(current_user), db: Session = Depends(get_db)):
     """Экспорт всех транзакций юзера в CSV (для бухгалтерии)."""
     rows = db.query(Transaction).filter_by(user_id=user.id).order_by(Transaction.created_at.desc()).all()
@@ -191,9 +200,9 @@ def export_transactions_csv(user=Depends(current_user), db: Session = Depends(ge
             type_ru.get(t.type, t.type or ""),
             t.tokens_delta or 0,
             f"{t.amount_rub:.2f}" if t.amount_rub else "",
-            t.model or "",
-            t.description or "",
-            t.yookassa_payment_id or "",
+            _csv_safe(t.model),
+            _csv_safe(t.description),
+            _csv_safe(t.yookassa_payment_id),
         ])
     buf.seek(0)
     filename = f"aiche-transactions-{user.id}-{datetime.utcnow().strftime('%Y%m%d')}.csv"

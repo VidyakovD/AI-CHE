@@ -254,17 +254,22 @@ class PromoApplyBody(BaseModel):
 @router.post("/promo/apply")
 def apply_promo(body: PromoApplyBody, user: User = Depends(current_user),
                 db: Session = Depends(get_db)):
+    from sqlalchemy import update as sa_update
     code = db.query(PromoCode).filter_by(code=body.code.upper(), is_active=True).first()
     if not code:
         raise HTTPException(404, "Промокод не найден или неактивен")
-    if code.used_count >= code.max_uses:
-        raise HTTPException(400, "Промокод исчерпан")
     # Check not already used by this user
     used = db.query(PromoUse).filter_by(code_id=code.id, user_id=user.id).first()
     if used:
         raise HTTPException(400, "Промокод уже использован вами")
-    # Apply
-    code.used_count += 1
+    # Атомарный increment c защитой от race condition (двое параллельно не превысят max_uses)
+    res = db.execute(
+        sa_update(PromoCode)
+        .where(PromoCode.id == code.id, PromoCode.used_count < code.max_uses)
+        .values(used_count=PromoCode.used_count + 1)
+    )
+    if (res.rowcount or 0) == 0:
+        raise HTTPException(400, "Промокод исчерпан")
     db.add(PromoUse(code_id=code.id, user_id=user.id))
     if code.bonus_tokens:
         from server.billing import credit_atomic

@@ -39,9 +39,21 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("users", "low_balance_alerted_at", "DATETIME"),
 ]
 
+# Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен
+# Нужны для защиты от double-spend (UNIQUE yookassa_payment_id)
+LIGHTWEIGHT_INDEXES: list[tuple[str, str]] = [
+    # (index_name, full_sql_create_statement)
+    ("uq_subscriptions_yookassa_id",
+     "CREATE UNIQUE INDEX IF NOT EXISTS uq_subscriptions_yookassa_id "
+     "ON subscriptions(yookassa_payment_id) WHERE yookassa_payment_id IS NOT NULL"),
+    ("ix_transactions_yookassa_id",
+     "CREATE INDEX IF NOT EXISTS ix_transactions_yookassa_id "
+     "ON transactions(yookassa_payment_id) WHERE yookassa_payment_id IS NOT NULL"),
+]
+
 
 def apply_lightweight_migrations():
-    """Идемпотентно добавляет недостающие колонки в существующие таблицы (SQLite)."""
+    """Идемпотентно добавляет недостающие колонки и индексы (SQLite)."""
     from sqlalchemy import text
     import logging
     log = logging.getLogger(__name__)
@@ -61,3 +73,10 @@ def apply_lightweight_migrations():
                 log.info(f"migration: added {table}.{col} {sql_type}")
             except Exception as e:
                 log.error(f"migration: failed to add {table}.{col}: {e}")
+        # Indexes
+        for name, sql in LIGHTWEIGHT_INDEXES:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception as e:
+                log.warning(f"migration: index {name}: {e}")

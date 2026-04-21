@@ -68,6 +68,31 @@ app.add_middleware(
 from server.security import rate_limit_middleware  # noqa: E402
 app.middleware("http")(rate_limit_middleware)
 
+
+# ── Body size limit (10 MB для JSON-эндпоинтов) + security headers ─────────────
+_MAX_BODY_BYTES = int(os.getenv("MAX_BODY_BYTES", str(12 * 1024 * 1024)))  # 12MB — upload до 10MB + оверхед
+
+
+from fastapi import Request  # noqa: E402
+
+@app.middleware("http")
+async def body_size_and_headers(request: Request, call_next):
+    # Body size limit (проверка по Content-Length — для больших chunked можно обойти,
+    # но базовая защита от «100 GB JSON»)
+    cl = request.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > _MAX_BODY_BYTES:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": "Payload too large"}, status_code=413)
+    response = await call_next(request)
+    # Security headers (OWASP recommended minimum)
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    # CSP — умеренная, т.к. прод использует inline JS/CSS + встраивает CDN Tailwind. TODO: усилить.
+    return response
+
 # ── Include all routers ────────────────────────────────────────────────────────
 app.include_router(auth_router)
 app.include_router(payments_router)

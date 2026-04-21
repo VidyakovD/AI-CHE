@@ -430,7 +430,13 @@ def site_project_host(project_id: int, db: Session = Depends(get_db),
 
 @router.get("/sites/hosted/{project_id}/{full_path:path}")
 def site_project_serve(project_id: int, full_path: str = ""):
-    """Serve hosted site files (защита от path traversal через Path.resolve)."""
+    """Serve hosted site files (защита от path traversal через Path.resolve).
+
+    XSS-митигация через CSP: разрешаем картинки и стили, блокируем script/connect
+    к сторонним хостам чтобы атакующий не смог через AI-генерированный JS украсть
+    JWT-токен жертвы из localStorage (sites на том же origin что aiche.ru).
+    TODO long-term: вынести sites на отдельный поддомен *.aiche-sites.ru.
+    """
     from pathlib import Path
     host_dir = Path(_sites_host_base, str(project_id)).resolve()
     try:
@@ -441,7 +447,24 @@ def site_project_serve(project_id: int, full_path: str = ""):
         raise HTTPException(403, "Доступ запрещён")
     if not file_path.is_file():
         raise HTTPException(404, "Файл не найден")
-    return FileResponse(str(file_path), media_type="text/html; charset=utf-8")
+    # Если HTML — добавляем strict CSP (у других типов — не трогаем, но в sandbox их нельзя)
+    ext = file_path.suffix.lower()
+    headers = {}
+    if ext in (".html", ".htm", ""):
+        # Запрещаем внешние скрипты и XHR/fetch к сторонним доменам
+        # (кража токена через document.cookie и localStorage всё равно возможна,
+        # но без возможности отправить его атакующему — практически бесполезна)
+        headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "  # AI-генерированный inline JS всё равно работает
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: https:; "
+            "connect-src 'self'; "   # ← главное: JS не может послать данные наружу
+            "frame-ancestors 'self'"
+        )
+        headers["X-Content-Type-Options"] = "nosniff"
+    media = "text/html; charset=utf-8" if ext in (".html", ".htm", "") else None
+    return FileResponse(str(file_path), media_type=media, headers=headers)
 
 
 @router.post("/sites/projects/{project_id}/download")
