@@ -132,10 +132,19 @@ class Orchestrator:
         if not AGENT_REGISTRY:
             return "react"
 
-        # 1. Fast keyword match
+        # 1. Fast keyword match — только по НАЧАЛУ слова (left word-boundary).
+        # "юрист" матчит "юриста/юристу", но "фер" не матчит "оферте" (не начало слова).
         goal_lower = goal.lower()
+        def _kw_match(kw: str) -> bool:
+            kw = kw.lower().strip()
+            if not kw:
+                return False
+            if " " in kw:   # Фраза — как подстрока
+                return kw in goal_lower
+            # Одиночное слово: левая граница (не буква перед) + возможное окончание
+            return re.search(rf'(?<![\wа-яёА-ЯЁ]){re.escape(kw)}', goal_lower) is not None
         for aid, a in AGENT_REGISTRY.items():
-            if any(kw in goal_lower for kw in a["keywords"]):
+            if any(_kw_match(kw) for kw in a["keywords"]):
                 log.info(f"[Orchestrator] keyword match → {aid}")
                 return aid
 
