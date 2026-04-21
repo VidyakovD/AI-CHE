@@ -48,7 +48,11 @@ def _send(to: str, subject: str, html: str) -> None:
             s.starttls()
             s.login(SMTP_USER, SMTP_PASS)
             s.sendmail(SMTP_FROM, to, msg.as_string())
-        log.info(f"Email sent to {to}")
+        try:
+            from server.security import mask_email
+            log.info(f"Email sent to {mask_email(to)}")
+        except Exception:
+            log.info("Email sent")
     except Exception as e:
         log.error(f"Email send failed: {e}")
         raise

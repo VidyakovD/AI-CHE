@@ -128,11 +128,16 @@ async def _scheduler_tick():
 
 
 async def scheduler_loop():
-    """Главный цикл — проверка каждые 30 секунд."""
+    """Главный цикл — проверка каждые 30 секунд.
+    Advisory lock гарантирует что при нескольких workers tick выполнится один раз."""
+    from server.worker_lock import worker_lock
     log.info("Scheduler started")
     while True:
         try:
-            await _scheduler_tick()
+            with worker_lock("scheduler_tick", ttl_sec=25) as acquired:
+                if acquired:
+                    await _scheduler_tick()
+                # иначе другой worker уже выполняет — пропускаем
         except Exception as e:
             log.error(f"[Scheduler] tick error: {e}")
         await asyncio.sleep(30)
@@ -214,13 +219,16 @@ def _alert_admin_broken_keys(broken: list):
 
 
 async def apikey_check_loop():
-    """Проверка API-ключей раз в час в фоне."""
+    """Проверка API-ключей раз в час в фоне (с advisory lock для multi-worker)."""
+    from server.worker_lock import worker_lock
     log.info("API-key health-check started")
     # Первая проверка через 5 минут после старта (чтобы не тормозить холодный старт)
     await asyncio.sleep(300)
     while True:
         try:
-            await _apikey_check_tick()
+            with worker_lock("apikey_check", ttl_sec=3500) as acquired:
+                if acquired:
+                    await _apikey_check_tick()
         except Exception as e:
             log.error(f"[apikey check] error: {e}")
         await asyncio.sleep(3600)

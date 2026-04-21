@@ -155,6 +155,22 @@ def require_admin(user) -> None:
 
 # ── webhook signing ───────────────────────────────────────────────────────────
 
+def mask_email(email: str | None) -> str:
+    """
+    Маскировка email для логов/алертов: vidyakov@obsidian.ai → vi***@obsidian.ai.
+    PII-safe: не выводим локальную часть, домен оставляем (нужно для debug).
+    """
+    if not email:
+        return "—"
+    s = str(email).strip()
+    if "@" not in s:
+        return s[:2] + "***" if len(s) > 3 else "***"
+    local, _, domain = s.partition("@")
+    if len(local) <= 2:
+        return "***@" + domain
+    return local[:2] + "***@" + domain
+
+
 def tg_webhook_secret(tg_token: str) -> str:
     """
     Производный secret для X-Telegram-Bot-Api-Secret-Token.

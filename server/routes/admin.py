@@ -1,7 +1,7 @@
 """Admin endpoints — extracted from main.py."""
 import os, json, logging
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -479,8 +479,33 @@ def admin_users_full(user: User = Depends(current_user), db: Session = Depends(g
     return result
 
 
+@router.get("/audit-log")
+def admin_audit_log(limit: int = 100, user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Просмотр журнала действий админов (последние N записей)."""
+    require_admin(user)
+    from server.models import AdminAuditLog
+    import json as _json
+    limit = max(1, min(limit, 500))
+    rows = db.query(AdminAuditLog).order_by(AdminAuditLog.id.desc()).limit(limit).all()
+    out = []
+    for r in rows:
+        admin = db.query(User).filter_by(id=r.admin_id).first()
+        out.append({
+            "id": r.id,
+            "admin_email": admin.email if admin else None,
+            "action": r.action,
+            "target_type": r.target_type,
+            "target_id": r.target_id,
+            "details": _json.loads(r.details) if r.details else None,
+            "ip": r.ip,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        })
+    return out
+
+
 @router.post("/users/{user_id}/adjust-balance")
-def admin_adjust_balance(user_id: int, body: dict,
+def admin_adjust_balance(user_id: int, body: dict, request: Request,
                          user: User = Depends(current_user),
                          db: Session = Depends(get_db)):
     require_admin(user)
@@ -490,6 +515,7 @@ def admin_adjust_balance(user_id: int, body: dict,
     if not target:
         raise HTTPException(404)
     from server.billing import credit_atomic, deduct_atomic
+    from server.admin_audit import log_admin_action
     if delta > 0:
         credit_atomic(db, user_id, delta)
     elif delta < 0:
@@ -498,11 +524,16 @@ def admin_adjust_balance(user_id: int, body: dict,
                        tokens_delta=delta, description=reason))
     db.commit()
     db.refresh(target)
+    log_admin_action(db, user, "adjust_balance",
+                     target_type="user", target_id=user_id,
+                     details={"delta": delta, "reason": reason,
+                              "new_balance": target.tokens_balance},
+                     request=request)
     return {"tokens_balance": target.tokens_balance}
 
 
 @router.post("/users/{user_id}/toggle-ban")
-def admin_toggle_ban(user_id: int, body: dict,
+def admin_toggle_ban(user_id: int, body: dict, request: Request,
                      user: User = Depends(current_user),
                      db: Session = Depends(get_db)):
     """Бан / разбан пользователя (п. 10.1 оферты)."""
@@ -512,6 +543,11 @@ def admin_toggle_ban(user_id: int, body: dict,
         raise HTTPException(404)
     target.is_banned = not target.is_banned
     db.commit()
+    from server.admin_audit import log_admin_action
+    log_admin_action(db, user, "toggle_ban",
+                     target_type="user", target_id=user_id,
+                     details={"is_banned": target.is_banned},
+                     request=request)
     return {"user_id": target.id, "is_banned": target.is_banned}
 
 

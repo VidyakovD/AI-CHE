@@ -1293,11 +1293,13 @@ function showVerifyFromCabinet(){
   openM("verifyModal");
 }
 function switchForgot(){closeM("loginModal");openM("forgotModal");}
+let pendingForgotEmail = "";
 async function doForgotStep1(){
   const email=document.getElementById("fg_email").value.trim();
   const err=document.getElementById("fg_err1");err.style.display="none";
-  try{const r=await apiPost("/auth/forgot-password",{email});
-    pendingForgotUserId=r.user_id;
+  try{await apiPost("/auth/forgot-password",{email});
+    // Не полагаемся на user_id из ответа (больше не возвращается — anti-enumeration)
+    pendingForgotEmail = email;
     document.getElementById("forgot_step1").classList.add("hidden");
     document.getElementById("forgot_step2").classList.remove("hidden");
   }catch(e){err.textContent=e.message||"Ошибка";err.style.display="block";}
@@ -1307,7 +1309,7 @@ async function doForgotStep2(){
   const newpass=document.getElementById("fg_newpass").value;
   const err=document.getElementById("fg_err2");err.style.display="none";
   try{
-    const r=await apiPost("/auth/reset-password",{user_id:pendingForgotUserId,code,new_password:newpass});
+    const r=await apiPost("/auth/reset-password",{email:pendingForgotEmail,code,new_password:newpass});
     authToken=r.token;localStorage.setItem("obs_token",authToken);currentUser=r.user;
     closeM("forgotModal");clearCodes(".fg-code-cell");
     document.getElementById("forgot_step1").classList.remove("hidden");

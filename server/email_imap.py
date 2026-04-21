@@ -79,7 +79,8 @@ def _fetch_new_emails_sync(host, port, user, password, use_ssl, last_uid, limit=
             new_last_uid = max(new_last_uid, uid_int)
         M.logout()
     except Exception as e:
-        log.error(f"[IMAP] {user}@{host}: {e}")
+        from server.security import mask_email
+        log.error(f"[IMAP] {mask_email(user)}@{host}: {e}")
     return emails, new_last_uid
 
 
@@ -166,11 +167,15 @@ async def imap_tick():
 
 
 async def imap_loop():
-    """Главный цикл — проверка каждые 60 секунд."""
+    """Главный цикл — проверка каждые 60 секунд.
+    Advisory lock гарантирует что при нескольких workers письма обрабатываются один раз."""
+    from server.worker_lock import worker_lock
     log.info("IMAP loop started")
     while True:
         try:
-            await imap_tick()
+            with worker_lock("imap_tick", ttl_sec=55) as acquired:
+                if acquired:
+                    await imap_tick()
         except Exception as e:
             log.error(f"[IMAP] loop error: {e}")
         await asyncio.sleep(60)

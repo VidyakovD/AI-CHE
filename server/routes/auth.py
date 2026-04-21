@@ -48,7 +48,9 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    user_id: int
+    # user_id оставлен для совместимости со старым фронтом, но основной путь — email
+    email: str | None = None
+    user_id: int | None = None
     code: str
     new_password: str
 
@@ -150,11 +152,20 @@ def resend_verify(req: ResendVerifyRequest, db: Session = Depends(get_db)):
     return {"message": "Код повторно отправлен"}
 
 
+# Фиктивный bcrypt-хеш для константного времени при несуществующем юзере.
+# Значение ни с чем не совпадёт, но verify_password всё равно проверит и займёт ~250мс.
+_DUMMY_BCRYPT = "$2b$12$C6UzMDM.H6dfI/f/IKyt7.Re3vdDe4xD3Z3iVfvjxQ0Pu4sPxc7/e"
+
+
 @router.post("/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     email = validate_email(req.email)
     user = db.query(User).filter_by(email=email).first()
-    if not user or not verify_password(req.password, user.password_hash):
+    # Защита от timing-based account enumeration:
+    # всегда вызываем verify_password, даже если юзера нет (bcrypt на dummy хеше)
+    pw_hash = user.password_hash if user else _DUMMY_BCRYPT
+    pw_ok = verify_password(req.password, pw_hash)
+    if not user or not pw_ok:
         raise HTTPException(401, "Неверный email или пароль")
     if not user.is_verified:
         return {"status": "pending_verification", "user_id": user.id,
@@ -166,10 +177,11 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/forgot-password")
 def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    # Константный ответ — не раскрывает существование аккаунта
     try:
         email = validate_email(req.email)
     except Exception:
-        return {"message": "Если аккаунт существует — письмо отправлено", "user_id": None}
+        return {"message": "Если аккаунт существует — письмо отправлено"}
     user = db.query(User).filter_by(email=email).first()
     if user and user.is_verified:
         code = _make_verify_token(db, user.id, "reset_password", generate_code, VERIFY_TTL_MINUTES)
@@ -177,17 +189,26 @@ def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
             send_password_reset(user.email, code)
         except Exception as e:
             log.error(f"Reset email error: {e}")
-    return {"message": "Если аккаунт существует — письмо отправлено",
-            "user_id": user.id if user else None}
+    # user_id НЕ возвращаем чтобы не утечь факт существования аккаунта.
+    # Фронт для сброса пароля принимает email + code (не user_id).
+    return {"message": "Если аккаунт существует — письмо отправлено"}
 
 
 @router.post("/reset-password")
 def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
     validate_password(req.new_password)
-    user = db.query(User).filter_by(id=req.user_id).first()
-    if not user:
-        raise HTTPException(404, "Пользователь не найден")
-    if not _use_verify_token(db, user.id, req.code, "reset_password"):
+    user = None
+    if req.email:
+        try:
+            email = validate_email(req.email)
+            user = db.query(User).filter_by(email=email).first()
+        except Exception:
+            pass
+    if not user and req.user_id:
+        # legacy-путь для старых клиентов
+        user = db.query(User).filter_by(id=req.user_id).first()
+    # Generic-ошибка не раскрывает, существует ли email
+    if not user or not _use_verify_token(db, user.id, req.code, "reset_password"):
         raise HTTPException(400, "Неверный или истёкший код")
     user.password_hash = hash_password(req.new_password)
     db.commit()

@@ -454,6 +454,20 @@ class KnowledgeFile(Base):
     created_at   = Column(DateTime, default=datetime.utcnow)
 
 
+class AdminAuditLog(Base):
+    """Лог критичных действий админа: баланс, цены, баны, ключи, промокоды."""
+    __tablename__ = "admin_audit_log"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    admin_id   = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    action     = Column(String, nullable=False, index=True)   # напр. "adjust_balance"
+    target_type= Column(String, nullable=True)                # "user" | "apikey" | "promo" | ...
+    target_id  = Column(String, nullable=True)                # id объекта (строка чтобы поддержать любые)
+    details    = Column(Text, nullable=True)                  # JSON с параметрами (delta, reason, ...)
+    ip         = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class ImapCredential(Base):
     """Credentials для IMAP (email trigger)."""
     __tablename__ = "imap_credentials"
