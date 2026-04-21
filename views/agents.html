@@ -79,14 +79,23 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .wfc-sidebar-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:grab;font-size:12px;font-weight:600;color:#a89880;transition:all .15s;border:1px solid transparent;margin:1px 0}
 .wfc-sidebar-item:hover{background:rgba(255,140,66,.08);border-color:rgba(255,140,66,.25);color:#f0e6d8}
 .wfc-sidebar-item:active{cursor:grabbing}
-.wfc-node{position:absolute;background:#1a1610;border:1.5px solid rgba(74,63,47,.5);border-radius:14px;width:190px;user-select:none;transition:border-color .15s,box-shadow .15s}
+.wfc-node{position:absolute;background:#1a1610;border:1.5px solid rgba(74,63,47,.5);border-radius:14px;min-width:190px;max-width:520px;width:var(--wfc-w,190px);user-select:none;transition:border-color .15s,box-shadow .15s;resize:horizontal;overflow:auto}
 .wfc-node:hover{border-color:rgba(255,140,66,.45)}
 .wfc-node.selected{border-color:#ff8c42;box-shadow:0 0 0 3px rgba(255,140,66,.18)}
 .wfc-node-head{padding:9px 12px;display:flex;align-items:center;gap:8px;cursor:move;border-radius:13px 13px 0 0}
-.wfc-node-body{padding:9px 12px;cursor:pointer;border-radius:0 0 13px 13px}
+.wfc-node-body{padding:9px 12px;cursor:pointer;border-radius:0 0 13px 13px;overflow:hidden}
+.wfc-node-body textarea{overflow:hidden}
 .wfc-port{width:14px;height:14px;border-radius:50%;position:absolute;top:50%;transform:translateY(-50%);cursor:crosshair;z-index:5;transition:all .15s;border:2.5px solid rgba(74,63,47,.7);background:#1a1610}
 .wfc-port.in{left:-7px}.wfc-port.out{right:-7px}
 .wfc-port:hover,.wfc-port.active{border-color:#ff8c42;background:rgba(255,140,66,.25);transform:translateY(-50%) scale(1.3)}
+/* Header tools: копировать + помощь */
+.wfc-tool{flex-shrink:0;background:none;border:none;cursor:pointer;color:rgba(240,230,216,.35);padding:2px;border-radius:4px;line-height:0;transition:color .15s}
+.wfc-tool:hover{color:#ff8c42}
+.wfc-tool.danger:hover{color:#ff6b6b}
+/* Help popover поверх блока */
+.wfc-help-pop{position:absolute;top:calc(100% + 6px);right:4px;z-index:30;width:280px;padding:10px 12px;background:#2a2318;border:1px solid rgba(255,140,66,.35);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);font-size:11px;line-height:1.5;color:#e8dfce;white-space:pre-wrap}
+.wfc-help-pop strong{color:#ff8c42;font-size:12px;display:block;margin-bottom:4px}
+.wfc-help-pop .hint{margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,140,66,.2);color:#bfb09a}
 
 /* Library */
 .lib-card{background:#1e1a14;border:1.5px solid rgba(74,63,47,.25);border-radius:16px;padding:20px;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;gap:12px}
@@ -910,9 +919,30 @@ function switchTab(t) {
 }
 
 // Escape — выход из полноэкранного конструктора
+// Ctrl/Cmd+D — дублировать выделенный блок
+// Delete/Backspace — удалить выделенный (если не в input/textarea)
 document.addEventListener('keydown', e => {
-  if(e.key==='Escape' && document.getElementById('pane-catalog')?.classList.contains('active')){
+  const inCanvas = document.getElementById('pane-catalog')?.classList.contains('active');
+  if (e.key === 'Escape' && inCanvas) {
     switchTab('library');
+    return;
+  }
+  if (!inCanvas) return;
+  const tag = (e.target && e.target.tagName) || '';
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ||
+                 (e.target && e.target.isContentEditable);
+  // Ctrl+D / Cmd+D — дублировать (работает даже если фокус в input: сохраним через preventDefault)
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+    if (wfc.sel) {
+      e.preventDefault();
+      wfcDupNode(wfc.sel);
+    }
+    return;
+  }
+  if (typing) return;
+  if ((e.key === 'Delete' || e.key === 'Backspace') && wfc.sel) {
+    e.preventDefault();
+    wfcDelNode(wfc.sel);
   }
 });
 
@@ -1789,18 +1819,28 @@ let WFC_DEFS = {};   // filled by wfcInitDefs()
 
 function wfcInitDefs() {
   WFC_DEFS = {
-    trigger_manual:  {cat:'trigger',      label:'Ручной запуск',  icon:'play_arrow', color:'#ff8c42', fields:[]},
+    trigger_manual:  {cat:'trigger',      label:'Ручной запуск',  icon:'play_arrow', color:'#ff8c42', fields:[],
+      desc:'Запускает воркфлоу вручную кнопкой «▶ Запустить». Полезно для тестов и админских задач.',
+      howto:'Перетащите как первый блок. Из него ведите стрелку к следующему шагу.'},
     trigger_tg:      {cat:'trigger',      label:'Telegram',       icon:'send',       color:'#29b6f6',
-      fields:[{k:'tg_token',l:'Bot Token',t:'password',p:'1234:AAF...'},{k:'tg_chat_id',l:'Chat ID',t:'text',p:'-10012345'}]},
+      fields:[{k:'tg_token',l:'Bot Token',t:'password',p:'1234:AAF...'},{k:'tg_chat_id',l:'Chat ID',t:'text',p:'-10012345'}],
+      desc:'Триггер: входящее сообщение в Telegram-бота.',
+      howto:'1) Создайте бота у @BotFather → скопируйте Bot Token.\n2) Вставьте токен сюда.\n3) Chat ID — если хотите слушать только одну беседу (оставьте пусто для всех).\n4) После сохранения воркфлоу → нажмите «▶ Запуск» — webhook установится автоматически.'},
     trigger_webhook: {cat:'trigger',      label:'Webhook',        icon:'bolt',       color:'#ab47bc',
-      fields:[{k:'path',l:'URL путь',t:'text',p:'/webhook/agent'}]},
+      fields:[{k:'path',l:'URL путь',t:'text',p:'/webhook/agent'}],
+      desc:'Внешний сервис шлёт POST на наш URL → запускается воркфлоу.',
+      howto:'Укажите уникальный путь вида /webhook/agent. На сервере он превратится в https://aiche.ru<путь>. Отправьте POST с JSON — content попадёт в переменную {{input}}.'},
     trigger_imap:    {cat:'trigger',      label:'Email (IMAP)',   icon:'mail',       color:'#ff7043',
       fields:[
         {k:'cred_id',l:'ID credentials (см. Настройки)',t:'text',p:'1'},
         {k:'filter_from',l:'Фильтр по From (опц.)',t:'text',p:'noreply@'},
-      ]},
+      ],
+      desc:'Проверяет входящий ящик раз в минуту — новое письмо запускает воркфлоу.',
+      howto:'1) Добавьте IMAP-учётку в ЛК → Настройки → IMAP (скопируйте её ID).\n2) Вставьте ID сюда.\n3) Фильтр From опционален — например "noreply@" чтобы ловить только рассылки.'},
     trigger_avito:   {cat:'trigger',      label:'Авито',          icon:'storefront', color:'#00b894',
-      fields:[]},
+      fields:[],
+      desc:'Входящее сообщение в Авито Messenger.',
+      howto:'Сначала настройте Авито в /chatbots.html — потом этот триггер будет работать автоматически.'},
     trigger_schedule:{cat:'trigger',      label:'Расписание',     icon:'schedule',   color:'#ef5350',
       fields:[
         {k:'mode',l:'Режим',t:'select',def:'daily',
@@ -1811,39 +1851,61 @@ function wfcInitDefs() {
         {k:'cron',l:'Cron (если custom)',t:'text',p:'0 9 * * 1-5'},
         {k:'tz',l:'Часовой пояс',t:'select',def:'Asia/Yekaterinburg',
           opts:['Europe/Moscow','Europe/Kaliningrad','Europe/Samara','Asia/Yekaterinburg','Asia/Omsk','Asia/Krasnoyarsk','Asia/Irkutsk','Asia/Yakutsk','Asia/Vladivostok','Asia/Magadan','Asia/Kamchatka','UTC','Europe/Kiev','Asia/Almaty','Asia/Tashkent','Asia/Tbilisi']},
-      ]},
+      ],
+      desc:'Запуск по cron-расписанию: ежедневно/еженедельно/каждые N минут.',
+      howto:'Выберите режим. Для daily/weekly — время в часовом поясе. Для interval — период в минутах. Для custom — cron-строка (напр. "0 9 * * 1-5" = будни в 9 утра).'},
     orchestrator:    {cat:'orchestrator', label:'Оркестратор',    icon:'hub',        color:'#ff8c42',
       fields:[{k:'model',l:'Классификатор',t:'select',opts:['gpt-4o-mini','gpt-4o','claude-sonnet-4-6']},
-              {k:'strategy',l:'Стратегия',t:'select',opts:['один агент','несколько параллельно']}]},
+              {k:'strategy',l:'Стратегия',t:'select',opts:['один агент','несколько параллельно']}],
+      desc:'Классифицирует входящий запрос и решает какую ветку выполнить.',
+      howto:'Соедините его ВХОД с триггером, а выходы — с несколькими AI-блоками/ветками. Оркестратор через LLM определит какая ветка подходит и запустит только её (экономит токены).'},
     node_gpt:        {cat:'ai',           label:'GPT-4o',         icon:'psychology', color:'#10a37f',
-      fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},{k:'temp',l:'Температура',t:'select',opts:['0.3','0.7','1.0']}]},
+      fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},{k:'temp',l:'Температура',t:'select',opts:['0.3','0.7','1.0']}],
+      desc:'OpenAI GPT-4o — универсальная модель для текста. ~5 CH за 1k вход + 20 CH за 1k выход.',
+      howto:'В «Промпт» опишите роль и задачу. Температура 0.3 = логичные ответы, 1.0 = творческие. На вход придёт {{input}} — подставьте в промпт куда нужно.'},
     node_claude:     {cat:'ai',           label:'Claude Sonnet',  icon:'psychology', color:'#cc785c',
-      fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},{k:'temp',l:'Температура',t:'select',opts:['0.3','0.7','1.0']}]},
+      fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},{k:'temp',l:'Температура',t:'select',opts:['0.3','0.7','1.0']}],
+      desc:'Anthropic Claude Sonnet 4 — лучший для длинных текстов и анализа. ~8/30 CH за 1k.',
+      howto:'Silver bullet для: контент-план, КП, юр.анализ, сложный reasoning. Поддерживает изображения на входе.'},
     node_gemini:     {cat:'ai',           label:'Gemini 1.5 Pro', icon:'psychology', color:'#4285f4',
-      fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'}]},
+      fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'}],
+      desc:'Google Gemini Pro — хорошо для мультимодальности (видео, аудио).',
+      howto:'Если нужно анализировать видео/аудио — этот блок. Иначе GPT/Claude обычно лучше по качеству.'},
     node_grok:       {cat:'ai',           label:'Grok 3',         icon:'psychology', color:'#111111',
       fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},
-              {k:'temp',l:'Температура',t:'select',def:'0.7',opts:['0.3','0.7','1.0']}]},
+              {k:'temp',l:'Температура',t:'select',def:'0.7',opts:['0.3','0.7','1.0']}],
+      desc:'xAI Grok 3 — меньше ограничений по темам, прямолинейный.',
+      howto:'Используйте когда другие модели отказываются отвечать (юр.инфа, острые темы). Для большинства задач Claude/GPT лучше.'},
     grok_search:     {cat:'tools',        label:'Grok + Web/X поиск', icon:'travel_explore', color:'#111111',
       fields:[
         {k:'prompt',l:'Задача',t:'textarea',p:'Найди новости из X об ИИ за последние 24ч. Верни JSON {posts: [{headline, source, source_url, summary}]}'},
         {k:'enable_web',l:'Web поиск',t:'select',def:'да',opts:['да','нет']},
         {k:'enable_x',l:'X (Twitter) поиск',t:'select',def:'да',opts:['да','нет']},
         {k:'model',l:'Модель',t:'select',def:'grok-4-fast-reasoning',opts:['grok-4-fast-reasoning','grok-3']},
-      ]},
+      ],
+      desc:'Grok ищет в Web и X (Twitter) и отвечает на основе свежих данных.',
+      howto:'Задача пишите как будто просите у ассистента. Попросите вернуть JSON для машинной обработки (покажу потом в следующем блоке).'},
     prompt:          {cat:'ai',           label:'Инструкция',     icon:'edit_note',  color:'#66bb6a',
-      fields:[{k:'system',l:'Текст инструкции',t:'textarea',p:'Ты полезный ассистент. Отвечай кратко...'}]},
+      fields:[{k:'system',l:'Текст инструкции',t:'textarea',p:'Ты полезный ассистент. Отвечай кратко...'}],
+      desc:'Только текст инструкции — используется как системный промпт следующим AI-блоком.',
+      howto:'Полезно когда одну инструкцию хотите использовать в нескольких AI-блоках. Вставьте инструкцию сюда и подключите к входу AI.'},
     condition:       {cat:'logic',        label:'Условие',        icon:'call_split', color:'#78909c',
-      fields:[{k:'check',l:'Если содержит',t:'text',p:'да, ок'}]},
+      fields:[{k:'check',l:'Если содержит',t:'text',p:'да, ок'}],
+      desc:'Разветвление: если входной текст содержит указанные слова — идёт по «true», иначе — «false».',
+      howto:'Через запятую список слов — если любое из них в {{input}}, выход true.'},
     switch:          {cat:'logic',        label:'Switch / Роутер', icon:'alt_route',  color:'#78909c',
       fields:[
         {k:'field',l:'Поле для проверки',t:'select',def:'text',opts:['text','chat_type','command','user_role']},
         {k:'branches',l:'Ветки (name=keywords)',t:'textarea',
           p:'admin=/курсы,/добавить,/промпт\nvoice=__voice__\nfile=__file__\ncallback=__callback__',
           def:'admin=/start,/help\ntext=*'},
-      ]},
+      ],
+      desc:'Многоветочное условие — направляет на разные пути по ключевым словам.',
+      howto:'Формат одной ветки: имя_ветки=ключ1,ключ2. Специальные: __voice__, __file__, __callback__. «*» = любой текст.'},
     delay:           {cat:'logic',        label:'Задержка',       icon:'timer',      color:'#78909c',
-      fields:[{k:'secs',l:'Секунд',t:'number',p:'5'}]},
+      fields:[{k:'secs',l:'Секунд',t:'number',p:'5'}],
+      desc:'Пауза между шагами.',
+      howto:'Макс 30 секунд. Используйте чтобы не спамить API клиенту быстрой цепочкой ответов.'},
     http_request:    {cat:'logic',        label:'HTTP Request',   icon:'api',        color:'#78909c',
       fields:[
         {k:'method',l:'Метод',t:'select',def:'GET',opts:['GET','POST','PUT','DELETE','PATCH']},
@@ -1851,96 +1913,136 @@ function wfcInitDefs() {
         {k:'headers',l:'Headers (JSON)',t:'textarea',p:'{"Authorization":"Bearer ..."}'},
         {k:'body',l:'Body (JSON или текст)',t:'textarea',p:'{"key":"value"}'},
         {k:'extract',l:'Вытащить поле (JSONPath)',t:'text',p:'$.data.text'},
-      ]},
+      ],
+      desc:'Отправить HTTP-запрос на внешний API и подставить ответ в {{input}}.',
+      howto:'Используйте {{input}} в URL/body чтобы подставить результат предыдущего блока. JSONPath "$.data.text" достанет нужное поле. Внутренние IP (localhost, AWS metadata) заблокированы — только публичные URL.'},
     storage_get:     {cat:'storage',      label:'Storage Get',    icon:'download',   color:'#9575cd',
-      fields:[{k:'key',l:'Ключ',t:'text',p:'my_data'}]},
+      fields:[{k:'key',l:'Ключ',t:'text',p:'my_data'}],
+      desc:'Читает значение из хранилища бота (между запусками воркфлоу).',
+      howto:'Ключ — любая строка. Если ничего не сохранено — вернётся пустая строка.'},
     storage_set:     {cat:'storage',      label:'Storage Set',    icon:'upload',     color:'#9575cd',
       fields:[
         {k:'key',l:'Ключ',t:'text',p:'my_data'},
         {k:'value',l:'Значение (или {{input}})',t:'textarea',p:'{{input}}',def:'{{input}}'},
-      ]},
+      ],
+      desc:'Сохраняет значение в хранилище (перезаписывает существующее).',
+      howto:'Пара ключ+значение. {{input}} подставит результат предыдущего блока. Данные переживают перезапуск воркфлоу.'},
     storage_push:    {cat:'storage',      label:'Storage Push',   icon:'playlist_add', color:'#9575cd',
       fields:[
         {k:'key',l:'Ключ массива',t:'text',p:'messages'},
         {k:'value',l:'Добавить (или {{input}})',t:'textarea',def:'{{input}}'},
         {k:'max',l:'Макс. элементов',t:'number',def:'100'},
-      ]},
+      ],
+      desc:'Добавляет элемент в массив (старые значения выталкиваются после max).',
+      howto:'Для истории/очередей. Например ключ="last_messages" — храните последние N сообщений юзера.'},
     output_tg:       {cat:'output',       label:'Ответить в TG',  icon:'send',       color:'#29b6f6',
       fields:[
         {k:'tg_token',l:'Bot Token',t:'password',p:'оставьте пустым'},
         {k:'tg_chat_id',l:'Chat ID',t:'text',p:'оставьте пустым'},
         {k:'parse_mode',l:'Форматирование',t:'select',def:'Markdown',opts:['None','Markdown','HTML']},
-      ]},
+      ],
+      desc:'Отправить результат предыдущего блока в Telegram-чат.',
+      howto:'Token/Chat ID оставьте пустыми — подтянутся из trigger_tg в этом же воркфлоу. Markdown поддерживает **жирный** и [ссылки](url).'},
     output_tg_buttons:{cat:'output',      label:'TG кнопки',      icon:'smart_button', color:'#29b6f6',
       fields:[
         {k:'tg_token',l:'Bot Token',t:'password',p:'оставьте пустым'},
         {k:'tg_chat_id',l:'Chat ID',t:'text',p:'оставьте пустым'},
         {k:'buttons',l:'Кнопки (text=callback_data, по одной на строку)',t:'textarea',
           p:'Да=yes\nНет=no',def:'✅=approve\n❌=reject'},
-      ]},
+      ],
+      desc:'Telegram inline-кнопки — юзер нажимает, callback_data вернётся в воркфлоу.',
+      howto:'Формат одной строки: "Текст кнопки=callback_data". Для обработки нажатия — добавьте switch-блок с {{callback_data}} в полях.'},
     output_tg_file:  {cat:'output',       label:'TG отправить файл', icon:'attach_file', color:'#29b6f6',
       fields:[
         {k:'tg_token',l:'Bot Token',t:'password',p:'оставьте пустым'},
         {k:'tg_chat_id',l:'Chat ID',t:'text',p:'оставьте пустым'},
         {k:'file_path',l:'Путь к файлу',t:'text',p:'/uploads/xxx.pdf'},
         {k:'caption',l:'Подпись',t:'text',p:''},
-      ]},
+      ],
+      desc:'Отправляет файл (PDF/DOCX/etc.) в Telegram.',
+      howto:'Путь — абсолютный или /uploads/... (файл должен быть на сервере). Подпись идёт под файлом.'},
     output_tg_audio: {cat:'output',       label:'TG отправить аудио', icon:'mic',   color:'#29b6f6',
       fields:[
         {k:'tg_token',l:'Bot Token',t:'password',p:'оставьте пустым'},
         {k:'tg_chat_id',l:'Chat ID',t:'text',p:'оставьте пустым'},
         {k:'file_path',l:'Путь к аудио',t:'text',p:'/uploads/voice.mp3'},
-      ]},
-    output_save:     {cat:'output',       label:'Сохранить',      icon:'save',       color:'#66bb6a', fields:[]},
+      ],
+      desc:'Отправляет голосовое сообщение в Telegram.',
+      howto:'Подсоедините после блока TTS — получите AI-озвучку прямо в чат.'},
+    output_save:     {cat:'output',       label:'Сохранить',      icon:'save',       color:'#66bb6a', fields:[],
+      desc:'Сохраняет результат в историю (видна в ЛК → Расход).',
+      howto:'Просто подключите в конец цепочки. Ничего настраивать не надо.'},
     output_hook:     {cat:'output',       label:'POST Webhook',   icon:'bolt',       color:'#ab47bc',
-      fields:[{k:'url',l:'URL',t:'text',p:'https://...'}]},
+      fields:[{k:'url',l:'URL',t:'text',p:'https://...'}],
+      desc:'Отправить результат на внешний URL (POST с JSON).',
+      howto:'Полезно для интеграций: Slack-webhook, Google Sheets, Zapier, CRM.'},
     rss:             {cat:'tools',        label:'RSS-парсер',     icon:'rss_feed',   color:'#ff7043',
       fields:[
         {k:'urls',l:'URL-ы RSS (по одному на строку)',t:'textarea',
           p:'https://habr.com/ru/rss/all/\nhttps://techcrunch.com/feed/'},
         {k:'hours',l:'Окно часов',t:'number',def:'48'},
         {k:'limit',l:'Макс. статей',t:'number',def:'30'},
-      ]},
+      ],
+      desc:'Читает RSS/Atom фиды — подставляет свежие новости в {{input}}.',
+      howto:'По одному URL на строку. Окно часов — фильтр по свежести. Используйте с Claude → получится «автодайджест» для TG.'},
     extract_text:    {cat:'tools',        label:'Извлечь текст',   icon:'description', color:'#ff7043',
-      fields:[{k:'file_path',l:'Путь к файлу',t:'text',p:'{{input}}'}]},
+      fields:[{k:'file_path',l:'Путь к файлу',t:'text',p:'{{input}}'}],
+      desc:'Вытаскивает текст из PDF/DOCX/TXT.',
+      howto:'{{input}} если файл пришёл из предыдущего блока. Поддерживаемые форматы: .pdf, .docx, .txt.'},
     whisper:         {cat:'tools',        label:'Whisper STT',    icon:'record_voice_over', color:'#ff7043',
-      fields:[{k:'file_path',l:'Путь к аудио',t:'text',p:'{{input}}'}]},
+      fields:[{k:'file_path',l:'Путь к аудио',t:'text',p:'{{input}}'}],
+      desc:'Транскрибирует голосовое сообщение в текст (OpenAI Whisper).',
+      howto:'Идеально после trigger_tg когда юзер шлёт voice. Получите текст → в AI-блок → ответ.'},
     tts:             {cat:'tools',        label:'TTS (озвучка)',  icon:'volume_up',  color:'#ff7043',
       fields:[
         {k:'voice',l:'Голос',t:'select',def:'onyx',opts:['alloy','echo','fable','onyx','nova','shimmer']},
-      ]},
+      ],
+      desc:'Превращает текст в речь (OpenAI TTS). Возвращает путь к .mp3.',
+      howto:'Onyx — мужской, Nova — женский. Подключите после AI → перед output_tg_audio чтобы бот говорил голосом.'},
     yd_list:         {cat:'tools',        label:'Я.Диск: список файлов', icon:'folder_open', color:'#ffcc29',
       fields:[
         {k:'token',l:'OAuth токен (или пусто = env)',t:'password',p:''},
         {k:'limit',l:'Сколько файлов',t:'number',def:'30'},
-      ]},
+      ],
+      desc:'Читает список файлов из Яндекс.Диска.',
+      howto:'Получите OAuth-токен на oauth.yandex.ru (scope: cloud_api:disk.read). Или оставьте пусто — возьмём YAD_TOKEN из env.'},
     yd_upload:       {cat:'tools',        label:'Я.Диск: загрузить',     icon:'cloud_upload', color:'#ffcc29',
       fields:[
         {k:'token',l:'OAuth токен (или пусто = env)',t:'password',p:''},
         {k:'remote',l:'Путь на Я.Диске',t:'text',p:'диск:/Inbox/{{input}}.txt'},
         {k:'local',l:'Локальный файл',t:'text',p:'{{input}}'},
-      ]},
+      ],
+      desc:'Загружает файл на Яндекс.Диск (для бэкапов/отчётов).',
+      howto:'Remote — куда положить (формат "диск:/папка/файл.txt"). Local — откуда взять. Scope токена: cloud_api:disk.write.'},
     kb_add:          {cat:'kb',           label:'БЗ: добавить файл',      icon:'library_add', color:'#26a69a',
       fields:[
         {k:'name',l:'Имя файла',t:'text',p:'{{input_name}}'},
         {k:'path',l:'Путь /uploads/...',t:'text',p:'{{input_path}}'},
-      ]},
+      ],
+      desc:'Добавляет документ в Базу знаний бота для RAG-поиска.',
+      howto:'Имя — отображаемое в БЗ. Путь — где лежит файл. Содержимое автоматически проиндексируется для kb_search/kb_rag.'},
     kb_search_file:  {cat:'kb',           label:'БЗ: найти файл',         icon:'search',      color:'#26a69a',
       fields:[
         {k:'query',l:'Запрос',t:'text',def:'{{input}}',p:'презентация бюджет'},
         {k:'top',l:'Сколько',t:'number',def:'5'},
-      ]},
+      ],
+      desc:'Поиск по именам файлов в БЗ (быстрый, без чтения содержимого).',
+      howto:'Если юзер спрашивает «найди презентацию про бюджет» — этот блок вернёт top-N похожих файлов.'},
     kb_search:       {cat:'kb',           label:'БЗ: поиск по содержимому', icon:'manage_search', color:'#26a69a',
       fields:[
         {k:'query',l:'Запрос',t:'text',def:'{{input}}'},
         {k:'top',l:'Сколько',t:'number',def:'5'},
-      ]},
+      ],
+      desc:'Семантический поиск по содержимому файлов БЗ (vector search).',
+      howto:'Возвращает top-N кусочков текста. Подайте результат в AI-блок для качественного ответа.'},
     kb_rag:          {cat:'kb',           label:'БЗ: RAG-ответ',          icon:'psychology',  color:'#26a69a',
       fields:[
         {k:'query',l:'Вопрос',t:'text',def:'{{input}}'},
         {k:'model',l:'Модель',t:'select',def:'claude',opts:['claude','gpt','gemini']},
         {k:'top',l:'Top-K контекста',t:'number',def:'5'},
-      ]},
+      ],
+      desc:'Готовый RAG: ищет в БЗ + отвечает через AI с подтверждённым контекстом.',
+      howto:'Самый простой способ сделать «AI-бот по документам компании». Загрузите PDF/DOCX в БЗ → задавайте вопросы.'},
     role_switch:     {cat:'logic',        label:'Роль (секция)',          icon:'badge',       color:'#78909c',
       fields:[
         {k:'field',l:'Откуда брать',t:'select',def:'chat_id',opts:['chat_id','user_id','text_first_word']},
@@ -1948,19 +2050,25 @@ function wfcInitDefs() {
         {k:'roles',l:'Роли (name=system prompt)',t:'textarea',
           p:'chat=Ты дружелюбный ассистент\nsales=Ты менеджер по продажам\nwriter=Ты копирайтер',
           def:'chat=Ты дружелюбный ассистент.'},
-      ]},
+      ],
+      desc:'Переключатель роли/персонажа по юзеру или ключевому слову.',
+      howto:'Одна строка = одна роль (name=system_prompt). Разный юзер → разный персонаж. Далее подключите AI — он подхватит нужный промпт.'},
     code_python:     {cat:'logic',        label:'Код (Python)',           icon:'code',        color:'#5c6bc0',
       fields:[
         {k:'code',l:'Python код (доступны: input_text, ctx, output=результат)',t:'textarea',
           p:'# input_text — входящий текст\n# ctx — dict контекста\noutput = input_text.upper()',
           def:'output = input_text'},
-      ]},
+      ],
+      desc:'Запуск Python-кода для кастомной логики (⚠ требуется включение на сервере).',
+      howto:'Переменные: input_text (вход), ctx (словарь контекста). Результат → output. Импорты, файлы, сеть запрещены. По умолчанию выключен (ENABLE_PYTHON_SANDBOX=false).'},
   };
   // Add all library agents
   AGENT_BLOCKS.forEach(b => {
     WFC_DEFS['agent_'+b.id] = {
       cat:'agent', label:b.name, icon:b.icon, color:'#ffa726', agentId:b.id, agentCat:b.cat,
       fields:(b.configFields||[]).map(f=>({k:f.key,l:f.label,t:f.type||'text',p:f.placeholder||'',opts:f.options})),
+      desc:b.description || (b.cat ? `Готовый агент из категории «${b.cat}»` : 'AI-агент из библиотеки'),
+      howto:'Заполните поля согласно подсказкам. Эти агенты — готовые решения из каталога, их промпт уже настроен.',
     };
   });
 }
@@ -2022,13 +2130,17 @@ function wfcBuildSidebar(filter='') {
         </svg>
       </button>
       <div id="wfccat-${cat}" ${cat==='agent' && !fl?'style="display:none"':''}>
-        ${defs.map(([id,d])=>`
-          <div class="wfc-sidebar-item" draggable="true"
+        ${defs.map(([id,d])=>{
+          // Native title tooltip = описание + как настраивать
+          const tip = [d.desc, d.howto ? 'Как настроить: ' + d.howto : ''].filter(Boolean).join('\n\n');
+          return `<div class="wfc-sidebar-item" draggable="true"
                ondragstart="wfcSbDrag(event,'${id}')"
-               onclick="wfcAddCenter('${id}')">
+               onclick="wfcAddCenter('${id}')"
+               title="${tip.replace(/"/g,'&quot;')}">
             ${svgIcon(d.icon,12,d.color)}
             <span style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${d.label}</span>
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>
     </div>`;
   }
@@ -2056,8 +2168,11 @@ function wfcRender() {
     const d = WFC_DEFS[n.type]; if (!d) return '';
     const sel = n.id === wfc.sel;
     const sum = wfcSum(n,d);
+    const wStyle = n.w ? `--wfc-w:${n.w}px` : '';
+    const hasHelp = !!(d.desc || d.howto);
     return `<div id="wfcn-${n.id}" class="wfc-node${sel?' selected':''}"
-         style="left:${n.x}px;top:${n.y}px" data-nid="${n.id}">
+         style="left:${n.x}px;top:${n.y}px;${wStyle}" data-nid="${n.id}"
+         onmouseup="wfcSaveWidth('${n.id}')">
       ${n.type.startsWith('trigger')?'':`<div class="wfc-port in" data-nid="${n.id}" data-port="in"
         onmousedown="wfcPortDown(event,'${n.id}','in')"></div>`}
       <div class="wfc-port out" data-nid="${n.id}" data-port="out"
@@ -2068,9 +2183,13 @@ function wfcRender() {
           ${svgIcon(d.icon,12,d.color)}
         </div>
         <span style="font-size:12px;font-weight:700;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#f0e6d8">${esc(d.label)}</span>
-        <button onmousedown="event.stopPropagation()" onclick="wfcDelNode('${n.id}')"
-          style="flex-shrink:0;background:none;border:none;cursor:pointer;color:rgba(255,107,107,.3);padding:2px;border-radius:4px;line-height:0"
-          onmouseover="this.style.color='#ff6b6b'" onmouseout="this.style.color='rgba(255,107,107,.3)'">
+        ${hasHelp?`<button class="wfc-tool" onmousedown="event.stopPropagation()" onclick="wfcToggleHelp(event,'${n.id}')" title="Что это и как настроить">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
+        </button>`:''}
+        <button class="wfc-tool" onmousedown="event.stopPropagation()" onclick="wfcDupNode('${n.id}')" title="Дублировать (Ctrl+D)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+        </button>
+        <button class="wfc-tool danger" onmousedown="event.stopPropagation()" onclick="wfcDelNode('${n.id}')" title="Удалить">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
       </div>
@@ -2079,8 +2198,78 @@ function wfcRender() {
       </div>
     </div>`;
   }).join('');
+  // Auto-resize textarea'ов под контент
+  nodesEl.querySelectorAll('.wfc-node-body textarea').forEach(ta => {
+    _wfcAutosize(ta);
+    ta.addEventListener('input', () => _wfcAutosize(ta));
+  });
   requestAnimationFrame(wfcDrawEdges);
   wfcDrawGrid();
+}
+
+function _wfcAutosize(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(Math.max(ta.scrollHeight, 36), 400) + 'px';
+}
+
+function wfcSaveWidth(id) {
+  const el = document.getElementById('wfcn-'+id);
+  if (!el) return;
+  const w = el.offsetWidth;
+  if (w < 190) return;
+  const n = wfc.nodes.find(x => x.id === id);
+  if (n && n.w !== w) { n.w = w; }  // не перерисовываем (ресайз уже сделан визуально)
+}
+
+function wfcDupNode(id) {
+  const src = wfc.nodes.find(n => n.id === id);
+  if (!src) return;
+  const newId = 'n' + (wfc.ctr++);
+  wfc.nodes.push({
+    id: newId,
+    type: src.type,
+    x: src.x + 30,
+    y: src.y + 30,
+    w: src.w,
+    cfg: JSON.parse(JSON.stringify(src.cfg || {})),
+  });
+  wfcRender();
+  wfcSelNode(newId);
+}
+
+function wfcToggleHelp(ev, id) {
+  // Закрываем все существующие popover'ы
+  document.querySelectorAll('.wfc-help-pop').forEach(p => p.remove());
+  if (ev && ev.currentTarget && ev.currentTarget.dataset.opened === '1') {
+    delete ev.currentTarget.dataset.opened;
+    return;
+  }
+  const n = wfc.nodes.find(x => x.id === id);
+  if (!n) return;
+  const d = WFC_DEFS[n.type];
+  if (!d) return;
+  const el = document.getElementById('wfcn-' + id);
+  if (!el) return;
+  const pop = document.createElement('div');
+  pop.className = 'wfc-help-pop';
+  pop.innerHTML =
+    `<strong>${esc(d.label)}</strong>` +
+    (d.desc ? `<div>${esc(d.desc)}</div>` : '') +
+    (d.howto ? `<div class="hint"><b style="color:#ff8c42">Как настроить:</b>\n${esc(d.howto)}</div>` : '');
+  pop.onmousedown = e => e.stopPropagation();
+  pop.onclick = e => e.stopPropagation();
+  el.appendChild(pop);
+  if (ev && ev.currentTarget) ev.currentTarget.dataset.opened = '1';
+  // Закрыть по клику вне
+  setTimeout(() => {
+    const closer = (evt) => {
+      if (!pop.contains(evt.target)) {
+        pop.remove();
+        document.removeEventListener('mousedown', closer, true);
+      }
+    };
+    document.addEventListener('mousedown', closer, true);
+  }, 10);
 }
 
 function wfcSum(n,d) {
@@ -2108,10 +2297,11 @@ function renderInlineBody(n, d, sum) {
         style="width:100%;padding:5px 7px;border-radius:5px;background:#272018;border:1px solid rgba(74,63,47,.4);color:#f0e6d8;font-size:10px;outline:none"/>
     `;
   }
-  // Для AI нод — system prompt
+  // Для AI нод — system prompt (auto-resize)
   if (['node_gpt','node_claude','node_gemini','node_grok','prompt'].includes(n.type)) {
     const sys = n.cfg.system || '';
     return `<textarea placeholder="Системный промпт..." rows="2"
+      oninput="_wfcAutosize(this)"
       onmousedown="event.stopPropagation()" onkeydown="event.stopPropagation()"
       oninput="wfcSaveF('${n.id}','system',this.value)"
       style="width:100%;padding:5px 7px;border-radius:5px;background:#272018;border:1px solid rgba(74,63,47,.4);color:#f0e6d8;font-size:10px;outline:none;resize:vertical;font-family:inherit">${esc(sys)}</textarea>`;
