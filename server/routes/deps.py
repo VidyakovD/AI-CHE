@@ -47,6 +47,7 @@ def _user_dict(u):
             "avatar_url": u.avatar_url, "tokens_balance": u.tokens_balance,
             "is_verified": u.is_verified, "is_banned": getattr(u, 'is_banned', False),
             "referral_code": u.referral_code,
+            "low_balance_threshold": getattr(u, "low_balance_threshold", None),
             "created_at": u.created_at.isoformat() if u.created_at else None}
 
 

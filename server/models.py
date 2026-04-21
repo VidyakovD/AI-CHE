@@ -21,6 +21,8 @@ class User(Base):
     referred_by      = Column(String, nullable=True)
     oauth_provider   = Column(String, nullable=True)  # google / vk / None (email)
     oauth_sub        = Column(String, nullable=True)  # ID юзера у провайдера
+    low_balance_threshold  = Column(Integer, default=100)   # порог уведомления (0 — отключено)
+    low_balance_alerted_at = Column(DateTime, nullable=True)  # когда последний раз слали
     created_at       = Column(DateTime, default=datetime.utcnow)
 
     messages      = relationship("Message",      back_populates="user")

@@ -6,44 +6,78 @@
 
 Реализация — `UPDATE ... WHERE` без read-then-write на уровне Python.
 """
+import logging
+from datetime import datetime, timedelta
 from sqlalchemy import update as sa_update, select
 from sqlalchemy.orm import Session
 
 from server.models import User
+
+log = logging.getLogger(__name__)
+_LOW_BALANCE_COOLDOWN = timedelta(hours=24)
+
+
+def _maybe_send_low_balance_alert(db: Session, user_id: int):
+    """Если баланс упал ниже порога и не слали 24ч — отправить email."""
+    try:
+        u = db.query(User).filter_by(id=user_id).first()
+        if not u or not u.email:
+            return
+        threshold = int(getattr(u, "low_balance_threshold", 0) or 0)
+        if threshold <= 0:
+            return  # юзер отключил уведомления
+        balance = int(u.tokens_balance or 0)
+        if balance > threshold or balance <= 0:
+            return  # или ещё хватает, или уже 0 (бессмысленно слать)
+        # Анти-спам: максимум раз в 24 часа
+        if u.low_balance_alerted_at and (datetime.utcnow() - u.low_balance_alerted_at) < _LOW_BALANCE_COOLDOWN:
+            return
+        from server.email_service import send_low_balance_alert
+        send_low_balance_alert(u.email, u.name or "", balance, threshold)
+        u.low_balance_alerted_at = datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        log.warning(f"low_balance_alert failed for user {user_id}: {e}")
 
 
 def deduct_atomic(db: Session, user_id: int, cost: int) -> int:
     """
     Атомарно списывает min(balance, cost). Возвращает фактически списанное.
     Не уходит в минус. Caller должен сам сделать db.commit().
+    Триггерит уведомление о низком балансе при падении ниже порога.
     """
     if cost <= 0 or not user_id:
         return 0
 
+    charged = 0
     res = db.execute(
         sa_update(User)
         .where(User.id == user_id, User.tokens_balance >= cost)
         .values(tokens_balance=User.tokens_balance - cost)
     )
     if (res.rowcount or 0) > 0:
-        return cost
+        charged = cost
+    else:
+        # Баланса не хватило — спишем остаток. Оптимистичная блокировка через WHERE balance==prev.
+        for _ in range(5):
+            cur = db.execute(
+                select(User.tokens_balance).where(User.id == user_id)
+            ).scalar() or 0
+            cur = int(cur)
+            if cur <= 0:
+                return 0
+            res = db.execute(
+                sa_update(User)
+                .where(User.id == user_id, User.tokens_balance == cur)
+                .values(tokens_balance=0)
+            )
+            if (res.rowcount or 0) > 0:
+                charged = cur
+                break
 
-    # Баланса не хватило — спишем остаток. Оптимистичная блокировка через WHERE balance==prev.
-    for _ in range(5):
-        cur = db.execute(
-            select(User.tokens_balance).where(User.id == user_id)
-        ).scalar() or 0
-        cur = int(cur)
-        if cur <= 0:
-            return 0
-        res = db.execute(
-            sa_update(User)
-            .where(User.id == user_id, User.tokens_balance == cur)
-            .values(tokens_balance=0)
-        )
-        if (res.rowcount or 0) > 0:
-            return cur
-    return 0
+    if charged > 0:
+        _maybe_send_low_balance_alert(db, user_id)
+    return charged
 
 
 def deduct_strict(db: Session, user_id: int, cost: int) -> bool:
@@ -60,7 +94,10 @@ def deduct_strict(db: Session, user_id: int, cost: int) -> bool:
         .where(User.id == user_id, User.tokens_balance >= cost)
         .values(tokens_balance=User.tokens_balance - cost)
     )
-    return (res.rowcount or 0) > 0
+    ok = (res.rowcount or 0) > 0
+    if ok:
+        _maybe_send_low_balance_alert(db, user_id)
+    return ok
 
 
 def credit_atomic(db: Session, user_id: int, amount: int) -> bool:

@@ -34,7 +34,9 @@ def db_session():
 # Запуск произойдёт автоматически при startup.
 
 LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
-    # пример: ("chatbots", "tg_webhook_secret", "VARCHAR"),
+    # Уведомления о низком балансе
+    ("users", "low_balance_threshold", "INTEGER DEFAULT 100"),
+    ("users", "low_balance_alerted_at", "DATETIME"),
 ]
 
 

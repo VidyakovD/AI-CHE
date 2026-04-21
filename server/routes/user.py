@@ -1,5 +1,6 @@
-import logging
+import csv, io, logging
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -54,11 +55,153 @@ def cabinet_stats(user=Depends(current_user), db: Session = Depends(get_db)):
         } for r in usage_rows
     ]
 
+    # Разбивка расходов по модулям (из транзакций usage за 30 дней)
+    spend = _spend_by_module(db, user.id, since)
+
+    # Топ-5 самых дорогих транзакций usage за 30 дней
+    top_spend = db.query(Transaction).filter(
+        Transaction.user_id == user.id,
+        Transaction.type == "usage",
+        Transaction.created_at >= since,
+    ).order_by(Transaction.tokens_delta.asc()).limit(5).all()
+
     return {"user": u,
             "subscription": _sub_dict(sub) if sub else None,
             "transactions": [_tx_dict(t) for t in txs],
             "model_usage": model_usage,
-            "token_usage": token_usage}
+            "token_usage": token_usage,
+            "spend_by_module": spend,
+            "top_expensive": [_tx_dict(t) for t in top_spend]}
+
+
+MODULE_LABELS = {
+    "chat": "💬 Чат",
+    "chatbots": "🤖 Чат-боты",
+    "sites": "🌐 Сайты",
+    "presentations": "📄 Презентации/КП",
+    "agents": "🧠 AI-агенты",
+    "solutions": "✨ Готовые решения",
+    "media": "🎨 Картинки/видео",
+}
+
+
+def _classify_tx(desc: str, model: str | None) -> str:
+    """Относит транзакцию к модулю по тексту описания или модели."""
+    d = (desc or "").lower()
+    if "бот «" in d or d.startswith("бот "):
+        return "chatbots"
+    if "сайт" in d or "код сайт" in d:
+        return "sites"
+    if "презентац" in d or "кп" in d.split():
+        return "presentations"
+    if "агент" in d or "ии агент" in d:
+        return "agents"
+    if "решение:" in d or "готовое решение" in d or "промпт" in d:
+        return "solutions"
+    if model in ("nano", "kling", "kling-pro", "veo"):
+        return "media"
+    return "chat"
+
+
+def _spend_by_module(db, user_id: int, since):
+    """Возвращает {module_key: {label, ch, requests, share_pct}} за период."""
+    rows = db.query(Transaction).filter(
+        Transaction.user_id == user_id,
+        Transaction.type == "usage",
+        Transaction.created_at >= since,
+    ).all()
+    buckets: dict[str, dict] = {}
+    total = 0
+    for t in rows:
+        ch = -int(t.tokens_delta or 0)  # usage хранит отрицательные числа
+        if ch <= 0:
+            continue
+        mod = _classify_tx(t.description, t.model)
+        b = buckets.setdefault(mod, {"module": mod, "label": MODULE_LABELS.get(mod, mod), "ch": 0, "requests": 0})
+        b["ch"] += ch
+        b["requests"] += 1
+        total += ch
+    # sort desc by ch, посчитать доли
+    out = sorted(buckets.values(), key=lambda b: b["ch"], reverse=True)
+    for b in out:
+        b["share_pct"] = round(100 * b["ch"] / total, 1) if total else 0
+    return {"total_ch": total, "period_days": 30, "items": out}
+
+
+@router.get("/referral/stats")
+def referral_stats(user=Depends(current_user), db: Session = Depends(get_db)):
+    """Статистика рефералов: кого позвал + сколько заработал."""
+    db_user = db.query(User).filter_by(id=user.id).first()
+    # Все кто зарегался по моему коду
+    invited = db.query(User).filter_by(referred_by=db_user.referral_code).all()
+    # Мои bonus-транзакции (за рефералов)
+    bonus_txs = db.query(Transaction).filter(
+        Transaction.user_id == user.id,
+        Transaction.type == "bonus",
+        Transaction.description.like("%еферал%"),
+    ).order_by(Transaction.created_at.desc()).all()
+    total_earned = sum(t.tokens_delta or 0 for t in bonus_txs)
+    paying = sum(1 for u in invited if any(
+        t.type == "payment" for t in u.transactions
+    ))
+    return {
+        "code": db_user.referral_code,
+        "invited_count": len(invited),
+        "invited_verified": sum(1 for u in invited if u.is_verified),
+        "invited_paying": paying,
+        "total_earned_ch": total_earned,
+        "recent_bonuses": [{
+            "tokens": t.tokens_delta,
+            "description": t.description,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        } for t in bonus_txs[:10]],
+    }
+
+
+class LowBalanceThresholdBody(BaseModel):
+    threshold: int  # 0 — отключено
+
+
+@router.post("/low-balance-threshold")
+def set_low_balance_threshold(body: LowBalanceThresholdBody,
+                               user=Depends(current_user), db: Session = Depends(get_db)):
+    """Юзер задаёт порог уведомления о низком балансе (CH). 0 — отключает."""
+    if body.threshold < 0 or body.threshold > 100_000:
+        raise HTTPException(400, "Порог от 0 до 100 000 CH")
+    u = db.query(User).filter_by(id=user.id).first()
+    u.low_balance_threshold = body.threshold
+    # При изменении — сбросим alerted_at, чтобы юзер получил уведомление снова если уже ниже порога
+    u.low_balance_alerted_at = None
+    db.commit()
+    return {"threshold": u.low_balance_threshold}
+
+
+@router.get("/transactions.csv")
+def export_transactions_csv(user=Depends(current_user), db: Session = Depends(get_db)):
+    """Экспорт всех транзакций юзера в CSV (для бухгалтерии)."""
+    rows = db.query(Transaction).filter_by(user_id=user.id).order_by(Transaction.created_at.desc()).all()
+    buf = io.StringIO()
+    buf.write("\ufeff")  # BOM для корректной кириллицы в Excel
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["Дата", "Тип", "CH (дельта)", "Рубли", "Модель", "Описание", "YooKassa ID"])
+    type_ru = {"payment":"Платёж", "usage":"Списание", "bonus":"Бонус", "refund":"Возврат"}
+    for t in rows:
+        w.writerow([
+            t.created_at.strftime("%Y-%m-%d %H:%M:%S") if t.created_at else "",
+            type_ru.get(t.type, t.type or ""),
+            t.tokens_delta or 0,
+            f"{t.amount_rub:.2f}" if t.amount_rub else "",
+            t.model or "",
+            t.description or "",
+            t.yookassa_payment_id or "",
+        ])
+    buf.seek(0)
+    filename = f"aiche-transactions-{user.id}-{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/subscription/cancel")

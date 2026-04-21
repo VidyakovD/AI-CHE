@@ -259,7 +259,10 @@ body.welcome #inputArea{display:none!important}
           </div>
         </div>
       </div>
-      <p class="text-center text-[10px] text-on-surface-dim/30 mt-2">AI Студия Че может ошибаться. Проверяйте важную информацию.</p>
+      <div class="flex items-center justify-between gap-2 mt-2 px-1">
+        <p id="modelCostHint" class="text-[10px] text-on-surface-dim/50 truncate flex-1"></p>
+        <p class="text-[10px] text-on-surface-dim/30 text-right">AI может ошибаться — проверяйте важное</p>
+      </div>
     </div>
   </div>
 </main>
@@ -720,6 +723,13 @@ document.addEventListener("visibilitychange", async()=>{
 // ── init ───────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded",async()=>{
   // OAuth callback: одноразовый код → POST /auth/oauth/exchange → токены
+  // Подхватываем ?ref=CODE из URL и кладём в localStorage на 7 дней
+  const refCode = new URLSearchParams(location.search).get("ref");
+  if(refCode){
+    localStorage.setItem("obs_pending_ref", refCode.toUpperCase());
+    localStorage.setItem("obs_pending_ref_at", String(Date.now()));
+    history.replaceState(null, "", location.pathname); // убираем ?ref из URL
+  }
   const oauthCode = new URLSearchParams(location.search).get("oauth_code");
   if(oauthCode){
     try{
@@ -854,10 +864,42 @@ function buildModels(){
   });
 }
 
+// Кэш цен моделей для калькулятора
+let _modelsPricing = null;
+async function _loadModelsPricing(){
+  if(_modelsPricing) return _modelsPricing;
+  try{
+    const r = await fetch(API+'/pricing/models');
+    _modelsPricing = (await r.json()).reduce((acc, m) => { acc[m.model_id]=m; return acc; }, {});
+  }catch{ _modelsPricing = {}; }
+  return _modelsPricing;
+}
+async function updateModelCostHint(){
+  const el = document.getElementById('modelCostHint');
+  if(!el) return;
+  const pricing = await _loadModelsPricing();
+  const p = pricing[currentModel];
+  if(!p){ el.textContent = ''; return; }
+  // Если модель с фикс-ценой (картинки/видео) — показываем цену за запрос
+  if(p.cost_per_req > 0){
+    const ch = p.cost_per_req;
+    const rub = window.chToRub ? window.chToRub(ch) : '';
+    el.innerHTML = `💡 Эта модель стоит <b>${ch} CH</b>${rub?` <span class="opacity-70">${rub}</span>`:''} за запрос`;
+    return;
+  }
+  // Текстовые модели — прикинем на типовой ответ 200 in + 800 out
+  const typIn = 200, typOut = 800;
+  const raw = (typIn/1000)*(p.ch_per_1k_input||0) + (typOut/1000)*(p.ch_per_1k_output||0);
+  const est = Math.max(Math.round(raw), p.min_ch_per_req || 1);
+  const rub = window.chToRub ? window.chToRub(est) : '';
+  el.innerHTML = `💡 Типичный ответ ≈ <b>${est} CH</b>${rub?` <span class="opacity-70">${rub}</span>`:''} (минимум ${p.min_ch_per_req||1} CH)`;
+}
+
 function setModel(id){
   currentModel=id;currentChat=null;currentChatInit=false;
   const m=MODELS.find(x=>x.id===id);
   document.getElementById("modelLabel").textContent=m?.label||id;
+  updateModelCostHint();
   document.querySelectorAll("[data-m-drop]").forEach(el=>{
     el.classList.toggle("text-primary",el.dataset.mDrop===id);
     el.classList.toggle("bg-primary/10",el.dataset.mDrop===id);
@@ -1366,9 +1408,17 @@ async function pollPayment(pid){
 
 function renderHistoryTab(el){
   const txs=cabinetData?.transactions||[];
-  if(!txs.length){el.innerHTML='<p class="text-sm text-on-surface-dim">История пуста</p>';return;}
+  const header = `
+    <div class="flex items-center justify-between mb-3">
+      <p class="text-xs text-on-surface-dim">Последние 50 операций</p>
+      <button onclick="downloadTxCsv()" class="btn-g text-xs flex items-center gap-1.5">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+        Скачать CSV
+      </button>
+    </div>`;
+  if(!txs.length){ el.innerHTML = header + '<p class="text-sm text-on-surface-dim">История пуста</p>'; return; }
   const icons={payment:"💳",usage:"🤖",bonus:"🎁",refund:"↩️"};
-  el.innerHTML=`<div class="space-y-2">${txs.map(t=>`
+  el.innerHTML = header + `<div class="space-y-2">${txs.map(t=>`
     <div class="flex items-center justify-between p-3 bg-surface2 rounded-xl border border-outline/10">
       <div class="flex items-center gap-3">
         <span class="text-lg">${icons[t.type]||"•"}</span>
@@ -1378,39 +1428,212 @@ function renderHistoryTab(el){
         </div>
       </div>
       <div class="text-right">
-        <p class="text-sm font-bold ${t.tokens_delta>0?"text-green-400":"text-error"}">${t.tokens_delta>0?"+":""}${fmtT(t.tokens_delta)} T</p>
+        <p class="text-sm font-bold ${t.tokens_delta>0?"text-green-400":"text-error"}">${t.tokens_delta>0?"+":""}${fmtT(t.tokens_delta)} CH</p>
         ${t.amount_rub?`<p class="text-xs text-on-surface-dim/60">${t.amount_rub}₽</p>`:""}
       </div>
     </div>`).join("")}</div>`;
 }
+
+async function saveLowBalance(){
+  const val = parseInt(document.getElementById('s_lowbal').value) || 0;
+  const msg = document.getElementById('s_lowbal_msg');
+  try{
+    const r = await apiPost('/user/low-balance-threshold', {threshold: val});
+    if(r?.threshold !== undefined){
+      msg.textContent = val === 0 ? 'Уведомления отключены' : `Сохранено. Уведомим при балансе ниже ${r.threshold} CH`;
+      msg.className = 'text-xs mt-1 text-green-400';
+      msg.classList.remove('hidden');
+      if(cabinetData?.user) cabinetData.user.low_balance_threshold = r.threshold;
+    }
+  }catch(e){
+    msg.textContent = 'Ошибка: '+e.message;
+    msg.className = 'text-xs mt-1 text-error';
+    msg.classList.remove('hidden');
+  }
+}
+
+async function downloadTxCsv(){
+  if(!authToken){ alert("Войдите в аккаунт"); return; }
+  try{
+    const r = await fetch(API+'/user/transactions.csv', {headers:{"Authorization":"Bearer "+authToken}});
+    if(!r.ok){ alert("Не удалось скачать CSV"); return; }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = r.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'transactions.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  }catch(e){ alert("Ошибка: "+e.message); }
+}
 function renderUsageTab(el){
-  const usage=cabinetData?.model_usage||{};
-  const entries=Object.entries(usage).sort((a,b)=>b[1]-a[1]);
-  if(!entries.length){el.innerHTML='<p class="text-sm text-on-surface-dim">Нет данных</p>';return;}
-  const max=entries[0][1];
-  el.innerHTML=`<div class="space-y-3"><p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold">Расход токенов по моделям</p>
-    ${entries.map(([m,t])=>`<div>
-      <div class="flex justify-between text-xs mb-1"><span class="text-on-surface-dim">${esc(m)}</span><span class="text-primary font-bold">${fmtT(t)} T</span></div>
-      <div class="h-1.5 bg-surface3 rounded-full overflow-hidden"><div class="h-full sig rounded-full" style="width:${Math.round(t/max*100)}%"></div></div>
-    </div>`).join("")}</div>`;
+  const breakdown = cabinetData?.spend_by_module;
+  const topExp = cabinetData?.top_expensive || [];
+  const tokenUsage = cabinetData?.token_usage || [];
+
+  const parts = [];
+
+  // ── Блок 1: разбивка по модулям (за 30 дней) ──────────────────
+  if (breakdown?.items?.length) {
+    const totalRub = window.chToRub ? chToRub(breakdown.total_ch) : '';
+    parts.push(`
+      <div class="mb-5">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold">Куда уходят CH (за 30 дней)</p>
+          <p class="text-xs text-on-dim">Всего: <b class="text-primary">${fmtT(breakdown.total_ch)} CH</b> ${totalRub?`<span class="opacity-60">${totalRub}</span>`:''}</p>
+        </div>
+        <div class="space-y-2.5">
+          ${breakdown.items.map(b=>`
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-on-surface">${esc(b.label)}</span>
+                <span class="text-on-dim">${fmtT(b.ch)} CH <span class="opacity-60">· ${b.requests} запр · ${b.share_pct}%</span></span>
+              </div>
+              <div class="h-2 bg-surface3 rounded-full overflow-hidden"><div class="h-full sig rounded-full" style="width:${b.share_pct}%"></div></div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `);
+  } else {
+    parts.push(`<p class="text-sm text-on-surface-dim mb-5">Ещё нет расходов за последние 30 дней — начните пользоваться чатом или ботами.</p>`);
+  }
+
+  // ── Блок 2: топ-5 самых дорогих запросов ─────────────────────
+  if (topExp.length) {
+    parts.push(`
+      <div class="mb-5">
+        <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-2">Топ-5 самых дорогих запросов</p>
+        <div class="space-y-1.5">
+          ${topExp.map(t=>{
+            const ch = -(t.tokens_delta||0);
+            const rub = window.chToRub ? chToRub(ch) : '';
+            const date = t.created_at ? new Date(t.created_at).toLocaleDateString('ru', {day:'2-digit',month:'2-digit'}) : '';
+            return `<div class="flex items-center justify-between bg-surface2 rounded-lg px-3 py-2 border border-outline/15 text-xs">
+              <div class="flex-1 min-w-0">
+                <p class="truncate">${esc(t.description||'—')}</p>
+                <p class="text-[10px] text-on-dim/60">${date}${t.model?' · '+esc(t.model):''}</p>
+              </div>
+              <p class="text-primary font-bold ml-3 flex-shrink-0">−${fmtT(ch)} CH ${rub?`<span class="opacity-60 font-normal">${rub}</span>`:''}</p>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    `);
+  }
+
+  // ── Блок 3: детальная разбивка по моделям (если есть) ─────────
+  if (tokenUsage.length) {
+    const max = Math.max(...tokenUsage.map(u=>u.ch_charged||0), 1);
+    parts.push(`
+      <div>
+        <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-2">По моделям</p>
+        <div class="space-y-1.5">
+          ${tokenUsage.map(u=>{
+            const pct = Math.round((u.ch_charged||0)/max*100);
+            return `<div class="flex items-center gap-3 text-xs">
+              <span class="w-24 truncate text-on-dim">${esc(u.model)}</span>
+              <div class="flex-1 h-1.5 bg-surface3 rounded-full overflow-hidden">
+                <div class="h-full sig rounded-full" style="width:${pct}%"></div>
+              </div>
+              <span class="text-primary font-bold w-24 text-right">${fmtT(u.ch_charged)} CH</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    `);
+  }
+
+  el.innerHTML = parts.join('');
 }
 function renderReferralTab(el){
-  const code=cabinetData?.user?.referral_code||"—";
-  el.innerHTML=`<div class="space-y-4">
+  const code = cabinetData?.user?.referral_code || "—";
+  const refUrl = `${location.origin}/?ref=${code}`;
+  el.innerHTML = `<div class="space-y-4" id="refContent">
     <div class="p-4 bg-surface2 rounded-xl border border-outline/20">
       <p class="text-sm font-bold mb-1">Ваш реферальный код</p>
-      <p class="text-xs text-on-surface-dim/70 mb-3">За каждого приглашённого — <strong class="text-primary">10% от оплаты</strong></p>
+      <p class="text-xs text-on-surface-dim/70 mb-3">За каждого приглашённого — <strong class="text-primary">10% от оплаты</strong> + единоразовый бонус при регистрации</p>
       <div class="flex items-center gap-3 bg-surface3 rounded-xl px-4 py-3 border border-outline/20">
         <code class="flex-1 text-primary font-mono font-bold text-lg tracking-[0.2em]">${code}</code>
-        <button onclick="copyRef('${code}')" id="copyRefBtn" class="btn-g text-xs">Копировать</button>
+        <button onclick="copyRef('${code}')" id="copyRefBtn" class="btn-g text-xs">Копировать код</button>
+      </div>
+      <div class="flex items-center gap-3 bg-surface3 rounded-xl px-4 py-3 border border-outline/20 mt-2">
+        <code class="flex-1 text-on-dim text-xs font-mono truncate">${esc(refUrl)}</code>
+        <button onclick="copyRefLink('${esc(refUrl)}')" id="copyRefUrlBtn" class="btn-g text-xs">Копировать ссылку</button>
+      </div>
+      <div class="flex gap-2 mt-3">
+        <a href="https://t.me/share/url?url=${encodeURIComponent(refUrl)}&text=${encodeURIComponent('Попробуй AI Студию Че — платформу с Claude, GPT, генерацией картинок и видео. Регистрируйся по моей ссылке:')}" target="_blank" class="btn-g text-xs flex-1 text-center">📤 Telegram</a>
+        <a href="https://wa.me/?text=${encodeURIComponent('Попробуй AI Студию Че: ' + refUrl)}" target="_blank" class="btn-g text-xs flex-1 text-center">📱 WhatsApp</a>
       </div>
     </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" id="refStats">
+      <div class="p-3 bg-surface2 rounded-xl border border-outline/15 text-center">
+        <p class="text-[10px] text-on-dim uppercase tracking-wider">Приглашено</p>
+        <p class="text-lg font-bold mt-1" id="refInvited">…</p>
+      </div>
+      <div class="p-3 bg-surface2 rounded-xl border border-outline/15 text-center">
+        <p class="text-[10px] text-on-dim uppercase tracking-wider">Активных</p>
+        <p class="text-lg font-bold mt-1 text-green-400" id="refVerified">…</p>
+      </div>
+      <div class="p-3 bg-surface2 rounded-xl border border-outline/15 text-center">
+        <p class="text-[10px] text-on-dim uppercase tracking-wider">Платят</p>
+        <p class="text-lg font-bold mt-1 text-primary" id="refPaying">…</p>
+      </div>
+      <div class="p-3 bg-surface2 rounded-xl border border-outline/15 text-center">
+        <p class="text-[10px] text-on-dim uppercase tracking-wider">Заработано</p>
+        <p class="text-lg font-bold mt-1 text-primary" id="refEarned">…</p>
+        <p class="text-[10px] text-on-dim" id="refEarnedRub"></p>
+      </div>
+    </div>
+
+    <div id="refBonuses" class="space-y-1.5 hidden">
+      <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold">Последние начисления</p>
+      <div id="refBonusList"></div>
+    </div>
+
     <div class="p-4 bg-surface2 rounded-xl border border-outline/20 space-y-2">
-      ${[["1","Поделитесь реферальным кодом с другом"],["2","Друг регистрируется по вашему коду"],["3","При каждой оплате друга — вам начисляется 10% от суммы в токенах"]].map(([n,t])=>
+      ${[["1","Поделитесь реферальным кодом или ссылкой с другом"],["2","Друг регистрируется по вашему коду (вы получаете бонус сразу)"],["3","При каждой оплате друга — вам 10% в виде CH"]].map(([n,t])=>
         `<div class="flex items-center gap-3 text-sm text-on-surface-dim"><span class="w-6 h-6 rounded-full sig flex items-center justify-center text-xs font-bold text-[#1e1a14] flex-shrink-0">${n}</span>${t}</div>`
       ).join("")}
     </div>
   </div>`;
+
+  // Загружаем статистику
+  loadReferralStats();
+}
+
+async function loadReferralStats(){
+  try{
+    const r = await api('/user/referral/stats');
+    document.getElementById('refInvited').textContent = r.invited_count ?? 0;
+    document.getElementById('refVerified').textContent = r.invited_verified ?? 0;
+    document.getElementById('refPaying').textContent = r.invited_paying ?? 0;
+    document.getElementById('refEarned').textContent = fmtT(r.total_earned_ch||0);
+    const rub = window.chToRub ? chToRub(r.total_earned_ch||0) : '';
+    if(rub) document.getElementById('refEarnedRub').textContent = rub;
+
+    if(r.recent_bonuses?.length){
+      const wrap = document.getElementById('refBonuses');
+      wrap.classList.remove('hidden');
+      document.getElementById('refBonusList').innerHTML = r.recent_bonuses.map(b=>{
+        const date = b.created_at ? new Date(b.created_at).toLocaleDateString('ru') : '';
+        return `<div class="flex items-center justify-between bg-surface2 rounded-lg px-3 py-2 border border-outline/15 text-xs">
+          <p class="truncate flex-1 text-on-dim">${esc(b.description||'Бонус')}</p>
+          <p class="text-green-400 font-bold ml-2">+${fmtT(b.tokens)} CH</p>
+          <p class="text-on-dim/60 ml-2 text-[10px]">${date}</p>
+        </div>`;
+      }).join('');
+    }
+  }catch(e){ console.error(e); }
+}
+
+function copyRefLink(url){
+  navigator.clipboard.writeText(url);
+  const btn = document.getElementById('copyRefUrlBtn');
+  btn.textContent = 'Скопировано!';
+  btn.style.color = '#6bff9e';
+  setTimeout(()=>{ btn.textContent='Копировать ссылку'; btn.style.color=''; }, 2000);
 }
 function copyRef(code){
   navigator.clipboard.writeText(code);
@@ -1419,8 +1642,19 @@ function copyRef(code){
   setTimeout(()=>{btn.textContent="Копировать";btn.style.color="";},2000);
 }
 function renderSettingsTab(el){
+  const thr = cabinetData?.user?.low_balance_threshold ?? 100;
   el.innerHTML=`<div class="space-y-6">
-    <div><p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Сменить пароль</p>
+    <div>
+      <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Уведомления о низком балансе</p>
+      <p class="text-xs text-on-dim mb-2">Пришлём email когда останется меньше <b>N CH</b>. Установите <b>0</b>, чтобы отключить.</p>
+      <div class="flex gap-2 items-center">
+        <input id="s_lowbal" type="number" min="0" max="100000" value="${thr}" class="inp flex-1"/>
+        <span class="text-xs text-on-dim">CH</span>
+        <button onclick="saveLowBalance()" class="btn-g">Сохранить</button>
+      </div>
+      <div id="s_lowbal_msg" class="text-xs mt-1 hidden"></div>
+    </div>
+    <div class="border-t border-outline/20 pt-5"><p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Сменить пароль</p>
       <div class="space-y-2">
         <input id="s_oldp" type="password" placeholder="Текущий пароль" class="inp"/>
         <input id="s_newp" type="password" placeholder="Новый пароль (мин. 8 символов)" class="inp"/>
@@ -2070,7 +2304,18 @@ function updateSendBtn(){
 }
 function fmtT(n){let v=n||0;return Math.round(v).toLocaleString('ru-RU');}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
-function openM(id){document.getElementById(id).classList.remove("hidden");}
+function openM(id){
+  document.getElementById(id).classList.remove("hidden");
+  // Авто-подстановка реферального кода при открытии регистрации
+  if(id === "registerModal"){
+    const ref = localStorage.getItem("obs_pending_ref");
+    const at = parseInt(localStorage.getItem("obs_pending_ref_at") || "0");
+    if(ref && at && (Date.now() - at) < 7 * 24 * 3600 * 1000){
+      const input = document.getElementById("rg_ref");
+      if(input && !input.value) input.value = ref;
+    }
+  }
+}
 function closeM(id){document.getElementById(id).classList.add("hidden");}
 function switchM(a,b){closeM(a);openM(b);}
 function openTerms(){openM('termsModal');}

@@ -103,3 +103,14 @@ def send_welcome(to: str, name: str) -> None:
     <p style="color:rgba(199,196,215,0.8);line-height:1.6">Ваш аккаунт успешно подтверждён. На баланс начислено <strong style="color:#c0c1ff">5 000 токенов</strong> в подарок.</p>
     <div style="text-align:center"><a href="{APP_URL}" class="btn">Открыть Obsidian AI</a></div>"""
     _send(to, "Добро пожаловать в Obsidian AI!", _base_template("Добро пожаловать!", body))
+
+
+def send_low_balance_alert(to: str, name: str, balance: int, threshold: int) -> None:
+    """Уведомление о низком балансе CH."""
+    body = f"""
+    <p style="color:rgba(199,196,215,0.8);line-height:1.6">Здравствуйте, <strong>{name or 'пользователь'}</strong>!</p>
+    <p style="color:rgba(199,196,215,0.8);line-height:1.6">На вашем балансе AI Студии Че осталось <strong style="color:#c0c1ff">{balance} CH</strong> (лимит уведомления — {threshold} CH).</p>
+    <p style="color:rgba(199,196,215,0.8);line-height:1.6">Чтобы боты и агенты продолжали работать без перерыва, пополните баланс:</p>
+    <div style="text-align:center"><a href="{APP_URL}/?openCabinet=1" class="btn">Пополнить баланс</a></div>
+    <p class="note">Порог уведомления можно настроить в личном кабинете → Настройки → Уведомления.</p>"""
+    _send(to, "Низкий баланс CH — AI Студия Че", _base_template("⚠️ Баланс заканчивается", body))
