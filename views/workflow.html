@@ -26,8 +26,15 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:Inter,sans-serif;co
 .node-icon{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px}
 /* Port */
 .port{width:13px;height:13px;border-radius:50%;border:2px solid rgba(74,63,47,0.7);background:#1a1510;cursor:crosshair;flex-shrink:0;transition:all .15s;z-index:10;position:relative}
-.port:hover,.port.hilite{background:#ff8c42;border-color:#ff8c42;transform:scale(1.3)}
-.port.reject{background:#ff6b6b;border-color:#ff6b6b;cursor:not-allowed}
+.port:hover,.port.hilite{transform:scale(1.4)}
+.port.reject{background:#ff6b6b!important;border-color:#ff6b6b!important;cursor:not-allowed}
+/* Цвет порта по типу данных: text=серый, image=зелёный, video=красный, prompt=жёлтый, any=синий */
+.port.port-text{background:#9ca3af;border-color:#6b7280}
+.port.port-image{background:#10b981;border-color:#059669}
+.port.port-video{background:#ef4444;border-color:#dc2626}
+.port.port-prompt{background:#fbbf24;border-color:#d97706}
+.port.port-any{background:#6366f1;border-color:#4f46e5}
+.port:hover{box-shadow:0 0 8px currentColor}
 /* Refresh badge */
 .rbadge{position:absolute;top:-9px;right:-9px;width:20px;height:20px;border-radius:50%;background:#1a1510;border:1.5px solid rgba(74,63,47,0.5);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .15s;z-index:20;font-size:10px}
 .node:hover .rbadge,.rbadge:hover{opacity:1}
@@ -90,6 +97,7 @@ select.inp option{background:#231d16;color:#f0e6d8}
   <span style="color:rgba(168,152,128,0.5);font-size:11px">/ Воркфлоу</span>
   <div style="flex:1"></div>
   <input id="wf-name" type="text" placeholder="Название..." class="inp" style="width:180px;padding:5px 10px"/>
+  <div id="wfCostEstimate" style="font-size:11px;color:rgba(168,152,128,0.8);padding:4px 10px;background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.25);border-radius:6px" title="Примерная стоимость запуска по прайсу моделей">💰 <span id="wfCostValue">0 CH</span></div>
   <button onclick="clearCanvas()" class="btn btn-g" style="font-size:11px;padding:5px 10px">Очистить</button>
   <button onclick="saveWorkflow()" class="btn btn-g" style="font-size:11px;padding:5px 10px">💾 Сохранить</button>
   <button onclick="runWorkflow()" class="btn btn-p" style="font-size:11px;padding:5px 12px">▶ Запустить</button>
@@ -168,6 +176,13 @@ const authToken = localStorage.getItem('obs_token');
 // ── Port type definitions (what can connect to what) ───────────────────────
 // Each node has: inputs (array of accepted types), outputs (array of produced types)
 // Types: 'text', 'image', 'video', 'prompt', 'any'
+const PORT_TYPE_LABELS = {
+  text: 'Текст', image: 'Изображение', video: 'Видео', prompt: 'Промпт', any: 'Любой тип',
+};
+const PORT_TYPE_COLORS = {
+  text: '#9ca3af', image: '#10b981', video: '#ef4444', prompt: '#fbbf24', any: '#6366f1',
+};
+
 const NODE_DEF = {
   text_input:   {label:'Текст (ввод)',      emoji:'📝', color:'#ff8c42', ins:[],              outs:['text'],          price:0},
   image_upload: {label:'Фото (загрузка)',   emoji:'🖼️', color:'#ff8c42', ins:[],              outs:['image'],         price:0},
@@ -311,9 +326,18 @@ window.addEventListener('mouseup',e=>{
   if(connFrom){connFrom=null;redrawSvg();}
 });
 
-// Drag from palette
+// Drag from palette + hover-tooltip с описанием и ценой блока
 document.querySelectorAll('.pal-item').forEach(el=>{
   el.addEventListener('dragstart',e=>e.dataTransfer.setData('ntype',el.dataset.type));
+  // Tooltip
+  const type = el.dataset.type;
+  const def = NODE_DEF[type];
+  if(def){
+    const priceStr = def.price ? ` · ${def.price} CH` : ' · бесплатно';
+    const ins = def.ins?.length ? def.ins.map(t=>PORT_TYPE_LABELS[t]||t).join(', ') : '—';
+    const outs = def.outs?.length ? def.outs.map(t=>PORT_TYPE_LABELS[t]||t).join(', ') : '—';
+    el.title = `${def.label}${priceStr}\nВход: ${ins}\nВыход: ${outs}${def.desc?'\n— '+def.desc:''}`;
+  }
 });
 ca.addEventListener('dragover',e=>e.preventDefault());
 ca.addEventListener('drop',e=>{
@@ -335,7 +359,16 @@ function addNode(type,x=160,y=140){
   nodes.push(node);
   renderNode(node);
   selectNode(id);
+  updateCostEstimate();
   return node;
+}
+
+function updateCostEstimate(){
+  const el = document.getElementById('wfCostValue');
+  if(!el) return;
+  const sum = nodes.reduce((s,n) => s + ((NODE_DEF[n.type]?.price)||0), 0);
+  const rub = window.chToRub ? window.chToRub(sum) : '';
+  el.innerHTML = sum + ' CH' + (rub ? ` <span style="opacity:.7">${rub}</span>` : '');
 }
 
 function renderNode(node){
@@ -348,15 +381,17 @@ function renderNode(node){
   const inCount  = def.ins.length;
   const outCount = def.outs.length;
 
-  // Build in-ports HTML
+  // Build in-ports HTML (раскраска по типу данных)
   let inPortsHtml='';
   for(let i=0;i<inCount;i++){
-    inPortsHtml+=`<div class="port" data-node="${node.id}" data-ptype="in" data-idx="${i}" title="${def.ins[i]||'вход'}"></div>`;
+    const t = def.ins[i]||'any';
+    inPortsHtml+=`<div class="port port-${t}" data-node="${node.id}" data-ptype="in" data-idx="${i}" data-dtype="${t}" title="Вход: ${PORT_TYPE_LABELS[t]||t}"></div>`;
   }
   // Build out-ports HTML
   let outPortsHtml='';
   for(let i=0;i<outCount;i++){
-    outPortsHtml+=`<div class="port" data-node="${node.id}" data-ptype="out" data-idx="${i}" title="${def.outs[i]||'выход'}"></div>`;
+    const t = def.outs[i]||'any';
+    outPortsHtml+=`<div class="port port-${t}" data-node="${node.id}" data-ptype="out" data-idx="${i}" data-dtype="${t}" title="Выход: ${PORT_TYPE_LABELS[t]||t}"></div>`;
   }
 
   el.innerHTML=`
@@ -619,7 +654,7 @@ function deleteSelected(){
   document.getElementById('el_'+selId)?.remove();
   nodes=nodes.filter(n=>n.id!==selId);
   conns=conns.filter(c=>c.from!==selId&&c.to!==selId);
-  selId=null;closeProp();redrawSvg();
+  selId=null;closeProp();redrawSvg();updateCostEstimate();
 }
 
 window.addEventListener('keydown',e=>{
