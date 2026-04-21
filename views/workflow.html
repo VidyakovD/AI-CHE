@@ -18,8 +18,14 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:Inter,sans-serif;co
 #nodes-layer{position:absolute;top:0;left:0;transform-origin:0 0;z-index:2}
 #nodes-layer *{user-select:none;-webkit-user-select:none}
 /* Node */
-.node{position:absolute;background:#1a1510;border:1.5px solid rgba(74,63,47,0.6);border-radius:14px;min-width:196px;max-width:560px;width:var(--wf-w,196px);cursor:default;user-select:none;transition:border-color .15s,box-shadow .15s;resize:horizontal;overflow:auto}
-.node-body textarea{overflow:hidden;resize:none}
+.node{position:absolute;background:#1a1510;border:1.5px solid rgba(74,63,47,0.6);border-radius:14px;min-width:196px;max-width:560px;width:var(--wf-w,196px);cursor:default;user-select:none;transition:border-color .15s,box-shadow .15s;overflow:visible}
+.node-body textarea{overflow:hidden;resize:none;max-width:100%;box-sizing:border-box}
+/* Свой resize-handle (замена белому квадратику) */
+.wf-resize{position:absolute;right:-1px;bottom:-1px;width:12px;height:12px;cursor:ew-resize;opacity:0;transition:opacity .15s;z-index:4;
+  background:linear-gradient(135deg,transparent 46%,rgba(255,140,66,.55) 46%,rgba(255,140,66,.55) 54%,transparent 54%,transparent 66%,rgba(255,140,66,.55) 66%,rgba(255,140,66,.55) 74%,transparent 74%);
+  border-bottom-right-radius:13px}
+.node:hover .wf-resize,.node.selected .wf-resize{opacity:.7}
+.wf-resize:hover{opacity:1!important}
 .node-tool{background:none;border:none;cursor:pointer;color:rgba(240,230,216,.35);padding:2px;border-radius:4px;line-height:0;transition:color .15s;flex-shrink:0}
 .node-tool:hover{color:#ff8c42}
 .node-tool.danger:hover{color:#ff6b6b}
@@ -492,6 +498,36 @@ function wfRedo() {
 // Сохраняем стартовый snapshot после первого рендера
 setTimeout(() => wfPushHistory(), 100);
 
+// ── Custom drag-resize ширины ноды ──────────────────────────────────────────
+let _wfResize = null;
+function wfResizeStart(ev, nodeId) {
+  ev.stopPropagation(); ev.preventDefault();
+  const el = document.getElementById('el_' + nodeId); if (!el) return;
+  _wfResize = { id: nodeId, el, startX: ev.clientX, startW: el.offsetWidth };
+  document.addEventListener('mousemove', _wfResizeMove);
+  document.addEventListener('mouseup', _wfResizeEnd);
+  document.body.style.cursor = 'ew-resize';
+}
+function _wfResizeMove(ev) {
+  if (!_wfResize) return;
+  const dx = (ev.clientX - _wfResize.startX) / scale;
+  let w = Math.round(_wfResize.startW + dx);
+  w = Math.max(196, Math.min(560, w));
+  _wfResize.el.style.setProperty('--wf-w', w + 'px');
+}
+function _wfResizeEnd() {
+  if (!_wfResize) return;
+  const w = _wfResize.el.offsetWidth;
+  const n = nodes.find(x => x.id === _wfResize.id);
+  if (n) n.w = w;
+  _wfResize = null;
+  document.body.style.cursor = '';
+  document.removeEventListener('mousemove', _wfResizeMove);
+  document.removeEventListener('mouseup', _wfResizeEnd);
+  redrawSvg();
+  wfPushHistory();
+}
+
 // ── Export / Import JSON ────────────────────────────────────────────────────
 function wfExportJSON() {
   const name = document.getElementById('wf-name')?.value?.trim() || 'workflow';
@@ -613,10 +649,6 @@ function renderNode(node){
   el.className='node'; el.id='el_'+node.id;
   el.style.left=node.x+'px'; el.style.top=node.y+'px';
   if (node.w) el.style.setProperty('--wf-w', node.w + 'px');
-  el.addEventListener('mouseup', () => {
-    const w = el.offsetWidth;
-    if (w >= 196 && node.w !== w) node.w = w;
-  });
 
   const hasRefresh = def.price > 0;
   const hasHelp    = !!(def.desc || def.howto);
@@ -652,7 +684,8 @@ function renderNode(node){
       ${hasRefresh?`<button class="rbadge" onclick="event.stopPropagation();refreshNode('${node.id}')" title="Обновить">↻</button><div class="ptip">${def.price} CH</div>`:''}
       <div style="display:flex;align-items:center;gap:3px;flex-shrink:0">${outPortsHtml}</div>
     </div>
-    <div class="node-body" id="body_${node.id}"></div>`;
+    <div class="node-body" id="body_${node.id}"></div>
+    <div class="wf-resize" title="Растянуть ширину" onmousedown="wfResizeStart(event,'${node.id}')"></div>`;
 
   // Header drag
   const hdr=el.querySelector('#hdr_'+node.id);

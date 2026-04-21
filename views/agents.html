@@ -79,12 +79,20 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .wfc-sidebar-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:grab;font-size:12px;font-weight:600;color:#a89880;transition:all .15s;border:1px solid transparent;margin:1px 0}
 .wfc-sidebar-item:hover{background:rgba(255,140,66,.08);border-color:rgba(255,140,66,.25);color:#f0e6d8}
 .wfc-sidebar-item:active{cursor:grabbing}
-.wfc-node{position:absolute;background:#1a1610;border:1.5px solid rgba(74,63,47,.5);border-radius:14px;min-width:190px;max-width:520px;width:var(--wfc-w,190px);user-select:none;transition:border-color .15s,box-shadow .15s;resize:horizontal;overflow:auto}
+.wfc-node{position:absolute;background:#1a1610;border:1.5px solid rgba(74,63,47,.5);border-radius:14px;min-width:190px;max-width:520px;width:var(--wfc-w,190px);user-select:none;transition:border-color .15s,box-shadow .15s;overflow:visible}
 .wfc-node:hover{border-color:rgba(255,140,66,.45)}
 .wfc-node.selected{border-color:#ff8c42;box-shadow:0 0 0 3px rgba(255,140,66,.18)}
 .wfc-node-head{padding:9px 12px;display:flex;align-items:center;gap:8px;cursor:move;border-radius:13px 13px 0 0}
-.wfc-node-body{padding:9px 12px;cursor:pointer;border-radius:0 0 13px 13px;overflow:hidden}
-.wfc-node-body textarea{overflow:hidden}
+.wfc-node-body{padding:9px 12px;cursor:pointer;border-radius:0 0 13px 13px}
+/* textarea auto-resize без внутреннего скролла; вертикальный scroll появится только если
+   превышен max-height (~400px в _wfcAutosize) */
+.wfc-node-body textarea{overflow:hidden;resize:none;max-width:100%;box-sizing:border-box}
+/* Свой ресайз-хендл (замена native белому квадратику) — по ширине, только на hover/selected */
+.wfc-resize{position:absolute;right:-1px;bottom:-1px;width:12px;height:12px;cursor:ew-resize;opacity:0;transition:opacity .15s;z-index:4;
+  background:linear-gradient(135deg,transparent 46%,rgba(255,140,66,.55) 46%,rgba(255,140,66,.55) 54%,transparent 54%,transparent 66%,rgba(255,140,66,.55) 66%,rgba(255,140,66,.55) 74%,transparent 74%);
+  border-bottom-right-radius:13px}
+.wfc-node:hover .wfc-resize,.wfc-node.selected .wfc-resize{opacity:.7}
+.wfc-resize:hover{opacity:1!important}
 .wfc-port{width:14px;height:14px;border-radius:50%;position:absolute;top:50%;transform:translateY(-50%);cursor:crosshair;z-index:5;transition:all .15s;border:2.5px solid rgba(74,63,47,.7);background:#1a1610}
 .wfc-port.in{left:-7px}.wfc-port.out{right:-7px}
 .wfc-port:hover,.wfc-port.active{border-color:#ff8c42;background:rgba(255,140,66,.25);transform:translateY(-50%) scale(1.3)}
@@ -2378,12 +2386,12 @@ function wfcRender() {
     const wStyle = n.w ? `--wfc-w:${n.w}px` : '';
     const hasHelp = !!(d.desc || d.howto);
     return `<div id="wfcn-${n.id}" class="wfc-node${sel?' selected':''}"
-         style="left:${n.x}px;top:${n.y}px;${wStyle}" data-nid="${n.id}"
-         onmouseup="wfcSaveWidth('${n.id}')">
+         style="left:${n.x}px;top:${n.y}px;${wStyle}" data-nid="${n.id}">
       ${n.type.startsWith('trigger')?'':`<div class="wfc-port in" data-nid="${n.id}" data-port="in"
         onmousedown="wfcPortDown(event,'${n.id}','in')"></div>`}
       <div class="wfc-port out" data-nid="${n.id}" data-port="out"
         onmousedown="wfcPortDown(event,'${n.id}','out')"></div>
+      <div class="wfc-resize" title="Растянуть ширину" onmousedown="wfcResizeStart(event,'${n.id}')"></div>
       <div class="wfc-node-head" style="background:${d.color}16"
            onmousedown="wfcNodeDown(event,'${n.id}')">
         <div style="width:22px;height:22px;border-radius:7px;background:${d.color}22;display:flex;align-items:center;justify-content:center;flex-shrink:0">
@@ -2416,16 +2424,41 @@ function wfcRender() {
 
 function _wfcAutosize(ta) {
   ta.style.height = 'auto';
-  ta.style.height = Math.min(Math.max(ta.scrollHeight, 36), 400) + 'px';
+  // Без верхнего лимита, чтобы блок рос под контент; scroll появится только на очень больших текстах
+  const h = Math.max(ta.scrollHeight, 36);
+  ta.style.height = (h > 600 ? 600 : h) + 'px';
+  if (h > 600) ta.style.overflow = 'auto'; else ta.style.overflow = 'hidden';
 }
 
-function wfcSaveWidth(id) {
-  const el = document.getElementById('wfcn-'+id);
-  if (!el) return;
-  const w = el.offsetWidth;
-  if (w < 190) return;
-  const n = wfc.nodes.find(x => x.id === id);
-  if (n && n.w !== w) { n.w = w; }  // не перерисовываем (ресайз уже сделан визуально)
+// Кастомный drag-resize ширины ноды (вместо уродливого native resize)
+let _wfcResize = null;
+function wfcResizeStart(ev, id) {
+  ev.stopPropagation(); ev.preventDefault();
+  const el = document.getElementById('wfcn-' + id); if (!el) return;
+  _wfcResize = { id, el, startX: ev.clientX, startW: el.offsetWidth };
+  document.addEventListener('mousemove', wfcResizeMove);
+  document.addEventListener('mouseup',   wfcResizeEnd);
+  document.body.style.cursor = 'ew-resize';
+}
+function wfcResizeMove(ev) {
+  if (!_wfcResize) return;
+  // Учитываем масштаб канваса
+  const dx = (ev.clientX - _wfcResize.startX) / wfc.scale;
+  let w = Math.round(_wfcResize.startW + dx);
+  w = Math.max(190, Math.min(520, w));
+  _wfcResize.el.style.setProperty('--wfc-w', w + 'px');
+}
+function wfcResizeEnd() {
+  if (!_wfcResize) return;
+  const w = _wfcResize.el.offsetWidth;
+  const n = wfc.nodes.find(x => x.id === _wfcResize.id);
+  if (n) n.w = w;
+  _wfcResize = null;
+  document.body.style.cursor = '';
+  document.removeEventListener('mousemove', wfcResizeMove);
+  document.removeEventListener('mouseup',   wfcResizeEnd);
+  wfcDrawEdges();
+  wfcPushHistory();
 }
 
 function wfcDupNode(id) {
