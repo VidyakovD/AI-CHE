@@ -166,13 +166,17 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   <!-- ── Tab: Мои агенты ── -->
   <div id="pane-my" class="tab-pane">
     <div id="agentsList" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl"></div>
-    <div id="agentsEmpty" class="hidden text-center py-24">
+    <div id="agentsEmpty" class="hidden text-center py-12 px-4">
       <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="#141210"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
       </div>
-      <h2 class="text-xl font-bold font-headline mb-2">Нет агентов</h2>
-      <p class="text-on-dim text-sm mb-6">Создайте первого AI-агента — выберите канал, настройте оркестратор и добавьте блоки</p>
-      <button onclick="openWizard()" class="btn-p">Создать агента</button>
+      <h2 class="text-xl font-bold font-headline mb-2">У вас пока нет агентов</h2>
+      <p class="text-on-dim text-sm mb-6 max-w-lg mx-auto">Создайте AI-агента — он отвечает в Telegram/VK/Авито 24/7 по вашему сценарию. Подключение за 2 минуты: вставьте Bot Token, выберите какие задачи он умеет, и готово.</p>
+      <div class="flex items-center justify-center gap-2 flex-wrap">
+        <button onclick="openWizard()" class="btn-p">+ Создать агента (мастер)</button>
+        <button onclick="switchTab('catalog')" class="btn-g">🧰 Собрать в Конструкторе</button>
+      </div>
+      <p class="text-xs text-on-dim/60 mt-6 max-w-md mx-auto">💡 Новичкам: «Мастер» — готовые роли (юрист, SMM, копирайтер…). Для продвинутых: «Конструктор» — граф из блоков.</p>
     </div>
   </div>
 
@@ -579,14 +583,19 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   </div>
 
   <!-- Footer navigation -->
-  <div class="px-6 pb-6 pt-4 border-t border-outline/15 flex items-center justify-between gap-3">
+  <div class="px-6 pb-6 pt-4 border-t border-outline/15 flex items-center justify-between gap-3 flex-wrap">
     <button onclick="wizardPrev()" id="wPrevBtn" class="btn-g hidden">← Назад</button>
     <div id="wCloseBtn" class="btn-g cursor-pointer" onclick="closeWizard()">Отмена</div>
     <button onclick="wizardNext()" id="wNextBtn" class="btn-p ml-auto">Далее →</button>
-    <button onclick="saveAgent()" id="wSaveBtn" class="btn-p ml-auto hidden">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-      Создать агента
-    </button>
+    <!-- Финальные действия: 3 варианта -->
+    <div id="wSaveGroup" class="ml-auto flex items-center gap-2 hidden flex-wrap justify-end">
+      <button onclick="saveAgent()" id="wSaveBtn" class="btn-g" title="Только сохранить, запустить позже">
+        💾 Сохранить черновик
+      </button>
+      <button onclick="saveAndDeployAgent()" id="wDeployBtn" class="btn-p" title="Сохранить и сразу создать TG-бота">
+        🤖 Сохранить и запустить в Telegram
+      </button>
+    </div>
   </div>
 
 </div>
@@ -1037,30 +1046,58 @@ function renderAgents() {
     ).map(c => `<span class="opacity-70">${svgIcon(c.icon, 14)}</span>`).join('');
     const dot = {active:'dot-active', paused:'dot-paused', draft:'dot-draft'}[a.status] || 'dot-draft';
     const stLabel = {active:'Активен', paused:'Пауза', draft:'Черновик'}[a.status] || 'Черновик';
+
     const orchSettings = a.settings || {};
-    const orchText = [
-      orchSettings.compression === 'micro' ? 'MicroCompact' : orchSettings.compression === 'none' ? '' : 'AutoCompact',
-      orchSettings.max_parallel ? `${orchSettings.max_parallel} задачи` : ''
-    ].filter(Boolean).join(' · ');
-    return `<div class="agent-item" onclick="openAgent(${a.id})">
+    const hasGraph = Array.isArray(orchSettings.wfc_nodes) && orchSettings.wfc_nodes.length > 0;
+    const hasTgToken = !!(a.channels?.tg_token);
+    const blockCount = a.enabled_blocks?.length || 0;
+
+    // Понятный hint что делать дальше
+    let hint = '';
+    if (a.status === 'draft') {
+      if (hasTgToken && (hasGraph || blockCount)) {
+        hint = '👇 Нажмите <b>🤖 В Telegram</b> чтобы бот начал отвечать';
+      } else if (!hasGraph && !blockCount) {
+        hint = '⚠️ Агент пустой — откройте в конструкторе и добавьте блоки';
+      } else if (!hasTgToken) {
+        hint = 'ℹ️ Не хватает Bot Token — добавьте в настройках канала';
+      }
+    }
+
+    return `<div class="agent-item" style="cursor:default">
       <div class="flex items-start justify-between gap-3">
-        <div class="flex items-start gap-3 flex-1 min-w-0">
+        <div class="flex items-start gap-3 flex-1 min-w-0 cursor-pointer" onclick="openAgent(${a.id})">
           <div class="status-dot ${dot} mt-1.5"></div>
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 mb-0.5">
               <p class="font-headline font-bold text-sm truncate">${esc(a.name)}</p>
               ${chLabels ? `<span class="flex gap-1">${chLabels}</span>` : ''}
+              <span class="text-[10px] text-on-dim/80 px-2 py-0.5 rounded-full bg-surface3/60">${stLabel}</span>
             </div>
             <p class="text-xs text-on-dim">
-              ${a.enabled_blocks?.length || 0} блоков
-              ${orchText ? ' · ' + orchText : ''}
+              ${blockCount} блоков${hasGraph ? ` · граф из ${orchSettings.wfc_nodes.length} узлов` : ''}
             </p>
+            ${hint ? `<p class="text-xs text-primary/90 mt-1.5">${hint}</p>` : ''}
           </div>
         </div>
-        <div class="flex items-center gap-2 flex-shrink-0">
-          <span class="text-xs text-on-dim">${stLabel}</span>
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <button onclick="event.stopPropagation();runAgentFromList(${a.id})"
+            class="btn-g text-xs py-1 px-2.5 flex items-center gap-1" title="Протестировать разово">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            Тест
+          </button>
+          <button onclick="event.stopPropagation();deployAgentAsBot(${a.id})"
+            class="text-xs py-1 px-2.5 rounded-lg flex items-center gap-1 transition"
+            style="background:rgba(107,255,158,.12);color:#6bff9e;border:1px solid rgba(107,255,158,.3)"
+            title="Создать TG-бота с этим воркфлоу">
+            🤖 В Telegram
+          </button>
+          <button onclick="event.stopPropagation();openAgent(${a.id})"
+            class="btn-g text-xs py-1 px-2" title="Редактировать">
+            ✏️
+          </button>
           <button onclick="event.stopPropagation();deleteAgent(${a.id})"
-            class="text-error/40 hover:text-error transition p-1">
+            class="text-error/40 hover:text-error transition p-1" title="Удалить">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
           </button>
         </div>
@@ -1072,6 +1109,118 @@ function renderAgents() {
   const sel = document.getElementById('agentSelect');
   sel.innerHTML = '<option value="">Автоматически (оркестратор решит)</option>' +
     myAgents.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+}
+
+// Запустить агента во вкладке «Запустить»
+function runAgentFromList(agentId) {
+  const a = myAgents.find(x => x.id === agentId); if (!a) return;
+  switchTab('run');
+  setTimeout(() => {
+    const sel = document.getElementById('agentSelect');
+    if (sel) sel.value = agentId;
+    const goalEl = document.getElementById('goalInput');
+    if (goalEl) { goalEl.placeholder = `Что должен сделать «${a.name}»?`; goalEl.focus(); }
+  }, 100);
+}
+
+// Создать TG-бота из AgentConfig (с графом или без)
+async function deployAgentAsBot(agentId) {
+  const a = myAgents.find(x => x.id === agentId); if (!a) return;
+  const settings = a.settings || {};
+  const hasGraph = Array.isArray(settings.wfc_nodes) && settings.wfc_nodes.length > 0;
+  let tg_token = a.channels?.tg_token || '';
+  const blocks = a.enabled_blocks || [];
+
+  // Если не хватает — спросим токен
+  if (!tg_token) {
+    tg_token = prompt(
+      'Вставьте Bot Token от @BotFather:\n\n'
+      + '1. Откройте https://t.me/BotFather в Telegram\n'
+      + '2. /newbot → имя → @username (оканчивается на bot)\n'
+      + '3. Скопируйте токен вида 1234567890:AAH... и вставьте сюда'
+    );
+    if (!tg_token) return;
+    tg_token = tg_token.trim();
+  }
+
+  // Сформируем workflow_json: если есть готовый граф — берём его, иначе синтезируем
+  let workflow_json;
+  if (hasGraph) {
+    // Подставим токен в trigger_tg/output_tg если там пусто
+    const nodes = JSON.parse(JSON.stringify(settings.wfc_nodes));
+    for (const n of nodes) {
+      if ((n.type === 'trigger_tg' || n.type === 'output_tg') && !n.cfg?.tg_token) {
+        n.cfg = n.cfg || {}; n.cfg.tg_token = tg_token;
+      }
+    }
+    workflow_json = JSON.stringify({wfc_nodes: nodes, wfc_edges: settings.wfc_edges || []});
+  } else if (blocks.length) {
+    // Синтезируем простой граф: trigger_tg → оркестратор → [blocks] → output_tg
+    const nodes = [
+      {id:'n1', type:'trigger_tg', x:60, y:200, cfg:{tg_token}},
+    ];
+    const edges = [];
+    if (blocks.length > 1) {
+      nodes.push({id:'n2', type:'orchestrator', x:300, y:200, cfg:{model:'gpt-4o-mini', strategy:'один агент'}});
+      edges.push({id:'e1', from:'n1', to:'n2'});
+      blocks.forEach((bid, i) => {
+        const id = 'na' + i;
+        nodes.push({id, type:'agent_'+bid, x:560, y:80 + i*130, cfg: (settings.block_configs || {})[bid] || {}});
+        edges.push({id:'ea'+i, from:'n2', to:id});
+        edges.push({id:'eo'+i, from:id, to:'out'});
+      });
+    } else {
+      const bid = blocks[0];
+      nodes.push({id:'na0', type:'agent_'+bid, x:300, y:200, cfg: (settings.block_configs || {})[bid] || {}});
+      edges.push({id:'e1', from:'n1', to:'na0'});
+      edges.push({id:'eo0', from:'na0', to:'out'});
+    }
+    nodes.push({id:'out', type:'output_tg', x:820, y:200, cfg:{tg_token}});
+    workflow_json = JSON.stringify({wfc_nodes: nodes, wfc_edges: edges});
+  } else {
+    // Совсем пусто — создадим минимальный GPT-бот с system prompt по умолчанию
+    if (!confirm(
+      'В этом агенте нет ни блоков, ни графа.\n\n'
+      + 'Создать простого GPT-4o-mini бота который будет отвечать на любые вопросы?\n'
+      + '(Позже сможете доделать в Конструкторе)'
+    )) return;
+    workflow_json = JSON.stringify({
+      wfc_nodes: [
+        {id:'n1', type:'trigger_tg', x:60, y:200, cfg:{tg_token}},
+        {id:'n2', type:'node_gpt',   x:310, y:200, cfg:{system:'Ты полезный AI-ассистент. Отвечай кратко и по делу.', temp:'0.7'}},
+        {id:'n3', type:'output_tg',  x:560, y:200, cfg:{tg_token}},
+      ],
+      wfc_edges: [
+        {id:'e1', from:'n1', to:'n2'},
+        {id:'e2', from:'n2', to:'n3'},
+      ],
+    });
+  }
+
+  // Создаём ChatBot (он автоматически установит webhook благодаря нашему POST-хэндлеру)
+  try {
+    const r = await fetch(`${API}/chatbots`, {method:'POST', headers:hdrs(), body:JSON.stringify({
+      name: a.name,
+      model: 'claude',
+      workflow_json,
+      tg_token,
+      max_replies_day: 200,
+      cost_per_reply: 5,
+    })});
+    if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка создания бота');
+    const bot = await r.json();
+    const tgOk = bot.setup?.telegram?.ok;
+    alert(
+      `✅ Бот «${bot.name}» создан!\n\n`
+      + (tgOk
+        ? `Telegram webhook установлен — можете писать боту прямо сейчас.\n\nЧтобы проверить: откройте бота в Telegram и напишите «Привет»`
+        : `ChatBot создан, но webhook не подтвердился. Проверьте токен в /chatbots.html → ▶ Запуск`)
+    );
+    // Переход на chatbots чтобы юзер видел
+    window.location.href = '/chatbots.html';
+  } catch (e) {
+    alert('Ошибка: ' + e.message);
+  }
 }
 
 async function deleteAgent(id) {
@@ -1148,9 +1297,32 @@ function showWizardStep(n) {
   document.getElementById('wPrevBtn').classList.toggle('hidden', n === 1);
   document.getElementById('wCloseBtn').classList.toggle('hidden', n > 1);
   document.getElementById('wNextBtn').classList.toggle('hidden', n === 4);
-  document.getElementById('wSaveBtn').classList.toggle('hidden', n !== 4);
+  document.getElementById('wSaveGroup').classList.toggle('hidden', n !== 4);
 
   if (n === 4) buildWizardReview();
+}
+
+// Сохранить AgentConfig + сразу создать TG-бота
+async function saveAndDeployAgent() {
+  const deployBtn = document.getElementById('wDeployBtn');
+  const saveBtn = document.getElementById('wSaveBtn');
+  const origText = deployBtn.textContent;
+  deployBtn.disabled = true; saveBtn.disabled = true;
+  deployBtn.innerHTML = '<span class="inline-block w-3 h-3 border-2 border-black/40 border-t-black rounded-full animate-spin align-middle mr-2"></span>Сохраняю...';
+  try {
+    await saveAgent();          // сохранит и закроет wizard
+    // Берём только что созданного агента (последнего по id)
+    const just = [...myAgents].sort((a,b)=>b.id - a.id)[0];
+    if (just) {
+      deployBtn.innerHTML = '<span class="inline-block w-3 h-3 border-2 border-black/40 border-t-black rounded-full animate-spin align-middle mr-2"></span>Создаю TG-бота...';
+      await deployAgentAsBot(just.id);
+    }
+  } catch (e) {
+    alert('Ошибка: ' + e.message);
+  } finally {
+    deployBtn.disabled = false; saveBtn.disabled = false;
+    deployBtn.textContent = origText;
+  }
 }
 
 function wizardNext() {
@@ -1366,6 +1538,20 @@ function buildWizardReview() {
   document.getElementById('agentName').value = wizData.name ||
     (chLabels.length ? chLabels[0] + ' агент' : 'Мой агент');
 
+  const hasTgToken = !!(wizData.channelFields?.tg_token);
+  const hasTgChannel = wizData.channels.has('telegram');
+  const hintHtml = hasTgChannel && hasTgToken
+    ? `<div class="mt-3 p-3 rounded-xl" style="background:rgba(107,255,158,.08);border:1px solid rgba(107,255,158,.25);color:#6bff9e;font-size:12px;line-height:1.5">
+         ✅ <b>Готово для запуска:</b> нажмите <b>«🤖 Сохранить и запустить в Telegram»</b> — бот сразу начнёт отвечать.
+       </div>`
+    : hasTgChannel && !hasTgToken
+    ? `<div class="mt-3 p-3 rounded-xl" style="background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.25);color:#ff8c42;font-size:12px;line-height:1.5">
+         ⚠️ Telegram выбран, но Bot Token не заполнен на шаге 1. Нажмите <b>← Назад</b> и заполните, иначе бот не заработает.
+       </div>`
+    : `<div class="mt-3 p-3 rounded-xl" style="background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.25);color:#ff8c42;font-size:12px;line-height:1.5">
+         💡 Каналы не выбраны. Сохранится как черновик — запустите через кнопку «Тест» или «🤖 В Telegram» (спросит токен).
+       </div>`;
+
   document.getElementById('wSummary').innerHTML = `
     <div class="bg-surface2 rounded-xl p-4 space-y-2">
       <div class="flex justify-between text-sm"><span class="text-on-dim">Каналы</span>
@@ -1380,7 +1566,8 @@ function buildWizardReview() {
         <span class="font-semibold">${compLabel}</span></div>
       <div class="flex justify-between text-sm"><span class="text-on-dim">Приоритет</span>
         <span class="font-semibold">${prioLabel}</span></div>
-    </div>`;
+    </div>
+    ${hintHtml}`;
 }
 
 async function saveAgent() {
