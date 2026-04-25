@@ -240,9 +240,10 @@ body.welcome #inputArea{display:none!important}
         <div id="attachmentList" class="flex flex-wrap gap-2"></div>
       </div>
       <div class="relative group">
-        <div class="relative flex items-end bg-surface2 rounded-2xl pl-5 pr-2 py-2 shadow-2xl border border-outline/10 transition-colors focus-within:border-primary/40" style="border-color:rgba(74,63,47,0.15)">
+        <div class="absolute -inset-0.5 bg-gradient-to-r from-primary/30 to-secondary/30 rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-500"></div>
+        <div class="relative flex items-center bg-surface2 rounded-2xl pl-5 pr-2 py-2 shadow-2xl border border-outline/10" style="border-color:rgba(74,63,47,0.15)">
           <textarea id="messageInput" rows="1"
-            class="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface placeholder:text-on-surface-dim/50 text-sm font-body py-2 px-2 resize-none overflow-y-auto max-h-32 leading-5 text-center placeholder:text-center"
+            class="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface placeholder:text-on-surface-dim/50 text-sm font-body py-2 px-2 resize-none overflow-y-auto max-h-32 leading-5"
             placeholder="Напишите сообщение…"></textarea>
           <div class="flex items-center gap-1 pb-1">
             <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf,.txt,.doc,.docx"/>
@@ -2267,6 +2268,23 @@ function updateRunUI(data){
     stepLbl.textContent="✅ Завершено";hintEl.textContent="Решение выполнено! Результат в чате.";
     inputArea.classList.add("hidden");contBtn.classList.add("hidden");chatBtn.classList.remove("hidden");
     if(data.result?.content){resultTxt.textContent=data.result.content;resultEl.classList.remove("hidden");}
+    // Если это бизнес-решение и есть PDF — показываем кнопку «Скачать PDF»
+    let pdfBtn = document.getElementById("runPdfBtn");
+    if (data.pdf_url) {
+      if (!pdfBtn) {
+        pdfBtn = document.createElement("a");
+        pdfBtn.id = "runPdfBtn";
+        pdfBtn.target = "_blank";
+        pdfBtn.className = "px-4 py-3 rounded-xl text-sm font-medium hover:opacity-90 transition flex items-center gap-2";
+        pdfBtn.style.cssText = "background:linear-gradient(135deg,#c89052,#ff8c42);color:#1e1a14";
+        pdfBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>📄 Скачать PDF';
+        chatBtn.parentNode.insertBefore(pdfBtn, chatBtn);
+      }
+      pdfBtn.href = data.pdf_url;
+      pdfBtn.classList.remove("hidden");
+    } else if (pdfBtn) {
+      pdfBtn.classList.add("hidden");
+    }
     if(authToken)fetchMe();
   }else if(data.status==="waiting_input"){
     const step=data.step;

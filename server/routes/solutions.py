@@ -40,12 +40,37 @@ def _execute_step(run: SolutionRun, step: SolutionStep, user_input,
     for k, v in ctx.items():
         prompt = prompt.replace(f"{{{k}}}", str(v))
 
+    # Бизнес-решения — расширяем промпт для длинного отчёта в Markdown
+    solution = db.query(Solution).filter_by(id=run.solution_id).first()
+    is_business = bool(solution and solution.category and solution.category.slug == "business")
+    if is_business:
+        prompt += (
+            "\n\n=== ФОРМАТ ОТВЕТА ===\n"
+            "Дай развёрнутый структурированный экспертный отчёт в Markdown:\n"
+            "- Заголовок документа (#)\n"
+            "- 5-10 содержательных разделов (## H2)\n"
+            "- Подразделы (### H3) где уместно\n"
+            "- Маркированные/нумерованные списки\n"
+            "- Таблицы для сравнений (Markdown table)\n"
+            "- **Жирное** для ключевых тезисов, *курсив* для пометок\n"
+            "- Каждый раздел — минимум 2-3 абзаца с конкретикой и примерами\n"
+            "- Никаких отговорок «нужно уточнить» — давай готовое решение\n"
+            "- В конце: «### 🎯 Ключевые выводы» (5-7 буллетов) и "
+            "«### 📋 Что делать дальше» (пошаговый план)\n"
+            "- Тон: профессиональный, по делу, без воды.\n"
+            "- Объём: 3000-6000 слов (плотный, но не водянистый).\n"
+        )
+
     messages = []
     if step.system_prompt:
         messages.append({"role": "system", "content": step.system_prompt})
     messages.append({"role": "user", "content": prompt})
 
-    extra = json.loads(step.extra_params) if step.extra_params else None
+    extra = json.loads(step.extra_params) if step.extra_params else {}
+    extra = extra or {}
+    # Бизнес-решения требуют большого max_tokens (до 16K) для полного отчёта
+    if is_business:
+        extra.setdefault("max_tokens", 16000)
 
     try:
         answer = generate_response(step.model, messages, extra)
@@ -90,9 +115,33 @@ def _execute_step(run: SolutionRun, step: SolutionStep, user_input,
                 return {"status": "error", "error": "Недостаточно токенов для завершения решения"}
             db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-solution.price_tokens,
                                description=f"Готовое решение: {solution.title}"))
+        # Бизнес-решения — генерируем PDF файл с фирменным оформлением
+        pdf_url = None
+        if is_business and content.strip():
+            try:
+                import os as _os, uuid as _uuid
+                from server.pdf_builder import markdown_to_pdf
+                base = _os.path.dirname(_os.path.abspath(__file__))
+                project_root = _os.path.dirname(_os.path.dirname(base))
+                upload_dir = _os.path.join(project_root, "uploads", "solutions")
+                _os.makedirs(upload_dir, exist_ok=True)
+                fid = f"sol_{run.id}_{_uuid.uuid4().hex[:8]}.pdf"
+                out_path = _os.path.join(upload_dir, fid)
+                ok = markdown_to_pdf(
+                    md_text=content,
+                    title=solution.title,
+                    out_path=out_path,
+                    subtitle=solution.description or "",
+                )
+                if ok:
+                    pdf_url = f"/uploads/solutions/{fid}"
+                    log.info(f"[Solution] PDF создан: {pdf_url}")
+            except Exception as e:
+                log.error(f"[Solution] PDF generation failed: {e}")
         db.commit()
         return {"status": "done", "chat_id": run.chat_id,
-                "result": {"type": resp_type, "content": content}}
+                "result": {"type": resp_type, "content": content},
+                "pdf_url": pdf_url}
 
     next_step = steps[run.current_step]
     run.context = json.dumps(ctx)

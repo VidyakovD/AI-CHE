@@ -11,3 +11,6 @@ yookassa==2.3.0
 python-multipart==0.0.9
 defusedxml==0.7.1
 bleach==6.1.0
+# PDF-отчёты для бизнес-решений
+markdown==3.6
+weasyprint==62.3
