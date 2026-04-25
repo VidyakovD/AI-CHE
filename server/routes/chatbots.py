@@ -280,36 +280,38 @@ async def ai_build_workflow(req: WorkflowAiRequest, db: Session = Depends(get_db
                             user: User = Depends(current_user)):
     """
     AI-помощник: по описанию задачи собирает граф воркфлоу.
-    Списывает реальные токены Claude — обычно 200-500 CH за вызов.
+    Списывает реальные копейки за токены Claude — обычно 5-10 ₽ за вызов.
     """
     if not user.is_verified:
         raise HTTPException(403, "Подтвердите email")
     from server.billing import get_balance, deduct_atomic
     from server.workflow_builder import build_from_task
     from server.models import Transaction
-    # Минимальная блокировка по балансу — реальная стоимость списывается ниже
-    if get_balance(db, user.id) < 50:
-        raise HTTPException(402, "Недостаточно токенов (минимум 50 CH)")
+    # Минимальная блокировка — 5 ₽ (500 копеек)
+    if get_balance(db, user.id) < 500:
+        raise HTTPException(402, "Недостаточно средств (минимум 5 ₽)")
     try:
         result = build_from_task(req.task)
     except ValueError as e:
         msg = str(e)
-        # Если AI-провайдеры лежат — отдаём 503, а не 400 (это не вина пользователя)
         if "недоступны" in msg.lower() or "провайдер" in msg.lower():
             raise HTTPException(503, msg)
         raise HTTPException(400, msg)
     except Exception as e:
         log.error(f"ai-build-workflow error: {e}")
         raise HTTPException(500, "Не удалось собрать воркфлоу. Попробуйте переформулировать задачу.")
-    # Списываем по токенам Claude (≈8/30 CH за 1k input/output)
+    # Списываем по реальным токенам Claude:
+    # Sonnet тариф ~80 коп/1k input + 300 коп/1k output (= 8/30 CH × 10)
     usage = result.get("usage") or {}
-    cost = max(1, int(usage.get("input_tokens", 0) / 1000 * 8
-                    + usage.get("output_tokens", 0) / 1000 * 30))
-    charged = deduct_atomic(db, user.id, cost)
+    cost_kop = max(50, int(usage.get("input_tokens", 0) / 1000 * 80
+                        + usage.get("output_tokens", 0) / 1000 * 300))
+    charged = deduct_atomic(db, user.id, cost_kop)
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
-                       description="AI-сборка воркфлоу", model="claude"))
+                       description=f"AI-сборка воркфлоу ({charged/100:.2f} ₽)",
+                       model="claude"))
     db.commit()
-    result["ch_charged"] = charged
+    result["charged_kopecks"] = charged
+    result["charged_rub"] = charged / 100
     return result
 
 

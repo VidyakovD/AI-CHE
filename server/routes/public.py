@@ -22,37 +22,37 @@ router = APIRouter(tags=["public"])
 
 DEFAULT_MODEL_PRICING = [
     # Per-token цены в CH за 1000 токенов (1 CH ≈ 0.55₽; курс 100₽/$; маржа ×3)
-    # Формула: (себестоимость $/1K × 100₽ × 3) / 0.55 = CH/1K
-    # gpt-4o-mini: $0.00015/$0.0006 per 1K → 0.08/0.33 CH per 1K
+    # Цены — в КОПЕЙКАХ за 1k токенов (1 ₽ = 100 коп). Формула: USD/1k × курс × маржа.
+    # gpt-4o-mini: $0.00015/$0.0006 per 1K → ~1/3.5 коп
     {"model_id":"gpt",             "label":"GPT-4o mini",
-     "ch_per_1k_input":0.1, "ch_per_1k_output":0.35, "min_ch_per_req":1},
-    # gpt-4o: $0.0025/$0.01 per 1K → 1.4/5.5 CH
+     "ch_per_1k_input":1, "ch_per_1k_output":3.5, "min_ch_per_req":10},
+    # gpt-4o: $0.0025/$0.01 per 1K → 14/55 коп
     {"model_id":"gpt-4o",          "label":"GPT-4o",
-     "ch_per_1k_input":1.4, "ch_per_1k_output":5.5, "min_ch_per_req":2},
-    # claude-haiku: $0.001/$0.005 per 1K → 0.55/2.75 CH
+     "ch_per_1k_input":14, "ch_per_1k_output":55, "min_ch_per_req":20},
+    # claude-haiku: $0.001/$0.005 per 1K → 6/28 коп
     {"model_id":"claude",          "label":"Claude Haiku",
-     "ch_per_1k_input":0.6, "ch_per_1k_output":2.8, "min_ch_per_req":1},
-    # claude-sonnet: $0.003/$0.015 per 1K → 1.65/8.25 CH
+     "ch_per_1k_input":6, "ch_per_1k_output":28, "min_ch_per_req":10},
+    # claude-sonnet: $0.003/$0.015 per 1K → 17/83 коп
     {"model_id":"claude-sonnet",   "label":"Claude Sonnet",
-     "ch_per_1k_input":1.7, "ch_per_1k_output":8.3, "min_ch_per_req":2},
-    # perplexity sonar: $0.001/$0.001 per 1K → 0.55/0.55 CH (+ web search)
+     "ch_per_1k_input":17, "ch_per_1k_output":83, "min_ch_per_req":20},
+    # perplexity sonar: $0.001/$0.001 per 1K → 6/6 коп
     {"model_id":"perplexity",      "label":"Perplexity Sonar",
-     "ch_per_1k_input":0.6, "ch_per_1k_output":0.6, "min_ch_per_req":2},
-    # perplexity sonar pro: $0.003/$0.015 per 1K → 1.65/8.25 CH
+     "ch_per_1k_input":6, "ch_per_1k_output":6, "min_ch_per_req":20},
+    # perplexity sonar pro: $0.003/$0.015 per 1K → 17/83 коп
     {"model_id":"perplexity-large","label":"Perplexity Sonar Pro",
-     "ch_per_1k_input":1.7, "ch_per_1k_output":8.3, "min_ch_per_req":3},
-    # grok-3-mini: $0.0003/$0.0005 per 1K → 0.16/0.27 CH
+     "ch_per_1k_input":17, "ch_per_1k_output":83, "min_ch_per_req":30},
+    # grok-3-mini: $0.0003/$0.0005 per 1K → 2/3 коп
     {"model_id":"grok",            "label":"Grok 3 mini",
-     "ch_per_1k_input":0.2, "ch_per_1k_output":0.3, "min_ch_per_req":1},
-    # grok-3: $0.002/$0.01 per 1K → 1.1/5.5 CH
+     "ch_per_1k_input":2, "ch_per_1k_output":3, "min_ch_per_req":10},
+    # grok-3: $0.002/$0.01 per 1K → 11/55 коп
     {"model_id":"grok-large",      "label":"Grok 3",
-     "ch_per_1k_input":1.1, "ch_per_1k_output":5.5, "min_ch_per_req":2},
-    # Media — per-request (нет токенов)
-    {"model_id":"dalle",           "label":"DALL-E 3",         "cost_per_req":40,  "min_ch_per_req":40},
-    {"model_id":"nano",            "label":"Imagen",           "cost_per_req":10,  "min_ch_per_req":10},
-    {"model_id":"kling",           "label":"Kling v1",         "cost_per_req":200, "min_ch_per_req":200},
-    {"model_id":"kling-pro",       "label":"Kling Pro",        "cost_per_req":400, "min_ch_per_req":400},
-    {"model_id":"veo",             "label":"Veo 3",            "cost_per_req":300, "min_ch_per_req":300},
+     "ch_per_1k_input":11, "ch_per_1k_output":55, "min_ch_per_req":20},
+    # Media — per-request (копейки)
+    {"model_id":"dalle",           "label":"DALL-E 3",         "cost_per_req":400,  "min_ch_per_req":400},
+    {"model_id":"nano",            "label":"Imagen",           "cost_per_req":100,  "min_ch_per_req":100},
+    {"model_id":"kling",           "label":"Kling v1",         "cost_per_req":2000, "min_ch_per_req":2000},
+    {"model_id":"kling-pro",       "label":"Kling Pro",        "cost_per_req":4000, "min_ch_per_req":4000},
+    {"model_id":"veo",             "label":"Veo 3",            "cost_per_req":3000, "min_ch_per_req":3000},
 ]
 
 DEFAULT_FEATURES = [

@@ -6,11 +6,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from server.routes.deps import get_db, current_user, _user_dict, _sub_dict, _tx_dict
+from server.routes.deps import get_db, current_user, _user_dict, _tx_dict
 from server.models import (
     User, Message, Transaction, ApiKey,
     Solution, SolutionCategory, SolutionStep,
-    Subscription, SupportRequest, PricingSetting,
+    SupportRequest, PricingSetting,
     ModelPricing, TokenPackage, FaqItem, FeatureFlag,
     UsageLog,
 )
@@ -473,10 +473,8 @@ def admin_users_full(user: User = Depends(current_user), db: Session = Depends(g
     users = db.query(User).order_by(User.created_at.desc()).all()
     result = []
     for u in users:
-        sub = db.query(Subscription).filter_by(user_id=u.id, status="active").first()
         result.append({
             **_user_dict(u),
-            "subscription": _sub_dict(sub) if sub else None,
             "messages_count": db.query(Message).filter_by(user_id=u.id, role="user").count(),
         })
     return result

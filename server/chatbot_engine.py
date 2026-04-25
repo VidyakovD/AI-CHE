@@ -926,9 +926,9 @@ def _deduct_bot_usage(bot, usage: dict):
 
         charged = deduct_atomic(db, bot.user_id, cost)
 
-        desc = f"Бот «{bot.name}» [{model}]: {input_tokens}→{output_tokens} ток."
+        desc = f"Бот «{bot.name}» [{model}]: {input_tokens}→{output_tokens} ток. ({charged/100:.2f} ₽)"
         if charged < cost:
-            desc += f" (списано {charged}/{cost})"
+            desc += f" (списано {charged/100:.2f}/{cost/100:.2f} ₽)"
 
         db.add(Transaction(
             user_id=bot.user_id, type="usage",

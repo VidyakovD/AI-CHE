@@ -4,8 +4,15 @@ from fastapi import Header, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from server.db import SessionLocal
-from server.models import User, Message, Subscription, Transaction, VerifyToken
+from server.models import User, Message, Transaction, VerifyToken
 from server.auth import decode_token
+
+
+def kop_to_rub(kop) -> float:
+    """Кастует копейки в рубли (для API). Принимает int/float/None."""
+    if kop is None:
+        return 0.0
+    return round(int(kop) / 100, 2)
 
 
 def get_db():
@@ -44,24 +51,22 @@ def optional_user(authorization: str = Header(None), db: Session = Depends(get_d
 
 def _user_dict(u):
     return {"id": u.id, "email": u.email, "name": u.name,
-            "avatar_url": u.avatar_url, "tokens_balance": u.tokens_balance,
+            "avatar_url": u.avatar_url,
+            "balance_kopecks": int(u.tokens_balance or 0),
+            "balance_rub": kop_to_rub(u.tokens_balance),
             "is_verified": u.is_verified, "is_banned": getattr(u, 'is_banned', False),
             "referral_code": u.referral_code,
-            "low_balance_threshold": getattr(u, "low_balance_threshold", None),
+            "low_balance_threshold_kop": int(getattr(u, "low_balance_threshold", 0) or 0),
+            "low_balance_threshold_rub": kop_to_rub(getattr(u, "low_balance_threshold", 0)),
             "created_at": u.created_at.isoformat() if u.created_at else None}
 
 
-def _sub_dict(s):
-    return {"id": s.id, "plan": s.plan, "tokens_total": s.tokens_total,
-            "tokens_used": s.tokens_used, "tokens_left": s.tokens_total - s.tokens_used,
-            "price_rub": s.price_rub, "status": s.status,
-            "started_at": s.started_at.isoformat() if s.started_at else None,
-            "expires_at": s.expires_at.isoformat() if s.expires_at else None}
-
-
 def _tx_dict(t):
+    delta = int(t.tokens_delta or 0)
     return {"id": t.id, "type": t.type, "amount_rub": t.amount_rub,
-            "tokens_delta": t.tokens_delta, "description": t.description,
+            "delta_kopecks": delta,
+            "delta_rub": kop_to_rub(delta),
+            "description": t.description,
             "model": t.model,
             "created_at": t.created_at.isoformat() if t.created_at else None}
 
@@ -85,11 +90,11 @@ def _use_verify_token(db, user_id, code, purpose):
     return True
 
 
-def _deduct(db, user, cost, description, model=None):
-    """Списать токены и записать транзакцию (атомарно — защита от lost update)."""
+def _deduct(db, user, cost_kop, description, model=None):
+    """Списать копейки с баланса и записать транзакцию (атомарно — защита от lost update)."""
     from server.billing import deduct_strict
-    if not deduct_strict(db, user.id, cost):
-        raise HTTPException(402, "Недостаточно токенов. Пополните баланс в личном кабинете.")
-    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+    if not deduct_strict(db, user.id, cost_kop):
+        raise HTTPException(402, "Недостаточно средств. Пополните баланс в личном кабинете.")
+    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost_kop,
                        description=description, model=model))
     db.commit()

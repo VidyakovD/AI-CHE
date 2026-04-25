@@ -12,14 +12,15 @@ from server.billing import deduct_atomic, get_balance
 
 
 def calculate_cost(model_id: str, input_tokens: int, output_tokens: int, db: Session) -> int:
-    """Посчитать CH за реальное использование токенов."""
+    """Посчитать стоимость в копейках за реальное использование токенов.
+    Поля ModelPricing.ch_per_1k_* теперь хранят копейки/1k токенов."""
     pricing = db.query(ModelPricing).filter_by(model_id=model_id).first()
     if pricing and (pricing.ch_per_1k_input > 0 or pricing.ch_per_1k_output > 0):
         cost = (input_tokens / 1000.0) * pricing.ch_per_1k_input + \
                (output_tokens / 1000.0) * pricing.ch_per_1k_output
         cost = max(int(round(cost)), pricing.min_ch_per_req or 1)
         return cost
-    # Fallback — старая per-request схема
+    # Fallback — старая per-request схема (значение тоже теперь в копейках)
     if pricing and pricing.cost_per_req:
         return pricing.cost_per_req
     return get_token_cost(model_id)
@@ -137,7 +138,7 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
         min_cost = get_token_cost(real_model) or 1
 
     if get_balance(db, user.id) < min_cost:
-        raise HTTPException(402, "Недостаточно токенов. Пополните баланс в личном кабинете.")
+        raise HTTPException(402, "Недостаточно средств. Пополните баланс в личном кабинете.")
 
     existing = db.query(Message).filter_by(chat_id=req.chat_id).first()
     title = req.message[:40] if (not existing and req.message) else ("Файл" if not existing else None)
@@ -180,9 +181,9 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
     # Атомарное списание (защита от race condition при параллельных запросах)
     if cost > 0:
         charged = deduct_atomic(db, user.id, cost)
-        desc = f"{req.model}: {input_tokens}→{output_tokens} ток."
+        desc = f"{req.model}: {input_tokens}→{output_tokens} ток. ({charged/100:.2f} ₽)"
         if charged < cost:
-            desc += f" (списано {charged}/{cost})"
+            desc += f" (списано {charged/100:.2f}/{cost/100:.2f} ₽)"
         db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
                            description=desc, model=req.model))
         db.add(UsageLog(user_id=user.id, model=real_model,

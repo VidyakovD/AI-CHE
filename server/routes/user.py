@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta
 
-from server.routes.deps import get_db, current_user, _user_dict, _sub_dict, _tx_dict
-from server.models import User, Subscription, Transaction, Message, SupportRequest, UsageLog, ImapCredential
+from server.routes.deps import get_db, current_user, _user_dict, _tx_dict, kop_to_rub
+from server.models import User, Transaction, Message, SupportRequest, UsageLog, ImapCredential
 
 log = logging.getLogger(__name__)
 
@@ -18,8 +18,6 @@ router = APIRouter(prefix="/user", tags=["user"])
 @router.get("/cabinet/stats")
 def cabinet_stats(user=Depends(current_user), db: Session = Depends(get_db)):
     db_user = db.query(User).filter_by(id=user.id).first()
-    sub = db.query(Subscription).filter_by(user_id=user.id, status="active")\
-            .order_by(Subscription.id.desc()).first()
     txs = db.query(Transaction).filter_by(user_id=user.id)\
             .order_by(Transaction.created_at.desc()).limit(50).all()
     usage = db.query(Message.model, Message.tokens_used).filter_by(user_id=user.id, role="user").all()
@@ -50,8 +48,10 @@ def cabinet_stats(user=Depends(current_user), db: Session = Depends(get_db)):
             "requests": r.requests or 0,
             "input_tokens": r.in_tok or 0,
             "output_tokens": r.out_tok or 0,
-            "ch_charged": r.ch or 0,
-            "avg_ch": round((r.ch or 0) / (r.requests or 1), 1),
+            "spent_kopecks": int(r.ch or 0),
+            "spent_rub": kop_to_rub(r.ch or 0),
+            "avg_kop": round((r.ch or 0) / (r.requests or 1), 1),
+            "avg_rub": kop_to_rub(round((r.ch or 0) / (r.requests or 1), 1)),
         } for r in usage_rows
     ]
 
@@ -66,7 +66,6 @@ def cabinet_stats(user=Depends(current_user), db: Session = Depends(get_db)):
     ).order_by(Transaction.tokens_delta.asc()).limit(5).all()
 
     return {"user": u,
-            "subscription": _sub_dict(sub) if sub else None,
             "transactions": [_tx_dict(t) for t in txs],
             "model_usage": model_usage,
             "token_usage": token_usage,
@@ -113,19 +112,20 @@ def _spend_by_module(db, user_id: int, since):
     buckets: dict[str, dict] = {}
     total = 0
     for t in rows:
-        ch = -int(t.tokens_delta or 0)  # usage хранит отрицательные числа
-        if ch <= 0:
+        kop = -int(t.tokens_delta or 0)  # usage хранит отрицательные числа (теперь копейки)
+        if kop <= 0:
             continue
         mod = _classify_tx(t.description, t.model)
-        b = buckets.setdefault(mod, {"module": mod, "label": MODULE_LABELS.get(mod, mod), "ch": 0, "requests": 0})
-        b["ch"] += ch
+        b = buckets.setdefault(mod, {"module": mod, "label": MODULE_LABELS.get(mod, mod), "kopecks": 0, "requests": 0})
+        b["kopecks"] += kop
         b["requests"] += 1
-        total += ch
-    # sort desc by ch, посчитать доли
-    out = sorted(buckets.values(), key=lambda b: b["ch"], reverse=True)
+        total += kop
+    # sort desc, посчитать доли
+    out = sorted(buckets.values(), key=lambda b: b["kopecks"], reverse=True)
     for b in out:
-        b["share_pct"] = round(100 * b["ch"] / total, 1) if total else 0
-    return {"total_ch": total, "period_days": 30, "items": out}
+        b["share_pct"] = round(100 * b["kopecks"] / total, 1) if total else 0
+        b["rub"] = kop_to_rub(b["kopecks"])
+    return {"total_kopecks": total, "total_rub": kop_to_rub(total), "period_days": 30, "items": out}
 
 
 @router.get("/referral/stats")
@@ -149,9 +149,11 @@ def referral_stats(user=Depends(current_user), db: Session = Depends(get_db)):
         "invited_count": len(invited),
         "invited_verified": sum(1 for u in invited if u.is_verified),
         "invited_paying": paying,
-        "total_earned_ch": total_earned,
+        "total_earned_kopecks": total_earned,
+        "total_earned_rub": kop_to_rub(total_earned),
         "recent_bonuses": [{
-            "tokens": t.tokens_delta,
+            "kopecks": t.tokens_delta,
+            "rub": kop_to_rub(t.tokens_delta),
             "description": t.description,
             "created_at": t.created_at.isoformat() if t.created_at else None,
         } for t in bonus_txs[:10]],
@@ -159,21 +161,22 @@ def referral_stats(user=Depends(current_user), db: Session = Depends(get_db)):
 
 
 class LowBalanceThresholdBody(BaseModel):
-    threshold: int  # 0 — отключено
+    threshold_rub: float  # порог в рублях, 0 — отключено
 
 
 @router.post("/low-balance-threshold")
 def set_low_balance_threshold(body: LowBalanceThresholdBody,
                                user=Depends(current_user), db: Session = Depends(get_db)):
-    """Юзер задаёт порог уведомления о низком балансе (CH). 0 — отключает."""
-    if body.threshold < 0 or body.threshold > 100_000:
-        raise HTTPException(400, "Порог от 0 до 100 000 CH")
+    """Юзер задаёт порог уведомления о низком балансе (₽). 0 — отключает."""
+    threshold_kop = int(round(body.threshold_rub * 100))
+    if threshold_kop < 0 or threshold_kop > 10_000_000:  # макс 100 000 ₽
+        raise HTTPException(400, "Порог от 0 до 100 000 ₽")
     u = db.query(User).filter_by(id=user.id).first()
-    u.low_balance_threshold = body.threshold
-    # При изменении — сбросим alerted_at, чтобы юзер получил уведомление снова если уже ниже порога
+    u.low_balance_threshold = threshold_kop
     u.low_balance_alerted_at = None
     db.commit()
-    return {"threshold": u.low_balance_threshold}
+    return {"threshold_rub": kop_to_rub(u.low_balance_threshold),
+            "threshold_kopecks": int(u.low_balance_threshold or 0)}
 
 
 @router.get("/transactions.csv")
@@ -192,13 +195,14 @@ def export_transactions_csv(user=Depends(current_user), db: Session = Depends(ge
     buf = io.StringIO()
     buf.write("\ufeff")  # BOM для корректной кириллицы в Excel
     w = csv.writer(buf, delimiter=";")
-    w.writerow(["Дата", "Тип", "CH (дельта)", "Рубли", "Модель", "Описание", "YooKassa ID"])
+    w.writerow(["Дата", "Тип", "Дельта (₽)", "Сумма платежа (₽)", "Модель", "Описание", "YooKassa ID"])
     type_ru = {"payment":"Платёж", "usage":"Списание", "bonus":"Бонус", "refund":"Возврат"}
     for t in rows:
+        delta_rub = (t.tokens_delta or 0) / 100  # копейки → рубли
         w.writerow([
             t.created_at.strftime("%Y-%m-%d %H:%M:%S") if t.created_at else "",
             type_ru.get(t.type, t.type or ""),
-            t.tokens_delta or 0,
+            f"{delta_rub:.2f}",
             f"{t.amount_rub:.2f}" if t.amount_rub else "",
             _csv_safe(t.model),
             _csv_safe(t.description),
@@ -211,18 +215,6 @@ def export_transactions_csv(user=Depends(current_user), db: Session = Depends(ge
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
-
-@router.post("/subscription/cancel")
-def cancel_subscription(user=Depends(current_user), db: Session = Depends(get_db)):
-    sub = db.query(Subscription).filter_by(user_id=user.id, status="active")\
-            .order_by(Subscription.id.desc()).first()
-    if not sub:
-        raise HTTPException(404, "Активная подписка не найдена")
-    sub.status = "cancelled"
-    db.add(sub)
-    db.commit()
-    return {"status": "cancelled", "subscription": _sub_dict(sub)}
 
 
 class SupportRequestRequest(BaseModel):

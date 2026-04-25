@@ -255,18 +255,10 @@ select.inp option{background:#272018;color:#f0e6d8}
           </div>
         </div>
 
-        <!-- Subscriptions -->
-        <div class="card">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="font-headline font-bold text-sm">Тарифные планы (подписки)</h3>
-          </div>
-          <div id="subscriptionPlans" class="space-y-2"></div>
-        </div>
-
         <!-- Token packages -->
         <div class="card">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="font-headline font-bold text-sm">Пакеты токенов (докупка)</h3>
+            <h3 class="font-headline font-bold text-sm">Пакеты пополнения баланса</h3>
             <button onclick="addTokenPackage()" class="btn btn-p text-xs flex items-center gap-1">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:14px;height:14px"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Добавить
             </button>
@@ -442,9 +434,9 @@ select.inp option{background:#272018;color:#f0e6d8}
 <!-- Adjust balance modal -->
 <div id="balanceModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 hidden">
   <div class="bg-surface rounded-xl p-6 w-80 border border-outline/25 shadow-2xl mx-4">
-    <h3 class="font-headline font-bold mb-4">Изменить баланс</h3>
+    <h3 class="font-headline font-bold mb-4">Изменить баланс (₽)</h3>
     <p class="text-sm text-on-dim mb-3" id="balModalUser">—</p>
-    <input id="balDelta" type="number" placeholder="+10000 или -5000" class="inp mb-2"/>
+    <input id="balDelta" type="number" step="0.01" placeholder="+100.00 или -50.00 (рубли)" class="inp mb-2"/>
     <input id="balReason" type="text" placeholder="Причина" class="inp mb-3" value="Ручная корректировка"/>
     <div id="balErr" class="text-error text-xs mb-2 hidden"></div>
     <div class="flex gap-3">
@@ -674,7 +666,7 @@ async function loadSolutions(cat){
           <p class="text-xs text-on-dim mt-0.5">${cat?.title||"—"} · ${s.steps_count} шагов</p>
         </div>
         <div class="text-right flex-shrink-0">
-          <p class="text-primary font-bold text-sm">${s.price_tokens?fmtT(s.price_tokens)+" CH":"Бесплатно"}</p>
+          <p class="text-primary font-bold text-sm">${s.price_tokens?((s.price_tokens/100).toFixed(2)+" ₽"):"Бесплатно"}</p>
           <span class="text-[10px] px-1.5 py-0.5 rounded-full ${s.is_active?"bg-green-500/15 text-green-400":"bg-error/15 text-error"}">${s.is_active?"Активно":"Скрыто"}</span>
         </div>
       </div>
@@ -731,8 +723,8 @@ function renderUsers(){
     <tr class="border-b border-outline/10 hover:bg-surface2/40 transition ${u.is_banned?'bg-error/5':''}">
       <td class="py-2 px-3 text-xs font-mono text-on-dim">${esc(u.email)}</td>
       <td class="py-2 px-3 text-xs">${esc(u.name||"—")}</td>
-      <td class="py-2 px-3 text-xs text-primary font-bold text-right">${fmtT(u.tokens_balance)} CH</td>
-      <td class="py-2 px-3 text-xs text-on-dim">${u.subscription?u.subscription.plan.toUpperCase():"—"}</td>
+      <td class="py-2 px-3 text-xs text-primary font-bold text-right">${((u.balance_kopecks ?? u.tokens_balance ?? 0)/100).toFixed(2)} ₽</td>
+      <td class="py-2 px-3 text-xs text-on-dim">${u.email_verified_at?'verified':'—'}</td>
       <td class="py-2 px-3 text-center">${u.is_verified?'<span class="text-green-400 text-xs">✓</span>':'<span class="text-error text-xs">✗</span>'}</td>
       <td class="py-2 px-3 text-xs text-on-dim">${u.created_at?new Date(u.created_at).toLocaleDateString("ru"):"—"}</td>
       <td class="py-2 px-3">
@@ -849,16 +841,17 @@ function openBalanceModal(userId,email){
 }
 function closeM(id){document.getElementById(id).classList.add("hidden");}
 async function doAdjustBalance(){
-  const delta=parseInt(document.getElementById("balDelta").value);
+  // Поле теперь принимает РУБЛИ (с копейками), отправляем копейки на бэк
+  const deltaRub=parseFloat(document.getElementById("balDelta").value);
   const reason=document.getElementById("balReason").value.trim();
   const err=document.getElementById("balErr");err.classList.add("hidden");
-  if(isNaN(delta)){err.textContent="Введите число";err.classList.remove("hidden");return;}
+  if(isNaN(deltaRub)){err.textContent="Введите число (₽)";err.classList.remove("hidden");return;}
+  const delta=Math.round(deltaRub*100);
   try{
     const r=await post(`/admin/users/${adjustingUserId}/adjust-balance`,{delta,reason});
     closeM("balanceModal");
-    // обновим в таблице
     const u=allUsers.find(x=>x.id===adjustingUserId);
-    if(u)u.tokens_balance=r.tokens_balance;
+    if(u){u.tokens_balance=r.tokens_balance;u.balance_kopecks=r.tokens_balance;}
     filterUsers();
   }catch(e){err.textContent=e.message||"Ошибка";err.classList.remove("hidden");}
 }
@@ -1136,21 +1129,19 @@ async function loadPricing(){
     get("/pricing/models"),
     get("/pricing/settings"),
     get("/pricing/packages"),
-    fetch(`${API}/plans`).then(r=>r.json()),
+    Promise.resolve([]),
   ]);
 
   const usdRub = parseFloat(settings.usd_to_rub||90);
-  const chRub  = parseFloat(settings.ch_to_rub||0.1);
+  const chRub  = 0.01; // 1 копейка = 0.01 ₽
 
   // Global settings
   const gsGrid = document.getElementById("globalSettingsGrid");
   gsGrid.innerHTML = [
     {key:"usd_to_rub",     label:"Курс $ → ₽", val:settings.usd_to_rub, hint:"Обновите при изменении курса", grid:"md:grid-cols-3"},
-    {key:"ch_to_rub",      label:"Стоимость 1 CH (₽)", val:settings.ch_to_rub, hint:"Базовая стоимость токена", grid:""},
     {key:"support_url",    label:"Ссылка поддержки", val:settings.support_url, hint:"URL для кнопки поддержки", grid:""},
     {key:"tg_bot_token",   label:"Токен Telegram бота", val:settings.tg_bot_token, hint:"Для уведомлений об ошибках (бот через BotFather)", grid:""},
     {key:"tg_admin_chat_id",label:"Chat ID админа (TG)", val:settings.tg_admin_chat_id, hint:"Ваш ID — узнать у @userinfobot", grid:""},
-    {key:"anthropic_base_url",label:"Anthropic Base URL", val:settings.anthropic_base_url, hint:"Прокси для Claude API, например https://api.aws-us-east-3.com", grid:""},
   ].map(s=>`
     <div class="space-y-1">
       <label class="block text-[10px] text-on-dim uppercase tracking-wider">${s.label}</label>
@@ -1175,38 +1166,26 @@ async function loadPricing(){
     </tr>`;
   }).join("");
 
-  // Subscription plans
-  const subsEl = document.getElementById("subscriptionPlans");
-  subsEl.innerHTML = plans.map(p=>`
-    <div class="flex items-center justify-between bg-surface2 rounded-lg px-4 py-3 border border-outline/20">
-      <div>
-        <p class="font-medium text-sm">${esc(p.name)}</p>
-        <p class="text-xs text-on-dim">${fmtT(p.tokens)} CH/мес</p>
-      </div>
-      <div class="flex items-center gap-3">
-        <span class="text-primary font-bold">${p.price_rub}₽/мес</span>
-        <p class="text-[10px] text-on-dim/50">Редактировать цены в payments.py → PLANS</p>
-      </div>
-    </div>`).join("");
-
   // Token packages
   renderTokenPackages(pkgs);
 }
 
 function renderTokenPackages(pkgs){
   const el = document.getElementById("tokenPackages");
-  el.innerHTML = pkgs.length ? pkgs.map(p=>`
-    <div class="flex items-center justify-between bg-surface2 rounded-lg px-4 py-3 border border-outline/20" id="pkg_${p.id}">
+  el.innerHTML = pkgs.length ? pkgs.map(p=>{
+    const tokRub = (p.tokens/100).toFixed(2);
+    return `<div class="flex items-center justify-between bg-surface2 rounded-lg px-4 py-3 border border-outline/20" id="pkg_${p.id}">
       <div class="flex-1 grid grid-cols-3 gap-3">
         <input type="text" value="${esc(p.name)}" id="pk_name_${p.id}" class="inp text-xs" style="padding:6px 10px"/>
-        <input type="number" value="${p.tokens}" id="pk_tok_${p.id}" class="inp text-xs" style="padding:6px 10px" placeholder="Токены CH"/>
-        <input type="number" value="${p.price_rub}" id="pk_rub_${p.id}" class="inp text-xs" style="padding:6px 10px" placeholder="Цена ₽"/>
+        <input type="number" step="0.01" value="${tokRub}" id="pk_tok_${p.id}" class="inp text-xs" style="padding:6px 10px" placeholder="Зачислится (₽)" title="Сумма, зачисляемая на баланс юзера"/>
+        <input type="number" value="${p.price_rub}" id="pk_rub_${p.id}" class="inp text-xs" style="padding:6px 10px" placeholder="К оплате (₽)" title="Сумма, которую платит юзер"/>
       </div>
       <div class="flex gap-2 ml-3">
         <button onclick="savePkg(${p.id})" class="btn btn-g text-xs">Сохранить</button>
         <button onclick="deletePkg(${p.id})" class="btn btn-d text-xs">✕</button>
       </div>
-    </div>`).join("")
+    </div>`;
+  }).join("")
     : '<p class="text-on-dim text-sm">Пакетов нет</p>';
 }
 
@@ -1228,15 +1207,18 @@ async function saveModelPricing(modelId){
 }
 
 async function addTokenPackage(){
-  await post("/admin/pricing/packages", {name:"Новый пакет", tokens:10000, price_rub:99});
+  // tokens теперь = копейки, зачисляемые на баланс. Дефолт: 100 ₽ платит, 100 ₽ начисляется.
+  await post("/admin/pricing/packages", {name:"100 ₽", tokens:10000, price_rub:100});
   const pkgs = await get("/pricing/packages");
   renderTokenPackages(pkgs);
 }
 
 async function savePkg(id){
+  // pk_tok_* теперь поле в рублях (с копейками) — конвертим в копейки на бэк
+  const tokRub = parseFloat(document.getElementById(`pk_tok_${id}`).value);
   await put(`/admin/pricing/packages/${id}`, {
     name: document.getElementById(`pk_name_${id}`).value,
-    tokens: parseInt(document.getElementById(`pk_tok_${id}`).value),
+    tokens: Math.round(tokRub * 100),
     price_rub: parseFloat(document.getElementById(`pk_rub_${id}`).value),
     is_active: true,
   });

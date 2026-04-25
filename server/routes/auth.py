@@ -125,11 +125,13 @@ def verify_email(req: VerifyEmailRequest, db: Session = Depends(get_db)):
         raise HTTPException(400, "Неверный или истёкший код")
     user.is_verified = True
     db.commit()
-    _welcome = int(os.getenv("WELCOME_BONUS_CH", "500"))  # было 5 000 (500 ₽ халявы — фрод-вектор)
+    # Бонус задаётся в рублях через env, по умолчанию 50 ₽ = 5000 копеек
+    _welcome_rub = float(os.getenv("WELCOME_BONUS_RUB", "50"))
+    _welcome_kop = int(round(_welcome_rub * 100))
     # Атомарное начисление — не перетирает параллельный реферальный бонус
-    credit_atomic(db, user.id, _welcome)
-    db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=_welcome,
-                       description="Приветственный бонус"))
+    credit_atomic(db, user.id, _welcome_kop)
+    db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=_welcome_kop,
+                       description=f"Приветственный бонус: {_welcome_rub:.0f} ₽"))
     db.commit()
     db.refresh(user)
     try:

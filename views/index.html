@@ -482,8 +482,7 @@ body.welcome #inputArea{display:none!important}
       </div>
     </div>
     <div class="flex border-b border-outline/20 overflow-x-auto">
-      <button onclick="cabTab('plans')"    class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="plans">Подписки</button>
-      <button onclick="cabTab('tokens')"   class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="tokens">Докупить CH</button>
+      <button onclick="cabTab('tokens')"   class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="tokens">Пополнить</button>
       <button onclick="cabTab('history')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="history">История</button>
       <button onclick="cabTab('usage')"    class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="usage">Расход</button>
       <button onclick="cabTab('referral')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="referral">Реферал</button>
@@ -578,18 +577,20 @@ body.welcome #inputArea{display:none!important}
 <script>
 const API=localStorage.getItem("obs_api")||window.location.origin;
 
-// ── Pricing helper (CH → ₽) ─────────────────────────────────────────────
-window._chRate = parseFloat(localStorage.getItem('obs_ch_rate')) || 0.1;
-fetch(API+'/pricing/settings').then(r=>r.json()).then(d=>{
-  const v = parseFloat(d?.ch_to_rub);
-  if(v>0){ window._chRate = v; localStorage.setItem('obs_ch_rate', String(v)); }
-}).catch(()=>{});
-window.chToRub = (ch) => {
-  const n = +ch; if(!n || n<=0) return '';
-  const r = n * window._chRate;
-  return r<1 ? '~'+r.toFixed(2)+' ₽' : r<10 ? '~'+r.toFixed(1)+' ₽' : '~'+Math.round(r)+' ₽';
+// ── Money helpers (баланс хранится в копейках, 1 ₽ = 100 коп) ──────────────
+window.fmtRub = (kop) => {
+  const v = (+(kop||0)) / 100;
+  return v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽';
 };
-window.formatCH = (ch) => { const e = chToRub(ch); return ch+' CH'+(e?' ('+e+')':''); };
+window.fmtRubShort = (kop) => {
+  const v = (+(kop||0)) / 100;
+  if (v >= 1000) return v.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + ' ₽';
+  if (v >= 10)   return v.toFixed(0) + ' ₽';
+  return v.toFixed(2) + ' ₽';
+};
+// Legacy aliases (для обратной совместимости в старых местах)
+window.chToRub = window.fmtRub;
+window.formatCH = window.fmtRub;
 let currentChat=null,currentChatInit=false,currentChatTitle="",currentModel="gpt";
 let pendingAttachment=null;
 let authToken=localStorage.getItem("obs_token")||null;
@@ -882,17 +883,14 @@ async function updateModelCostHint(){
   if(!p){ el.textContent = ''; return; }
   // Если модель с фикс-ценой (картинки/видео) — показываем цену за запрос
   if(p.cost_per_req > 0){
-    const ch = p.cost_per_req;
-    const rub = window.chToRub ? window.chToRub(ch) : '';
-    el.innerHTML = `💡 Эта модель стоит <b>${ch} CH</b>${rub?` <span class="opacity-70">${rub}</span>`:''} за запрос`;
+    el.innerHTML = `💡 Эта модель стоит <b>${fmtRub(p.cost_per_req)}</b> за запрос`;
     return;
   }
-  // Текстовые модели — прикинем на типовой ответ 200 in + 800 out
+  // Текстовые модели — прикинем на типовой ответ 200 in + 800 out (значения теперь в копейках/1k)
   const typIn = 200, typOut = 800;
   const raw = (typIn/1000)*(p.ch_per_1k_input||0) + (typOut/1000)*(p.ch_per_1k_output||0);
   const est = Math.max(Math.round(raw), p.min_ch_per_req || 1);
-  const rub = window.chToRub ? window.chToRub(est) : '';
-  el.innerHTML = `💡 Типичный ответ ≈ <b>${est} CH</b>${rub?` <span class="opacity-70">${rub}</span>`:''} (минимум ${p.min_ch_per_req||1} CH)`;
+  el.innerHTML = `💡 Типичный ответ ≈ <b>${fmtRub(est)}</b> (минимум ${fmtRub(p.min_ch_per_req||1)})`;
 }
 
 function setModel(id){
@@ -1210,8 +1208,9 @@ function updateAuthUI(){
     const ini=(currentUser.name||"U").charAt(0).toUpperCase();
     document.getElementById("sidebarAvatar").textContent=ini;
     document.getElementById("sidebarName").textContent=currentUser.name||currentUser.email;
-    document.getElementById("sidebarBalance").textContent=fmtT(currentUser.tokens_balance)+" CH";
-    document.getElementById("navBalance").textContent=fmtT(currentUser.tokens_balance)+" CH";
+    const _bal = currentUser.balance_kopecks ?? currentUser.tokens_balance ?? 0;
+    document.getElementById("sidebarBalance").textContent=fmtRub(_bal);
+    document.getElementById("navBalance").textContent=fmtRub(_bal);
   }
 }
 
@@ -1350,62 +1349,21 @@ async function openCabinet(){
   document.getElementById("cabAvatar").textContent=(r.user.name||"U").charAt(0).toUpperCase();
   document.getElementById("cabName").textContent=r.user.name||"—";
   document.getElementById("cabEmail").textContent=r.user.email;
-  document.getElementById("cabBalance").textContent=fmtT(r.user.tokens_balance);
+  const _bal = r.user.balance_kopecks ?? r.user.tokens_balance ?? 0;
+  document.getElementById("cabBalance").textContent=fmtRub(_bal);
   document.getElementById("cabVerBadge").classList.toggle("hidden",!r.user.is_verified);
   document.getElementById("cabUnverBadge").classList.toggle("hidden",r.user.is_verified);
-  cabTab("plans");
+  cabTab("tokens");
 }
 function cabTab(tab){
   document.querySelectorAll(".cab-tab").forEach(b=>b.classList.toggle("tab-on",b.dataset.tab===tab));
   const el=document.getElementById("cabContent");
-  if(tab==="plans")    renderPlansTab(el);
   if(tab==="tokens")   renderBuyTokensTab(el);
   if(tab==="history")  renderHistoryTab(el);
   if(tab==="usage")    renderUsageTab(el);
   if(tab==="referral") renderReferralTab(el);
   if(tab==="settings") renderSettingsTab(el);
   if(tab==="support")  renderSupportTab(el);
-}
-
-async function renderPlansTab(el){
-  const plans=await fetch(`${API}/plans`).then(r=>r.json());
-  const s=cabinetData?.subscription;
-  const icons={starter:"🌱",pro:"⚡",ultra:"🔥"};
-  const pct=s?Math.round((1-s.tokens_used/s.tokens_total)*100):0;
-  el.innerHTML=`<div class="space-y-4">
-    ${s?`<div class="p-4 bg-primary/10 rounded-xl border border-primary/20">
-      <p class="text-[10px] text-primary uppercase tracking-wider font-bold mb-1">Активная подписка · ${s.plan.toUpperCase()}</p>
-      <p class="text-on-surface font-semibold mb-2">${fmtT(s.tokens_left)} / ${fmtT(s.tokens_total)} CH</p>
-      <div class="h-2 bg-surface3 rounded-full overflow-hidden"><div class="h-full sig rounded-full" style="width:${pct}%"></div></div>
-      <p class="text-xs text-on-surface-dim/60 mt-1">Истекает: ${s.expires_at?new Date(s.expires_at).toLocaleDateString("ru"):"—"}</p>
-    </div>`:
-    `<p class="text-sm text-on-surface-dim">Активной подписки нет. Баланс: <strong class="text-primary">${fmtT(cabinetData?.user?.tokens_balance||0)} CH
-</strong></p>`}
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      ${plans.map(p=>`<div class="p-4 bg-surface2 rounded-xl border border-outline/20 hover:border-primary/40 transition flex flex-col gap-2">
-        <div class="text-2xl">${icons[p.id]||"✨"}</div>
-        <h3 class="font-bold text-on-surface font-headline">${p.name}</h3>
-        <p class="text-xs text-on-surface-dim">${fmtT(p.tokens)} CH</p>
-        <p class="text-xl font-bold text-primary font-headline mt-auto">${p.price_rub}₽<span class="text-xs text-on-surface-dim font-normal">/мес</span></p>
-        <button onclick="buyPlan('${p.id}')" class="py-2 rounded-lg sig text-[#1e1a14] text-sm font-bold hover:opacity-88 transition">Купить</button>
-      </div>`).join("")}
-    </div>
-  </div>`;
-}
-async function buyPlan(plan){
-  if(!authToken){openM("loginModal");return;}
-  if(!currentUser?.is_verified){alert("Подтвердите email для оплаты");return;}
-  try{
-    const r=await apiPost("/payment/create",{plan,return_url:window.location.href+"?payment=success"});
-    if(r.confirmation_url){window.open(r.confirmation_url,"_blank");pollPayment(r.payment_id);}
-  }catch(e){alert("Ошибка оплаты: "+e.message);}
-}
-async function pollPayment(pid){
-  let n=0;const iv=setInterval(async()=>{
-    if(n++>60){clearInterval(iv);return;}
-    try{const r=await api(`/payment/confirm/${pid}`);
-      if(r.status==="activated"){clearInterval(iv);await fetchMe();await openCabinet();alert("✅ Подписка активирована!");}}catch{}
-  },5000);
 }
 
 function renderHistoryTab(el){
@@ -1430,22 +1388,22 @@ function renderHistoryTab(el){
         </div>
       </div>
       <div class="text-right">
-        <p class="text-sm font-bold ${t.tokens_delta>0?"text-green-400":"text-error"}">${t.tokens_delta>0?"+":""}${fmtT(t.tokens_delta)} CH</p>
-        ${t.amount_rub?`<p class="text-xs text-on-surface-dim/60">${t.amount_rub}₽</p>`:""}
+        <p class="text-sm font-bold ${(t.delta_kopecks||t.tokens_delta||0)>0?"text-green-400":"text-error"}">${(t.delta_kopecks||t.tokens_delta||0)>0?"+":""}${fmtRub(t.delta_kopecks ?? t.tokens_delta ?? 0)}</p>
+        ${t.amount_rub?`<p class="text-xs text-on-surface-dim/60">платёж: ${t.amount_rub}₽</p>`:""}
       </div>
     </div>`).join("")}</div>`;
 }
 
 async function saveLowBalance(){
-  const val = parseInt(document.getElementById('s_lowbal').value) || 0;
+  const val = parseFloat(document.getElementById('s_lowbal').value) || 0;
   const msg = document.getElementById('s_lowbal_msg');
   try{
-    const r = await apiPost('/user/low-balance-threshold', {threshold: val});
-    if(r?.threshold !== undefined){
-      msg.textContent = val === 0 ? 'Уведомления отключены' : `Сохранено. Уведомим при балансе ниже ${r.threshold} CH`;
+    const r = await apiPost('/user/low-balance-threshold', {threshold_rub: val});
+    if(r?.threshold_rub !== undefined){
+      msg.textContent = val === 0 ? 'Уведомления отключены' : `Сохранено. Уведомим при балансе ниже ${r.threshold_rub.toFixed(2)} ₽`;
       msg.className = 'text-xs mt-1 text-green-400';
       msg.classList.remove('hidden');
-      if(cabinetData?.user) cabinetData.user.low_balance_threshold = r.threshold;
+      if(cabinetData?.user) cabinetData.user.low_balance_threshold_rub = r.threshold_rub;
     }
   }catch(e){
     msg.textContent = 'Ошибка: '+e.message;
@@ -1477,19 +1435,18 @@ function renderUsageTab(el){
 
   // ── Блок 1: разбивка по модулям (за 30 дней) ──────────────────
   if (breakdown?.items?.length) {
-    const totalRub = window.chToRub ? chToRub(breakdown.total_ch) : '';
     parts.push(`
       <div class="mb-5">
         <div class="flex items-center justify-between mb-3">
-          <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold">Куда уходят CH (за 30 дней)</p>
-          <p class="text-xs text-on-dim">Всего: <b class="text-primary">${fmtT(breakdown.total_ch)} CH</b> ${totalRub?`<span class="opacity-60">${totalRub}</span>`:''}</p>
+          <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold">Куда уходят деньги (за 30 дней)</p>
+          <p class="text-xs text-on-dim">Всего: <b class="text-primary">${fmtRub(breakdown.total_kopecks||0)}</b></p>
         </div>
         <div class="space-y-2.5">
           ${breakdown.items.map(b=>`
             <div>
               <div class="flex justify-between text-xs mb-1">
                 <span class="text-on-surface">${esc(b.label)}</span>
-                <span class="text-on-dim">${fmtT(b.ch)} CH <span class="opacity-60">· ${b.requests} запр · ${b.share_pct}%</span></span>
+                <span class="text-on-dim">${fmtRub(b.kopecks)} <span class="opacity-60">· ${b.requests} запр · ${b.share_pct}%</span></span>
               </div>
               <div class="h-2 bg-surface3 rounded-full overflow-hidden"><div class="h-full sig rounded-full" style="width:${b.share_pct}%"></div></div>
             </div>
@@ -1508,15 +1465,14 @@ function renderUsageTab(el){
         <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-2">Топ-5 самых дорогих запросов</p>
         <div class="space-y-1.5">
           ${topExp.map(t=>{
-            const ch = -(t.tokens_delta||0);
-            const rub = window.chToRub ? chToRub(ch) : '';
+            const kop = -((t.delta_kopecks ?? t.tokens_delta) || 0);
             const date = t.created_at ? new Date(t.created_at).toLocaleDateString('ru', {day:'2-digit',month:'2-digit'}) : '';
             return `<div class="flex items-center justify-between bg-surface2 rounded-lg px-3 py-2 border border-outline/15 text-xs">
               <div class="flex-1 min-w-0">
                 <p class="truncate">${esc(t.description||'—')}</p>
                 <p class="text-[10px] text-on-dim/60">${date}${t.model?' · '+esc(t.model):''}</p>
               </div>
-              <p class="text-primary font-bold ml-3 flex-shrink-0">−${fmtT(ch)} CH ${rub?`<span class="opacity-60 font-normal">${rub}</span>`:''}</p>
+              <p class="text-primary font-bold ml-3 flex-shrink-0">−${fmtRub(kop)}</p>
             </div>`;
           }).join('')}
         </div>
@@ -1526,19 +1482,19 @@ function renderUsageTab(el){
 
   // ── Блок 3: детальная разбивка по моделям (если есть) ─────────
   if (tokenUsage.length) {
-    const max = Math.max(...tokenUsage.map(u=>u.ch_charged||0), 1);
+    const max = Math.max(...tokenUsage.map(u=>u.spent_kopecks||0), 1);
     parts.push(`
       <div>
         <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-2">По моделям</p>
         <div class="space-y-1.5">
           ${tokenUsage.map(u=>{
-            const pct = Math.round((u.ch_charged||0)/max*100);
+            const pct = Math.round((u.spent_kopecks||0)/max*100);
             return `<div class="flex items-center gap-3 text-xs">
               <span class="w-24 truncate text-on-dim">${esc(u.model)}</span>
               <div class="flex-1 h-1.5 bg-surface3 rounded-full overflow-hidden">
                 <div class="h-full sig rounded-full" style="width:${pct}%"></div>
               </div>
-              <span class="text-primary font-bold w-24 text-right">${fmtT(u.ch_charged)} CH</span>
+              <span class="text-primary font-bold w-24 text-right">${fmtRub(u.spent_kopecks||0)}</span>
             </div>`;
           }).join('')}
         </div>
@@ -1611,9 +1567,8 @@ async function loadReferralStats(){
     document.getElementById('refInvited').textContent = r.invited_count ?? 0;
     document.getElementById('refVerified').textContent = r.invited_verified ?? 0;
     document.getElementById('refPaying').textContent = r.invited_paying ?? 0;
-    document.getElementById('refEarned').textContent = fmtT(r.total_earned_ch||0);
-    const rub = window.chToRub ? chToRub(r.total_earned_ch||0) : '';
-    if(rub) document.getElementById('refEarnedRub').textContent = rub;
+    document.getElementById('refEarned').textContent = fmtRub(r.total_earned_kopecks ?? 0);
+    document.getElementById('refEarnedRub').textContent = '';
 
     if(r.recent_bonuses?.length){
       const wrap = document.getElementById('refBonuses');
@@ -1622,7 +1577,7 @@ async function loadReferralStats(){
         const date = b.created_at ? new Date(b.created_at).toLocaleDateString('ru') : '';
         return `<div class="flex items-center justify-between bg-surface2 rounded-lg px-3 py-2 border border-outline/15 text-xs">
           <p class="truncate flex-1 text-on-dim">${esc(b.description||'Бонус')}</p>
-          <p class="text-green-400 font-bold ml-2">+${fmtT(b.tokens)} CH</p>
+          <p class="text-green-400 font-bold ml-2">+${fmtRub(b.kopecks ?? b.tokens ?? 0)}</p>
           <p class="text-on-dim/60 ml-2 text-[10px]">${date}</p>
         </div>`;
       }).join('');
@@ -1644,14 +1599,14 @@ function copyRef(code){
   setTimeout(()=>{btn.textContent="Копировать";btn.style.color="";},2000);
 }
 function renderSettingsTab(el){
-  const thr = cabinetData?.user?.low_balance_threshold ?? 100;
+  const thr = cabinetData?.user?.low_balance_threshold_rub ?? 10;
   el.innerHTML=`<div class="space-y-6">
     <div>
       <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Уведомления о низком балансе</p>
-      <p class="text-xs text-on-dim mb-2">Пришлём email когда останется меньше <b>N CH</b>. Установите <b>0</b>, чтобы отключить.</p>
+      <p class="text-xs text-on-dim mb-2">Пришлём email когда останется меньше <b>N ₽</b>. Установите <b>0</b>, чтобы отключить.</p>
       <div class="flex gap-2 items-center">
-        <input id="s_lowbal" type="number" min="0" max="100000" value="${thr}" class="inp flex-1"/>
-        <span class="text-xs text-on-dim">CH</span>
+        <input id="s_lowbal" type="number" min="0" max="100000" step="0.01" value="${thr}" class="inp flex-1"/>
+        <span class="text-xs text-on-dim">₽</span>
         <button onclick="saveLowBalance()" class="btn-g">Сохранить</button>
       </div>
       <div id="s_lowbal_msg" class="text-xs mt-1 hidden"></div>
@@ -1785,13 +1740,6 @@ async function renderSupportTab(el){
         </div>`).join("")}</div>
     </div>`:""}
   </div>`;
-}
-async function cancelSubscription(){
-  if(!confirm("Отменить подписку? Доступ сохранится до конца оплаченного периода."))return;
-  try{
-    const r=await apiPost("/user/subscription/cancel",{});
-    if(r.status==="cancelled"){await openCabinet();alert("Подписка отменена. Доступ до конца периода.");}
-  }catch(e){alert("Ошибка: "+e.message);}
 }
 async function submitRefund(){
   const desc=document.getElementById("sup_refund_desc")?.value.trim();
@@ -1928,7 +1876,7 @@ async function fetchBalanceQuiet(){
     const r = await fetch(`${API}/me`, {headers:{"Authorization":"Bearer "+authToken}});
     if(!r.ok) return null;
     const j = await r.json();
-    return j.tokens_balance ?? null;
+    return j.balance_kopecks ?? j.tokens_balance ?? null;
   }catch{ return null; }
 }
 
@@ -1981,7 +1929,7 @@ async function addInsufficientBalanceMsg(currentBalance){
   const wrap=document.createElement("div");
   wrap.className="flex items-center justify-center my-6";
   const balLine = (currentBalance!==null && currentBalance!==undefined)
-    ? `<div class="text-xs mb-3" style="color:var(--md-sys-color-on-surface-dim)">Сейчас на балансе: <b>${currentBalance} CH</b></div>`
+    ? `<div class="text-xs mb-3" style="color:var(--md-sys-color-on-surface-dim)">Сейчас на балансе: <b>${fmtRub(currentBalance)}</b></div>`
     : "";
   wrap.innerHTML=`
     <div class="rounded-2xl px-8 py-6 text-center shadow-xl" style="background:var(--md-sys-color-surface-container-high);max-width:380px;width:100%;border:1px solid rgba(255,140,66,.25)">
@@ -2223,7 +2171,7 @@ async function switchSolTab(tab){
           ${s.description?`<p class="text-xs text-on-surface-dim/70 line-clamp-2">${esc(s.description)}</p>`:""}
           <div class="mt-auto pt-2 flex items-center justify-between">
             <span class="text-xs text-on-surface-dim/50">${s.steps_count} шагов</span>
-            <span class="text-sm font-bold ${s.price_tokens?"text-primary":"text-green-400"}">${s.price_tokens?fmtT(s.price_tokens)+" T":"Бесплатно"}</span>
+            <span class="text-sm font-bold ${s.price_tokens?"text-primary":"text-green-400"}">${s.price_tokens?fmtRub(s.price_tokens):"Бесплатно"}</span>
           </div>
         </div>
       </div>`).join("");
@@ -2366,18 +2314,24 @@ async function openFaq(){
   }catch(e){el.innerHTML='<p class="text-error text-sm">Ошибка загрузки</p>';}
 }
 
-// ── Cabinet: buy tokens tab ────────────────────────────────────────────────
+// ── Cabinet: пополнение баланса ───────────────────────────────────────────
 async function renderBuyTokensTab(el){
   try{
     const pkgs = await fetch(`${API}/pricing/packages`).then(r=>r.json());
+    const bal = cabinetData?.user?.balance_kopecks ?? cabinetData?.user?.tokens_balance ?? 0;
     el.innerHTML=`<div class="space-y-4">
-      <p class="text-sm text-on-surface-dim">Докупить токены CH — действуют бессрочно</p>
+      <div class="p-4 bg-primary/10 rounded-xl border border-primary/20">
+        <p class="text-[10px] text-primary uppercase tracking-wider font-bold mb-1">Текущий баланс</p>
+        <p class="text-3xl font-bold font-headline">${fmtRub(bal)}</p>
+        <p class="text-xs text-on-dim mt-1">Списываются по реальной стоимости запросов. Деньги не сгорают.</p>
+      </div>
+      <p class="text-sm text-on-surface-dim">Выберите сумму пополнения:</p>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         ${pkgs.map(p=>`<div class="p-4 bg-surface2 rounded-xl border border-outline/20 hover:border-primary/40 transition flex flex-col gap-2">
           <h3 class="font-bold font-headline">${esc(p.name)}</h3>
-          <p class="text-xs text-on-surface-dim">${fmtT(p.tokens)} CH</p>
+          <p class="text-xs text-on-surface-dim">Зачислится: <b class="text-primary">${fmtRub(p.tokens)}</b></p>
           <p class="text-xl font-bold text-primary font-headline mt-auto">${p.price_rub}₽</p>
-          <button onclick="buyTokenPackage(${p.id})" class="py-2 rounded-lg sig text-[#1e1a14] text-sm font-bold hover:opacity-88 transition">Купить</button>
+          <button onclick="buyTokenPackage(${p.id})" class="py-2 rounded-lg sig text-[#1e1a14] text-sm font-bold hover:opacity-88 transition">Пополнить</button>
         </div>`).join('')}
       </div>
     </div>`;
@@ -2396,7 +2350,7 @@ async function pollTokenPayment(pid){
   let n=0;const iv=setInterval(async()=>{
     if(n++>60){clearInterval(iv);return;}
     try{const r=await api(`/payment/confirm-tokens/${pid}`);
-      if(r.status==='credited'){clearInterval(iv);await fetchMe();await openCabinet();alert(`✅ Начислено ${fmtT(r.tokens_added)} CH!`);}}catch{}
+      if(r.status==='credited'){clearInterval(iv);await fetchMe();await openCabinet();alert(`✅ Зачислено ${fmtRub(r.kopecks_added)}!`);}}catch{}
   },5000);
 }
 
@@ -2414,7 +2368,7 @@ async function launchSolution(id,title,stepsCount){
       document.getElementById('promptEditorTitle').textContent = title;
       document.getElementById('promptEditorText').value = firstStep.user_prompt;
       document.getElementById('promptEditorHint').textContent = firstStep.user_hint || 'Отредактируйте промпт под свои нужды';
-      document.getElementById('promptEditorCost').textContent = sol.price_tokens ? `${fmtT(sol.price_tokens)} CH` : 'Бесплатно';
+      document.getElementById('promptEditorCost').textContent = sol.price_tokens ? fmtRub(sol.price_tokens) : 'Бесплатно';
       closeM('solutionsModal');
       openM('promptEditorModal');
       return;
