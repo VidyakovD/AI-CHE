@@ -2,15 +2,10 @@
 PDF-отчёты для бизнес-решений.
 
 Принимает Markdown от Claude и рендерит в PDF с фирменными стилями
-«AI Студия Че». Использует WeasyPrint (HTML+CSS → PDF, поддержка
-русских шрифтов, заголовков, списков, таблиц).
+«AI Студия Че». Использует xhtml2pdf (pure-Python, без system deps).
 
-Запуск требует system deps:
-  apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libcairo2 \
-                     libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info
-
-Если WeasyPrint не установлен — функция возвращает None и юзер
-видит обычный текст вместо PDF.
+Если markdown / xhtml2pdf не установлены — функция возвращает None
+и юзер видит обычный текст вместо PDF.
 """
 import os
 import logging
@@ -22,33 +17,28 @@ log = logging.getLogger(__name__)
 
 _BRAND_CSS = """
 @page {
-    size: A4;
-    margin: 22mm 18mm 22mm 18mm;
-    @top-right {
-        content: "AI Студия Че";
-        font-family: 'Inter', 'Helvetica', sans-serif;
-        font-size: 9pt;
-        color: #b6915e;
+    size: a4 portrait;
+    margin: 2.2cm 1.8cm 2.2cm 1.8cm;
+    @frame header_frame {
+        -pdf-frame-content: header_content;
+        left: 1.8cm; width: 17.4cm; top: 0.8cm; height: 1cm;
     }
-    @bottom-center {
-        content: "Стр. " counter(page) " / " counter(pages);
-        font-family: 'Inter', 'Helvetica', sans-serif;
-        font-size: 9pt;
-        color: #888;
+    @frame content_frame {
+        left: 1.8cm; width: 17.4cm; top: 2.2cm; height: 24cm;
     }
-    @bottom-right {
-        content: "aiche.ru";
-        font-family: 'Inter', 'Helvetica', sans-serif;
-        font-size: 9pt;
-        color: #b6915e;
+    @frame footer_frame {
+        -pdf-frame-content: footer_content;
+        left: 1.8cm; width: 17.4cm; bottom: 0.8cm; height: 1cm;
     }
 }
 body {
-    font-family: 'Inter', 'PT Sans', 'DejaVu Sans', 'Helvetica', sans-serif;
+    font-family: 'DejaVu Sans', 'Helvetica', sans-serif;
     color: #1a1a1a;
     font-size: 11pt;
     line-height: 1.55;
 }
+#header_content { font-size: 9pt; color: #b6915e; text-align: right; }
+#footer_content { font-size: 9pt; color: #888; text-align: center; }
 .cover {
     text-align: center;
     margin-top: 40mm;
@@ -178,20 +168,18 @@ def markdown_to_pdf(md_text: str, title: str = "Бизнес-отчёт",
                     out_path: str = None,
                     subtitle: str = "") -> str | None:
     """Конвертирует Markdown в PDF с фирменным стилем.
-
-    Возвращает absolute path сохранённого файла или None при ошибке
-    (например, если WeasyPrint не установлен).
+    Возвращает absolute path сохранённого файла или None при ошибке.
     """
     try:
         import markdown as _md
-        from weasyprint import HTML, CSS
+        from xhtml2pdf import pisa
     except ImportError as e:
-        log.warning(f"PDF недоступен: {e}. Установите weasyprint+markdown.")
+        log.warning(f"PDF недоступен: {e}. Установите xhtml2pdf+markdown.")
         return None
 
     md_html = _md.markdown(
         md_text,
-        extensions=["fenced_code", "tables", "nl2br", "sane_lists", "toc"],
+        extensions=["fenced_code", "tables", "nl2br", "sane_lists"],
     )
 
     cover_subtitle = _esc(subtitle) if subtitle else "Бизнес-решение от AI Студия Че"
@@ -199,8 +187,14 @@ def markdown_to_pdf(md_text: str, title: str = "Бизнес-отчёт",
 
     full_html = f"""<!DOCTYPE html>
 <html lang="ru">
-<head><meta charset="UTF-8"><title>{_esc(title)}</title></head>
+<head>
+  <meta charset="UTF-8">
+  <title>{_esc(title)}</title>
+  <style>{_BRAND_CSS}</style>
+</head>
 <body>
+  <div id="header_content">AI Студия Че</div>
+  <div id="footer_content">aiche.ru · стр. <pdf:pagenumber/> из <pdf:pagecount/></div>
   <div class="cover">
     <p class="brand">AI Студия Че</p>
     <div class="stripe"></div>
@@ -208,6 +202,7 @@ def markdown_to_pdf(md_text: str, title: str = "Бизнес-отчёт",
     <p class="subtitle">{cover_subtitle}</p>
     <p class="meta">Подготовлено: {today}</p>
   </div>
+  <pdf:nextpage/>
   {md_html}
   <p class="footer-note">Документ сгенерирован AI Студия Че · aiche.ru</p>
 </body>
@@ -218,7 +213,11 @@ def markdown_to_pdf(md_text: str, title: str = "Бизнес-отчёт",
             from uuid import uuid4
             out_path = f"/tmp/sol_{uuid4().hex[:10]}.pdf"
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-        HTML(string=full_html).write_pdf(out_path, stylesheets=[CSS(string=_BRAND_CSS)])
+        with open(out_path, "wb") as f:
+            res = pisa.CreatePDF(full_html, dest=f, encoding="utf-8")
+        if res.err:
+            log.error(f"PDF pisa errors: {res.err}")
+            return None
         return out_path
     except Exception as e:
         log.error(f"PDF generation failed: {e}")
