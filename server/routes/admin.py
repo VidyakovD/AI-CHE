@@ -425,10 +425,13 @@ def _rebuild_env_keys(provider: str, db: Session):
     }
     env_var = ENV_MAP.get(provider)
     if env_var:
+        # Берём ТОЛЬКО активные ключи. disabled/error не должны попадать в env,
+        # иначе при первом запросе провайдер пробует мёртвый ключ и получает 401.
         if env_var == "GOOGLE_API_KEYS":
-            all_keys = db.query(ApiKey).filter(ApiKey.provider.in_(["gemini", "google", "nano", "veo"])).all()
+            q = db.query(ApiKey).filter(ApiKey.provider.in_(["gemini", "google", "nano", "veo"]))
         else:
-            all_keys = db.query(ApiKey).filter_by(provider=provider).all()
+            q = db.query(ApiKey).filter_by(provider=provider)
+        all_keys = q.filter(ApiKey.status != "disabled").all()
         if provider == "kling":
             value = ";;".join(k.key_value for k in all_keys)
         else:
