@@ -894,9 +894,11 @@ def openai_image_response(model: str, messages: list, extra: dict = None) -> dic
             data = resp.data[0]
             url = getattr(data, "url", None)
             if not url and getattr(data, "b64_json", None):
-                # Сохраняем base64 в /uploads, чтобы вернуть URL — UI работает с url
+                # Сохраняем base64 в /uploads (корень проекта, где StaticFiles).
+                # _BASE_DIR это server/, поэтому берём parent — корень проекта.
                 fid = f"img_{_uuid.uuid4().hex[:12]}.png"
-                upload_dir = _os.path.join(_BASE_DIR, "uploads")
+                project_root = _os.path.dirname(_BASE_DIR)
+                upload_dir = _os.path.join(project_root, "uploads")
                 _os.makedirs(upload_dir, exist_ok=True)
                 path = _os.path.join(upload_dir, fid)
                 with open(path, "wb") as f:

@@ -240,11 +240,10 @@ body.welcome #inputArea{display:none!important}
         <div id="attachmentList" class="flex flex-wrap gap-2"></div>
       </div>
       <div class="relative group">
-        <div class="absolute -inset-0.5 bg-gradient-to-r from-primary/30 to-secondary/30 rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-500"></div>
-        <div class="relative flex items-end bg-surface2 rounded-2xl pl-5 pr-2 py-2 shadow-2xl border border-outline/10" style="border-color:rgba(74,63,47,0.15)">
+        <div class="relative flex items-end bg-surface2 rounded-2xl pl-5 pr-2 py-2 shadow-2xl border border-outline/10 transition-colors focus-within:border-primary/40" style="border-color:rgba(74,63,47,0.15)">
           <textarea id="messageInput" rows="1"
-            class="flex-1 bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-on-surface-dim/50 text-sm font-body py-2 px-2 resize-none overflow-y-auto max-h-32 leading-5"
-            placeholder="Напишите сообщение..."></textarea>
+            class="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface placeholder:text-on-surface-dim/50 text-sm font-body py-2 px-2 resize-none overflow-y-auto max-h-32 leading-5 text-center placeholder:text-center"
+            placeholder="Напишите сообщение…"></textarea>
           <div class="flex items-center gap-1 pb-1">
             <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf,.txt,.doc,.docx"/>
             <button onclick="document.getElementById('fileInput').click()" class="p-2 text-on-surface-dim hover:text-primary transition rounded-lg">

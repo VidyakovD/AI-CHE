@@ -201,7 +201,9 @@ def site_project_chat(project_id: int, body: dict, db: Session = Depends(get_db)
         system += f"\n\nТекущее ТЗ: {p.spec_text[:500]} (можешь предложить улучшения)"
 
     messages = [{"role": "system", "content": system}] + history[-20:]
-    answer = generate_response("claude", messages)
+    # ТЗ собираем через GPT-4o — быстрее (≈3 сек vs Claude 30+) и дешевле,
+    # для короткого диалога вопрос-ответ это оптимальная модель.
+    answer = generate_response("gpt-4o", messages)
     ai_text = answer.get("content", "") if isinstance(answer, dict) else ""
     history.append({"role": "assistant", "content": ai_text})
     p.chat_history = json.dumps(history, ensure_ascii=False)
