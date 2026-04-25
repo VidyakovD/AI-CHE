@@ -51,6 +51,18 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .img-thumb:hover{opacity:.7}
 /* Preview iframe */
 .preview-frame{width:100%;height:550px;border:none;border-radius:12px;background:#fff}
+/* Адаптивные ширины превью для проверки на разных устройствах */
+.preview-wrap{display:flex;justify-content:center;width:100%;flex:1;overflow:auto}
+.preview-wrap .preview-frame{width:100%;height:100%;min-height:0;transition:width .25s ease;margin:0 auto}
+.preview-wrap.vp-mobile  .preview-frame{width:375px}
+.preview-wrap.vp-tablet  .preview-frame{width:768px}
+.preview-wrap.vp-desktop .preview-frame{width:100%}
+.vp-btn{padding:4px 10px;border-radius:8px;font-size:11px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#a89880;cursor:pointer;transition:all .15s}
+.vp-btn:hover{color:#ffb56b;border-color:rgba(255,140,66,.4)}
+.vp-btn.active{background:rgba(255,140,66,.15);color:#ffb56b;border-color:rgba(255,140,66,.5)}
+/* Ресайзер модалки — тянем за правый-низ угол */
+.detail-modal-content{position:relative;resize:both;overflow:hidden;min-width:600px;min-height:500px;max-width:98vw;max-height:96vh}
+.detail-modal-content::after{content:"";position:absolute;right:6px;bottom:6px;width:14px;height:14px;border-right:2px solid rgba(255,140,66,.4);border-bottom:2px solid rgba(255,140,66,.4);pointer-events:none}
 /* Scrollbar */
 ::-webkit-scrollbar{width:6px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -154,7 +166,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <!-- PROJECT DETAIL MODAL — multi-phase interface -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <div id="detailModal" class="modal-bg">
-  <div class="bg-surface rounded-2xl w-full max-w-5xl border border-outline/25 shadow-2xl overflow-hidden flex flex-col" style="max-height:92vh">
+  <div class="detail-modal-content bg-surface rounded-2xl w-full max-w-5xl border border-outline/25 shadow-2xl overflow-hidden flex flex-col" style="max-height:92vh;height:92vh">
     <!-- Header -->
     <div class="sig px-6 py-4 flex items-center justify-between flex-shrink-0">
       <div class="flex items-center gap-3">
@@ -259,8 +271,15 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           </button>
           <button id="replaceImgBtn" onclick="replaceSelectedImage()" class="btn-g text-xs py-1.5 hidden">🖼 Заменить картинку</button>
           <span id="editHint" class="text-xs text-on-dim hidden">Клик на элемент → правка текста · Клик на картинку → замена</span>
+          <div class="ml-auto flex gap-1">
+            <button class="vp-btn active" data-vp="desktop" onclick="setViewport('desktop')" title="Полная ширина">🖥 Desktop</button>
+            <button class="vp-btn" data-vp="tablet" onclick="setViewport('tablet')" title="Планшет 768px">📱 Tablet</button>
+            <button class="vp-btn" data-vp="mobile" onclick="setViewport('mobile')" title="Телефон 375px">📱 Mobile</button>
+          </div>
         </div>
-        <iframe id="previewFrame" class="preview-frame flex-1"></iframe>
+        <div id="previewWrap" class="preview-wrap vp-desktop">
+          <iframe id="previewFrame" class="preview-frame"></iframe>
+        </div>
       </div>
       <!-- Spec tab -->
       <div id="dtab-dSpec" class="tab-pane flex-1 min-h-0 overflow-y-auto p-4">
@@ -919,6 +938,17 @@ function refreshPreview(){
 </body>`);
   const blob = new Blob([injected],{type:'text/html'});
   frame.src = URL.createObjectURL(blob);
+}
+
+// Переключение ширины превью — для проверки сайта на разных устройствах
+function setViewport(mode){
+  const wrap = document.getElementById('previewWrap');
+  if (!wrap) return;
+  wrap.classList.remove('vp-desktop','vp-tablet','vp-mobile');
+  wrap.classList.add('vp-'+mode);
+  document.querySelectorAll('.vp-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.vp === mode);
+  });
 }
 
 function toggleEditMode(){

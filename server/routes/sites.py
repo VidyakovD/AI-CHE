@@ -342,15 +342,20 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
         pass
 
     prompt = (
-        f"Ты -- опытный веб-разработчик. Создай полный HTML-код одностраничного сайта по ТЗ:\n\n"
+        f"Ты — опытный веб-разработчик. Создай полный HTML-код одностраничного сайта.\n\n"
+        f"⚠️ ВАЖНО: строго следуй ТЗ ниже. Тематика, отрасль, продукт, целевая аудитория, "
+        f"названия блоков и разделов — берутся ТОЛЬКО из ТЗ. Не придумывай шаблонные тексты "
+        f"про рестораны, кофейни, меню если этого нет в ТЗ. Все заголовки, тексты, призывы — "
+        f"строго по теме ТЗ.\n\n"
         f"=== ТЗ ===\n{p.spec_text}\n=== КОНЕЦ ТЗ ===\n"
         f"{img_context}\n"
-        f"Требования:\n"
-        f"- Чистый, современный адаптивный HTML+CSS\n"
+        f"Технические требования:\n"
+        f"- Чистый, современный адаптивный HTML+CSS (mobile-first)\n"
         f"- Без внешних фреймворков (только inline CSS или <style>)\n"
-        f"- Семантичная разметка, доступность\n"
-        f"- Красивый современный дизайн\n"
-        f"- Картинки: используй ТОЛЬКО URL из списка выше (если он есть)\n"
+        f"- Семантичная разметка, доступность (alt у картинок, aria-label у иконок)\n"
+        f"- Красивый современный дизайн под тематику ТЗ\n"
+        f"- Тексты — строго по теме из ТЗ, на русском, без английского lorem ipsum\n"
+        f"- Картинки: используй ТОЛЬКО URL из списка выше (если он есть). Иначе — CSS-плейсхолдеры\n"
         f"- Ответ: ТОЛЬКО HTML-код, без markdown-обёрток и объяснений\n"
     )
 
@@ -374,24 +379,26 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
             content = content.rsplit("```", 1)[0] if "```" in content else content
             break
 
-    # Auto-continue: если HTML обрезан (нет </html>) — просим Claude дописать
-    # с того места где остановился. Делаем максимум 2 продолжения.
+    # Auto-continue: если HTML обрезан, передаём Claude полный контекст
+    # (ТЗ + уже сгенерированную часть как assistant turn) и просим продолжить.
+    # Без ТЗ модель додумывала тематику с потолка (бывало что в lasting-tail
+    # были общие слова → выходил «лендинг ресторана» вместо промышленных труб).
     for attempt in range(2):
         if "</html>" in content.lower():
             break
-        log.info(f"[Sites] HTML усечён ({len(content)} симв), запрашиваем продолжение #{attempt+1}")
-        tail = content[-500:]  # последние 500 символов как контекст
-        cont_prompt = (
-            "Ты не закончил HTML-код в прошлом ответе — он обрезался. "
-            "Вот его конец:\n\n"
-            f"```\n{tail}\n```\n\n"
-            "Продолжи С ТОГО ЖЕ МЕСТА (не повторяй уже написанное), допиши до закрывающего </html>. "
-            "Ответ — ТОЛЬКО продолжение HTML, без markdown-обёрток и объяснений."
-        )
-        cont = generate_response("claude", [{"role": "user", "content": cont_prompt}],
-                                 extra={"max_tokens": 16000})
+        log.info(f"[Sites] HTML усечён ({len(content)} симв), продолжение #{attempt+1}")
+        cont_messages = [
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": content},
+            {"role": "user", "content": (
+                "Ты не закончил — ответ обрезался. Продолжи строго с того места "
+                "где остановился (не повторяй уже написанное), до закрывающего "
+                "</html>. Не меняй тематику, следуй ТЗ выше. Ответ — только "
+                "продолжение HTML, без markdown и объяснений."
+            )},
+        ]
+        cont = generate_response("claude", cont_messages, extra={"max_tokens": 16000})
         cont_text = cont.get("content", "") if isinstance(cont, dict) else ""
-        # Очистим markdown если есть
         for marker in ["```html\n", "```\n", "```html", "```"]:
             if cont_text.startswith(marker):
                 cont_text = cont_text[len(marker):]
@@ -429,18 +436,22 @@ def site_project_repair_code(project_id: int, db: Session = Depends(get_db),
         return {"status": "ok", "note": "уже закрыт", "code_html": p.code_html}
 
     content = p.code_html
+    base_prompt = (
+        f"ТЗ сайта:\n\n=== ТЗ ===\n{p.spec_text or '(нет)'}\n=== КОНЕЦ ТЗ ===\n\n"
+        "Сгенерируй полный HTML по этому ТЗ."
+    )
     for attempt in range(2):
         if "</html>" in content.lower():
             break
-        tail = content[-500:]
-        prompt = (
-            "Ты не дописал HTML-код в прошлом ответе. Вот его конец:\n\n"
-            f"```\n{tail}\n```\n\n"
-            "Продолжи С ТОГО МЕСТА где остановился, допиши до закрывающего </html>. "
-            "Ответ — ТОЛЬКО продолжение HTML, без markdown и объяснений."
-        )
-        cont = generate_response("claude", [{"role": "user", "content": prompt}],
-                                 extra={"max_tokens": 16000})
+        cont_messages = [
+            {"role": "user", "content": base_prompt},
+            {"role": "assistant", "content": content},
+            {"role": "user", "content": (
+                "Ответ обрезался. Продолжи строго с того места, до </html>. "
+                "Не меняй тематику, следуй ТЗ. Только HTML."
+            )},
+        ]
+        cont = generate_response("claude", cont_messages, extra={"max_tokens": 16000})
         ctxt = cont.get("content", "") if isinstance(cont, dict) else ""
         for marker in ["```html\n", "```\n", "```html", "```"]:
             if ctxt.startswith(marker):
@@ -519,19 +530,19 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
             content = content.rsplit("```", 1)[0] if "```" in content else content
             break
 
-    # Auto-continue если код обрезан
+    # Auto-continue с полным контекстом (тз + уже написанное)
     for attempt in range(2):
         if "</html>" in content.lower():
             break
-        tail = content[-500:]
-        cont_prompt = (
-            "Ты не дописал HTML-код. Вот его конец:\n\n"
-            f"```\n{tail}\n```\n\n"
-            "Продолжи С ТОГО МЕСТА где остановился, до закрывающего </html>. "
-            "Ответ — ТОЛЬКО продолжение HTML, без объяснений."
-        )
-        cont = generate_response("claude", [{"role": "user", "content": cont_prompt}],
-                                 extra={"max_tokens": 16000})
+        cont_messages = [
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": content},
+            {"role": "user", "content": (
+                "Ответ обрезался. Продолжи строго с того места где остановился, "
+                "до </html>. Не меняй тематику. Только HTML, без объяснений."
+            )},
+        ]
+        cont = generate_response("claude", cont_messages, extra={"max_tokens": 16000})
         cont_text = cont.get("content", "") if isinstance(cont, dict) else ""
         for marker in ["```html\n", "```\n", "```html", "```"]:
             if cont_text.startswith(marker):
