@@ -2730,7 +2730,8 @@ async function wfcAiBuild() {
     wfc.nodes = data.wfc_nodes.map(n => {
       const nid = 'n' + (wfc.ctr++);
       idMap[n.id] = nid;
-      return { id: nid, type: n.type, x: n.x|0, y: n.y|0, props: n.props || {} };
+      // Ноды в UI хранят настройки в .cfg (а не .props) — нормализуем
+      return { id: nid, type: n.type, x: n.x|0, y: n.y|0, cfg: n.props || n.cfg || {} };
     });
     const validIds = new Set(wfc.nodes.map(n=>n.id));
     wfc.edges = (data.wfc_edges || []).map(e => ({
