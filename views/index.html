@@ -2086,6 +2086,16 @@ function addUserMsg(text,fileUrl,isImg,ts){
 function addMsg(content,role,type,ts){
   let text=content,fileUrl=null,isImg=false;
   try{const p=JSON.parse(content);if(p&&"file_url" in p){text=p.text||"";fileUrl=p.file_url;isImg=/\.(png|jpg|jpeg|gif|webp)$/i.test(fileUrl);}}catch{}
+  // Авто-детект для AI-ответов: если content — URL картинки (/uploads/img_xxx.png
+  // или https://...png), показываем как image даже без явного type. Иначе после
+  // перезагрузки чата сгенерированные DALL-E/gpt-image-1 ответы становились текстом.
+  if(role!=="user" && type!=="image" && typeof content==="string"){
+    const trimmed = content.trim();
+    if (/^(https?:\/\/|\/uploads\/|\/sites\/hosted\/).+\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i.test(trimmed)) {
+      type = "image";
+      text = trimmed;
+    }
+  }
   const c=document.getElementById("chatContainer");
   const w=document.createElement("div");
   if(role==="user"){
