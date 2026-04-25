@@ -876,12 +876,23 @@ def openai_image_response(model: str, messages: list, extra: dict = None) -> dic
     extra = extra or {}
     real_model = model or "dall-e-3"
 
-    # Извлекаем prompt и опциональную ссылку на картинку из last message.
+    # Извлекаем prompt и опциональную ссылку на картинку из last user message.
+    # Content может быть строкой ИЛИ dict (chat.py parse() преобразует JSON
+    # с file_url в dict перед передачей в messages — vision-формат).
     prompt = ""
     ref_image_url = None
     if messages:
-        last = messages[-1].get("content", "") if isinstance(messages[-1], dict) else ""
-        if isinstance(last, str):
+        # Берём именно последний user-msg, не system/assistant
+        for m in reversed(messages):
+            if isinstance(m, dict) and m.get("role") == "user":
+                last = m.get("content", "")
+                break
+        else:
+            last = messages[-1].get("content", "") if isinstance(messages[-1], dict) else ""
+        if isinstance(last, dict):
+            ref_image_url = last.get("file_url")
+            prompt = last.get("text", "") or ""
+        elif isinstance(last, str):
             try:
                 p = json.loads(last)
                 if isinstance(p, dict) and p.get("file_url"):
@@ -893,6 +904,12 @@ def openai_image_response(model: str, messages: list, extra: dict = None) -> dic
                 prompt = last
     if not prompt:
         prompt = extra.get("prompt", "")
+    # Если промпт пустой, но есть reference картинка — даём дефолтный промпт.
+    # OpenAI требует prompt минимум 1 символ.
+    if not prompt and ref_image_url:
+        prompt = "Сгенерируй похожее изображение в той же стилистике"
+    if not prompt:
+        return {"type":"text","content":"Опишите что нарисовать (хотя бы пару слов)."}
 
     # Размеры: dall-e-3 поддерживает 1024x1024/1024x1792/1792x1024
     # gpt-image-1 поддерживает 1024x1024/1024x1536 (portrait)/1536x1024 (landscape)
