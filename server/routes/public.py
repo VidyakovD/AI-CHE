@@ -49,6 +49,8 @@ DEFAULT_MODEL_PRICING = [
      "ch_per_1k_input":11, "ch_per_1k_output":55, "min_ch_per_req":20},
     # Media — per-request (копейки)
     {"model_id":"dalle",           "label":"DALL-E 3",         "cost_per_req":400,  "min_ch_per_req":400},
+    # gpt-image-1: $0.04 / image standard → ~4 ₽; берём 5 ₽ = 500 коп с запаса
+    {"model_id":"gpt-image",       "label":"GPT Картинки",     "cost_per_req":500,  "min_ch_per_req":500},
     {"model_id":"nano",            "label":"Imagen",           "cost_per_req":100,  "min_ch_per_req":100},
     {"model_id":"kling",           "label":"Kling v1",         "cost_per_req":2000, "min_ch_per_req":2000},
     {"model_id":"kling-pro",       "label":"Kling Pro",        "cost_per_req":4000, "min_ch_per_req":4000},

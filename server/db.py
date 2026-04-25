@@ -40,6 +40,10 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # MAX (мессенджер VK group)
     ("chatbots", "max_token", "VARCHAR"),
     ("chatbots", "max_webhook_set", "BOOLEAN DEFAULT 0"),
+    # Привязка чат-бота к сайтам и презентациям (виджет встраивается автоматически)
+    ("site_projects", "attached_bot_id", "INTEGER"),
+    ("presentation_projects", "attached_bot_id", "INTEGER"),
+    ("presentation_projects", "image_paths", "TEXT"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

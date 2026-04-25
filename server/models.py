@@ -345,6 +345,7 @@ class SiteProject(Base):
     chat_history = Column(Text, nullable=True)    # JSON: conversation during spec creation
     image_paths  = Column(Text, nullable=True)    # JSON array of uploaded image/logo paths
     hosted_path  = Column(String, nullable=True)  # e.g. "sites/123/" for hosted URL
+    attached_bot_id = Column(Integer, ForeignKey("chatbots.id"), nullable=True)  # виджет чат-бота
     created_at   = Column(DateTime, default=datetime.utcnow)
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -380,6 +381,8 @@ class PresentationProject(Base):
     generated_content = Column(Text, nullable=True)
     status            = Column(String, default="draft")      # draft / generated / done
     price_tokens      = Column(Integer, default=0)
+    image_paths       = Column(Text, nullable=True)          # JSON массив URL картинок
+    attached_bot_id   = Column(Integer, ForeignKey("chatbots.id"), nullable=True)  # виджет чат-бота
     created_at        = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", backref="presentation_projects")

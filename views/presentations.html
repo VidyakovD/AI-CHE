@@ -186,25 +186,36 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     <div class="flex-1 overflow-y-auto p-6 space-y-5 min-h-0">
       <!-- Status / Generate -->
       <div id="detailDraft" class="hidden bg-surface2 rounded-xl p-5 border border-outline/20">
-        <p class="text-sm text-on-dim mb-4">AI сгенерирует документ на основе вашего описания и профиля компании.</p>
+        <p class="text-sm text-on-dim mb-4">AI сгенерирует документ на основе вашего описания, картинок и профиля компании.</p>
         <div class="mb-4">
           <label class="block text-xs text-on-dim mb-1.5">Описание задачи</label>
           <textarea id="detailDesc" rows="3" class="inp resize-none text-sm"></textarea>
         </div>
+        <!-- Картинки (логотипы, фото услуг и т.п.) -->
+        <div class="mb-4">
+          <label class="block text-xs text-on-dim mb-1.5">Картинки (опционально — логотип, фото)</label>
+          <div id="presImagesList" class="flex flex-wrap gap-2 mb-2"></div>
+          <input type="file" id="presImageInput" accept="image/*" multiple style="display:none" onchange="uploadPresImages(event)"/>
+          <button type="button" onclick="document.getElementById('presImageInput').click()" class="btn-g text-xs">📎 Загрузить картинку</button>
+        </div>
         <button onclick="generateCurrent()" class="btn-p" id="genBtn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
-          <span id="genBtnLabel">Сгенерировать (5 ₽)</span>
+          <span id="genBtnLabel">Сгенерировать</span>
         </button>
       </div>
 
       <!-- Generated content -->
       <div id="detailDone" class="hidden space-y-4">
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between flex-wrap gap-2">
           <p class="text-sm font-semibold text-primary">Готово</p>
-          <div class="flex gap-2">
+          <div class="flex gap-2 flex-wrap items-center">
+            <!-- Бот для встраивания виджета на публичную страницу -->
+            <select id="presAttachBotSelect" onchange="attachBotToPres(this.value)" class="inp text-xs py-1" style="min-width:140px" title="Прицепить чат-бот к публичной странице КП">
+              <option value="">🤖 Бот: нет</option>
+            </select>
             <button onclick="copyContent()" class="btn-g text-xs">Копировать</button>
             <button onclick="downloadContent()" class="btn-g text-xs">Скачать .txt</button>
-            <button onclick="regenerateCurrent()" class="btn-g text-xs">Перегенерировать (5 ₽)</button>
+            <button onclick="regenerateCurrent()" class="btn-g text-xs">Правка (5 ₽)</button>
           </div>
         </div>
         <div id="detailContent" class="bg-surface2 rounded-xl p-6 border border-outline/15 result-content"></div>
@@ -403,19 +414,86 @@ async function openProject(id, preDesc) {
   const inp = (() => { try { return JSON.parse(p.input_data || '{}'); } catch { return {}; } })();
   const desc = preDesc || inp.description || '';
 
+  // Цена: КП = 50 ₽, Презентация = 100 ₽
+  const price = p.doc_type === 'presentation' ? '100 ₽' : '50 ₽';
+  document.getElementById('genBtnLabel').textContent = `Сгенерировать (${price})`;
+
   if (p.status === 'done' && p.generated_content) {
     document.getElementById('detailDraft').classList.add('hidden');
     document.getElementById('detailDone').classList.remove('hidden');
     renderContent(p.generated_content);
+    populatePresAttachBotSelect();
   } else {
     document.getElementById('detailDone').classList.add('hidden');
     document.getElementById('detailDraft').classList.remove('hidden');
     document.getElementById('detailDesc').value = desc;
+    renderPresImages();
     // Если есть описание — сразу генерируем
     if (desc) setTimeout(() => generateCurrent(), 300);
   }
 
   document.getElementById('detailModal').classList.add('show');
+}
+
+// ── Картинки в КП/презентации ──────────────────────────────────────────────
+function renderPresImages(){
+  const wrap = document.getElementById('presImagesList');
+  if (!wrap || !currentProject) return;
+  let imgs = [];
+  try { imgs = JSON.parse(currentProject.image_paths || '[]'); } catch {}
+  if (!imgs.length) { wrap.innerHTML = '<p class="text-[10px] text-on-dim/60">Нет картинок</p>'; return; }
+  wrap.innerHTML = imgs.map(url =>
+    `<img src="${url}" alt="" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid rgba(74,63,47,.3)"/>`
+  ).join('');
+}
+
+async function uploadPresImages(event){
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
+  for (const file of files){
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const r = await fetch(`${API}/upload`, {method:'POST', headers: {Authorization:'Bearer '+authToken}, body: fd});
+      if (!r.ok) throw new Error('upload failed');
+      const d = await r.json();
+      await fetch(`${API}/presentations/projects/${currentProjectId}/attach-image`, {
+        method:'POST', headers: hdrs(), body: JSON.stringify({file_url: d.url})
+      });
+    } catch(e) { console.error('image upload', e); }
+  }
+  // Перезагрузить проект чтобы увидеть свежий image_paths
+  try {
+    const r = await fetch(`${API}/presentations/projects/${currentProjectId}`, {headers: hdrs()});
+    currentProject = await r.json();
+  } catch {}
+  renderPresImages();
+  event.target.value = '';
+}
+
+// ── Привязка чат-бота ──────────────────────────────────────────────────────
+async function populatePresAttachBotSelect(){
+  const sel = document.getElementById('presAttachBotSelect');
+  if (!sel) return;
+  try {
+    const r = await fetch(`${API}/chatbots`, {headers: hdrs()});
+    if (!r.ok) return;
+    const bots = (await r.json()).filter(b => b.widget_enabled);
+    sel.innerHTML = '<option value="">🤖 Бот: нет</option>' +
+      bots.map(b => `<option value="${b.id}" ${b.id===currentProject.attached_bot_id?'selected':''}>🤖 ${esc(b.name)}</option>`).join('');
+  } catch {}
+}
+
+async function attachBotToPres(botId){
+  if (!currentProjectId) return;
+  try {
+    const r = await fetch(`${API}/presentations/projects/${currentProjectId}/attach-bot`, {
+      method:'POST', headers: hdrs(), body: JSON.stringify({bot_id: botId ? +botId : null})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Ошибка');
+    currentProject.attached_bot_id = botId ? +botId : null;
+  } catch(e) { alert('Ошибка: ' + e.message); }
 }
 
 function closeDetail() { document.getElementById('detailModal').classList.remove('show'); }

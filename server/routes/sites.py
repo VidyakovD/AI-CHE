@@ -8,7 +8,7 @@ import os
 import logging
 
 from server.routes.deps import get_db, current_user, optional_user
-from server.models import SiteProject, User, Transaction
+from server.models import SiteProject, User, Transaction, ChatBot
 from server.ai import generate_response
 from server.billing import deduct_strict
 
@@ -19,10 +19,11 @@ router = APIRouter(tags=["sites"])
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-# Цены теперь в КОПЕЙКАХ (1 ₽ = 100 коп)
-SPEC_CONVERSATION_CH_COST = 50   # per chat turn (0.50 ₽)
-CODE_GEN_CH_COST = 500           # per code generation call (5.00 ₽)
-CODE_ITER_CH_COST = 250          # per iteration call (2.50 ₽)
+# Цены в КОПЕЙКАХ (1 ₽ = 100 коп)
+SPEC_CONVERSATION_CH_COST = 0    # бесплатное обсуждение ТЗ — заложено в фикс цену сайта
+SITE_CREATE_FIX_COST    = 150_000  # 1500 ₽ за создание сайта (фикс)
+CODE_GEN_CH_COST        = SITE_CREATE_FIX_COST  # legacy alias — первая генерация = фикс
+CODE_ITER_CH_COST       = 500    # доработки 5 ₽ за итерацию (по факту изменения)
 
 _sites_host_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "uploads", "sites")
 
@@ -78,11 +79,7 @@ def create_site_project(req: CreateSiteProjectRequest, db: Session = Depends(get
         spec_text = req.spec_text
         phase = "collecting_images"
         status = "has_spec"
-        # Deduct small amount for spec analysis
-        cost = SPEC_CONVERSATION_CH_COST
-        if not deduct_strict(db, user.id, cost):
-            raise HTTPException(402, "Недостаточно токенов")
-        price = cost
+        price = 0  # обсуждение/анализ ТЗ — бесплатное (заложено в фикс цену)
     elif req.creation_mode == "create_together":
         phase = "gathering_spec"
         chat_history = json.dumps([])
@@ -120,6 +117,7 @@ def get_site_project(project_id: int, db: Session = Depends(get_db),
         "chat_history": p.chat_history,
         "image_paths": p.image_paths,
         "hosted_path": p.hosted_path,
+        "attached_bot_id": p.attached_bot_id,
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }
 
@@ -171,13 +169,16 @@ def site_project_chat(project_id: int, body: dict, db: Session = Depends(get_db)
     if not user_message:
         raise HTTPException(400, "Пустое сообщение")
 
-    # Deduct tokens
-    cost = SPEC_CONVERSATION_CH_COST
-    if not deduct_strict(db, user.id, cost):
-        raise HTTPException(402, "Недостаточно токенов")
-    p.price_tokens += cost
-    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
-                       description="Чат по ТЗ сайта", model="claude"))
+    # Обсуждение ТЗ бесплатно — стоимость заложена в фикс-цену генерации сайта.
+    # Если в будущем нужно ограничивать злоупотребления — добавить rate-limit
+    # или мин. баланс 1500 ₽ (стоимость самой генерации).
+    cost = SPEC_CONVERSATION_CH_COST  # = 0 в новой модели
+    if cost > 0:
+        if not deduct_strict(db, user.id, cost):
+            raise HTTPException(402, "Недостаточно средств")
+        p.price_tokens += cost
+        db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+                           description="Чат по ТЗ сайта", model="claude"))
 
     # Load chat history
     try:
@@ -265,6 +266,41 @@ def site_project_attach_image(project_id: int, body: dict, db: Session = Depends
     return {"status": "ok"}
 
 
+class AttachBotBody(BaseModel):
+    bot_id: int | None = None  # None — отвязать бота от сайта
+
+
+@router.post("/sites/projects/{project_id}/attach-bot")
+def site_project_attach_bot(project_id: int, body: AttachBotBody,
+                            db: Session = Depends(get_db),
+                            user: User = Depends(current_user)):
+    """Привязать чат-бот юзера к сайту. При генерации/публикации виджет
+    бота вставится в HTML автоматически."""
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if body.bot_id is None:
+        p.attached_bot_id = None
+        db.commit()
+        return {"status": "detached"}
+    bot = db.query(ChatBot).filter_by(id=body.bot_id, user_id=user.id).first()
+    if not bot:
+        raise HTTPException(404, "Бот не найден или не ваш")
+    if not bot.widget_enabled:
+        raise HTTPException(400, "У бота не включён виджет — включите в /chatbots.html")
+    p.attached_bot_id = bot.id
+    db.commit()
+    return {"status": "attached", "bot_id": bot.id, "bot_name": bot.name}
+
+
+def _inject_chatbot_widget(html: str, bot_id: int, app_url: str) -> str:
+    """Вставляет <script src='/widget/{bot_id}.js'></script> перед </body>."""
+    widget_tag = f'<script src="{app_url}/widget/{bot_id}.js" async></script>'
+    if "</body>" in html:
+        return html.replace("</body>", f"{widget_tag}\n</body>", 1)
+    return html + "\n" + widget_tag
+
+
 # ---------------------------------------------------------------------------
 # Code generation & iteration
 # ---------------------------------------------------------------------------
@@ -280,12 +316,12 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
     if not p.spec_text:
         raise HTTPException(400, "Сначала создайте ТЗ")
 
-    cost = CODE_GEN_CH_COST
+    cost = CODE_GEN_CH_COST  # 1500 ₽ фикс
     if not deduct_strict(db, user.id, cost):
-        raise HTTPException(402, "Недостаточно токенов")
+        raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
     p.price_tokens += cost
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
-                       description="Генерация кода сайта"))
+                       description=f"Создание сайта ({cost/100:.0f} ₽)"))
 
     # Build prompt with images context
     img_context = ""
@@ -374,12 +410,12 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
     if not instructions:
         raise HTTPException(400, "Пустая инструкция")
 
-    cost = CODE_ITER_CH_COST
+    cost = CODE_ITER_CH_COST  # 5 ₽ за правку
     if not deduct_strict(db, user.id, cost):
-        raise HTTPException(402, "Недостаточно токенов")
+        raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
     p.price_tokens += cost
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
-                       description="Доработка сайта"))
+                       description=f"Правка сайта ({cost/100:.0f} ₽)"))
 
     prompt = (
         f"Вот текущий HTML сайта:\n\n{p.code_html}\n\n"
@@ -421,12 +457,20 @@ def site_project_host(project_id: int, db: Session = Depends(get_db),
 
     host_dir = os.path.join(_sites_host_base, str(project_id))
     os.makedirs(host_dir, exist_ok=True)
+    final_html = p.code_html
+    if p.attached_bot_id:
+        from server.models import ChatBot
+        b = db.query(ChatBot).filter_by(id=p.attached_bot_id, user_id=user.id).first()
+        if b and b.widget_enabled:
+            app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+            final_html = _inject_chatbot_widget(final_html, b.id, app_url)
     with open(os.path.join(host_dir, "index.html"), "w", encoding="utf-8") as f:
-        f.write(p.code_html)
+        f.write(final_html)
 
     p.hosted_path = f"/sites/hosted/{project_id}/"
     db.commit()
-    return {"url": p.hosted_path, "status": "hosted"}
+    return {"url": p.hosted_path, "status": "hosted",
+            "widget_attached": bool(p.attached_bot_id)}
 
 
 @router.get("/sites/hosted/{project_id}/{full_path:path}")

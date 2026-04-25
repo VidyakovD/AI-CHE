@@ -9,19 +9,17 @@ from server.db import SessionLocal
 from server.models import SolutionCategory, Solution, SolutionStep
 
 
-# ── Тарификация (3 уровня) ───────────────────────────────────────────────
-# Цена = фикс-плата за экспертный шаблон. Сверху Claude списывается по токенам.
-TIER_PRICES = {"light": 30, "medium": 50, "heavy": 100}
+# ── Тарификация (2 уровня в копейках) ────────────────────────────────────
+# Простая для пользователя сетка: 50 ₽ или 100 ₽ за решение. Без подписок,
+# без скрытых списаний по токенам сверху — фикс-цена.
+TIER_PRICES = {"medium": 5000, "heavy": 10000}  # копейки = 50 ₽ / 100 ₽
 
-# Классификация по ключевым словам в title (порядок важен — heavy/light перевешивают medium)
+# Heavy-задачи (100 ₽): глубокий анализ, многосекционные отчёты, симуляторы.
 HEAVY_KEYWORDS = (
     "Симулятор", "90-дневный", "Контент-план", "Email-цепочка", "Полный SWOT",
     "Регламент", "Финансовая диагностика", "Конкурентный анализ",
     "Описание и оптимизация", "Программа лояльности",
     "Подготовка к переговорам", "Онбординг",
-)
-LIGHT_KEYWORDS = (
-    "Заголовки", "Рекламные тексты", "Деловое письмо", "Скрытые расходы",
 )
 
 
@@ -29,10 +27,7 @@ def _tier_for(title: str) -> str:
     for kw in HEAVY_KEYWORDS:
         if kw in title:
             return "heavy"
-    for kw in LIGHT_KEYWORDS:
-        if kw in title:
-            return "light"
-    return "medium"
+    return "medium"  # всё остальное — 50 ₽
 
 
 def price_for(title: str) -> int:
@@ -646,7 +641,8 @@ def seed():
             added += 1
 
         print(f"\n✅ Готово: добавлено {added}, обновлено {updated}, всего {len(BUSINESS_PROMPTS)}")
-        print(f"   Тарифы: light={TIER_PRICES['light']} CH, medium={TIER_PRICES['medium']} CH, heavy={TIER_PRICES['heavy']} CH")
+        print(f"   Тарифы: medium={TIER_PRICES['medium']/100:.0f}₽ ({TIER_PRICES['medium']} коп), "
+              f"heavy={TIER_PRICES['heavy']/100:.0f}₽ ({TIER_PRICES['heavy']} коп)")
     finally:
         db.close()
 

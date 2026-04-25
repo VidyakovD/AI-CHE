@@ -563,10 +563,13 @@ MODEL_REGISTRY = {
     "gemini-pro":      {"provider": "gemini",      "real_model": "gemini-1.5-pro"},
     "perplexity":      {"provider": "perplexity",  "real_model": "sonar-small-chat"},
     "perplexity-large":{"provider": "perplexity",  "real_model": "sonar"},
-    "grok":            {"provider": "grok",        "real_model": "grok-3-mini"},
+    "grok":            {"provider": "grok",        "real_model": "grok-3"},
     "grok-large":      {"provider": "grok",        "real_model": "grok-3"},
     "nano":            {"provider": "nanobanana",  "real_model": "nano-v1"},
     "dalle":           {"provider": "openai_image","real_model": "dall-e-3"},
+    # Новая модель OpenAI gpt-image-1 — поддерживает генерацию и редактирование
+    # изображений. Идёт через тот же эндпоинт images.generate.
+    "gpt-image":       {"provider": "openai_image","real_model": "gpt-image-1"},
     "kling":           {"provider": "kling",       "real_model": "kling-v1"},
     "kling-pro":       {"provider": "kling",       "real_model": "kling-v1-6"},
     "veo":             {"provider": "veo",         "real_model": "veo-3"},
@@ -855,22 +858,53 @@ def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
 
 # ── OPENAI IMAGE (DALL-E) ─────────────────────────────────────────────────────
 def openai_image_response(model: str, messages: list, extra: dict = None) -> dict:
+    """Генерация изображений: dall-e-3 ИЛИ gpt-image-1 (новая модель OpenAI).
+
+    Поддерживаемые real_model: 'dall-e-3', 'gpt-image-1'.
+    gpt-image-1 умеет лучше следовать промпту и поддерживает редактирование
+    (через images.edit), но всегда возвращает b64_json (не URL)."""
     keys = _shuffle(_get_api_keys("openai"))
     if not keys:
-        _notify_admin("DALL-E: OPENAI_API_KEYS пуст")
+        _notify_admin("Image gen: OPENAI_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
     prompt = _last_text(messages) or (extra or {}).get("prompt","")
-    size   = (extra or {}).get("size","1024x1024")
-    style  = (extra or {}).get("style","vivid")
+    real_model = model or "dall-e-3"
+    extra = extra or {}
+    size = extra.get("size", "1024x1024")
+    quality = extra.get("quality")  # gpt-image-1: low/medium/high; dall-e-3: standard/hd
+
     from openai import OpenAI
+    import base64, os as _os, uuid as _uuid
+
     for key in keys:
         try:
             client = OpenAI(api_key=key)
-            resp = client.images.generate(model="dall-e-3", prompt=prompt, n=1, size=size, style=style)
-            return {"type":"image","url":resp.data[0].url,"content":resp.data[0].url}
-        except:
+            params = {"model": real_model, "prompt": prompt, "n": 1, "size": size}
+            if real_model == "dall-e-3":
+                params["style"] = extra.get("style", "vivid")
+                params["quality"] = quality or "standard"
+                params["response_format"] = "url"
+            else:
+                # gpt-image-1: всегда b64_json (response_format не поддерживается)
+                if quality:
+                    params["quality"] = quality  # low/medium/high/auto
+            resp = client.images.generate(**params)
+            data = resp.data[0]
+            url = getattr(data, "url", None)
+            if not url and getattr(data, "b64_json", None):
+                # Сохраняем base64 в /uploads, чтобы вернуть URL — UI работает с url
+                fid = f"img_{_uuid.uuid4().hex[:12]}.png"
+                upload_dir = _os.path.join(_BASE_DIR, "uploads")
+                _os.makedirs(upload_dir, exist_ok=True)
+                path = _os.path.join(upload_dir, fid)
+                with open(path, "wb") as f:
+                    f.write(base64.b64decode(data.b64_json))
+                url = f"/uploads/{fid}"
+            return {"type":"image","url":url,"content":url}
+        except Exception as e:
+            log.warning(f"[Image gen] key=...{key[-6:]} model={real_model} error={e}")
             if key == keys[-1]:
-                _notify_admin(f"DALL-E: все ключи исчерпаны")
+                _notify_admin(f"Image gen ({real_model}): все ключи исчерпаны")
                 return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
 
 

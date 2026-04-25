@@ -221,8 +221,9 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       </div>
       <button onclick="generateCode()" class="btn-p w-full justify-center" id="genCodeBtn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
-        Сгенерировать код сайта
+        Создать сайт (1500 ₽)
       </button>
+      <p class="text-[10px] text-on-dim/60 text-center mt-1">Правки потом — по 5 ₽ за итерацию</p>
     </div>
 
     <!-- ── PHASE 4+: Code generated — tabs: Код / Превью / ТЗ ──
@@ -276,7 +277,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     </div>
 
     <!-- Bottom bar: host + download (shown when code exists) -->
-    <div id="doneBottomBar" class="hidden bg-surface2 border-t border-outline/20 px-6 py-3 flex-shrink-0 flex items-center gap-3">
+    <div id="doneBottomBar" class="hidden bg-surface2 border-t border-outline/20 px-6 py-3 flex-shrink-0 flex items-center gap-3 flex-wrap">
       <button onclick="hostSite()" class="btn-p text-sm" id="hostBtn">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-6 10H10v-2h4v2zm4-4H6v-2h12v2z"/></svg>
         Опубликовать
@@ -289,6 +290,13 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1 15h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg>
         ZIP с картинками
       </button>
+      <!-- Привязка чат-бота: виджет автоматически вставится при «Опубликовать» -->
+      <div class="flex items-center gap-2 ml-2">
+        <label class="text-xs text-on-dim whitespace-nowrap">🤖 Чат-бот на сайт:</label>
+        <select id="attachBotSelect" onchange="attachBotToSite(this.value)" class="inp text-xs py-1" style="min-width:160px">
+          <option value="">— нет —</option>
+        </select>
+      </div>
       <div id="hostedUrl" class="hidden flex-1 min-w-0">
         <p class="text-xs text-on-dim mb-0.5">Сайт опубликован:</p>
         <a id="hostedLink" href="#" target="_blank" class="text-xs text-primary underline truncate block"></a>
@@ -308,8 +316,8 @@ window.fmtRub = (kop) => {
 window.chToRub = window.fmtRub;
 window.formatCH = window.fmtRub;
 const authToken = localStorage.getItem('obs_token');
-const CODE_GEN_CH_COST = 500;   // копеек (5 ₽)
-const CODE_ITER_CH_COST = 250;  // копеек (2.50 ₽)
+const CODE_GEN_CH_COST = 150000;  // копеек = 1500 ₽ за создание сайта
+const CODE_ITER_CH_COST = 500;    // копеек = 5 ₽ за правку
 let projects = [];
 let filterTab = 'draft';         // 'draft' | 'done'
 let currentProject = null;
@@ -762,6 +770,45 @@ function updateDoneBottomBar(){
     document.getElementById('hostedLink').textContent = API + currentProject.hosted_path;
   } else {
     document.getElementById('hostedUrl').classList.add('hidden');
+  }
+  // Загружаем список ботов с включённым виджетом и подсвечиваем текущий выбор
+  populateAttachBotSelect();
+}
+
+async function populateAttachBotSelect(){
+  const sel = document.getElementById('attachBotSelect');
+  if (!sel) return;
+  try{
+    const r = await fetch(`${API}/chatbots`, {headers: authHeaders()});
+    if (!r.ok) return;
+    const bots = await r.json();
+    const widgetable = bots.filter(b => b.widget_enabled);
+    sel.innerHTML = '<option value="">— нет —</option>' +
+      widgetable.map(b => `<option value="${b.id}" ${b.id===currentProject.attached_bot_id?'selected':''}>${esc(b.name)}</option>`).join('');
+    if (!widgetable.length) {
+      sel.innerHTML += '<option value="" disabled>нет ботов с виджетом — включите в /chatbots.html</option>';
+    }
+  }catch{}
+}
+
+async function attachBotToSite(botId){
+  if (!currentProjectId) return;
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/attach-bot`, {
+      method:'POST',
+      headers: {...authHeaders(), 'Content-Type':'application/json'},
+      body: JSON.stringify({bot_id: botId ? +botId : null}),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Ошибка');
+    currentProject.attached_bot_id = botId ? +botId : null;
+    if (botId) {
+      addChatMessage('system', `🤖 Бот «${d.bot_name}» будет добавлен на сайт при публикации.`);
+    } else {
+      addChatMessage('system', '🤖 Чат-бот отвязан от сайта.');
+    }
+  }catch(e){
+    alert('Ошибка: ' + e.message);
   }
 }
 

@@ -4,14 +4,22 @@ from sqlalchemy.orm import Session
 import json, logging
 
 from server.routes.deps import get_db, current_user, optional_user
-from server.models import PresentationProject, PresentationTemplate, CompanyProfile, User, Transaction
+from server.models import PresentationProject, PresentationTemplate, CompanyProfile, User, Transaction, ChatBot
 from server.ai import generate_response
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["presentations"])
 
-PRES_CH_COST = 500  # копеек за генерацию КП/презентации (= 5 ₽)
+# Фикс-цены в копейках. Пользователю — простая сетка:
+#   КП = 5000 коп = 50 ₽
+#   Презентация = 10000 коп = 100 ₽
+#   Доработка/правка = 500 коп = 5 ₽
+PRES_KP_COST    = 5000
+PRES_DECK_COST  = 10000
+PRES_EDIT_COST  = 500
+# Backwards-compat (используется в логах/старом коде):
+PRES_CH_COST = PRES_KP_COST
 
 
 class CreatePresentationRequest(BaseModel):
@@ -119,7 +127,55 @@ def get_presentation_project(project_id: int, db: Session = Depends(get_db),
             "doc_type": inp.get("doc_type", "kp"),
             "input_data": p.input_data, "generated_content": p.generated_content,
             "price_tokens": p.price_tokens, "template_id": p.template_id,
+            "image_paths": p.image_paths,
+            "attached_bot_id": p.attached_bot_id,
             "created_at": p.created_at.isoformat() if p.created_at else None}
+
+
+class AttachBotBody(BaseModel):
+    bot_id: int | None = None  # None — отвязать
+
+
+@router.post("/presentations/projects/{project_id}/attach-image")
+def pres_project_attach_image(project_id: int, body: dict, db: Session = Depends(get_db),
+                              user: User = Depends(current_user)):
+    """Прикрепить уже загруженный (через /upload) файл к презентации."""
+    p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    try:
+        imgs = json.loads(p.image_paths) if p.image_paths else []
+    except Exception:
+        imgs = []
+    file_url = body.get("file_url", "")
+    if not file_url:
+        raise HTTPException(400, "Нет file_url")
+    imgs.append(file_url)
+    p.image_paths = json.dumps(imgs)
+    db.commit()
+    return {"status": "ok", "image_paths": imgs}
+
+
+@router.post("/presentations/projects/{project_id}/attach-bot")
+def pres_project_attach_bot(project_id: int, body: AttachBotBody,
+                            db: Session = Depends(get_db),
+                            user: User = Depends(current_user)):
+    """Привязать чат-бота к проекту КП/презентации (для виджета на публичной странице)."""
+    p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if body.bot_id is None:
+        p.attached_bot_id = None
+        db.commit()
+        return {"status": "detached"}
+    bot = db.query(ChatBot).filter_by(id=body.bot_id, user_id=user.id).first()
+    if not bot:
+        raise HTTPException(404, "Бот не найден или не ваш")
+    if not bot.widget_enabled:
+        raise HTTPException(400, "У бота не включён виджет — включите в /chatbots.html")
+    p.attached_bot_id = bot.id
+    db.commit()
+    return {"status": "attached", "bot_id": bot.id, "bot_name": bot.name}
 
 
 @router.put("/presentations/projects/{project_id}")
@@ -149,17 +205,28 @@ def generate_presentation(project_id: int, body: dict = None,
     if not user: raise HTTPException(401, "Нужна авторизация")
     p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
     if not p: raise HTTPException(404, "Проект не найден")
-    from server.billing import deduct_strict
-    if not deduct_strict(db, user.id, PRES_CH_COST):
-        raise HTTPException(402, "Недостаточно токенов")
-    p.price_tokens += PRES_CH_COST
-    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-PRES_CH_COST,
-                       description="Генерация презентации/КП"))
-
     inp = {}
     try: inp = json.loads(p.input_data) if p.input_data else {}
     except (json.JSONDecodeError, TypeError): pass
     doc_type = inp.get("doc_type", "kp")
+    # Фикс-цена зависит от типа документа: 50 ₽ за КП, 100 ₽ за презентацию.
+    # При перегенерации (status=done) — берём цену редактирования.
+    if p.status == "done":
+        cost = PRES_EDIT_COST
+        cost_desc = "Правка/перегенерация"
+    elif doc_type == "presentation":
+        cost = PRES_DECK_COST
+        cost_desc = "Презентация"
+    else:
+        cost = PRES_KP_COST
+        cost_desc = "КП"
+    from server.billing import deduct_strict
+    if not deduct_strict(db, user.id, cost):
+        raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
+    p.price_tokens += cost
+    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+                       description=f"{cost_desc} ({cost/100:.0f} ₽)"))
+
     description = inp.get("description", "")
 
     # Подгружаем профиль компании
