@@ -261,7 +261,11 @@ async def ai_build_workflow(req: WorkflowAiRequest, db: Session = Depends(get_db
     try:
         result = build_from_task(req.task)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        msg = str(e)
+        # Если AI-провайдеры лежат — отдаём 503, а не 400 (это не вина пользователя)
+        if "недоступны" in msg.lower() or "провайдер" in msg.lower():
+            raise HTTPException(503, msg)
+        raise HTTPException(400, msg)
     except Exception as e:
         log.error(f"ai-build-workflow error: {e}")
         raise HTTPException(500, "Не удалось собрать воркфлоу. Попробуйте переформулировать задачу.")

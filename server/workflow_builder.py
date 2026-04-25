@@ -196,16 +196,39 @@ def build_from_task(task: str, user_api_key: str | None = None) -> dict:
             "Собери воркфлоу. Никакого текста кроме JSON."
         )},
     ]
-    raw = generate_response("claude", messages, user_api_key=user_api_key)
-    text = raw.get("content", "") if isinstance(raw, dict) else str(raw)
-    usage = {
-        "input_tokens": raw.get("input_tokens", 0) if isinstance(raw, dict) else 0,
-        "output_tokens": raw.get("output_tokens", 0) if isinstance(raw, dict) else 0,
-    }
+    # Пробуем модели в порядке доступности. Прокси awstore часто падает —
+    # тогда переключаемся на gpt/gemini/grok если у пользователя есть рабочие ключи.
+    last_err: Exception | None = None
+    text = ""
+    usage = {"input_tokens": 0, "output_tokens": 0}
+    for model in ("claude", "gpt-4o", "gpt-4o-mini", "gemini", "grok"):
+        try:
+            raw = generate_response(model, messages, user_api_key=user_api_key)
+        except Exception as e:
+            last_err = e
+            log.warning(f"workflow_builder: {model} failed: {e}")
+            continue
+        text = raw.get("content", "") if isinstance(raw, dict) else str(raw)
+        usage = {
+            "input_tokens": raw.get("input_tokens", 0) if isinstance(raw, dict) else 0,
+            "output_tokens": raw.get("output_tokens", 0) if isinstance(raw, dict) else 0,
+        }
+        # Распознаём fallback-заглушку из server/ai.py
+        if "Сервис временно недоступен" in text or len(text.strip()) < 5:
+            log.warning(f"workflow_builder: {model} returned fallback stub")
+            text = ""
+            continue
+        break
+
+    if not text:
+        raise ValueError(
+            "AI-провайдеры сейчас недоступны (прокси/ключи). "
+            "Проверьте API-ключи в админке или попробуйте позже."
+        )
     try:
         parsed = _extract_json(text)
     except Exception as e:
-        log.error(f"AI workflow builder JSON parse failed: {e}; raw={text[:500]}")
+        log.error(f"workflow_builder JSON parse failed: {e}; raw={text[:500]}")
         raise ValueError(f"LLM вернул не-JSON: {e}")
     result = _validate(parsed)
     result["usage"] = usage
