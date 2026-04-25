@@ -98,22 +98,26 @@ def _notify_admin(error_msg: str, context: dict | None = None):
     except:
         pass
 
-# ── token cost map (tokens per 1 request unit) ───────────────────────────────
-# used for balance deduction — adjust multipliers to your pricing
+# ── token cost map (КОПЕЙКИ за запрос — fallback если нет model_pricing записи) ─
+# Для chat-моделей основной расчёт идёт по input/output токенам в model_pricing.
+# Здесь — fallback и фикс-цены для media (картинки/видео).
 TOKEN_COST = {
-    "gpt-4o-mini":            50,
-    "gpt-4o":                100,
-    "claude-haiku-4-5-20251001": 40,
-    "claude-sonnet-4-6": 120,
-    "claude-opus-4-6": 300,
-    "sonar-small-chat":        30,
-    "sonar-large-chat":        80,
-    "nano-v1":                 10,
-    "kling-v1":               500,
-    "kling-v1-5":             800,
-    "veo-3":                  600,
-    "grok-3-mini":             30,
-    "grok-3":                  80,
+    "gpt-4o-mini":              500,   # ≈ 5 ₽ fallback за запрос
+    "gpt-4o":                  1000,
+    "claude-haiku-4-5-20251001": 400,
+    "claude-sonnet-4-6":       1200,
+    "claude-opus-4-6":         3000,
+    "sonar-small-chat":         300,
+    "sonar-large-chat":         800,
+    "grok-3-mini":              300,
+    "grok-3":                   800,
+    # Media — фикс per-request (с маржой ~3-4× к себестоимости OpenAI)
+    "dall-e-3":                1500,   # 15 ₽ — себест $0.04 ≈ 3.6 ₽
+    "gpt-image-1":             1500,   # 15 ₽ — себест $0.04-0.06 ≈ 4-6 ₽
+    "nano-v1":                 1000,
+    "kling-v1":                5000,   # 50 ₽
+    "kling-v1-5":              8000,
+    "veo-3":                   6000,
 }
 
 def get_token_cost(model: str) -> int:
