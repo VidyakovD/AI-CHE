@@ -515,6 +515,26 @@ def admin_reencrypt_secrets(request: Request,
             "note": "Если failed > 0 — эти записи зашифрованы ключом, которого нет в LEGACY_JWT_SECRETS"}
 
 
+@router.post("/seed-business-prompts")
+def admin_seed_business_prompts(request: Request,
+                                user: User = Depends(current_user),
+                                db: Session = Depends(get_db)):
+    """Запускает seed бизнес-промптов: добавляет новые, обновляет цены 30/50/100."""
+    require_admin(user)
+    import io, contextlib
+    from scripts.seed_business_prompts import seed
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            seed()
+        from server.admin_audit import log_admin_action
+        log_admin_action(db, user, "seed_business_prompts", request=request)
+        return {"ok": True, "log": buf.getvalue()}
+    except Exception as e:
+        log.error(f"seed_business_prompts failed: {e}")
+        raise HTTPException(500, f"Ошибка seed: {e}")
+
+
 @router.get("/audit-log")
 def admin_audit_log(limit: int = 100, user: User = Depends(current_user),
                     db: Session = Depends(get_db)):

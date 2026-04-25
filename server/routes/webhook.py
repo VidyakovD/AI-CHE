@@ -135,8 +135,8 @@ async def vk_webhook(bot_id: int, request: Request,
     # Подтверждение сервера
     if event_type == "confirmation":
         if not bot.vk_confirmation:
-            # Нужно получить confirmation code через VK API
-            return "ok"
+            log.warning(f"[VK Bot {bot_id}] confirmation requested but vk_confirmation is empty")
+            raise HTTPException(503, "vk_confirmation not set — re-save bot to fetch it")
         return bot.vk_confirmation
 
     # Проверка secret

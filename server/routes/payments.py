@@ -88,7 +88,7 @@ def payment_confirm(payment_id: str, user: User = Depends(current_user),
     if str(meta_user_id) != str(user.id):
         log.warning(f"User {user.id} tried to confirm payment {payment_id} of user {meta_user_id}")
         raise HTTPException(403, "Этот платёж принадлежит другому пользователю")
-    plan = p.metadata.get("plan", "starter")
+    plan = (p.metadata or {}).get("plan", "starter")
     plan_cfg = get_plan(plan)
     db_user = db.query(User).filter_by(id=user.id).first()
     credit_atomic(db, user.id, plan_cfg["tokens"])
@@ -118,14 +118,20 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
     """ЮKassa webhook — автоматическое зачисление/списание токенов."""
     import hashlib, hmac
 
+    # ВАЖНО: читаем raw body ДО json — иначе stream съедается и HMAC будет от пустых байт.
+    raw_body = await request.body()
     try:
-        body = await request.json()
+        body = json.loads(raw_body)
     except Exception:
         raise HTTPException(400, "Invalid JSON")
 
     hmac_header = request.headers.get("X-Content-Signature")
     secret = os.getenv("YOOKASSA_SECRET_KEY", "")
-    if hmac_header and secret:
+    if secret:
+        # Если secret настроен — подпись обязательна, no exceptions.
+        if not hmac_header:
+            log.warning("Webhook: missing X-Content-Signature while secret is configured")
+            raise HTTPException(401, "Signature required")
         import re
         match = re.match(r"^sha256=([0-9a-f]{64})$", hmac_header)
         if not match:
@@ -133,7 +139,7 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
             raise HTTPException(401, "Malformed signature")
         computed = hmac.new(
             secret.encode(),
-            await request.body(),
+            raw_body,
             hashlib.sha256,
         ).hexdigest()
         if not hmac.compare_digest(computed, match.group(1)):

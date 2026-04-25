@@ -11,6 +11,7 @@ from server.models import User, Transaction, VerifyToken
 from server.auth import hash_password, verify_password, create_token, create_refresh_token, decode_token, generate_code, VERIFY_TTL_MINUTES
 from server.security import validate_email, validate_password
 from server.email_service import send_verification, send_password_reset, send_welcome
+from server.billing import credit_atomic
 import uuid
 import logging
 
@@ -123,11 +124,14 @@ def verify_email(req: VerifyEmailRequest, db: Session = Depends(get_db)):
     if not _use_verify_token(db, user.id, req.code, "verify_email"):
         raise HTTPException(400, "Неверный или истёкший код")
     user.is_verified = True
+    db.commit()
     _welcome = int(os.getenv("WELCOME_BONUS_CH", "500"))  # было 5 000 (500 ₽ халявы — фрод-вектор)
-    user.tokens_balance = _welcome
+    # Атомарное начисление — не перетирает параллельный реферальный бонус
+    credit_atomic(db, user.id, _welcome)
     db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=_welcome,
                        description="Приветственный бонус"))
     db.commit()
+    db.refresh(user)
     try:
         send_welcome(user.email, user.name or "")
     except Exception as e:

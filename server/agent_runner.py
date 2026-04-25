@@ -524,12 +524,14 @@ async def tool_generate_video(params: dict, context: dict) -> str:
 
 
 async def tool_send_vk_post(params: dict, context: dict) -> str:
-    token    = context.get("vk_token")    or os.getenv("VK_TOKEN", "")
-    group_id = context.get("vk_group_id") or os.getenv("VK_GROUP_ID", "")
+    # Безопасность: НЕ берём env-токены — только то, что юзер сам передал в context.
+    # Иначе агент любого юзера мог бы постить в админский VK-канал.
+    token    = context.get("vk_token")    or ""
+    group_id = context.get("vk_group_id") or ""
     message  = params.get("message", "")
     log.info(f"[tool] send_vk_post: {message[:60]}")
     if not token or not group_id:
-        return "[Заглушка] VK пост: не настроен токен. Текст: " + message[:100]
+        return "Не задан VK токен/group_id для агента — пост не отправлен."
     try:
         import httpx
         resp = await httpx.AsyncClient(timeout=10).post(
@@ -546,12 +548,13 @@ async def tool_send_vk_post(params: dict, context: dict) -> str:
 
 
 async def tool_send_tg_message(params: dict, context: dict) -> str:
-    token   = context.get("tg_token")   or os.getenv("TG_BOT_TOKEN", "")
-    chat_id = context.get("tg_chat_id") or os.getenv("TG_CHAT_ID", "")
+    # Безопасность: только из context (никаких env-fallback'ов на админский TG_BOT_TOKEN).
+    token   = context.get("tg_token")   or ""
+    chat_id = context.get("tg_chat_id") or ""
     text    = params.get("text", "")
     log.info(f"[tool] send_tg_message: {text[:60]}")
     if not token or not chat_id:
-        return "[Заглушка] TG сообщение: не настроен токен. Текст: " + text[:100]
+        return "Не задан TG токен/chat_id для агента — сообщение не отправлено."
     try:
         import httpx
         resp = await httpx.AsyncClient(timeout=10).post(
@@ -733,10 +736,13 @@ async def run_agent(
             return
 
     # Max steps reached
+    last_obs = ""
+    if history:
+        last = history[-1]
+        last_obs = str(last.get("observation", ""))[:300]
     update_task(
         task_id, status="done",
-        result=f"Достигнут лимит шагов ({max_steps}). "
-               f"Последнее: {history[-1]['observation'][:300] if history else ''}",
+        result=f"Достигнут лимит шагов ({max_steps}). Последнее: {last_obs}",
         steps_count=max_steps,
     )
 

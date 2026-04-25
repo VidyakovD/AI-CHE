@@ -85,8 +85,24 @@ async def _auto_setup_channels(bot: ChatBot) -> dict:
             log.error(f"[Bot {bot.id}] TG setup failed: {e}")
             out["telegram"] = {"ok": False, "detail": str(e)}
     if bot.vk_token and bot.vk_group_id:
+        # Авто-получение confirmation code из VK API (groups.getCallbackConfirmationCode)
+        try:
+            import httpx as _hx
+            async with _hx.AsyncClient(timeout=10) as c:
+                r = await c.get(
+                    "https://api.vk.com/method/groups.getCallbackConfirmationCode",
+                    params={"group_id": bot.vk_group_id.lstrip("-"),
+                            "access_token": bot.vk_token, "v": "5.131"},
+                )
+                data = r.json()
+                code = (data.get("response") or {}).get("code")
+                if code:
+                    bot.vk_confirmation = code
+        except Exception as e:
+            log.warning(f"[Bot {bot.id}] VK confirmation fetch failed: {e}")
         out["vk"] = {"ok": True, "callback_url": f"{APP_URL}/webhook/vk/{bot.id}",
-                     "hint": "Укажите этот URL в Callback API группы VK"}
+                     "confirmation_code": bot.vk_confirmation,
+                     "hint": "Укажите Callback URL в настройках группы VK"}
     if bot.avito_client_id and bot.avito_client_secret:
         out["avito"] = {"ok": True, "webhook_url": f"{APP_URL}/webhook/avito/{bot.id}"}
     if bot.widget_enabled:
@@ -221,6 +237,44 @@ async def update_bot(bot_id: int, req: BotUpdate, db: Session = Depends(get_db),
     if setup:
         out["setup"] = setup
     return out
+
+
+class WorkflowAiRequest(BaseModel):
+    task: str
+
+
+@router.post("/ai-build-workflow")
+async def ai_build_workflow(req: WorkflowAiRequest, db: Session = Depends(get_db),
+                            user: User = Depends(current_user)):
+    """
+    AI-помощник: по описанию задачи собирает граф воркфлоу.
+    Списывает реальные токены Claude — обычно 200-500 CH за вызов.
+    """
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    from server.billing import get_balance, deduct_atomic
+    from server.workflow_builder import build_from_task
+    from server.models import Transaction
+    # Минимальная блокировка по балансу — реальная стоимость списывается ниже
+    if get_balance(db, user.id) < 50:
+        raise HTTPException(402, "Недостаточно токенов (минимум 50 CH)")
+    try:
+        result = build_from_task(req.task)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        log.error(f"ai-build-workflow error: {e}")
+        raise HTTPException(500, "Не удалось собрать воркфлоу. Попробуйте переформулировать задачу.")
+    # Списываем по токенам Claude (≈8/30 CH за 1k input/output)
+    usage = result.get("usage") or {}
+    cost = max(1, int(usage.get("input_tokens", 0) / 1000 * 8
+                    + usage.get("output_tokens", 0) / 1000 * 30))
+    charged = deduct_atomic(db, user.id, cost)
+    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
+                       description="AI-сборка воркфлоу", model="claude"))
+    db.commit()
+    result["ch_charged"] = charged
+    return result
 
 
 @router.delete("/{bot_id}")

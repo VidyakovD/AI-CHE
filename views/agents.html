@@ -218,7 +218,34 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <button onclick="wfcClear()" class="btn-g text-xs py-1.5">Очистить</button>
           <button onclick="wfcSave()" class="btn-g text-xs py-1.5" title="Сохранить граф в «Мои агенты» как черновик">💾 Сохранить</button>
           <button onclick="wfcRun()" class="btn-g text-xs py-1.5" title="Разовый тест прямо тут — без создания бота в TG">▶ Тест</button>
+          <button onclick="wfcOpenAiBuilder()" class="btn-p text-xs py-1.5 px-3" style="background:linear-gradient(135deg,#ffb56b,#ff8c42);color:#1a0e02" title="ИИ соберёт воркфлоу за вас по описанию задачи">✨ Собрать с AI</button>
           <button onclick="wfcDeployAsBot()" class="btn-p text-xs py-1.5 px-4" style="background:linear-gradient(135deg,#6bff9e,#42d4a8);color:#0d2418" title="Создать TG-бота: установит webhook, даст ссылку @username">🤖 Запустить в Telegram</button>
+        </div>
+
+        <!-- AI Builder Modal -->
+        <div id="wfcAiModal" class="hidden fixed inset-0 z-50" style="background:rgba(0,0,0,.7);backdrop-filter:blur(6px)" onclick="if(event.target===this)wfcCloseAiBuilder()">
+          <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-2xl border border-outline/25 shadow-2xl w-full max-w-xl mx-4 overflow-hidden">
+            <div class="sig px-5 py-3 flex items-center justify-between">
+              <h3 class="font-bold text-[#1e1a14] font-headline text-sm">✨ ИИ-помощник: собрать воркфлоу</h3>
+              <button onclick="wfcCloseAiBuilder()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]">✕</button>
+            </div>
+            <div class="p-5 space-y-3">
+              <p class="text-xs text-on-dim">Опишите задачу простым языком — ИИ выберет нужные блоки, соединит их и подставит промпты. Стоимость: ~50–300 CH (по реальным токенам Claude).</p>
+              <textarea id="wfcAiTask" class="inp w-full text-sm" rows="6"
+                placeholder="Например: «TG-бот, который отвечает клиентам на вопросы по нашим услугам, использует базу знаний для точных цитат, а если вопрос про возврат — переключается на эмпатичный тон»"></textarea>
+              <div class="flex flex-wrap gap-1.5 text-[11px]">
+                <button class="btn-g py-1 px-2" onclick="wfcAiExample('TG-бот юр-консультант: отвечает на вопросы по российскому праву, при сложных вопросах эскалирует в личку владельцу')">Юр-бот</button>
+                <button class="btn-g py-1 px-2" onclick="wfcAiExample('Бот по базе знаний: пользователь шлёт вопрос, бот ищет в БЗ компании и отвечает с цитатами. Если ничего не найдено — пишет «свяжусь с менеджером»')">RAG по БЗ</button>
+                <button class="btn-g py-1 px-2" onclick="wfcAiExample('Каждое утро в 9:00 присылает мне в Telegram дайджест из RSS Habr и Techcrunch за последние 24 часа, выбирает 5 самых интересных через Claude')">Утренний дайджест</button>
+                <button class="btn-g py-1 px-2" onclick="wfcAiExample('TG-бот SMM-агента: пользователь даёт нишу — бот пишет 5 постов в стиле Instagram')">SMM-агент</button>
+              </div>
+              <div id="wfcAiStatus" class="hidden text-xs"></div>
+              <div class="flex gap-2 pt-2 border-t border-outline/15">
+                <button onclick="wfcAiBuild()" id="wfcAiBuildBtn" class="btn-p text-xs flex-1 py-2">✨ Собрать</button>
+                <button onclick="wfcCloseAiBuilder()" class="btn-g text-xs py-2 px-4">Отмена</button>
+              </div>
+            </div>
+          </div>
         </div>
         <!-- Hidden file input для импорта JSON -->
         <input type="file" id="wfcImportFile" accept=".json,application/json" style="display:none" onchange="wfcImportJSONFile(event)"/>
@@ -2645,6 +2672,75 @@ function wfcDeleteTemplate(id) {
   if (!confirm('Удалить шаблон?')) return;
   _wfcSaveTemplates(_wfcLoadTemplates().filter(x => x.id !== id));
   wfcRenderTemplates();
+}
+
+// ── AI Builder ────────────────────────────────────────────────────────────────
+function wfcOpenAiBuilder() {
+  const m = document.getElementById('wfcAiModal');
+  if (!m) return;
+  m.classList.remove('hidden');
+  const ta = document.getElementById('wfcAiTask');
+  if (ta) setTimeout(()=>ta.focus(), 50);
+}
+function wfcCloseAiBuilder() {
+  document.getElementById('wfcAiModal')?.classList.add('hidden');
+  const s = document.getElementById('wfcAiStatus');
+  if (s) { s.classList.add('hidden'); s.textContent=''; }
+}
+function wfcAiExample(text) {
+  const ta = document.getElementById('wfcAiTask');
+  if (ta) { ta.value = text; ta.focus(); }
+}
+async function wfcAiBuild() {
+  const ta = document.getElementById('wfcAiTask');
+  const status = document.getElementById('wfcAiStatus');
+  const btn = document.getElementById('wfcAiBuildBtn');
+  const task = (ta?.value || '').trim();
+  if (!task) { alert('Опишите задачу'); return; }
+  if (wfc.nodes.length && !confirm('Заменить текущий граф собранным с AI?')) return;
+  status.classList.remove('hidden');
+  status.style.color = '#a89880';
+  status.textContent = '⏳ Claude собирает воркфлоу… (10–30 сек)';
+  btn.disabled = true; btn.textContent = '⏳ Собираю…';
+  try {
+    const r = await fetch(`${API}/chatbots/ai-build-workflow`, {
+      method: 'POST',
+      headers: hdrs(),
+      body: JSON.stringify({ task }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(()=>({detail:'Ошибка сервера'}));
+      throw new Error(err.detail || `HTTP ${r.status}`);
+    }
+    const data = await r.json();
+    if (!data.wfc_nodes?.length) throw new Error('Пустой граф');
+    // Применить
+    const idMap = {}; wfc.ctr = 1;
+    wfc.nodes = data.wfc_nodes.map(n => {
+      const nid = 'n' + (wfc.ctr++);
+      idMap[n.id] = nid;
+      return { id: nid, type: n.type, x: n.x|0, y: n.y|0, props: n.props || {} };
+    });
+    const validIds = new Set(wfc.nodes.map(n=>n.id));
+    wfc.edges = (data.wfc_edges || []).map(e => ({
+      id: 'e' + (wfc.ctr++),
+      from: idMap[e.from] || e.from,
+      to: idMap[e.to] || e.to,
+    })).filter(e => validIds.has(e.from) && validIds.has(e.to));
+    wfc.sel = null;
+    if (data.name) document.getElementById('wfcName').value = data.name;
+    wfcPushHistory();
+    wfcRender();
+    wfcFit();
+    status.style.color = '#6bff9e';
+    status.textContent = `✅ Готово (${data.wfc_nodes.length} нод, списано ${data.ch_charged||0} CH). ${data.explanation||''}`;
+    setTimeout(wfcCloseAiBuilder, 2200);
+  } catch (e) {
+    status.style.color = '#ff7676';
+    status.textContent = '❌ ' + (e.message || 'Не удалось собрать. Попробуйте переформулировать.');
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ Собрать';
+  }
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────

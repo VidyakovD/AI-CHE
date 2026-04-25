@@ -53,7 +53,7 @@ class RenameRequest(BaseModel):
 def _assert_chat_owner(chat_id: str, user, db: Session):
     msg = db.query(Message).filter(
         Message.chat_id == chat_id,
-        or_(Message.user_id == user.id, Message.user_id == None)
+        Message.user_id == user.id,
     ).first()
     if not msg:
         raise HTTPException(403, "Нет доступа к этому чату")
@@ -97,13 +97,13 @@ def get_chats(model: str, db: Session = Depends(get_db), user=Depends(optional_u
         Message.chat_id,
         func.max(Message.created_at).label("last_msg")
     ).filter(
-        or_(Message.user_id == user.id, Message.user_id == None)
+        Message.user_id == user.id
     ).filter(Message.model == model).group_by(Message.chat_id).subquery()
 
     title_q = db.query(Message.chat_id, Message.title)\
         .filter(Message.title.isnot(None))\
         .filter(Message.model == model)\
-        .filter(or_(Message.user_id == user.id, Message.user_id == None))
+        .filter(Message.user_id == user.id)
 
     titles = {}
     for cid, title in title_q.all():
@@ -121,11 +121,11 @@ def get_chats(model: str, db: Session = Depends(get_db), user=Depends(optional_u
 
 
 @router.post("/message")
-def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depends(optional_user)):
+def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depends(current_user)):
     cfg = resolve_model(req.model)
     real_model = cfg["real_model"] if cfg else req.model
 
-    if user and not user.is_verified:
+    if not user.is_verified:
         raise HTTPException(403, "Подтвердите email для отправки сообщений")
 
     # Предварительная блокировка: списываем минимум, чтобы отсечь пустые балансы
@@ -136,9 +136,8 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
     else:
         min_cost = get_token_cost(real_model) or 1
 
-    if user:
-        if get_balance(db, user.id) < min_cost:
-            raise HTTPException(402, "Недостаточно токенов. Пополните баланс в личном кабинете.")
+    if get_balance(db, user.id) < min_cost:
+        raise HTTPException(402, "Недостаточно токенов. Пополните баланс в личном кабинете.")
 
     existing = db.query(Message).filter_by(chat_id=req.chat_id).first()
     title = req.message[:40] if (not existing and req.message) else ("Файл" if not existing else None)
@@ -148,7 +147,7 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
 
     db.add(Message(chat_id=req.chat_id, role="user", content=stored,
                    model=req.model, title=title,
-                   user_id=user.id if user else None, tokens_used=0))
+                   user_id=user.id, tokens_used=0))
     db.commit()
 
     history = db.query(Message).filter_by(chat_id=req.chat_id)\
@@ -179,7 +178,7 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
     cost = calculate_cost(real_model, input_tokens, output_tokens, db)
 
     # Атомарное списание (защита от race condition при параллельных запросах)
-    if user and cost > 0:
+    if cost > 0:
         charged = deduct_atomic(db, user.id, cost)
         desc = f"{req.model}: {input_tokens}→{output_tokens} ток."
         if charged < cost:
@@ -192,7 +191,7 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
                         ch_charged=charged))
 
     db.add(Message(chat_id=req.chat_id, role="assistant", content=content,
-                   model=req.model, user_id=user.id if user else None,
+                   model=req.model, user_id=user.id,
                    tokens_used=cost))
     db.commit()
     return {

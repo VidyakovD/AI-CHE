@@ -90,7 +90,22 @@ async def body_size_and_headers(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    # CSP — умеренная, т.к. прод использует inline JS/CSS + встраивает CDN Tailwind. TODO: усилить.
+    # CSP — умеренная: inline JS/CSS разрешены (прод-ввёрстано), CDN-зависимости явно перечислены.
+    # Не выставляем CSP на /uploads и /sites/hosted (там пользовательский контент).
+    path = request.url.path or ""
+    if not path.startswith("/uploads") and not path.startswith("/sites/hosted"):
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://yookassa.ru https://*.yookassa.ru; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdn.tailwindcss.com; "
+            "font-src 'self' data: https://fonts.gstatic.com; "
+            "img-src 'self' data: blob: https:; "
+            "media-src 'self' data: blob: https:; "
+            "connect-src 'self' https: wss:; "
+            "frame-src 'self' https://yookassa.ru https://*.yookassa.ru; "
+            "object-src 'none'; base-uri 'self'; form-action 'self'"
+        )
     return response
 
 # ── Include all routers ────────────────────────────────────────────────────────

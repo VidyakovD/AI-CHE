@@ -403,14 +403,36 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
             if usage_acc and isinstance(result, dict):
                 usage_acc["input"] += result.get("input_tokens", 0) or 0
                 usage_acc["output"] += result.get("output_tokens", 0) or 0
-            # Парсим JSON
+            # Парсим JSON (robust: balanced-brace extraction, не ломается на вложенных)
             import re as _re, json as _json
-            m = _re.search(r'\{[^}]+\}', raw)
-            if m:
-                data = _json.loads(m.group())
+            def _parse_json_block(text: str) -> dict | None:
+                t = text.strip()
+                if t.startswith("```"):
+                    t = _re.sub(r'^```(?:json)?\s*', '', t)
+                    t = _re.sub(r'\s*```\s*$', '', t)
+                try:
+                    return _json.loads(t)
+                except Exception:
+                    pass
+                start = t.find('{')
+                if start == -1:
+                    return None
+                depth, end = 0, start
+                for i in range(start, len(t)):
+                    if t[i] == '{': depth += 1
+                    elif t[i] == '}': depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+                try:
+                    return _json.loads(t[start:end])
+                except Exception:
+                    return None
+            data = _parse_json_block(raw)
+            if data and data.get("chosen_id"):
                 chosen = data.get("chosen_id")
                 reason = data.get("reason", "")
-                log.info(f"[Orchestrator] выбрал {chosen}: {reason[:80]}")
+                log.info(f"[Orchestrator] выбрал {chosen}: {str(reason)[:80]}")
                 ctx["orchestrator_choice"] = chosen
             else:
                 # Fallback: первая нода
@@ -429,9 +451,15 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
 
     # ── Условие ────────────────────────────────────────────────────────────
     if ntype == "condition":
+        import re as _re_cond
         check_words = [w.strip().lower() for w in (cfg.get("check", "")).split(",") if w.strip()]
         text_lower = input_text.lower()
-        matched = any(w in text_lower for w in check_words) if check_words else True
+        # Word-boundary match: "фер" не должен срабатывать на "оферте" (фикс из 79157e9)
+        def _kw_match(kw: str, text: str) -> bool:
+            if not kw:
+                return False
+            return _re_cond.search(r'(?<!\w)' + _re_cond.escape(kw) + r'(?!\w)', text) is not None
+        matched = any(_kw_match(w, text_lower) for w in check_words) if check_words else True
         return input_text if matched else ""
 
     # ── Switch / Router ────────────────────────────────────────────────────

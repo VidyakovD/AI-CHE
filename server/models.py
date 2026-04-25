@@ -1,7 +1,25 @@
 from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import TypeDecorator
 from server.db import Base
+from server.secrets_crypto import encrypt as _enc, decrypt as _dec
 from datetime import datetime
+
+
+class EncryptedString(TypeDecorator):
+    """Прозрачное шифрование секретов: чтение → plaintext, запись → enc:v1:..."""
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None or value == "":
+            return value
+        return _enc(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None or value == "":
+            return value
+        return _dec(value)
 
 
 class User(Base):
@@ -494,21 +512,21 @@ class ChatBot(Base):
     model           = Column(String, default="gpt")
     system_prompt   = Column(Text, nullable=True)
     # Telegram
-    tg_token        = Column(String, nullable=True)
+    tg_token        = Column(EncryptedString, nullable=True)
     tg_webhook_set  = Column(Boolean, default=False)
     # VK
-    vk_token        = Column(String, nullable=True)
+    vk_token        = Column(EncryptedString, nullable=True)
     vk_group_id     = Column(String, nullable=True)
-    vk_secret       = Column(String, nullable=True)
+    vk_secret       = Column(EncryptedString, nullable=True)
     vk_confirmation = Column(String, nullable=True)
     vk_confirmed    = Column(Boolean, default=False)
     # Авито
     avito_client_id = Column(String, nullable=True)
-    avito_client_secret = Column(String, nullable=True)
+    avito_client_secret = Column(EncryptedString, nullable=True)
     avito_user_id   = Column(String, nullable=True)
     # Виджет
     widget_enabled  = Column(Boolean, default=False)
-    widget_secret   = Column(String, nullable=True)
+    widget_secret   = Column(EncryptedString, nullable=True)
     # Воркфлоу (JSON граф нод/связей из конструктора)
     workflow_json   = Column(Text, nullable=True)
     # Лимиты
