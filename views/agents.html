@@ -230,7 +230,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
               <button onclick="wfcCloseAiBuilder()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]">✕</button>
             </div>
             <div class="p-5 space-y-3">
-              <p class="text-xs text-on-dim">Опишите задачу простым языком — ИИ выберет нужные блоки, соединит их и подставит промпты. Стоимость: ~50–300 CH (по реальным токенам Claude).</p>
+              <p class="text-xs text-on-dim">Опишите задачу простым языком — ИИ выберет нужные блоки, соединит их и подставит промпты. Стоимость: ~5–30 ₽ (по реальным токенам Claude).</p>
               <textarea id="wfcAiTask" class="inp w-full text-sm" rows="6"
                 placeholder="Например: «TG-бот, который отвечает клиентам на вопросы по нашим услугам, использует базу знаний для точных цитат, а если вопрос про возврат — переключается на эмпатичный тон»"></textarea>
               <div class="flex flex-wrap gap-1.5 text-[11px]">
@@ -335,10 +335,10 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
             <label class="block text-xs text-on-dim mb-2">Режим API</label>
             <div class="api-toggle">
               <button class="api-opt active" id="apiOptSvc" onclick="setApiMode('service')">
-                🔧 Сервисный — <span class="text-primary">100 CH</span>
+                🔧 Сервисный — <span class="text-primary">10 ₽</span>
               </button>
               <button class="api-opt" id="apiOptOwn" onclick="setApiMode('own')">
-                🔑 Свой ключ — <span class="text-green-400">5 CH</span>
+                🔑 Свой ключ — <span class="text-green-400">0.50 ₽</span>
               </button>
             </div>
             <div id="ownKeySection" class="hidden mt-3 space-y-2">
@@ -354,7 +354,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
           <button id="runBtn" onclick="runAgent()" class="btn-p w-full justify-center">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            <span id="runBtnLabel">Запустить (100 CH)</span>
+            <span id="runBtnLabel">Запустить (10 ₽)</span>
           </button>
           <p id="runError" class="text-error text-xs hidden text-center"></p>
         </div>
@@ -446,7 +446,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     <div id="launchConfigFields" class="space-y-3"></div>
     <button id="launchRunBtn" onclick="launchAgent()" class="btn-p w-full justify-center">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      <span id="launchRunLabel">Запустить (100 CH)</span>
+      <span id="launchRunLabel">Запустить (10 ₽)</span>
     </button>
     <p id="launchError" class="text-error text-xs hidden text-center"></p>
   </div>
@@ -465,7 +465,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     </button>
   </div>
   <div class="p-6 space-y-4">
-    <p class="text-sm text-on-dim leading-relaxed">Добавьте собственные API-ключи. Запуск агентов будет стоить <span class="text-green-400 font-bold">5 CH</span> вместо 100 CH — вы платите только платформенный сбор, AI-токены списываются с вашего ключа напрямую.</p>
+    <p class="text-sm text-on-dim leading-relaxed">Добавьте собственные API-ключи. Запуск агентов будет стоить <span class="text-green-400 font-bold">0.50 ₽</span> вместо 10 ₽ — вы платите только платформенный сбор, AI-токены списываются с вашего ключа напрямую.</p>
     <div id="keysList" class="space-y-2"></div>
     <div class="border border-outline/20 rounded-xl p-4 space-y-3">
       <p class="text-xs font-bold text-on-dim uppercase tracking-wider">Добавить ключ</p>
@@ -666,18 +666,13 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <script>
 const API = localStorage.getItem('obs_api') || window.location.origin;
 
-// ── Pricing helper (CH → ₽) ─────────────────────────────────────────────
-window._chRate = parseFloat(localStorage.getItem('obs_ch_rate')) || 0.1;
-fetch(API+'/pricing/settings').then(r=>r.json()).then(d=>{
-  const v = parseFloat(d?.ch_to_rub);
-  if(v>0){ window._chRate = v; localStorage.setItem('obs_ch_rate', String(v)); }
-}).catch(()=>{});
-window.chToRub = (ch) => {
-  const n = +ch; if(!n || n<=0) return '';
-  const r = n * window._chRate;
-  return r<1 ? '~'+r.toFixed(2)+' ₽' : r<10 ? '~'+r.toFixed(1)+' ₽' : '~'+Math.round(r)+' ₽';
+// ── Money helpers (баланс в копейках, 1 ₽ = 100 коп) ─────────────────────
+window.fmtRub = (kop) => {
+  const v = (+(kop||0)) / 100;
+  return v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽';
 };
-window.formatCH = (ch) => { const e = chToRub(ch); return ch+' CH'+(e?' ('+e+')':''); };
+window.chToRub = window.fmtRub;
+window.formatCH = window.fmtRub;
 const authToken = localStorage.getItem('obs_token');
 
 // ── SVG Icon system (Material-style, 24×24) ───────────────────────────────────
@@ -1263,8 +1258,7 @@ async function runTestAgent() {
           res.textContent = text;
           res.style.color = isErr ? '#fca5a5' : '';
           if (t.cost) {
-            const rub = window.chToRub ? window.chToRub(t.cost) : '';
-            res.textContent += `\n\n— — —\n💰 Списано: ${t.cost} CH${rub ? ` (${rub})` : ''} · ${sec} сек`;
+            res.textContent += `\n\n— — —\n💰 Списано: ${fmtRub(t.cost)} · ${sec} сек`;
           }
         }
       } catch {}
@@ -1856,7 +1850,7 @@ function _renderResult(text, isError, cost){
       <div class="text-xs whitespace-pre-wrap">${esc(text || 'Агент завершился с ошибкой. Попробуйте переформулировать задачу или проверить баланс.')}</div>
     </div>`;
   } else {
-    const costLine = cost ? `<div class="mt-3 pt-3 border-t border-outline/15 text-xs text-on-dim">💰 Списано: <b>${cost} CH</b></div>` : '';
+    const costLine = cost ? `<div class="mt-3 pt-3 border-t border-outline/15 text-xs text-on-dim">💰 Списано: <b>${fmtRub(cost)}</b></div>` : '';
     // text может быть JSON, может markdown — отображаем как есть с пробелами
     content.innerHTML = `<div class="whitespace-pre-wrap">${esc(text || '')}</div>${costLine}`;
   }
@@ -1984,8 +1978,8 @@ function renderLibrary(cat) {
           </div>
         </div>
         <div class="flex flex-col gap-1 items-end flex-shrink-0">
-          <span class="price-badge price-svc">100 CH</span>
-          <span class="price-badge price-own">5 CH 🔑</span>
+          <span class="price-badge price-svc">10 ₽</span>
+          <span class="price-badge price-own">0.50 ₽ 🔑</span>
         </div>
       </div>
       <p class="text-xs text-on-dim leading-relaxed">${esc(b.desc)}</p>
@@ -2044,7 +2038,7 @@ function setLaunchApiMode(mode) {
   document.getElementById('launchApiSvc').classList.toggle('active', mode === 'service');
   document.getElementById('launchApiOwn').classList.toggle('active', mode === 'own');
   document.getElementById('launchOwnKeySection').classList.toggle('hidden', mode === 'service');
-  document.getElementById('launchRunLabel').textContent = mode === 'service' ? 'Запустить (50 CH)' : 'Запустить (5 CH)';
+  document.getElementById('launchRunLabel').textContent = mode === 'service' ? 'Запустить (10 ₽)' : 'Запустить (0.50 ₽)';
   refreshLaunchKeyStatus();
 }
 
@@ -2114,7 +2108,7 @@ function setApiMode(mode) {
   document.getElementById('apiOptSvc').classList.toggle('active', mode === 'service');
   document.getElementById('apiOptOwn').classList.toggle('active', mode === 'own');
   document.getElementById('ownKeySection').classList.toggle('hidden', mode === 'service');
-  document.getElementById('runBtnLabel').textContent = mode === 'service' ? 'Запустить (50 CH)' : 'Запустить (5 CH)';
+  document.getElementById('runBtnLabel').textContent = mode === 'service' ? 'Запустить (10 ₽)' : 'Запустить (0.50 ₽)';
   refreshOwnKeyStatus();
 }
 
@@ -2248,11 +2242,11 @@ function wfcInitDefs() {
       howto:'Соедините его ВХОД с триггером, а выходы — с несколькими AI-блоками/ветками. Оркестратор через LLM определит какая ветка подходит и запустит только её (экономит токены).'},
     node_gpt:        {cat:'ai',           label:'GPT-4o',         icon:'psychology', color:'#10a37f',
       fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},{k:'temp',l:'Температура',t:'select',opts:['0.3','0.7','1.0']}],
-      desc:'OpenAI GPT-4o — универсальная модель для текста. ~5 CH за 1k вход + 20 CH за 1k выход.',
+      desc:'OpenAI GPT-4o — универсальная модель для текста. ~0.14 ₽ за 1k вход + 0.55 ₽ за 1k выход.',
       howto:'В «Промпт» опишите роль и задачу. Температура 0.3 = логичные ответы, 1.0 = творческие. На вход придёт {{input}} — подставьте в промпт куда нужно.'},
     node_claude:     {cat:'ai',           label:'Claude Sonnet',  icon:'psychology', color:'#cc785c',
       fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'},{k:'temp',l:'Температура',t:'select',opts:['0.3','0.7','1.0']}],
-      desc:'Anthropic Claude Sonnet 4 — лучший для длинных текстов и анализа. ~8/30 CH за 1k.',
+      desc:'Anthropic Claude Sonnet 4 — лучший для длинных текстов и анализа. ~0.80 / 3 ₽ за 1k вход/выход.',
       howto:'Silver bullet для: контент-план, КП, юр.анализ, сложный reasoning. Поддерживает изображения на входе.'},
     node_gemini:     {cat:'ai',           label:'Gemini 1.5 Pro', icon:'psychology', color:'#4285f4',
       fields:[{k:'system',l:'Промпт',t:'textarea',p:'Ты полезный ассистент...'}],
@@ -2745,7 +2739,7 @@ async function wfcAiBuild() {
     wfcRender();
     wfcFit();
     status.style.color = '#6bff9e';
-    status.textContent = `✅ Готово (${data.wfc_nodes.length} нод, списано ${data.ch_charged||0} CH). ${data.explanation||''}`;
+    status.textContent = `✅ Готово (${data.wfc_nodes.length} нод, списано ${fmtRub(data.charged_kopecks ?? data.ch_charged ?? 0)}). ${data.explanation||''}`;
     setTimeout(wfcCloseAiBuilder, 2200);
   } catch (e) {
     status.style.color = '#ff7676';
@@ -3210,7 +3204,7 @@ function wfcShowPanel(id) {
       ${savedKey ? `🔑 Свой ключ: ${esc(savedKey.key_preview)}` : '🔧 Сервисный ключ платформы'}
     </p>
     <p style="font-size:10px;color:#a89880;margin-top:2px">
-      ${savedKey ? 'Запуск: 5 CH · <button onclick="openKeysModal()" style="color:#ff8c42;background:none;border:none;cursor:pointer;font-size:10px;padding:0">управлять</button>' : '50 CH · <button onclick="openKeysModal()" style="color:#ff8c42;background:none;border:none;cursor:pointer;font-size:10px;padding:0">добавить свой</button>'}
+      ${savedKey ? 'Запуск: 0.50 ₽ · <button onclick="openKeysModal()" style="color:#ff8c42;background:none;border:none;cursor:pointer;font-size:10px;padding:0">управлять</button>' : '10 ₽ · <button onclick="openKeysModal()" style="color:#ff8c42;background:none;border:none;cursor:pointer;font-size:10px;padding:0">добавить свой</button>'}
     </p></div>` : '');
   document.getElementById('wfcPanel').classList.remove('hidden');
 }

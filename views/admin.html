@@ -237,13 +237,13 @@ select.inp option{background:#272018;color:#f0e6d8}
 
         <!-- Model pricing -->
         <div class="card">
-          <h3 class="font-headline font-bold text-sm mb-3">Стоимость запросов (CH за запрос)</h3>
-          <p class="text-xs text-on-dim mb-4">Итоговая стоимость = себестоимость $ × курс ₽ × наценка ÷ (стоимость 1 CH в ₽). Задайте CH вручную или пересчитайте автоматически.</p>
+          <h3 class="font-headline font-bold text-sm mb-3">Стоимость запросов (копеек за запрос)</h3>
+          <p class="text-xs text-on-dim mb-4">Цена в копейках за per-request модели (картинки/видео). Для текстовых моделей основная стоимость идёт по токенам — см. поля input/output ниже.</p>
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead><tr class="border-b border-outline/20 text-on-dim text-[10px] uppercase tracking-wider">
                 <th class="text-left py-2 px-2">Модель</th>
-                <th class="text-right py-2 px-2">CH/запрос</th>
+                <th class="text-right py-2 px-2">Коп/запрос</th>
                 <th class="text-right py-2 px-2">Себест. $</th>
                 <th class="text-right py-2 px-2">Наценка ×</th>
                 <th class="text-right py-2 px-2">Итого ₽*</th>
@@ -251,7 +251,7 @@ select.inp option{background:#272018;color:#f0e6d8}
               </tr></thead>
               <tbody id="modelPricingTable"></tbody>
             </table>
-            <p class="text-[10px] text-on-dim/50 mt-2">* При текущем курсе и стоимости CH</p>
+            <p class="text-[10px] text-on-dim/50 mt-2">* По текущему курсу $→₽</p>
           </div>
         </div>
 
@@ -329,7 +329,7 @@ select.inp option{background:#272018;color:#f0e6d8}
             <thead><tr class="border-b border-outline/20 text-on-dim text-[10px] uppercase tracking-wider">
               <th class="text-left py-2 px-3">Код</th>
               <th class="text-right py-2 px-3">Скидка</th>
-              <th class="text-right py-2 px-3">Бонус CH</th>
+              <th class="text-right py-2 px-3">Бонус (коп)</th>
               <th class="text-right py-2 px-3">Использовано</th>
               <th class="text-right py-2 px-3">Макс.</th>
               <th class="text-center py-2 px-3">Статус</th>
@@ -351,7 +351,7 @@ select.inp option{background:#272018;color:#f0e6d8}
               <input id="prm_disc" type="number" value="0" min="0" max="100" class="inp text-xs"/>
             </div>
             <div>
-              <label class="block text-[10px] text-on-dim mb-1">Бонус CH</label>
+              <label class="block text-[10px] text-on-dim mb-1">Бонус (копеек)</label>
               <input id="prm_bonus" type="number" value="0" min="0" class="inp text-xs"/>
             </div>
             <div>
@@ -383,7 +383,7 @@ select.inp option{background:#272018;color:#f0e6d8}
           <select id="sol_cat" class="inp"></select>
         </div>
         <div>
-          <label class="block text-[10px] text-on-dim mb-1">Цена (токены)</label>
+          <label class="block text-[10px] text-on-dim mb-1">Цена (копеек)</label>
           <input id="sol_price" type="number" value="0" class="inp"/>
         </div>
       </div>
@@ -1307,7 +1307,7 @@ async function loadPromos(){
     <tr class="border-b border-outline/10 hover:bg-surface2/30 transition">
       <td class="py-2 px-3 font-mono text-sm font-bold text-primary">${esc(p.code)}</td>
       <td class="py-2 px-3 text-right text-xs">${p.discount_pct?p.discount_pct+'%':'—'}</td>
-      <td class="py-2 px-3 text-right text-xs">${p.bonus_tokens?'+'+p.bonus_tokens+' CH':'—'}</td>
+      <td class="py-2 px-3 text-right text-xs">${p.bonus_tokens?'+'+(p.bonus_tokens/100).toFixed(2)+' ₽':'—'}</td>
       <td class="py-2 px-3 text-right text-xs">${p.used_count}</td>
       <td class="py-2 px-3 text-right text-xs">${p.max_uses}</td>
       <td class="py-2 px-3 text-center">

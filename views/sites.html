@@ -160,7 +160,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <div class="flex items-center gap-3">
         <h2 class="font-headline font-bold text-[#1C1C1C] text-lg" id="detailTitle">Проект</h2>
         <button onclick="startRename()" class="w-6 h-6 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-xs" title="Переименовать">✎</button>
-        <div class="cost-badge text-[#1C1C1C]/70 bg-black/10 border-black/10" id="detailCost">0 CH</div>
+        <div class="cost-badge text-[#1C1C1C]/70 bg-black/10 border-black/10" id="detailCost">0.00 ₽</div>
       </div>
       <div class="flex items-center gap-2">
         <button onclick="deleteCurrentProject()" class="btn-d text-xs py-1.5 px-3">
@@ -300,21 +300,16 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <script>
 const API = localStorage.getItem('obs_api')||window.location.origin;
 
-// ── Pricing helper (CH → ₽) ─────────────────────────────────────────────
-window._chRate = parseFloat(localStorage.getItem('obs_ch_rate')) || 0.1;
-fetch(API+'/pricing/settings').then(r=>r.json()).then(d=>{
-  const v = parseFloat(d?.ch_to_rub);
-  if(v>0){ window._chRate = v; localStorage.setItem('obs_ch_rate', String(v)); }
-}).catch(()=>{});
-window.chToRub = (ch) => {
-  const n = +ch; if(!n || n<=0) return '';
-  const r = n * window._chRate;
-  return r<1 ? '~'+r.toFixed(2)+' ₽' : r<10 ? '~'+r.toFixed(1)+' ₽' : '~'+Math.round(r)+' ₽';
+// ── Money helpers (баланс в копейках, 1 ₽ = 100 коп) ─────────────────────
+window.fmtRub = (kop) => {
+  const v = (+(kop||0)) / 100;
+  return v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽';
 };
-window.formatCH = (ch) => { const e = chToRub(ch); return ch+' CH'+(e?' ('+e+')':''); };
+window.chToRub = window.fmtRub;
+window.formatCH = window.fmtRub;
 const authToken = localStorage.getItem('obs_token');
-const CODE_GEN_CH_COST = 30;
-const CODE_ITER_CH_COST = 15;
+const CODE_GEN_CH_COST = 500;   // копеек (5 ₽)
+const CODE_ITER_CH_COST = 250;  // копеек (2.50 ₽)
 let projects = [];
 let filterTab = 'draft';         // 'draft' | 'done'
 let currentProject = null;
@@ -382,7 +377,7 @@ function render(){
 
   grid.innerHTML = list.map(p=>{
     const date = p.created_at ? new Date(p.created_at).toLocaleDateString('ru-RU') : '—';
-    const tokens = p.price_tokens ? (window.formatCH ? window.formatCH(p.price_tokens) : `${p.price_tokens} CH`) : '';
+    const tokens = p.price_tokens ? fmtRub(p.price_tokens) : '';
     const mode = (p.creation_mode==='have_spec') ? 'По ТЗ' : 'Вместе';
     const phase = phaseLabel(p.conversation_phase);
 
@@ -487,7 +482,7 @@ async function openProject(id){
 
   const proj = currentProject;
   document.getElementById('detailTitle').textContent = proj.name || 'Проект';
-  document.getElementById('detailCost').textContent = window.formatCH ? window.formatCH(proj.price_tokens||0) : ((proj.price_tokens||0) + ' CH');
+  document.getElementById('detailCost').textContent = fmtRub(proj.price_tokens||0);
 
   // Hide all phases, show relevant one
   hideAllPhases();
@@ -597,7 +592,7 @@ async function sendChat(){
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
       if(r.status===402){
-        addChatMessage('system', 'Недостаточно токенов. Пополните баланс.');
+        addChatMessage('system', 'Недостаточно средств. Пополните баланс в личном кабинете.');
         isGenerating = false;
         document.getElementById('chatSendBtn').disabled = false;
         return;
@@ -609,7 +604,7 @@ async function sendChat(){
 
     // Update project
     currentProject = await getProjectDetail();
-    document.getElementById('detailCost').textContent = window.formatCH ? window.formatCH(currentProject.price_tokens||0) : ((currentProject.price_tokens||0) + ' CH');
+    document.getElementById('detailCost').textContent = fmtRub(currentProject.price_tokens||0);
 
     // Check if spec is ready
     if(data.phase === 'spec_ready'){
@@ -722,7 +717,7 @@ async function generateCode(){
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
-      if(r.status===402) throw new Error('Недостаточно токенов (нужно '+CODE_ITER_CH_COST+' CH)');
+      if(r.status===402) throw new Error('Недостаточно средств (нужно '+fmtRub(CODE_ITER_CH_COST)+')');
       throw new Error(d.detail || 'Ошибка генерации');
     }
     const data = await r.json();
@@ -785,13 +780,13 @@ async function iterateCode(){
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
-      if(r.status===402) throw new Error('Недостаточно токенов');
+      if(r.status===402) throw new Error('Недостаточно средств');
       throw new Error(d.detail || 'Ошибка');
     }
     const data = await r.json();
     document.getElementById('codeEditor').value = data.code_html || '';
     currentProject = await getProjectDetail();
-    document.getElementById('detailCost').textContent = window.formatCH ? window.formatCH(currentProject.price_tokens||0) : ((currentProject.price_tokens||0) + ' CH');
+    document.getElementById('detailCost').textContent = fmtRub(currentProject.price_tokens||0);
   }catch(e){
     alert(e.message);
   }
