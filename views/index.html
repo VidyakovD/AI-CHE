@@ -103,6 +103,17 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{
 *::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
 *::-webkit-scrollbar-thumb:hover{background:rgba(255,140,66,0.5)}
 .tab-on{color:#ff8c42 !important;background:rgba(255,140,66,0.08) !important;border-color:rgba(255,140,66,0.3) !important}
+/* AI image card: hover-кнопки скачать/перегенерировать */
+.ai-img-wrap:hover .ai-img-actions{opacity:1}
+.ai-img-btn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);color:#ffb347;border-radius:8px;border:1px solid rgba(255,179,71,0.25);cursor:pointer;transition:all .15s}
+.ai-img-btn:hover{background:rgba(255,140,66,0.85);color:#1e1a14;border-color:rgba(255,140,66,0.9);transform:scale(1.08)}
+/* Lightbox */
+#imgLightbox{position:fixed;inset:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(8px);z-index:9999;display:none;align-items:center;justify-content:center;padding:32px;cursor:zoom-out}
+#imgLightbox.show{display:flex}
+#imgLightbox img{max-width:96vw;max-height:90vh;object-fit:contain;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,0.7)}
+#imgLightbox .lb-close{position:absolute;top:18px;right:18px;width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s}
+#imgLightbox .lb-close:hover{background:rgba(255,140,66,0.85);color:#1e1a14}
+.img-size-btn.active{background:rgba(255,140,66,0.12);color:#ff8c42;border-color:rgba(255,140,66,0.45)}
 .tab-btn{display:inline-block}
 #modelTabs{scrollbar-width:none}
 #modelTabs::-webkit-scrollbar{display:none}
@@ -255,6 +266,13 @@ body.welcome #inputArea{display:none!important}
             </button>
           </div>
         </div>
+      </div>
+      <!-- Формат картинки (виден только если выбрана image-модель) -->
+      <div id="imageSizeBar" class="hidden flex items-center justify-center gap-2 mt-2 px-1">
+        <span class="text-[10px] text-on-surface-dim/50 mr-1">Формат:</span>
+        <button data-size="1024x1024" onclick="setImageSize('1024x1024')" class="img-size-btn active px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition">⬜ Квадрат</button>
+        <button data-size="1024x1792" onclick="setImageSize('1024x1792')" class="img-size-btn px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition">📱 Вертикаль</button>
+        <button data-size="1792x1024" onclick="setImageSize('1792x1024')" class="img-size-btn px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition">🖥 Горизонталь</button>
       </div>
       <div class="flex items-center justify-between gap-2 mt-2 px-1">
         <p id="modelCostHint" class="text-[10px] text-on-surface-dim/50 truncate flex-1"></p>
@@ -553,6 +571,12 @@ body.welcome #inputArea{display:none!important}
   </div>
 </div>
 
+<!-- Image Lightbox -->
+<div id="imgLightbox" onclick="closeImageLightbox()">
+  <button class="lb-close" onclick="closeImageLightbox(event)" title="Закрыть (Esc)">✕</button>
+  <img id="imgLightboxImg" src="" alt=""/>
+</div>
+
 <!-- Drop overlay -->
 <div id="dropOverlay" class="fixed inset-0 hidden z-[9999] pointer-events-none" style="background:rgba(255,140,66,0.08);backdrop-filter:blur(2px)">
   <div class="absolute inset-0 border-4 border-dashed rounded-2xl m-4" style="border-color:rgba(255,140,66,0.6)"></div>
@@ -584,6 +608,7 @@ window.fmtRubShort = (kop) => {
 window.chToRub = window.fmtRub;
 window.formatCH = window.fmtRub;
 let currentChat=null,currentChatInit=false,currentChatTitle="",currentModel="gpt";
+let currentImageSize="1024x1024";  // выбранный формат для image-моделей
 let pendingAttachment=null;
 let authToken=localStorage.getItem("obs_token")||null;
 let currentUser=null,cabinetData=null;
@@ -904,6 +929,29 @@ function setModel(id){
   });
   document.getElementById("modelDropdown").classList.add("hidden");
   renderWelcome();if(authToken)loadChats();toggleVideoPanel(id);
+  toggleImageSizeBar(id);
+}
+
+// Показываем выбор формата только для image-моделей
+function toggleImageSizeBar(modelId){
+  const bar = document.getElementById('imageSizeBar');
+  if (!bar) return;
+  const isImg = modelId === 'gpt-image' || modelId === 'dalle';
+  bar.classList.toggle('hidden', !isImg);
+  bar.classList.toggle('flex', isImg);
+}
+
+function setImageSize(size){
+  currentImageSize = size;
+  document.querySelectorAll('.img-size-btn').forEach(b=>{
+    const active = b.dataset.size === size;
+    b.classList.toggle('active', active);
+    b.classList.toggle('border-primary/40', active);
+    b.classList.toggle('text-primary', active);
+    b.classList.toggle('bg-primary/8', active);
+    b.classList.toggle('border-outline/20', !active);
+    b.classList.toggle('text-on-surface-dim', !active);
+  });
 }
 
 document.getElementById("modelMenuBtn").onclick=e=>{e.stopPropagation();document.getElementById("modelDropdown").classList.toggle("hidden");};
@@ -1847,6 +1895,9 @@ async function sendMessage(){
     if(att)body.file_url=att.url;
     if(currentModel==="nano")body.extra=collectImageParams(att);
     else if(VIDEO_MODELS.includes(currentModel))body.extra=collectVideoParams();
+    else if(currentModel==="gpt-image"||currentModel==="dalle")body.extra={size:currentImageSize};
+    // Запоминаем промпт для возможной регенерации при клике на картинку
+    window._lastImagePrompt = (text||"") + (att?.url ? " (по этой картинке)" : "");
     const hdrs={"Content-Type":"application/json"};
     if(authToken)hdrs["Authorization"]="Bearer "+authToken;
     const res=await fetch(`${API}/message`,{method:"POST",headers:hdrs,body:JSON.stringify(body)});
@@ -2110,7 +2161,17 @@ function addMsg(content,role,type,ts){
         <span class="text-[10px] uppercase tracking-widest text-primary font-bold">AI Студия Че</span>
       </div>
       <div class="glass ghost p-3 rounded-2xl rounded-bl-sm shadow-xl">
-        <img src="${esc(text)}" class="rounded-xl max-w-[512px] max-h-[512px] object-contain border border-outline/15 cursor-pointer hover:opacity-90 transition" onclick="window.open(this.src,'_blank')"/>
+        <div class="ai-img-wrap" style="position:relative;display:inline-block;border-radius:12px;overflow:hidden">
+          <img src="${esc(text)}" class="ai-img max-w-[512px] max-h-[512px] object-contain border border-outline/15 cursor-zoom-in transition" onclick="openImageLightbox(this.src)"/>
+          <div class="ai-img-actions" style="position:absolute;top:8px;right:8px;display:flex;gap:6px;opacity:0;transition:opacity .15s">
+            <button onclick="downloadImage('${esc(text)}', event)" title="Скачать" class="ai-img-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+            </button>
+            <button onclick="regenerateImage(event)" title="Перегенерировать с новым промптом" class="ai-img-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
       <span class="text-[10px] text-on-surface-dim/40 pl-1">${_fmtTime(ts)}</span>`;
     }else{
@@ -2309,6 +2370,49 @@ function updateSendBtn(){
 }
 function fmtT(n){let v=n||0;return Math.round(v).toLocaleString('ru-RU');}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
+
+// ── AI image: lightbox + download + regenerate ───────────────────────────
+function openImageLightbox(src){
+  const lb = document.getElementById('imgLightbox');
+  const img = document.getElementById('imgLightboxImg');
+  if (!lb || !img) return;
+  img.src = src;
+  lb.classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+function closeImageLightbox(e){
+  if (e) e.stopPropagation();
+  const lb = document.getElementById('imgLightbox');
+  if (lb) lb.classList.remove('show');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeImageLightbox(); });
+
+async function downloadImage(url, e){
+  if (e) e.stopPropagation();
+  try {
+    const r = await fetch(url);
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = url.split('/').pop() || 'image.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch { window.open(url, '_blank'); }
+}
+
+function regenerateImage(e){
+  if (e) e.stopPropagation();
+  const ta = document.getElementById('messageInput');
+  if (!ta) return;
+  const prev = window._lastImagePrompt || '';
+  ta.value = prev;
+  ta.focus();
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 128) + 'px';
+  ta.scrollIntoView({behavior: 'smooth', block: 'end'});
+  updateSendBtn();
+}
 function openM(id){
   document.getElementById(id).classList.remove("hidden");
   // Авто-подстановка реферального кода при открытии регистрации

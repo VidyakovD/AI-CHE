@@ -860,56 +860,105 @@ def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
 
 # ── OPENAI IMAGE (DALL-E) ─────────────────────────────────────────────────────
 def openai_image_response(model: str, messages: list, extra: dict = None) -> dict:
-    """Генерация изображений: dall-e-3 ИЛИ gpt-image-1 (новая модель OpenAI).
+    """Генерация и редактирование изображений: dall-e-3 ИЛИ gpt-image-1.
 
-    Поддерживаемые real_model: 'dall-e-3', 'gpt-image-1'.
-    gpt-image-1 умеет лучше следовать промпту и поддерживает редактирование
-    (через images.edit), но всегда возвращает b64_json (не URL)."""
+    Если в последнем user-message прикреплён file_url с картинкой —
+    используем images.edit (gpt-image-1 умеет генерить новую картинку
+    с reference). Иначе обычный images.generate.
+
+    Размер берём из extra.size (1024x1024 / 1024x1536 портрет / 1536x1024 пейзаж).
+    """
     keys = _shuffle(_get_api_keys("openai"))
     if not keys:
         _notify_admin("Image gen: OPENAI_API_KEYS пуст")
         return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
-    prompt = _last_text(messages) or (extra or {}).get("prompt","")
-    real_model = model or "dall-e-3"
+
     extra = extra or {}
+    real_model = model or "dall-e-3"
+
+    # Извлекаем prompt и опциональную ссылку на картинку из last message.
+    prompt = ""
+    ref_image_url = None
+    if messages:
+        last = messages[-1].get("content", "") if isinstance(messages[-1], dict) else ""
+        if isinstance(last, str):
+            try:
+                p = json.loads(last)
+                if isinstance(p, dict) and p.get("file_url"):
+                    ref_image_url = p["file_url"]
+                    prompt = p.get("text", "") or ""
+                else:
+                    prompt = last
+            except Exception:
+                prompt = last
+    if not prompt:
+        prompt = extra.get("prompt", "")
+
+    # Размеры: dall-e-3 поддерживает 1024x1024/1024x1792/1792x1024
+    # gpt-image-1 поддерживает 1024x1024/1024x1536 (portrait)/1536x1024 (landscape)
     size = extra.get("size", "1024x1024")
-    quality = extra.get("quality")  # gpt-image-1: low/medium/high; dall-e-3: standard/hd
+    if real_model == "gpt-image-1":
+        # нормализуем dall-e размеры в gpt-image
+        size = {"1024x1792": "1024x1536", "1792x1024": "1536x1024"}.get(size, size)
+    quality = extra.get("quality")
 
     from openai import OpenAI
     import base64, os as _os, uuid as _uuid
 
+    project_root = _os.path.dirname(_BASE_DIR)
+
+    def _save_b64(b64: str) -> str:
+        fid = f"img_{_uuid.uuid4().hex[:12]}.png"
+        upload_dir = _os.path.join(project_root, "uploads")
+        _os.makedirs(upload_dir, exist_ok=True)
+        path = _os.path.join(upload_dir, fid)
+        with open(path, "wb") as f:
+            f.write(base64.b64decode(b64))
+        return f"/uploads/{fid}"
+
     for key in keys:
         try:
             client = OpenAI(api_key=key)
+
+            # ── Path A: edit mode (gpt-image-1 + reference image) ──
+            if ref_image_url and real_model == "gpt-image-1":
+                ref_local = _os.path.join(project_root, ref_image_url.lstrip("/"))
+                if _os.path.exists(ref_local):
+                    log.info(f"[Image gen] edit mode, ref={ref_image_url} model={real_model}")
+                    with open(ref_local, "rb") as fimg:
+                        edit_params = {
+                            "model": real_model, "image": fimg,
+                            "prompt": prompt, "n": 1, "size": size,
+                        }
+                        if quality:
+                            edit_params["quality"] = quality
+                        resp = client.images.edit(**edit_params)
+                    data = resp.data[0]
+                    url = getattr(data, "url", None)
+                    if not url and getattr(data, "b64_json", None):
+                        url = _save_b64(data.b64_json)
+                    return {"type":"image","url":url,"content":url}
+
+            # ── Path B: обычная генерация ──
             params = {"model": real_model, "prompt": prompt, "n": 1, "size": size}
             if real_model == "dall-e-3":
                 params["style"] = extra.get("style", "vivid")
                 params["quality"] = quality or "standard"
                 params["response_format"] = "url"
             else:
-                # gpt-image-1: всегда b64_json (response_format не поддерживается)
                 if quality:
-                    params["quality"] = quality  # low/medium/high/auto
+                    params["quality"] = quality
             resp = client.images.generate(**params)
             data = resp.data[0]
             url = getattr(data, "url", None)
             if not url and getattr(data, "b64_json", None):
-                # Сохраняем base64 в /uploads (корень проекта, где StaticFiles).
-                # _BASE_DIR это server/, поэтому берём parent — корень проекта.
-                fid = f"img_{_uuid.uuid4().hex[:12]}.png"
-                project_root = _os.path.dirname(_BASE_DIR)
-                upload_dir = _os.path.join(project_root, "uploads")
-                _os.makedirs(upload_dir, exist_ok=True)
-                path = _os.path.join(upload_dir, fid)
-                with open(path, "wb") as f:
-                    f.write(base64.b64decode(data.b64_json))
-                url = f"/uploads/{fid}"
+                url = _save_b64(data.b64_json)
             return {"type":"image","url":url,"content":url}
         except Exception as e:
             log.warning(f"[Image gen] key=...{key[-6:]} model={real_model} error={e}")
             if key == keys[-1]:
                 _notify_admin(f"Image gen ({real_model}): все ключи исчерпаны")
-                return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
+                return {"type":"text","content":f"Не удалось сгенерировать картинку: {e}"}
 
 
 PROVIDERS = {
