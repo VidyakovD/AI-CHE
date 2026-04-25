@@ -103,7 +103,8 @@ async def body_size_and_headers(request: Request, call_next):
             "img-src 'self' data: blob: https:; "
             "media-src 'self' data: blob: https:; "
             "connect-src 'self' https: wss:; "
-            "frame-src 'self' https://yookassa.ru https://*.yookassa.ru; "
+            # blob: нужен для превью сайтов в /sites.html (URL.createObjectURL с HTML)
+            "frame-src 'self' blob: https://yookassa.ru https://*.yookassa.ru; "
             "object-src 'none'; base-uri 'self'; form-action 'self'"
         )
     return response
