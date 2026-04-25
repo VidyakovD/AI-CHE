@@ -136,6 +136,20 @@ select.inp option{background:#272018;color:#f0e6d8}
             </div>
             <p class="text-[10px] text-on-dim/40 mt-1">Получите ключи в личном кабинете разработчика Авито</p>
           </div>
+          <!-- MAX -->
+          <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
+            <div class="flex items-center gap-3 mb-3">
+              <span class="text-xl">🟥</span>
+              <div><p class="font-medium text-sm">MAX</p><p class="text-xs text-on-dim/60">Российский мессенджер max.ru</p></div>
+            </div>
+            <div class="space-y-2">
+              <div class="relative">
+                <input id="max_token" type="password" placeholder="Bot Token от @MasterBot в MAX" class="inp text-xs pr-9"/>
+                <button type="button" onclick="togglePwd('max_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-50 hover:opacity-100">👁</button>
+              </div>
+            </div>
+            <p class="text-[10px] text-on-dim/40 mt-1">В MAX найдите @MasterBot → /newbot → получите токен. Webhook поставится автоматически.</p>
+          </div>
           <!-- Виджет -->
           <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
             <div class="flex items-center gap-3 mb-3">
@@ -243,6 +257,7 @@ function render(){
     if(b.tg_token_set)ch.push(`<span title="${b.tg_webhook_set?'Webhook подтверждён — бот получает сообщения':'Webhook не установлен — нажмите ▶ Запуск'}">✈️ TG${b.tg_webhook_set?' ✓':' ⚠️'}</span>`);
     if(b.vk_token_set)ch.push(`<span title="${b.vk_confirmed?'Callback API подтверждён':'Ожидает подтверждения от VK Callback API'}">🔵 VK${b.vk_confirmed?' ✓':' ⚠️'}</span>`);
     if(b.avito_set)ch.push('<span title="Авито Messenger подключён">🟢 Авито</span>');
+    if(b.max_token_set)ch.push(`<span title="${b.max_webhook_set?'MAX webhook подтверждён':'MAX webhook не установлен — нажмите ▶ Запуск'}">🟥 MAX${b.max_webhook_set?' ✓':' ⚠️'}</span>`);
     if(b.widget_enabled)ch.push('<span title="Виджет на сайт активен">🌐 Виджет</span>');
     const sc=b.status==='active'?'dot-active':b.status==='paused'?'dot-paused':'dot-off';
     const sl=b.status==='active'?'Активен':b.status==='paused'?'На паузе':'Выключен';
@@ -277,7 +292,7 @@ function render(){
 function openCreate(){
   editingId=null;
   document.getElementById('modalTitle').textContent='Новый чат-бот';
-  ['bot_name','tg_token','vk_token','vk_group_id','avito_client_id','avito_client_secret','avito_user_id'].forEach(id=>{
+  ['bot_name','tg_token','vk_token','vk_group_id','avito_client_id','avito_client_secret','avito_user_id','max_token'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
   document.getElementById('bot_model').value='gpt';
@@ -308,6 +323,8 @@ async function editBot(id){
     document.getElementById('avito_client_id').value='';
     document.getElementById('avito_client_secret').value='';
     document.getElementById('avito_user_id').value=b.avito_user_id||'';
+    document.getElementById('max_token').value='';
+    document.getElementById('max_token').placeholder=b.max_token_set?'Токен установлен (оставьте пустым, чтобы не менять)':'Bot Token от @MasterBot в MAX';
     document.getElementById('bot_limit').value=b.max_replies_day||100;
     document.getElementById('widget_enabled').checked=b.widget_enabled||false;
     // Виджет код
@@ -372,6 +389,8 @@ async function saveBot(){
   if(acs)body.avito_client_secret=acs;
   const aui=document.getElementById('avito_user_id').value.trim();
   if(aui)body.avito_user_id=aui;
+  const mxt=document.getElementById('max_token').value.trim();
+  if(mxt)body.max_token=mxt;
 
   const btn = document.getElementById('saveBotBtn');
   const oldText = btn.textContent;

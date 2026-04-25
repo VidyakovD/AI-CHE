@@ -20,6 +20,7 @@ NODE_CATALOG = """
 - trigger_tg          — входящее в Telegram. Поля: tg_token, tg_chat_id (опц).
 - trigger_vk          — входящее в VK. Поля: vk_token, vk_group_id.
 - trigger_avito       — входящее в Авито Messenger.
+- trigger_max         — входящее в MAX (https://max.ru). Поля: max_token (Bot Token из @MasterBot).
 - trigger_webhook     — внешний POST. Поля: path (e.g. "/webhook/agent").
 - trigger_imap        — новое email письмо. Поля: cred_id (id IMAP-учётки), filter_from.
 - trigger_schedule    — cron. Поля: mode (daily/weekly/hourly/interval/custom), time, weekdays, interval_min, cron, tz.
@@ -67,6 +68,7 @@ OUTPUT (отправка ответа):
 - output_tg_file      — TG файл. Поля: file_path, caption.
 - output_tg_audio     — TG голосовое. Поля: file_path.
 - output_vk           — VK ответ.
+- output_max          — MAX ответ. Поля: max_token (пусто=из триггера), max_user_id (пусто=отвечает тому кто написал).
 - output_save         — сохранить в историю (видна в ЛК).
 - output_hook         — POST на внешний URL. Поля: url.
 """
@@ -123,7 +125,7 @@ def _extract_json(text: str) -> dict:
 
 
 _VALID_TYPES = {
-    "trigger_tg", "trigger_vk", "trigger_avito", "trigger_webhook",
+    "trigger_tg", "trigger_vk", "trigger_avito", "trigger_max", "trigger_webhook",
     "trigger_imap", "trigger_schedule", "trigger_manual",
     "node_gpt", "node_claude", "node_gemini", "node_grok",
     "prompt", "orchestrator",
@@ -133,7 +135,7 @@ _VALID_TYPES = {
     "yd_list", "yd_upload",
     "kb_add", "kb_search_file", "kb_search", "kb_rag",
     "output_tg", "output_tg_buttons", "output_tg_file", "output_tg_audio",
-    "output_vk", "output_save", "output_hook",
+    "output_vk", "output_max", "output_save", "output_hook",
 }
 
 

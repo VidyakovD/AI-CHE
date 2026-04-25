@@ -8,6 +8,7 @@ from server.routes.deps import get_db, current_user
 from server.models import ChatBot, User
 from server.chatbot_engine import (
     setup_telegram_webhook, delete_telegram_webhook,
+    setup_max_webhook, delete_max_webhook, get_max_me,
     get_summary, generate_widget_secret,
 )
 
@@ -28,6 +29,7 @@ class BotCreate(BaseModel):
     avito_client_id: str | None = None
     avito_client_secret: str | None = None
     avito_user_id: str | None = None
+    max_token: str | None = None
     widget_enabled: bool = False
     max_replies_day: int = 100
     cost_per_reply: int = 5
@@ -44,6 +46,7 @@ class BotUpdate(BaseModel):
     avito_client_id: str | None = None
     avito_client_secret: str | None = None
     avito_user_id: str | None = None
+    max_token: str | None = None
     widget_enabled: bool | None = None
     max_replies_day: int | None = None
     cost_per_reply: int | None = None
@@ -105,6 +108,23 @@ async def _auto_setup_channels(bot: ChatBot) -> dict:
                      "hint": "Укажите Callback URL в настройках группы VK"}
     if bot.avito_client_id and bot.avito_client_secret:
         out["avito"] = {"ok": True, "webhook_url": f"{APP_URL}/webhook/avito/{bot.id}"}
+    if bot.max_token:
+        wh_url = f"{APP_URL}/webhook/max/{bot.id}"
+        try:
+            r = await setup_max_webhook(bot.max_token, wh_url)
+            bot.max_webhook_set = bool(r.get("ok"))
+            me = await get_max_me(bot.max_token)
+            uname = me.get("username") or me.get("name") or ""
+            out["max"] = {
+                "ok": bot.max_webhook_set,
+                "detail": r.get("description", ""),
+                "username": uname,
+                "url": f"https://max.ru/{uname}" if uname else None,
+                "webhook_url": wh_url,
+            }
+        except Exception as e:
+            log.error(f"[Bot {bot.id}] MAX setup failed: {e}")
+            out["max"] = {"ok": False, "detail": str(e)}
     if bot.widget_enabled:
         if not bot.widget_secret:
             bot.widget_secret = generate_widget_secret()
@@ -117,6 +137,7 @@ def _has_any_channel(bot: ChatBot) -> bool:
         bot.tg_token
         or (bot.vk_token and bot.vk_group_id)
         or (bot.avito_client_id and bot.avito_client_secret)
+        or bot.max_token
         or bot.widget_enabled
     )
 
@@ -133,6 +154,8 @@ def _bot_dict(b: ChatBot) -> dict:
         "vk_confirmed": b.vk_confirmed,
         "avito_set": bool(b.avito_client_id and b.avito_client_secret),
         "avito_user_id": b.avito_user_id,
+        "max_token_set": bool(b.max_token),
+        "max_webhook_set": bool(b.max_webhook_set),
         "widget_enabled": b.widget_enabled,
         "widget_url": f"{APP_URL}/widget/{b.id}.js" if b.widget_enabled else None,
         "has_workflow": bool(b.workflow_json),
@@ -165,6 +188,7 @@ async def create_bot(req: BotCreate, db: Session = Depends(get_db),
         avito_client_id=req.avito_client_id,
         avito_client_secret=req.avito_client_secret,
         avito_user_id=req.avito_user_id,
+        max_token=req.max_token,
         widget_enabled=req.widget_enabled,
         widget_secret=generate_widget_secret() if req.widget_enabled else None,
         max_replies_day=req.max_replies_day,
@@ -196,11 +220,12 @@ async def update_bot(bot_id: int, req: BotUpdate, db: Session = Depends(get_db),
     old_tg = bot.tg_token
     old_vk = (bot.vk_token, bot.vk_group_id)
     old_avito = (bot.avito_client_id, bot.avito_client_secret)
+    old_max = bot.max_token
     old_widget = bot.widget_enabled
 
     for field in ["name", "model", "system_prompt", "workflow_json", "tg_token",
                   "vk_token", "vk_group_id", "avito_client_id", "avito_client_secret",
-                  "avito_user_id", "max_replies_day", "cost_per_reply"]:
+                  "avito_user_id", "max_token", "max_replies_day", "cost_per_reply"]:
         val = getattr(req, field, None)
         if val is not None:
             setattr(bot, field, val)
@@ -216,6 +241,7 @@ async def update_bot(bot_id: int, req: BotUpdate, db: Session = Depends(get_db),
         bot.tg_token != old_tg
         or (bot.vk_token, bot.vk_group_id) != old_vk
         or (bot.avito_client_id, bot.avito_client_secret) != old_avito
+        or bot.max_token != old_max
         or bot.widget_enabled != old_widget
     )
     setup = {}
@@ -226,6 +252,12 @@ async def update_bot(bot_id: int, req: BotUpdate, db: Session = Depends(get_db),
                 await delete_telegram_webhook(old_tg)
             except Exception as e:
                 log.warning(f"[Bot {bot.id}] failed to delete old TG webhook: {e}")
+        # Если поменялся MAX-токен — снять старую подписку
+        if bot.max_token != old_max and old_max:
+            try:
+                await delete_max_webhook(old_max)
+            except Exception as e:
+                log.warning(f"[Bot {bot.id}] failed to delete old MAX webhook: {e}")
         setup = await _auto_setup_channels(bot)
         bot.status = "active"
     elif not _has_any_channel(bot):
@@ -290,6 +322,11 @@ async def delete_bot(bot_id: int, db: Session = Depends(get_db),
     # Удалить webhook если был
     if bot.tg_token and bot.tg_webhook_set:
         await delete_telegram_webhook(bot.tg_token)
+    if bot.max_token and bot.max_webhook_set:
+        try:
+            await delete_max_webhook(bot.max_token)
+        except Exception as e:
+            log.warning(f"[Bot {bot.id}] delete MAX webhook failed: {e}")
     db.delete(bot)
     db.commit()
     return {"status": "deleted"}
@@ -320,6 +357,14 @@ async def deploy_bot(bot_id: int, db: Session = Depends(get_db),
     if bot.avito_client_id and bot.avito_client_secret:
         results["avito"] = {"status": "ready", "webhook_url": f"{APP_URL}/webhook/avito/{bot.id}"}
 
+    # MAX
+    if bot.max_token:
+        wh_url = f"{APP_URL}/webhook/max/{bot.id}"
+        r = await setup_max_webhook(bot.max_token, wh_url)
+        bot.max_webhook_set = bool(r.get("ok"))
+        me = await get_max_me(bot.max_token)
+        results["max"] = {**r, "username": me.get("username") or me.get("name") or ""}
+
     # Виджет
     if bot.widget_enabled:
         if not bot.widget_secret:
@@ -342,6 +387,12 @@ async def pause_bot(bot_id: int, db: Session = Depends(get_db),
     if bot.tg_token and bot.tg_webhook_set:
         await delete_telegram_webhook(bot.tg_token)
         bot.tg_webhook_set = False
+    if bot.max_token and bot.max_webhook_set:
+        try:
+            await delete_max_webhook(bot.max_token)
+            bot.max_webhook_set = False
+        except Exception as e:
+            log.warning(f"[Bot {bot.id}] pause MAX failed: {e}")
 
     bot.status = "paused"
     db.commit()

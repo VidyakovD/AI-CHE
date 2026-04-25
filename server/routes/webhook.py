@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db
 from server.models import ChatBot
-from server.chatbot_engine import handle_message, send_telegram, send_vk, send_avito
+from server.chatbot_engine import handle_message, send_telegram, send_vk, send_avito, send_max
 from server.security import tg_webhook_secret
 
 log = logging.getLogger("webhook")
@@ -212,5 +212,64 @@ async def avito_webhook(bot_id: int, request: Request,
                                              "is_avito": True})
     if answer:
         await send_avito(bot, chat_id, answer)
+
+    return {"ok": True}
+
+
+# ── MAX (https://max.ru) ─────────────────────────────────────────────────────
+
+@router.post("/max/{bot_id}")
+async def max_webhook(bot_id: int, request: Request,
+                      db: Session = Depends(get_db)):
+    """Обработка входящих от MAX Bot API.
+    Update types: message_created, message_callback (по подписке).
+    Доки: https://dev.max.ru/docs-api"""
+    bot = _get_active_bot(bot_id, db)
+    if not bot or not bot.max_token:
+        return {"ok": True}
+
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": True}
+
+    update_type = body.get("update_type") or body.get("type")
+
+    # message_created — новое сообщение от юзера
+    if update_type == "message_created":
+        msg = body.get("message", {}) or {}
+        sender = msg.get("sender", {}) or {}
+        body_obj = msg.get("body", {}) or {}
+        text = body_obj.get("text", "") or ""
+        user_id = str(sender.get("user_id", ""))
+        user_name = sender.get("name", "") or sender.get("first_name", "") or ""
+        # Пропускаем сообщения от самого бота (на всякий)
+        if sender.get("is_bot"):
+            return {"ok": True}
+        if not text or not user_id:
+            return {"ok": True}
+        answer = await handle_message(bot, user_id, text, "max", user_name,
+                                      extra_ctx={"max_token": bot.max_token,
+                                                 "max_user_id": user_id,
+                                                 "is_max": True})
+        if answer:
+            await send_max(bot.max_token, user_id, answer)
+
+    # message_callback — нажатие на inline-кнопку
+    elif update_type == "message_callback":
+        cb = body.get("callback", {}) or {}
+        payload = cb.get("payload", "")
+        user = cb.get("user", {}) or {}
+        user_id = str(user.get("user_id", ""))
+        if payload and user_id:
+            answer = await handle_message(bot, user_id, payload, "max",
+                                          user.get("name", ""),
+                                          extra_ctx={"max_token": bot.max_token,
+                                                     "max_user_id": user_id,
+                                                     "callback_data": payload,
+                                                     "is_max": True,
+                                                     "is_callback": True})
+            if answer:
+                await send_max(bot.max_token, user_id, answer)
 
     return {"ok": True}

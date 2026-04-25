@@ -61,7 +61,8 @@
       "Bash(pip show *)",
       "Bash(export HOME=\"/c/Users/Денис\")",
       "Bash(HOME=\"C:\\\\Users\\\\Денис\" ssh-keygen -R 194.104.9.219)",
-      "Bash(HOME=\"C:\\\\Users\\\\Денис\" ssh root@194.104.9.219 \"echo ok\")"
+      "Bash(HOME=\"C:\\\\Users\\\\Денис\" ssh root@194.104.9.219 \"echo ok\")",
+      "WebFetch(domain:dev.max.ru)"
     ]
   }
 }

@@ -37,6 +37,9 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # Уведомления о низком балансе
     ("users", "low_balance_threshold", "INTEGER DEFAULT 100"),
     ("users", "low_balance_alerted_at", "DATETIME"),
+    # MAX (мессенджер VK group)
+    ("chatbots", "max_token", "VARCHAR"),
+    ("chatbots", "max_webhook_set", "BOOLEAN DEFAULT 0"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

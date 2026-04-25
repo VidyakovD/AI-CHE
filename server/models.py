@@ -524,6 +524,9 @@ class ChatBot(Base):
     avito_client_id = Column(String, nullable=True)
     avito_client_secret = Column(EncryptedString, nullable=True)
     avito_user_id   = Column(String, nullable=True)
+    # MAX (мессенджер VK group, https://max.ru)
+    max_token         = Column(EncryptedString, nullable=True)
+    max_webhook_set   = Column(Boolean, default=False)
     # Виджет
     widget_enabled  = Column(Boolean, default=False)
     widget_secret   = Column(EncryptedString, nullable=True)

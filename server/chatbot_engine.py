@@ -206,7 +206,9 @@ async def _execute_workflow(bot, chat_id, user_text, platform, user_name,
         adjacency[edge["from"]].append(edge["to"])
 
     # Найти точку входа (триггер)
-    trigger_types = {"trigger_tg", "trigger_manual", "trigger_webhook", "trigger_schedule"}
+    trigger_types = {"trigger_tg", "trigger_vk", "trigger_avito", "trigger_max",
+                     "trigger_manual", "trigger_webhook", "trigger_schedule",
+                     "trigger_imap"}
     trigger_node = None
     for n in nodes:
         if n["type"] in trigger_types:
@@ -791,6 +793,14 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
             await send_vk(vk_token, vk_uid, input_text)
         return input_text
 
+    if ntype == "output_max":
+        ctx["final_output"] = input_text
+        max_token = cfg.get("max_token") or (ctx["bot"].max_token if hasattr(ctx["bot"], "max_token") else None)
+        max_uid = cfg.get("max_user_id") or ctx.get("max_user_id") or ctx.get("chat_id")
+        if max_token and max_uid:
+            await send_max(max_token, max_uid, input_text)
+        return input_text
+
     # ── Агенты из библиотеки (agent_smm, agent_copywriter, etc.) ──────────
     if ntype.startswith("agent_"):
         agent_id = ntype.replace("agent_", "")
@@ -1061,6 +1071,78 @@ async def send_telegram_document(token: str, chat_id: str, file_path: str,
     except Exception as e:
         log.error(f"[TG doc] {e}")
         return {"ok": False}
+
+
+# ── MAX (https://max.ru) ─────────────────────────────────────────────────────
+# API: https://botapi.max.ru. Auth: ?access_token=<token>. Docs: https://dev.max.ru/docs-api
+# Webhook: POST /subscriptions с {url}. Send: POST /messages?user_id=<>&text=...
+
+MAX_API = "https://botapi.max.ru"
+
+
+async def setup_max_webhook(max_token: str, webhook_url: str) -> dict:
+    """Подписать MAX-бота на webhook. Возвращает {ok, description}."""
+    try:
+        r = await HTTP.post(
+            f"{MAX_API}/subscriptions",
+            params={"access_token": max_token},
+            json={"url": webhook_url, "update_types": ["message_created", "message_callback"]},
+        )
+        try:
+            data = r.json() if r.content else {}
+        except Exception:
+            data = {"raw": r.text[:200]}
+        ok = r.status_code == 200
+        log.info(f"[MAX] subscribe → {r.status_code} {data}")
+        return {"ok": ok, "description": data.get("message", "") if isinstance(data, dict) else "",
+                "status_code": r.status_code}
+    except Exception as e:
+        log.error(f"[MAX] subscribe error: {e}")
+        return {"ok": False, "description": str(e)}
+
+
+async def delete_max_webhook(max_token: str, webhook_url: str | None = None) -> dict:
+    """Отписать webhook. Если webhook_url не задан — снимает все подписки бота."""
+    try:
+        params = {"access_token": max_token}
+        if webhook_url:
+            params["url"] = webhook_url
+        r = await HTTP.delete(f"{MAX_API}/subscriptions", params=params)
+        return {"ok": r.status_code == 200, "status_code": r.status_code}
+    except Exception as e:
+        return {"ok": False, "description": str(e)}
+
+
+async def send_max(max_token: str, user_id: str | int, text: str,
+                   format_: str = "markdown") -> dict:
+    """Отправить сообщение в MAX. user_id — int из update.message.sender.user_id."""
+    try:
+        params = {"access_token": max_token, "user_id": str(user_id)}
+        body = {"text": text[:4000]}
+        if format_:
+            body["format"] = format_
+        r = await HTTP.post(f"{MAX_API}/messages", params=params, json=body)
+        try:
+            data = r.json() if r.content else {}
+        except Exception:
+            data = {"raw": r.text[:200]}
+        if r.status_code != 200:
+            log.warning(f"[MAX] send failed {r.status_code}: {data}")
+        return {"ok": r.status_code == 200, "data": data, "status_code": r.status_code}
+    except Exception as e:
+        log.error(f"[MAX] send error: {e}")
+        return {"ok": False, "description": str(e)}
+
+
+async def get_max_me(max_token: str) -> dict:
+    """Возвращает {user_id, name, username, ...} бота. Используем для валидации токена."""
+    try:
+        r = await HTTP.get(f"{MAX_API}/me", params={"access_token": max_token})
+        if r.status_code == 200:
+            return r.json()
+    except Exception as e:
+        log.error(f"[MAX] me error: {e}")
+    return {}
 
 
 async def send_telegram_audio(token: str, chat_id: str, file_path: str) -> dict:
