@@ -357,7 +357,9 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
     p.conversation_phase = "generating_code"
     db.commit()
 
-    answer = generate_response("claude", [{"role": "user", "content": prompt}])
+    # max_tokens=16000 — большие лендинги не влезают в дефолтные 8192
+    answer = generate_response("claude", [{"role": "user", "content": prompt}],
+                               extra={"max_tokens": 16000})
     content = answer.get("content", "") if isinstance(answer, dict) else ""
 
     if not content.strip().startswith("<") or "временно недоступен" in content:
@@ -372,11 +374,89 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
             content = content.rsplit("```", 1)[0] if "```" in content else content
             break
 
+    # Auto-continue: если HTML обрезан (нет </html>) — просим Claude дописать
+    # с того места где остановился. Делаем максимум 2 продолжения.
+    for attempt in range(2):
+        if "</html>" in content.lower():
+            break
+        log.info(f"[Sites] HTML усечён ({len(content)} симв), запрашиваем продолжение #{attempt+1}")
+        tail = content[-500:]  # последние 500 символов как контекст
+        cont_prompt = (
+            "Ты не закончил HTML-код в прошлом ответе — он обрезался. "
+            "Вот его конец:\n\n"
+            f"```\n{tail}\n```\n\n"
+            "Продолжи С ТОГО ЖЕ МЕСТА (не повторяй уже написанное), допиши до закрывающего </html>. "
+            "Ответ — ТОЛЬКО продолжение HTML, без markdown-обёрток и объяснений."
+        )
+        cont = generate_response("claude", [{"role": "user", "content": cont_prompt}],
+                                 extra={"max_tokens": 16000})
+        cont_text = cont.get("content", "") if isinstance(cont, dict) else ""
+        # Очистим markdown если есть
+        for marker in ["```html\n", "```\n", "```html", "```"]:
+            if cont_text.startswith(marker):
+                cont_text = cont_text[len(marker):]
+                cont_text = cont_text.rsplit("```", 1)[0] if "```" in cont_text else cont_text
+                break
+        if not cont_text.strip():
+            break
+        content += cont_text
+
+    # Если всё равно нет </html> — добавим закрывающие теги вручную
+    if "</html>" not in content.lower():
+        log.warning(f"[Sites] HTML так и не закрылся после 2 попыток, добавляем теги")
+        if "</body>" not in content.lower():
+            content += "\n</body>"
+        content += "\n</html>"
+
     p.code_html = content
     p.conversation_phase = "done"
     p.status = "done"
     db.commit()
     return {"code_html": content, "status": p.status, "phase": p.conversation_phase}
+
+
+@router.post("/sites/projects/{project_id}/repair-code")
+def site_project_repair_code(project_id: int, db: Session = Depends(get_db),
+                             user: User = Depends(current_user)):
+    """Бесплатно дописывает обрезанный HTML до закрывающего </html>.
+    Используется когда генерация прошла, но Claude не успел дописать."""
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.code_html:
+        raise HTTPException(400, "Сначала сгенерируйте код")
+    if "</html>" in p.code_html.lower():
+        return {"status": "ok", "note": "уже закрыт", "code_html": p.code_html}
+
+    content = p.code_html
+    for attempt in range(2):
+        if "</html>" in content.lower():
+            break
+        tail = content[-500:]
+        prompt = (
+            "Ты не дописал HTML-код в прошлом ответе. Вот его конец:\n\n"
+            f"```\n{tail}\n```\n\n"
+            "Продолжи С ТОГО МЕСТА где остановился, допиши до закрывающего </html>. "
+            "Ответ — ТОЛЬКО продолжение HTML, без markdown и объяснений."
+        )
+        cont = generate_response("claude", [{"role": "user", "content": prompt}],
+                                 extra={"max_tokens": 16000})
+        ctxt = cont.get("content", "") if isinstance(cont, dict) else ""
+        for marker in ["```html\n", "```\n", "```html", "```"]:
+            if ctxt.startswith(marker):
+                ctxt = ctxt[len(marker):]
+                ctxt = ctxt.rsplit("```", 1)[0] if "```" in ctxt else ctxt
+                break
+        if not ctxt.strip():
+            break
+        content += ctxt
+    if "</html>" not in content.lower():
+        if "</body>" not in content.lower():
+            content += "\n</body>"
+        content += "\n</html>"
+    p.code_html = content
+    db.commit()
+    return {"status": "ok", "code_html": content}
 
 
 @router.put("/sites/projects/{project_id}/save-code")
@@ -420,10 +500,12 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
     prompt = (
         f"Вот текущий HTML сайта:\n\n{p.code_html}\n\n"
         f"Пользователь просит: {instructions}\n"
-        f"Верни ТОЛЬКО обновлённый полный HTML-код. Без markdown, без объяснений."
+        f"Верни ТОЛЬКО обновлённый полный HTML-код целиком, от <!DOCTYPE до </html>. "
+        f"Без markdown-обёрток, без объяснений, без сокращений."
     )
 
-    answer = generate_response("claude", [{"role": "user", "content": prompt}])
+    answer = generate_response("claude", [{"role": "user", "content": prompt}],
+                               extra={"max_tokens": 16000})
     content = answer.get("content", "") if isinstance(answer, dict) else ""
 
     # Guard: if AI returned an error message instead of HTML — don't overwrite
@@ -436,6 +518,33 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
             content = content[len(marker):]
             content = content.rsplit("```", 1)[0] if "```" in content else content
             break
+
+    # Auto-continue если код обрезан
+    for attempt in range(2):
+        if "</html>" in content.lower():
+            break
+        tail = content[-500:]
+        cont_prompt = (
+            "Ты не дописал HTML-код. Вот его конец:\n\n"
+            f"```\n{tail}\n```\n\n"
+            "Продолжи С ТОГО МЕСТА где остановился, до закрывающего </html>. "
+            "Ответ — ТОЛЬКО продолжение HTML, без объяснений."
+        )
+        cont = generate_response("claude", [{"role": "user", "content": cont_prompt}],
+                                 extra={"max_tokens": 16000})
+        cont_text = cont.get("content", "") if isinstance(cont, dict) else ""
+        for marker in ["```html\n", "```\n", "```html", "```"]:
+            if cont_text.startswith(marker):
+                cont_text = cont_text[len(marker):]
+                cont_text = cont_text.rsplit("```", 1)[0] if "```" in cont_text else cont_text
+                break
+        if not cont_text.strip():
+            break
+        content += cont_text
+    if "</html>" not in content.lower():
+        if "</body>" not in content.lower():
+            content += "\n</body>"
+        content += "\n</html>"
 
     p.code_html = content
     db.commit()

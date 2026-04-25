@@ -664,9 +664,10 @@ def anthropic_response(model: str, messages: list, extra: dict = None,
                 # Non-streaming request (проще и надёжнее)
                 headers = {"x-api-key": key, "anthropic-version": "2023-06-01",
                            "content-type": "application/json"}
+                _max_tok = int((extra or {}).get("max_tokens", 8192))
                 r = httpx.post(
                     f"{base_url.rstrip('/')}/v1/messages",
-                    json={"model": model, "max_tokens": 8192,
+                    json={"model": model, "max_tokens": _max_tok,
                           "thinking": {"type": "disabled"},
                           "system": system_block,
                           "messages": claude_msgs},
@@ -694,7 +695,7 @@ def anthropic_response(model: str, messages: list, extra: dict = None,
                 log.warning(f"[Anthropic] empty response, retrying basic")
                 r2 = httpx.post(
                     f"{base_url.rstrip('/')}/v1/messages",
-                    json={"model": model, "max_tokens": 8192,
+                    json={"model": model, "max_tokens": _max_tok,
                           "system": system_text,
                           "messages": claude_msgs},
                     headers=headers,
@@ -713,8 +714,9 @@ def anthropic_response(model: str, messages: list, extra: dict = None,
                 raise RuntimeError(f"Empty response from proxy. Raw: {json.dumps(data)[:300]}")
             else:
                 import anthropic as _ant
+                _max_tok = int((extra or {}).get("max_tokens", 8192))
                 resp = _ant.Anthropic(api_key=key).messages.create(
-                    model=model, max_tokens=8192,
+                    model=model, max_tokens=_max_tok,
                     messages=claude_msgs,
                     system=system_block if use_caching else system_text,
                 )
