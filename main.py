@@ -105,6 +105,10 @@ models.Base.metadata.create_all(bind=engine)
 from server.db import apply_lightweight_migrations  # noqa: E402
 apply_lightweight_migrations()
 
+# Засеять дефолтные цены в БД (no-op если уже есть)
+from server.pricing import seed_pricing_defaults  # noqa: E402
+seed_pricing_defaults()
+
 app = FastAPI(title="AI Студия Че")
 
 UPLOAD_DIR = "uploads"

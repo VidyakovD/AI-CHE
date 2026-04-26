@@ -778,22 +778,32 @@ async def create_from_template(slug: str, req: FromTemplateRequest,
 
 @router.get("/{bot_id}/records")
 def list_bot_records(bot_id: int, type: str | None = None,
-                     status: str | None = None, limit: int = 200,
+                     status: str | None = None,
+                     offset: int = 0, limit: int = 100,
+                     paginated: int = 0,
                      db: Session = Depends(get_db),
                      user: User = Depends(current_user)):
-    """Список записей (заявки/брони) для карточки бота. Фильтры по типу и статусу."""
+    """Список записей (заявки/брони) для карточки бота. Фильтры + пагинация.
+
+    Совместимость:
+      - paginated=0 (default) → массив items (legacy фронт)
+      - paginated=1           → {items, total, offset, limit}
+    """
     from server.models import BotRecord
     bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
     if not bot:
         raise HTTPException(404, "Бот не найден")
+    limit = max(1, min(int(limit or 100), 500))
+    offset = max(0, int(offset or 0))
     q = db.query(BotRecord).filter_by(bot_id=bot_id)
     if type:
         q = q.filter(BotRecord.record_type == type)
     if status:
         q = q.filter(BotRecord.status == status)
-    rows = q.order_by(BotRecord.id.desc()).limit(min(int(limit or 200), 500)).all()
+    total = q.count() if paginated else None
+    rows = q.order_by(BotRecord.id.desc()).offset(offset).limit(limit).all()
     import json as _json
-    return [{
+    items = [{
         "id": r.id,
         "type": r.record_type,
         "name": r.customer_name,
@@ -805,6 +815,9 @@ def list_bot_records(bot_id: int, type: str | None = None,
         "chat_id": r.chat_id,
         "created_at": r.created_at.isoformat() if r.created_at else None,
     } for r in rows]
+    if paginated:
+        return {"items": items, "total": total, "offset": offset, "limit": limit}
+    return items
 
 
 class RecordUpdateBody(BaseModel):

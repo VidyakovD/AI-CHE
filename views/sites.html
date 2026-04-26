@@ -125,11 +125,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <!-- CREATE MODAL — two modes -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
-<div id="createModal" class="modal-bg">
+<div id="createModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="createModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-lg border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-6 py-4 flex items-center justify-between">
-      <h2 class="font-headline font-bold text-[#1C1C1C] text-lg">Новый проект</h2>
-      <button onclick="closeCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none">✕</button>
+      <h2 class="font-headline font-bold text-[#1C1C1C] text-lg" id="createModalTitle">Новый проект</h2>
+      <button onclick="closeCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-6 space-y-5">
       <!-- Project name -->
@@ -178,7 +178,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <!-- PROJECT DETAIL MODAL — multi-phase interface -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
-<div id="detailModal" class="modal-bg">
+<div id="detailModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
   <div id="detailModalContent" class="detail-modal-content bg-surface rounded-2xl border border-outline/25 shadow-2xl overflow-hidden flex flex-col" style="height:92vh;width:90vw">
     <!-- Header -->
     <div class="sig px-6 py-4 flex items-center justify-between flex-shrink-0">
@@ -194,7 +194,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <button onclick="deleteCurrentProject()" class="btn-d text-xs py-1.5 px-3">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
         </button>
-        <button onclick="closeDetail()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none">✕</button>
+        <button onclick="closeDetail()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none" aria-label="Закрыть">✕</button>
       </div>
     </div>
     <!-- Native CSS resize:both — тянем за подсвеченный угол справа-снизу.
@@ -208,13 +208,13 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <div class="px-6 py-2 bg-surface2 border-b border-outline/20 flex-shrink-0">
         <p class="text-xs text-on-dim">Собеседование: Claude соберёт требования для вашего сайта</p>
       </div>
-      <div id="chatBox" class="chat-box flex-1 px-6 py-4">
+      <div id="chatBox" class="chat-box flex-1 px-6 py-4" role="log" aria-live="polite" aria-label="Диалог с Claude">
         <!-- messages go here -->
       </div>
       <div class="px-6 py-3 bg-surface2 border-t border-outline/20 flex-shrink-0 flex gap-2">
-        <input id="chatInput" type="text" class="inp flex-1" placeholder="Ответьте на вопрос..." onkeydown="if(event.key==='Enter')sendChat()"/>
-        <button onclick="sendChat()" class="btn-p" id="chatSendBtn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        <input id="chatInput" type="text" class="inp flex-1" placeholder="Ответьте на вопрос..." onkeydown="if(event.key==='Enter')sendChat()" aria-label="Сообщение"/>
+        <button onclick="sendChat()" class="btn-p" id="chatSendBtn" aria-label="Отправить">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
       </div>
     </div>
@@ -293,10 +293,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <div id="dtab-code" class="tab-pane active flex-1 min-h-0 flex flex-col p-4 space-y-3 overflow-y-auto">
         <!-- Iteration input -->
         <div class="flex gap-2 flex-shrink-0">
-          <input id="iterInput" type="text" class="inp flex-1" placeholder="Что изменить? Например: добавь тёмную тему, измени цвет шапки..." onkeydown="if(event.key==='Enter')iterateCode()"/>
+          <input id="iterInput" type="text" class="inp flex-1" placeholder="Что изменить? Например: добавь тёмную тему, измени цвет шапки..." onkeydown="if(event.key==='Enter')iterateCode()" aria-label="Описание изменений"/>
           <button onclick="iterateCode()" class="btn-p" id="iterBtn">Применить</button>
         </div>
-        <textarea id="codeEditor" class="code-editor flex-1" spellcheck="false"></textarea>
+        <textarea id="codeEditor" class="code-editor flex-1" spellcheck="false" aria-label="HTML код сайта"></textarea>
         <div class="flex gap-2 flex-shrink-0">
           <button onclick="saveCode()" class="btn-p">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
@@ -340,9 +340,9 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     </div>
 
     <!-- Loading overlay -->
-    <div id="phaseLoading" class="hidden absolute inset-0 bg-surface/90 flex items-center justify-center z-10">
+    <div id="phaseLoading" class="hidden absolute inset-0 bg-surface/90 flex items-center justify-center z-10" role="status" aria-live="polite">
       <div class="text-center">
-        <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-3" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-dasharray="31.4 31.4" stroke-dashoffset="10"/></svg>
+        <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-dasharray="31.4 31.4" stroke-dashoffset="10"/></svg>
         <p id="loadingText" class="text-on-dim text-sm">Думаю...</p>
       </div>
     </div>

@@ -241,7 +241,7 @@ body.welcome #inputArea{display:none!important}
   <div id="sidebarOverlay" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-black/60 z-30 hidden lg:hidden" aria-hidden="true"></div>
 
   <!-- Chat -->
-  <section id="chatContainer" class="flex-1 pt-20 pb-4 px-4 md:px-8 max-w-4xl mx-auto w-full flex flex-col gap-5 overflow-y-auto" style="padding-bottom:160px"></section>
+  <section id="chatContainer" class="flex-1 pt-20 pb-4 px-4 md:px-8 max-w-4xl mx-auto w-full flex flex-col gap-5 overflow-y-auto" style="padding-bottom:160px" role="log" aria-live="polite" aria-label="История сообщений чата"></section>
 
   <!-- Input -->
   <div id="inputArea" class="fixed bottom-0 right-0 left-0 lg:left-[272px] p-4 bg-gradient-to-t from-background via-background/95 to-transparent">
@@ -270,14 +270,14 @@ body.welcome #inputArea{display:none!important}
         <div class="relative flex items-center bg-surface2 rounded-2xl pl-5 pr-2 py-2 shadow-2xl border border-outline/10" style="border-color:rgba(74,63,47,0.15)">
           <textarea id="messageInput" rows="1"
             class="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface placeholder:text-on-surface-dim/50 text-sm font-body py-2 px-2 resize-none overflow-y-auto max-h-32 leading-5"
-            placeholder="Напишите сообщение…"></textarea>
+            placeholder="Напишите сообщение…" aria-label="Сообщение"></textarea>
           <div class="flex items-center gap-1 pb-1">
             <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf,.txt,.doc,.docx" multiple/>
-            <button onclick="document.getElementById('fileInput').click()" class="p-2 text-on-surface-dim hover:text-primary transition rounded-lg">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px"><path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/></svg>
+            <button onclick="document.getElementById('fileInput').click()" class="p-2 text-on-surface-dim hover:text-primary transition rounded-lg" aria-label="Прикрепить файл">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px" aria-hidden="true"><path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/></svg>
             </button>
-            <button id="sendBtn" class="w-10 h-10 rounded-xl sig flex items-center justify-center text-[#1e1a14] shadow-lg hover:scale-105 active:scale-95 transition-all">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            <button id="sendBtn" class="w-10 h-10 rounded-xl sig flex items-center justify-center text-[#1e1a14] shadow-lg hover:scale-105 active:scale-95 transition-all" aria-label="Отправить сообщение">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
             </button>
           </div>
         </div>
@@ -300,10 +300,10 @@ body.welcome #inputArea{display:none!important}
 <!-- ══ MODALS ════════════════════════════════════════════════════════════════ -->
 
 <!-- Login -->
-<div id="loginModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+<div id="loginModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="loginModalTitle">
   <div class="bg-surface rounded-2xl p-7 w-full max-w-md shadow-2xl border border-outline/25 mx-4">
     <div class="flex items-center justify-between mb-5">
-      <h2 class="text-xl font-bold font-headline">Войти</h2>
+      <h2 class="text-xl font-bold font-headline" id="loginModalTitle">Войти</h2>
       <button onclick="closeM('loginModal')" class="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center hover:bg-surface3 transition"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
     </div>
     <div class="space-y-3">
@@ -335,10 +335,10 @@ body.welcome #inputArea{display:none!important}
 </div>
 
 <!-- Register -->
-<div id="registerModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+<div id="registerModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="registerModalTitle">
   <div class="bg-surface rounded-2xl p-7 w-full max-w-md shadow-2xl border border-outline/25 mx-4 max-h-[95vh] overflow-y-auto">
     <div class="flex items-center justify-between mb-5">
-      <h2 class="text-xl font-bold font-headline">Создать аккаунт</h2>
+      <h2 class="text-xl font-bold font-headline" id="registerModalTitle">Создать аккаунт</h2>
       <button onclick="closeM('registerModal')" class="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center hover:bg-surface3 transition"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
     </div>
     <div class="space-y-3">
@@ -385,10 +385,10 @@ body.welcome #inputArea{display:none!important}
 </div>
 
 <!-- Terms Modal -->
-<div id="termsModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+<div id="termsModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="termsModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-2xl shadow-2xl border border-outline/25 mx-4 max-h-[90vh] flex flex-col">
     <div class="flex items-center justify-between px-7 py-5 border-b border-outline/20">
-      <h2 class="text-lg font-bold font-headline">Пользовательское соглашение (Оферта)</h2>
+      <h2 class="text-lg font-bold font-headline" id="termsModalTitle">Пользовательское соглашение (Оферта)</h2>
       <button onclick="closeM('termsModal')" class="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center hover:bg-surface3 transition"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px;color:#f0e6d8"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
     </div>
     <div class="px-7 py-5 overflow-y-auto flex-1 text-sm leading-relaxed space-y-5 text-on-surface-dim">
@@ -437,12 +437,12 @@ body.welcome #inputArea{display:none!important}
 </div>
 
 <!-- Verify Email -->
-<div id="verifyModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+<div id="verifyModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="verifyModalTitle">
   <div class="bg-surface rounded-2xl p-7 w-full max-w-md shadow-2xl border border-outline/25 mx-4 text-center">
     <div class="w-14 h-14 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-2xl"><path d="M12 19c0 .34.03.67.08 1H3c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h18c1.1 0 2 .9 2 2v7.1c-.31-.06-.66-.1-1-.1s-.69.04-1 .1V8l-8 5-8-5v10h9zm1-13L3 4v2l9 5.5L21 6V4l-8 2zm7 7l-5 5 2 2 3-3 5-5-1.4-1.4-3.6 2.4z"/></svg>
     </div>
-    <h2 class="text-xl font-bold font-headline mb-2">Подтвердите email</h2>
+    <h2 class="text-xl font-bold font-headline mb-2" id="verifyModalTitle">Подтвердите email</h2>
     <p class="text-sm text-on-surface-dim mb-1">Код отправлен на</p>
     <p class="text-primary font-semibold mb-5" id="verifyEmailDisplay">—</p>
     <div class="flex gap-2 justify-center mb-4">
@@ -461,10 +461,10 @@ body.welcome #inputArea{display:none!important}
 </div>
 
 <!-- Forgot Password -->
-<div id="forgotModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+<div id="forgotModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="forgotModalTitle">
   <div class="bg-surface rounded-2xl p-7 w-full max-w-md shadow-2xl border border-outline/25 mx-4">
     <div class="flex items-center justify-between mb-5">
-      <h2 class="text-xl font-bold font-headline">Сброс пароля</h2>
+      <h2 class="text-xl font-bold font-headline" id="forgotModalTitle">Сброс пароля</h2>
       <button onclick="closeM('forgotModal')" class="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center hover:bg-surface3 transition"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
     </div>
     <div id="forgot_step1">
@@ -491,7 +491,7 @@ body.welcome #inputArea{display:none!important}
 </div>
 
 <!-- Cabinet -->
-<div id="cabinetModal" class="fixed inset-0 overlay flex items-start justify-center z-50 hidden overflow-y-auto py-6">
+<div id="cabinetModal" class="fixed inset-0 overlay flex items-start justify-center z-50 hidden overflow-y-auto py-6" role="dialog" aria-modal="true" aria-labelledby="cabName">
   <div class="bg-surface rounded-2xl w-full max-w-2xl shadow-2xl border border-outline/25 overflow-hidden mx-4">
     <div class="relative sig p-6">
       <button onclick="closeM('cabinetModal')" class="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/20 flex items-center justify-center hover:bg-black/35 transition">
@@ -523,9 +523,9 @@ body.welcome #inputArea{display:none!important}
 </div>
 
 <!-- Rename -->
-<div id="renameModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+<div id="renameModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="renameModalTitle">
   <div class="bg-surface rounded-xl p-6 w-96 shadow-2xl border border-outline/25 mx-4">
-    <h2 class="text-lg font-semibold mb-4 font-headline">Переименовать чат</h2>
+    <h2 class="text-lg font-semibold mb-4 font-headline" id="renameModalTitle">Переименовать чат</h2>
     <input id="renameInput" type="text" class="inp mb-4" onkeydown="if(event.key==='Enter')document.getElementById('confirmRename').click()"/>
     <div class="flex justify-end gap-3">
       <button onclick="closeM('renameModal')" class="btn-g">Отмена</button>
@@ -535,7 +535,7 @@ body.welcome #inputArea{display:none!important}
 </div>
 
 <!-- Solutions Modal -->
-<div id="solutionsModal" class="fixed inset-0 overlay flex items-start justify-center z-50 hidden overflow-y-auto py-6">
+<div id="solutionsModal" class="fixed inset-0 overlay flex items-start justify-center z-50 hidden overflow-y-auto py-6" role="dialog" aria-modal="true" aria-labelledby="solsTitle">
   <div class="bg-surface rounded-2xl w-full max-w-3xl mx-4 border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-6 py-4 flex items-center justify-between">
       <div>
@@ -553,7 +553,7 @@ body.welcome #inputArea{display:none!important}
 </div>
 
 <!-- Run Modal -->
-<div id="runModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+<div id="runModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="runTitle">
   <div class="bg-surface rounded-2xl w-full max-w-lg mx-4 border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-5 py-4 flex items-center justify-between">
       <div>
@@ -2777,10 +2777,10 @@ async function _launchSolutionChain(id,title,stepsCount){
 </script>
 
 <!-- FAQ Modal -->
-<div id="faqModal" class="fixed inset-0 overlay flex items-start justify-center z-50 hidden overflow-y-auto py-6">
+<div id="faqModal" class="fixed inset-0 overlay flex items-start justify-center z-50 hidden overflow-y-auto py-6" role="dialog" aria-modal="true" aria-labelledby="faqModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-xl mx-4 border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-5 py-4 flex items-center justify-between">
-      <h2 class="text-lg font-bold font-headline text-[#1e1a14]">Частые вопросы и поддержка</h2>
+      <h2 class="text-lg font-bold font-headline text-[#1e1a14]" id="faqModalTitle">Частые вопросы и поддержка</h2>
       <button onclick="closeM('faqModal')" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button>
@@ -2792,7 +2792,7 @@ async function _launchSolutionChain(id,title,stepsCount){
 </div>
 
 <!-- Prompt Editor Modal -->
-<div id="promptEditorModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden">
+<div id="promptEditorModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="promptEditorTitle">
   <div class="bg-surface rounded-2xl w-full max-w-lg mx-4 border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-5 py-4 flex items-center justify-between">
       <div>

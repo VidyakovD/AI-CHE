@@ -59,7 +59,7 @@ class VerifyToken(Base):
     __tablename__ = "verify_tokens"
 
     id         = Column(Integer, primary_key=True, index=True)
-    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token      = Column(String, unique=True, index=True, nullable=False)
     purpose    = Column(String, nullable=False)   # "verify_email" | "reset_password"
     used       = Column(Boolean, default=False)
@@ -84,11 +84,26 @@ class OAuthState(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class PricingConfig(Base):
+    """
+    Динамические цены, изменяемые через админку без редеплоя.
+    Ключи: site.standard, site.premium, site.iter, site.spec
+    Значения в копейках.
+    """
+    __tablename__ = "pricing_config"
+
+    key        = Column(String, primary_key=True)         # "site.standard"
+    value_kop  = Column(Integer, nullable=False)
+    label      = Column(String, nullable=True)            # "Создание сайта (Sonnet)"
+    updated_at = Column(DateTime, default=datetime.utcnow,
+                        onupdate=datetime.utcnow)
+
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
 
     id                 = Column(Integer, primary_key=True, index=True)
-    user_id            = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id            = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     plan               = Column(String, nullable=False)
     tokens_total       = Column(Integer, nullable=False)
     tokens_used        = Column(Integer, default=0)
@@ -106,7 +121,7 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id                  = Column(Integer, primary_key=True, index=True)
-    user_id             = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id             = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     type                = Column(String, nullable=False)      # payment / usage / refund / bonus
     amount_rub          = Column(Float, nullable=True)
     tokens_delta        = Column(Integer, nullable=False)
@@ -123,7 +138,7 @@ class Message(Base):
     __tablename__ = "messages"
 
     id          = Column(Integer, primary_key=True, index=True)
-    user_id     = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     chat_id     = Column(String, index=True)
     role        = Column(String)
     content     = Column(Text)
@@ -191,7 +206,7 @@ class SolutionRun(Base):
     __tablename__ = "solution_runs"
 
     id           = Column(Integer, primary_key=True, index=True)
-    user_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     solution_id  = Column(Integer, ForeignKey("solutions.id"), nullable=False)
     chat_id      = Column(String, nullable=False)           # чат куда пишем результаты
     current_step = Column(Integer, default=0)
@@ -252,7 +267,7 @@ class UsageLog(Base):
     __tablename__ = "usage_logs"
 
     id           = Column(Integer, primary_key=True, index=True)
-    user_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     model        = Column(String, nullable=False, index=True)
     input_tokens = Column(Integer, default=0)
     output_tokens= Column(Integer, default=0)
@@ -339,7 +354,7 @@ class SupportRequest(Base):
     __tablename__ = "support_requests"
 
     id            = Column(Integer, primary_key=True, index=True)
-    user_id       = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     type          = Column(String, nullable=False)       # refund / delete_data / complaint
     description   = Column(Text, nullable=True)
     status        = Column(String, default="open")       # open / resolved / rejected
@@ -354,7 +369,7 @@ class SiteProject(Base):
     __tablename__ = "site_projects"
 
     id           = Column(Integer, primary_key=True, index=True)
-    user_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     name         = Column(String, nullable=False)
     status       = Column(String, default="draft")   # draft / has_spec / has_code / done
     spec_text    = Column(Text, nullable=True)
@@ -400,7 +415,7 @@ class PresentationProject(Base):
     __tablename__ = "presentation_projects"
 
     id                = Column(Integer, primary_key=True, index=True)
-    user_id           = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id           = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     name              = Column(String, nullable=False)
     template_id       = Column(Integer, nullable=True)
     input_data        = Column(Text, nullable=True)          # JSON введённых данных
@@ -438,7 +453,7 @@ class CompanyProfile(Base):
     __tablename__ = "company_profiles"
 
     id            = Column(Integer, primary_key=True, index=True)
-    user_id       = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     company_name  = Column(String, nullable=True)
     description   = Column(Text, nullable=True)      # Чем занимается компания
     services      = Column(Text, nullable=True)       # Услуги/товары
@@ -458,7 +473,7 @@ class AgentConfig(Base):
     __tablename__ = "agent_configs"
 
     id            = Column(Integer, primary_key=True, index=True)
-    user_id       = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name          = Column(String, default="Мой агент")
     enabled_blocks= Column(Text, nullable=True)   # JSON: список включённых блоков
     channels      = Column(Text, nullable=True)   # JSON: {tg_token, tg_chat_id, discord_token, ...}
@@ -506,7 +521,7 @@ class AdminAuditLog(Base):
     __tablename__ = "admin_audit_log"
 
     id         = Column(Integer, primary_key=True, index=True)
-    admin_id   = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    admin_id   = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     action     = Column(String, nullable=False, index=True)   # напр. "adjust_balance"
     target_type= Column(String, nullable=True)                # "user" | "apikey" | "promo" | ...
     target_id  = Column(String, nullable=True)                # id объекта (строка чтобы поддержать любые)
@@ -520,7 +535,7 @@ class ImapCredential(Base):
     __tablename__ = "imap_credentials"
 
     id         = Column(Integer, primary_key=True)
-    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     label      = Column(String, default="Main")
     host       = Column(String, nullable=False)      # imap.yandex.ru
     port       = Column(Integer, default=993)
@@ -556,7 +571,7 @@ class ActionLog(Base):
 
     id          = Column(Integer, primary_key=True, index=True)
     ts          = Column(DateTime, default=datetime.utcnow, index=True)
-    user_id     = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True)
     action      = Column(String, index=True, nullable=False)         # «site.generate_done»
     target_type = Column(String, nullable=True, index=True)           # «site_project» / «bot» / «payment»
     target_id   = Column(String, nullable=True)                       # str чтобы поддержать любые
@@ -588,7 +603,7 @@ class BotRecord(Base):
 
     id              = Column(Integer, primary_key=True, index=True)
     bot_id          = Column(Integer, ForeignKey("chatbots.id"), index=True, nullable=False)
-    user_id         = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True)
     chat_id         = Column(String, index=True, nullable=True)   # с какого чата пришло
     record_type     = Column(String, nullable=False, index=True)
     customer_name   = Column(String, nullable=True)
@@ -626,7 +641,7 @@ class ChatBot(Base):
     __tablename__ = "chatbots"
 
     id              = Column(Integer, primary_key=True, index=True)
-    user_id         = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name            = Column(String, default="Мой бот")
     model           = Column(String, default="gpt")
     system_prompt   = Column(Text, nullable=True)
@@ -677,7 +692,7 @@ class UserApiKey(Base):
     __tablename__ = "user_api_keys"
 
     id         = Column(Integer, primary_key=True, index=True)
-    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     provider   = Column(String, nullable=False)   # openai | anthropic | gemini | grok
     api_key    = Column(String, nullable=False)   # ключ пользователя
     label      = Column(String, nullable=True)    # название (необязательно)

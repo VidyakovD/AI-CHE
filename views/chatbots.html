@@ -60,11 +60,11 @@ select.inp option{background:#272018;color:#f0e6d8}
   </div>
 
   <!-- ── Chooser: 3 пути создания бота ── -->
-  <div id="createChooserModal" class="modal-bg">
+  <div id="createChooserModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="createChooserTitle">
     <div class="bg-surface rounded-2xl w-full max-w-3xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
       <div class="sig px-6 py-4 flex items-center justify-between">
         <div>
-          <h2 class="font-headline font-bold text-[#1e1a14] text-lg">Создание бота</h2>
+          <h2 class="font-headline font-bold text-[#1e1a14] text-lg" id="createChooserTitle">Создание бота</h2>
           <p class="text-[11px] text-[#1e1a14]/70 mt-0.5">Выберите способ — каждый занимает 5–10 минут</p>
         </div>
         <button onclick="closeCreateChooser()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
@@ -93,11 +93,11 @@ select.inp option{background:#272018;color:#f0e6d8}
   </div>
 
   <!-- ── Галерея шаблонов ── -->
-  <div id="templatesModal" class="modal-bg">
+  <div id="templatesModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="templatesModalTitle">
     <div class="bg-surface rounded-2xl w-full max-w-5xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
       <div class="sig px-6 py-4 flex items-center justify-between">
         <div>
-          <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2"><span data-i="clipboard"></span> Шаблоны бизнес-ботов</h2>
+          <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="templatesModalTitle"><span data-i="clipboard" aria-hidden="true"></span> Шаблоны бизнес-ботов</h2>
           <p class="text-[11px] text-[#1e1a14]/70 mt-0.5">Готовые сценарии под популярные задачи. Нажмите на карточку — заполните данные — запустите.</p>
         </div>
         <button onclick="closeTemplates()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
@@ -109,7 +109,7 @@ select.inp option{background:#272018;color:#f0e6d8}
   </div>
 
   <!-- ── Шаг подстановки данных шаблона ── -->
-  <div id="templateSetupModal" class="modal-bg">
+  <div id="templateSetupModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="tplSetupTitle">
     <div class="bg-surface rounded-2xl w-full max-w-2xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
       <div class="sig px-6 py-4 flex items-center justify-between">
         <div>
@@ -142,10 +142,10 @@ select.inp option{background:#272018;color:#f0e6d8}
   </div>
 
   <!-- ── AI Constructor Modal ── -->
-  <div id="aiCreateModal" class="modal-bg">
+  <div id="aiCreateModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="aiCreateModalTitle">
     <div class="bg-surface rounded-2xl w-full max-w-xl border border-outline/25 shadow-2xl overflow-hidden">
       <div class="sig px-6 py-4 flex items-center justify-between">
-        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2"><span class="icn" data-i="wand"></span> AI-конструктор бота</h2>
+        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="aiCreateModalTitle"><span class="icn" data-i="wand" aria-hidden="true"></span> AI-конструктор бота</h2>
         <button onclick="closeAiCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
       </div>
       <div class="p-6 space-y-4">
@@ -197,7 +197,7 @@ select.inp option{background:#272018;color:#f0e6d8}
 </div>
 
 <!-- ── Create/Edit Modal ── -->
-<div id="createModal" class="modal-bg">
+<div id="createModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-2xl border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-6 py-4 flex items-center justify-between">
       <h2 class="font-headline font-bold text-[#1e1a14] text-lg" id="modalTitle">Новый чат-бот</h2>
@@ -327,10 +327,10 @@ select.inp option{background:#272018;color:#f0e6d8}
 </div>
 
 <!-- ── Summary Modal ── -->
-<div id="summaryModal" class="modal-bg">
+<div id="summaryModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="summaryModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-lg border border-outline/25 shadow-2xl mx-4">
     <div class="sig px-5 py-4 flex items-center justify-between rounded-t-2xl">
-      <h3 class="font-headline font-bold text-[#1e1a14]">Пересказ диалогов</h3>
+      <h3 class="font-headline font-bold text-[#1e1a14]" id="summaryModalTitle">Пересказ диалогов</h3>
       <button onclick="closeSummary()" class="text-[#1e1a14] text-xl bg-black/10 w-7 h-7 rounded-full flex items-center justify-center">✕</button>
     </div>
     <div class="p-5">
@@ -340,11 +340,11 @@ select.inp option{background:#272018;color:#f0e6d8}
 </div>
 
 <!-- ── Доработать через AI: френдли-мостик к workflow ── -->
-<div id="aiImproveModal" class="modal-bg">
+<div id="aiImproveModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="aiImproveModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
     <div class="sig px-6 py-4 flex items-center justify-between">
       <div>
-        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2"><span data-i="sparkle"></span> Доработать через AI</h2>
+        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="aiImproveModalTitle"><span data-i="sparkle" aria-hidden="true"></span> Доработать через AI</h2>
         <p id="aiImproveBotName" class="text-[11px] text-[#1e1a14]/70 mt-0.5">—</p>
       </div>
       <button onclick="closeAiImprove()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
@@ -369,11 +369,11 @@ select.inp option{background:#272018;color:#f0e6d8}
 </div>
 
 <!-- ── Аналитика бота ── -->
-<div id="analyticsModal" class="modal-bg">
+<div id="analyticsModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="analyticsModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-3xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
     <div class="sig px-6 py-4 flex items-center justify-between">
       <div>
-        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2"><span data-i="chart"></span> Аналитика бота</h2>
+        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="analyticsModalTitle"><span data-i="chart" aria-hidden="true"></span> Аналитика бота</h2>
         <p id="analyticsBotName" class="text-[11px] text-[#1e1a14]/70 mt-0.5">—</p>
       </div>
       <button onclick="closeAnalytics()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
@@ -391,11 +391,11 @@ select.inp option{background:#272018;color:#f0e6d8}
 </div>
 
 <!-- ── Превью диалога: «песочница» проверить бота до запуска ── -->
-<div id="previewModal" class="modal-bg">
+<div id="previewModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="previewModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-lg border border-outline/25 shadow-2xl overflow-hidden mx-4 flex flex-col" style="max-height:85vh">
     <div class="sig px-5 py-3 flex items-center justify-between flex-shrink-0">
       <div>
-        <h3 class="font-headline font-bold text-[#1e1a14] flex items-center gap-2"><span data-i="chat"></span> Превью диалога</h3>
+        <h3 class="font-headline font-bold text-[#1e1a14] flex items-center gap-2" id="previewModalTitle"><span data-i="chat" aria-hidden="true"></span> Превью диалога</h3>
         <p id="previewBotName" class="text-[11px] text-[#1e1a14]/70 mt-0.5">—</p>
       </div>
       <div class="flex items-center gap-2">
@@ -403,23 +403,23 @@ select.inp option{background:#272018;color:#f0e6d8}
         <button onclick="closePreview()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]">✕</button>
       </div>
     </div>
-    <div id="previewMsgs" class="flex-1 overflow-y-auto p-4 space-y-3 bg-surface2/30">
+    <div id="previewMsgs" class="flex-1 overflow-y-auto p-4 space-y-3 bg-surface2/30" role="log" aria-live="polite" aria-label="Диалог превью">
       <p class="text-xs text-on-dim text-center">Напишите боту — увидите как он ответит. Это песочница, ничего не списывается, заявки не сохраняются.</p>
     </div>
     <div class="p-3 border-t border-outline/15 flex gap-2 flex-shrink-0">
-      <input id="previewInput" type="text" class="inp text-sm flex-1" placeholder="Напишите сообщение…" onkeydown="if(event.key==='Enter')sendPreview()"/>
+      <input id="previewInput" type="text" class="inp text-sm flex-1" placeholder="Напишите сообщение…" onkeydown="if(event.key==='Enter')sendPreview()" aria-label="Сообщение превью"/>
       <button onclick="sendPreview()" class="btn-p px-4 inline-flex items-center gap-1.5"><span data-i="play"></span>Отправить</button>
     </div>
   </div>
 </div>
 
 <!-- ── Записи бота: заявки, брони, заказы, опросы ── -->
-<div id="recordsModal" class="modal-bg">
+<div id="recordsModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="recordsModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-4xl border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-6 py-4 flex items-center justify-between">
       <div>
-        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2">
-          <span data-i="clipboard"></span> Записи бота
+        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="recordsModalTitle">
+          <span data-i="clipboard" aria-hidden="true"></span> Записи бота
         </h2>
         <p class="text-[11px] text-[#1e1a14]/70 mt-0.5" id="recordsBotName">—</p>
       </div>

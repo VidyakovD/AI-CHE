@@ -223,11 +223,11 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         </div>
 
         <!-- AI Builder Modal -->
-        <div id="wfcAiModal" class="hidden fixed inset-0 z-50" style="background:rgba(0,0,0,.7);backdrop-filter:blur(6px)" onclick="if(event.target===this)wfcCloseAiBuilder()">
+        <div id="wfcAiModal" class="hidden fixed inset-0 z-50" style="background:rgba(0,0,0,.7);backdrop-filter:blur(6px)" onclick="if(event.target===this)wfcCloseAiBuilder()" role="dialog" aria-modal="true" aria-labelledby="wfcAiModalTitle">
           <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-2xl border border-outline/25 shadow-2xl w-full max-w-xl mx-4 overflow-hidden">
             <div class="sig px-5 py-3 flex items-center justify-between">
-              <h3 class="font-bold text-[#1e1a14] font-headline text-sm">✨ ИИ-помощник: собрать воркфлоу</h3>
-              <button onclick="wfcCloseAiBuilder()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]">✕</button>
+              <h3 class="font-bold text-[#1e1a14] font-headline text-sm" id="wfcAiModalTitle">✨ ИИ-помощник: собрать воркфлоу</h3>
+              <button onclick="wfcCloseAiBuilder()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]" aria-label="Закрыть">✕</button>
             </div>
             <div class="p-5 space-y-3">
               <p class="text-xs text-on-dim">Опишите задачу простым языком — ИИ выберет нужные блоки, соединит их и подставит промпты. Стоимость: ~5–30 ₽ (по реальным токенам Claude).</p>
@@ -251,11 +251,11 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <input type="file" id="wfcImportFile" accept=".json,application/json" style="display:none" onchange="wfcImportJSONFile(event)"/>
 
         <!-- Templates modal -->
-        <div id="wfcTemplatesModal" class="hidden fixed inset-0 z-50" style="background:rgba(0,0,0,.7);backdrop-filter:blur(6px)" onclick="if(event.target===this)wfcCloseTemplates()">
+        <div id="wfcTemplatesModal" class="hidden fixed inset-0 z-50" style="background:rgba(0,0,0,.7);backdrop-filter:blur(6px)" onclick="if(event.target===this)wfcCloseTemplates()" role="dialog" aria-modal="true" aria-labelledby="wfcTemplatesModalTitle">
           <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-2xl border border-outline/25 shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
             <div class="sig px-5 py-3 flex items-center justify-between">
-              <h3 class="font-bold text-[#1e1a14] font-headline text-sm">📋 Мои шаблоны</h3>
-              <button onclick="wfcCloseTemplates()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]">✕</button>
+              <h3 class="font-bold text-[#1e1a14] font-headline text-sm" id="wfcTemplatesModalTitle">📋 Мои шаблоны</h3>
+              <button onclick="wfcCloseTemplates()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]" aria-label="Закрыть">✕</button>
             </div>
             <div class="p-4 space-y-2 max-h-[60vh] overflow-y-auto" id="wfcTemplatesList"></div>
             <div class="p-4 border-t border-outline/15 flex gap-2">
@@ -280,9 +280,9 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <div id="wfcNodes" style="position:absolute;top:0;left:0;transform-origin:0 0"></div>
           <!-- Zoom controls -->
           <div style="position:absolute;bottom:12px;right:12px;display:flex;align-items:center;gap:6px;z-index:20">
-            <button onclick="wfcZoom(-0.12)" class="btn-g text-sm py-0.5 px-2.5">−</button>
+            <button onclick="wfcZoom(-0.12)" class="btn-g text-sm py-0.5 px-2.5" aria-label="Уменьшить масштаб">−</button>
             <span id="wfcZoomLbl" class="text-xs text-on-dim w-10 text-center">100%</span>
-            <button onclick="wfcZoom(0.12)" class="btn-g text-sm py-0.5 px-2.5">+</button>
+            <button onclick="wfcZoom(0.12)" class="btn-g text-sm py-0.5 px-2.5" aria-label="Увеличить масштаб">+</button>
             <button onclick="wfcFit()" class="btn-g text-xs py-0.5 px-2.5">Fit</button>
           </div>
           <!-- Hint -->
@@ -403,25 +403,25 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <!-- ═══════════════════════════════════════════════════════════
      LAUNCH MODAL (быстрый запуск из библиотеки)
 ════════════════════════════════════════════════════════════ -->
-<div id="launchModal" class="modal-bg">
+<div id="launchModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="launchName">
 <div class="wiz-box my-auto max-w-lg w-full">
   <div class="px-6 pt-5 pb-4 border-b border-outline/15 flex items-center justify-between">
     <div class="flex items-center gap-3">
-      <div class="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center" id="launchIcon"></div>
+      <div class="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center" id="launchIcon" aria-hidden="true"></div>
       <div>
         <p class="font-headline font-bold" id="launchName">Агент</p>
         <p class="text-xs text-on-dim" id="launchCat"></p>
       </div>
     </div>
-    <button onclick="closeLaunchModal()" class="text-on-dim hover:text-primary transition">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+    <button onclick="closeLaunchModal()" class="text-on-dim hover:text-primary transition" aria-label="Закрыть">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
     </button>
   </div>
   <div class="p-6 space-y-4">
     <div>
       <label class="block text-xs text-on-dim mb-2">Задача</label>
       <textarea id="launchGoal" rows="3" class="inp text-sm resize-none" id="launchGoal"
-        placeholder="Опишите что нужно сделать..."></textarea>
+        placeholder="Опишите что нужно сделать..." aria-label="Задача"></textarea>
     </div>
     <div>
       <label class="block text-xs text-on-dim mb-2">Режим API</label>
@@ -456,12 +456,12 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <!-- ═══════════════════════════════════════════════════════════
      KEYS MODAL
 ════════════════════════════════════════════════════════════ -->
-<div id="keysModal" class="modal-bg">
+<div id="keysModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="keysModalTitle">
 <div class="wiz-box my-auto max-w-lg w-full">
   <div class="px-6 pt-5 pb-4 border-b border-outline/15 flex items-center justify-between">
-    <p class="font-headline font-bold">Мои API ключи</p>
-    <button onclick="closeKeysModal()" class="text-on-dim hover:text-primary transition">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+    <p class="font-headline font-bold" id="keysModalTitle">Мои API ключи</p>
+    <button onclick="closeKeysModal()" class="text-on-dim hover:text-primary transition" aria-label="Закрыть">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
     </button>
   </div>
   <div class="p-6 space-y-4">
@@ -475,8 +475,8 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <option value="gemini">Google (Gemini)</option>
         <option value="grok">xAI (Grok)</option>
       </select>
-      <input id="newKeyValue" type="password" class="inp text-sm" placeholder="sk-ant-... / sk-... / AIza..."/>
-      <input id="newKeyLabel" type="text" class="inp text-sm" placeholder="Название (необязательно)"/>
+      <input id="newKeyValue" type="password" class="inp text-sm" placeholder="sk-ant-... / sk-... / AIza..." aria-label="API ключ"/>
+      <input id="newKeyLabel" type="text" class="inp text-sm" placeholder="Название (необязательно)" aria-label="Название ключа"/>
       <button onclick="addUserKey()" class="btn-p text-sm">Сохранить ключ</button>
       <p id="keysError" class="text-error text-xs hidden"></p>
     </div>
@@ -487,26 +487,26 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <!-- ═══════════════════════════════════════════════════════════
      TEST-AGENT MODAL (разовый запуск из «Мои агенты»)
 ════════════════════════════════════════════════════════════ -->
-<div id="testAgentModal" class="hidden fixed inset-0 z-50" style="background:rgba(0,0,0,.7);backdrop-filter:blur(6px)" onclick="if(event.target===this)closeTestModal()">
+<div id="testAgentModal" class="hidden fixed inset-0 z-50" style="background:rgba(0,0,0,.7);backdrop-filter:blur(6px)" onclick="if(event.target===this)closeTestModal()" role="dialog" aria-modal="true" aria-labelledby="testAgentTitle">
   <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-2xl border border-outline/25 shadow-2xl w-full max-w-xl mx-4 overflow-hidden">
     <div class="sig px-5 py-3 flex items-center justify-between">
       <div>
         <h3 class="font-bold text-[#1e1a14] font-headline text-sm" id="testAgentTitle">Тест агента</h3>
         <p class="text-[10px] text-[#1e1a14]/70 mt-0.5">Разовый запуск без создания TG-бота. Результат тут же в окне.</p>
       </div>
-      <button onclick="closeTestModal()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]">✕</button>
+      <button onclick="closeTestModal()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5 space-y-3">
       <div>
         <label class="block text-xs text-on-dim mb-1.5">Задача для агента</label>
-        <textarea id="testAgentGoal" rows="3" class="inp text-sm resize-none" placeholder="Напр: составь коммерческое предложение для ООО «Ромашка»"></textarea>
+        <textarea id="testAgentGoal" rows="3" class="inp text-sm resize-none" placeholder="Напр: составь коммерческое предложение для ООО «Ромашка»" aria-label="Задача для агента"></textarea>
       </div>
       <div class="flex gap-2">
         <button onclick="runTestAgent()" class="btn-p flex-1" id="testAgentRunBtn">▶ Запустить</button>
         <button onclick="closeTestModal()" class="btn-g">Отмена</button>
       </div>
-      <div id="testAgentStatus" class="hidden text-xs text-on-dim flex items-center gap-2 pt-2 border-t border-outline/15">
-        <span class="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></span>
+      <div id="testAgentStatus" class="hidden text-xs text-on-dim flex items-center gap-2 pt-2 border-t border-outline/15" role="status" aria-live="polite">
+        <span class="inline-block w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" aria-hidden="true"></span>
         <span id="testAgentStatusText">Запускаю…</span>
       </div>
       <div id="testAgentResult" class="hidden max-h-80 overflow-y-auto bg-surface2 rounded-xl p-3 border border-outline/15 text-sm whitespace-pre-wrap"></div>
@@ -517,7 +517,7 @@ body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <!-- ═══════════════════════════════════════════════════════════
      WIZARD MODAL  (4 steps)
 ════════════════════════════════════════════════════════════ -->
-<div id="wizardModal" class="modal-bg">
+<div id="wizardModal" class="modal-bg" role="dialog" aria-modal="true" aria-label="Создание агента">
 <div class="wiz-box my-auto">
 
   <!-- Step indicator -->

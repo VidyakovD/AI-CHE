@@ -19,33 +19,68 @@ router = APIRouter(tags=["sites"])
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-# Цены в КОПЕЙКАХ (1 ₽ = 100 коп)
+# Цены теперь динамические — берутся из БД через server.pricing.get_price().
+# DEFAULTS остаются для:
+#   - first-deploy seed (server.pricing.DEFAULTS)
+#   - fallback если запрос к БД упал
+# Менять цены живьём — через /admin/pricing (UI + API).
+from server.pricing import get_price as _get_price
+
 SPEC_CONVERSATION_CH_COST = 0    # бесплатное обсуждение ТЗ — заложено в фикс цену сайта
-SITE_CREATE_FIX_COST    = 150_000  # 1500 ₽ за создание сайта (фикс) — стандарт через Sonnet
-CODE_GEN_CH_COST        = SITE_CREATE_FIX_COST  # legacy alias — первая генерация = фикс
-CODE_GEN_PREMIUM_COST   = 199_000  # 1990 ₽ — премиум через Opus 4 (себест ~540₽, маржа 3.7×)
-CODE_ITER_CH_COST       = 500    # доработки 5 ₽ за итерацию (по факту изменения)
 
 
-# Конфиг tier'ов: какой модельный id, max_tokens, сколько auto-continue попыток.
-# Premium даёт больше «бюджета» на генерацию — Opus умеет делать длинный
-# проработанный HTML, поэтому больше turns + больше max_tokens.
-SITE_QUALITY_TIERS = {
-    "standard": {
-        "model": "claude",            # → claude-sonnet-4-6
-        "max_tokens": 16000,
-        "max_continues": 3,
-        "cost": SITE_CREATE_FIX_COST,
-        "label": "Стандарт (Sonnet)",
-    },
-    "premium": {
-        "model": "claude-opus",        # → claude-opus-4-1
-        "max_tokens": 16000,           # Opus стабильно держит 16k без беты
-        "max_continues": 6,            # 6×16k = 96k токенов на самые длинные сайты
-        "cost": CODE_GEN_PREMIUM_COST,
-        "label": "Премиум (Opus)",
-    },
-}
+def _site_tier_config():
+    """Свежий конфиг tier'ов с актуальными ценами из БД."""
+    return {
+        "standard": {
+            "model": "claude",
+            "max_tokens": 16000,
+            "max_continues": 3,
+            "cost": _get_price("site.standard", default=150_000),
+            "label": "Стандарт (Sonnet)",
+        },
+        "premium": {
+            "model": "claude-opus",
+            "max_tokens": 16000,
+            "max_continues": 6,
+            "cost": _get_price("site.premium", default=199_000),
+            "label": "Премиум (Opus)",
+        },
+    }
+
+
+# Динамическое свойство-словарь для back-compat. Каждое обращение
+# (`SITE_QUALITY_TIERS["standard"]`) читает свежий get_price.
+class _DynamicTierMap(dict):
+    def __getitem__(self, k):
+        return _site_tier_config()[k]
+    def get(self, k, default=None):
+        cfg = _site_tier_config()
+        return cfg.get(k, default)
+    def items(self):
+        return _site_tier_config().items()
+    def values(self):
+        return _site_tier_config().values()
+    def keys(self):
+        return _site_tier_config().keys()
+    def __iter__(self):
+        return iter(_site_tier_config())
+    def __contains__(self, k):
+        return k in _site_tier_config()
+
+
+SITE_QUALITY_TIERS = _DynamicTierMap()
+
+# Legacy aliases (где-то могут импортироваться из других модулей)
+def _legacy_const(key, default):
+    return _get_price(key, default=default)
+
+
+# Используются только как fallback в редких местах
+SITE_CREATE_FIX_COST    = 150_000  # legacy alias — get_price('site.standard') предпочтительнее
+CODE_GEN_CH_COST        = 150_000  # legacy alias
+CODE_GEN_PREMIUM_COST   = 199_000  # legacy alias
+CODE_ITER_CH_COST       = 500      # legacy alias
 
 _sites_host_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "uploads", "sites")
 

@@ -135,7 +135,7 @@ select.inp option{background:#272018;color:#f0e6d8}
       <div id="sec-users" class="sec hidden">
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-lg font-bold font-headline">Пользователи</h2>
-          <input id="userSearch" type="text" placeholder="Поиск по email или имени..." class="inp w-64" style="width:256px" oninput="filterUsers()" onkeydown="if(event.key==='Enter')filterUsers()"/>
+          <input id="userSearch" type="text" placeholder="Поиск по email или имени..." class="inp w-64" style="width:256px" oninput="filterUsers()" onkeydown="if(event.key==='Enter')filterUsers()" aria-label="Поиск пользователей"/>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
@@ -371,11 +371,11 @@ select.inp option{background:#272018;color:#f0e6d8}
 </div>
 
 <!-- Solution Modal -->
-<div id="solModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-start justify-center z-50 hidden overflow-y-auto py-5">
+<div id="solModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-start justify-center z-50 hidden overflow-y-auto py-5" role="dialog" aria-modal="true" aria-labelledby="solModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-2xl mx-4 border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-5 py-4 flex items-center justify-between">
       <h3 class="font-headline font-bold text-[#1e1a14]" id="solModalTitle">Новое решение</h3>
-      <button onclick="closeSolModal()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20">
+      <button onclick="closeSolModal()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20" aria-label="Закрыть">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button>
     </div>
@@ -435,9 +435,9 @@ select.inp option{background:#272018;color:#f0e6d8}
 </div>
 
 <!-- Adjust balance modal -->
-<div id="balanceModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+<div id="balanceModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="balanceModalTitle">
   <div class="bg-surface rounded-xl p-6 w-80 border border-outline/25 shadow-2xl mx-4">
-    <h3 class="font-headline font-bold mb-4">Изменить баланс (₽)</h3>
+    <h3 class="font-headline font-bold mb-4" id="balanceModalTitle">Изменить баланс (₽)</h3>
     <p class="text-sm text-on-dim mb-3" id="balModalUser">—</p>
     <input id="balDelta" type="number" step="0.01" placeholder="+100.00 или -50.00 (рубли)" class="inp mb-2"/>
     <input id="balReason" type="text" placeholder="Причина" class="inp mb-3" value="Ручная корректировка"/>

@@ -968,3 +968,44 @@ def admin_create_pres_template(body: dict, user: User = Depends(current_user),
     )
     db.add(t); db.commit(); db.refresh(t)
     return {"id": t.id, "status": "created"}
+
+
+# ── Pricing config: динамические цены сайтов/презентаций ─────────────────────
+# Раньше цены захардкожены в коде (server/routes/sites.py:24). Теперь живут
+# в таблице pricing_config и редактируются через админку без редеплоя.
+
+@router.get("/pricing")
+def admin_list_pricing(user: User = Depends(current_user)):
+    """Полный список цен: ключ + рубли + лейбл + last update."""
+    require_admin(user)
+    from server.pricing import list_all_pricing
+    return list_all_pricing()
+
+
+class PricingUpdateBody(BaseModel):
+    key: str
+    value_kop: int
+    label: str | None = None
+
+
+@router.post("/pricing")
+def admin_update_pricing(body: PricingUpdateBody,
+                          user: User = Depends(current_user)):
+    """Обновить одну цену. Кэш сбрасывается автоматически."""
+    require_admin(user)
+    from server.pricing import update_price, DEFAULTS
+    if body.value_kop < 0:
+        raise HTTPException(400, "Цена не может быть отрицательной")
+    # Защита от опечатки: разрешаем только known-keys (или те что уже в БД)
+    if body.key not in DEFAULTS:
+        from server.pricing import list_all_pricing
+        existing = {p["key"] for p in list_all_pricing()}
+        if body.key not in existing:
+            raise HTTPException(400, f"Неизвестный ключ цены: {body.key}")
+    ok = update_price(body.key, body.value_kop, body.label)
+    if not ok:
+        raise HTTPException(500, "Не удалось обновить")
+    from server.audit_log import log_action
+    log_action("admin.pricing_update", user_id=user.id, target_type="pricing",
+               target_id=body.key, details={"value_kop": body.value_kop})
+    return {"status": "updated", "key": body.key, "value_kop": body.value_kop}
