@@ -185,14 +185,71 @@ select.inp option{background:#272018;color:#f0e6d8}
 
   <div id="botGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
 
-  <div id="emptyState" class="hidden text-center py-12 px-4">
-    <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="#1e1a14"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
+  <!-- Empty state: hero для новых юзеров. Большой, понятный, с тремя путями. -->
+  <div id="emptyState" class="hidden">
+    <div class="bg-gradient-to-br from-primary/10 to-surface2 rounded-3xl p-8 md:p-12 border border-outline/20 mb-6">
+      <div class="max-w-3xl mx-auto text-center">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/15 text-primary text-xs font-medium mb-4">
+          <span data-i="sparkle" aria-hidden="true"></span> Создайте бота за 5 минут
+        </div>
+        <h2 class="text-3xl md:text-4xl font-extrabold font-headline mb-3 leading-tight">
+          Чат-бот, который продаёт пока вы спите
+        </h2>
+        <p class="text-on-dim text-base md:text-lg mb-8 max-w-2xl mx-auto leading-relaxed">
+          Отвечает клиентам в Telegram, VK, MAX и Авито 24/7. Записывает на услуги,
+          собирает заявки, отвечает на вопросы. Без кода, без программистов.
+        </p>
+        <button onclick="openCreateChooser()" class="btn-p text-base px-8 py-3 inline-flex items-center gap-2">
+          <span data-i="plus" aria-hidden="true"></span> Создать первого бота
+        </button>
+      </div>
     </div>
-    <h2 class="text-xl font-bold font-headline mb-2">Ваш первый чат-бот</h2>
-    <p class="text-on-dim text-sm mb-6 max-w-md mx-auto">Бот отвечает клиентам 24/7 в Telegram, VK, Авито или на вашем сайте. Подключение — за 2 минуты, код не нужен.</p>
-    <button onclick="openCreate()" class="btn-p w-full sm:w-auto">+ Создать первого бота</button>
-    <p class="text-xs text-on-dim/60 mt-6 flex items-center justify-center gap-1.5"><span class="icn" data-i="lightbulb"></span> Нужна инструкция? <a href="/docs/connect_bot.md" class="text-primary underline">Как подключить бота</a></p>
+
+    <!-- Три пути под hero — те же что в chooser, но визуально доступные -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-5xl mx-auto">
+      <button onclick="openTemplates()" class="text-left bg-surface2 hover:bg-surface3 rounded-2xl p-6 border border-outline/20 hover:border-primary/40 transition group">
+        <div class="flex items-center justify-between mb-3">
+          <div class="w-12 h-12 rounded-xl sig flex items-center justify-center text-[#1e1a14]"><span data-i="clipboard" aria-hidden="true"></span></div>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-primary/15 text-primary font-medium">Старт</span>
+        </div>
+        <p class="font-bold text-base mb-1.5">6 готовых шаблонов</p>
+        <p class="text-xs text-on-dim leading-relaxed mb-3">Запись на услуги, лидогенерация, FAQ, продажи, квиз, рассылка. Подставите данные — работает.</p>
+        <p class="text-[11px] text-primary font-medium">Бесплатно →</p>
+      </button>
+      <button onclick="openAiCreate()" class="text-left bg-surface2 hover:bg-surface3 rounded-2xl p-6 border border-outline/20 hover:border-primary/40 transition group">
+        <div class="flex items-center justify-between mb-3">
+          <div class="w-12 h-12 rounded-xl sig flex items-center justify-center text-[#1e1a14]"><span data-i="wand" aria-hidden="true"></span></div>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 font-medium">AI</span>
+        </div>
+        <p class="font-bold text-base mb-1.5">AI-конструктор</p>
+        <p class="text-xs text-on-dim leading-relaxed mb-3">Опишите своими словами что нужно — нейросеть сама соберёт сценарий. Любая нестандартная задача.</p>
+        <p class="text-[11px] text-on-dim/70">5–30 ₽ за сборку →</p>
+      </button>
+      <button onclick="openCreate()" class="text-left bg-surface2 hover:bg-surface3 rounded-2xl p-6 border border-outline/20 hover:border-primary/40 transition group">
+        <div class="flex items-center justify-between mb-3">
+          <div class="w-12 h-12 rounded-xl sig flex items-center justify-center text-[#1e1a14]"><span data-i="settings" aria-hidden="true"></span></div>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-on-dim/15 text-on-dim font-medium">Pro</span>
+        </div>
+        <p class="font-bold text-base mb-1.5">Свой сценарий</p>
+        <p class="text-xs text-on-dim leading-relaxed mb-3">Visual-конструктор сценария с нодами и ветвлением. Полная свобода для технических задач.</p>
+        <p class="text-[11px] text-on-dim/70">Бесплатно →</p>
+      </button>
+    </div>
+
+    <!-- Подвал: помощь и ссылки -->
+    <div class="text-center mt-10 pt-8 border-t border-outline/10">
+      <p class="text-sm text-on-dim mb-3">Не знаете с чего начать? Самый частый выбор:</p>
+      <div class="inline-flex flex-wrap items-center justify-center gap-2 text-xs">
+        <button onclick="openTemplates()" class="px-3 py-1.5 rounded-full bg-surface2 hover:bg-surface3 border border-outline/20">📅 Запись в салон</button>
+        <button onclick="openTemplates()" class="px-3 py-1.5 rounded-full bg-surface2 hover:bg-surface3 border border-outline/20">📞 Сбор заявок</button>
+        <button onclick="openTemplates()" class="px-3 py-1.5 rounded-full bg-surface2 hover:bg-surface3 border border-outline/20">❓ FAQ-бот</button>
+        <button onclick="openTemplates()" class="px-3 py-1.5 rounded-full bg-surface2 hover:bg-surface3 border border-outline/20">🛒 Продажа товаров</button>
+      </div>
+      <p class="text-xs text-on-dim/60 mt-6 flex items-center justify-center gap-1.5">
+        <span class="icn" data-i="lightbulb" aria-hidden="true"></span>
+        Нужна инструкция? <a href="/docs/connect_bot.md" class="text-primary underline">Как получить токен от @BotFather</a>
+      </p>
+    </div>
   </div>
 </div>
 

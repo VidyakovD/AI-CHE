@@ -12,6 +12,16 @@ from server.chatbot_engine import (
     set_telegram_commands,
     get_summary, generate_widget_secret,
 )
+from server.security import tg_webhook_secret
+
+
+def _max_webhook_url(app_url: str, bot_id: int, max_token: str) -> str:
+    """URL для MAX webhook с secret-параметром (защита от подделки)."""
+    secret = tg_webhook_secret(max_token)
+    base = f"{app_url}/webhook/max/{bot_id}"
+    if secret:
+        return f"{base}?secret={secret}"
+    return base
 
 
 # Базовый набор команд для меню «/» в TG. Подставляется при деплое любого
@@ -126,7 +136,7 @@ async def _auto_setup_channels(bot: ChatBot) -> dict:
     if bot.avito_client_id and bot.avito_client_secret:
         out["avito"] = {"ok": True, "webhook_url": f"{APP_URL}/webhook/avito/{bot.id}"}
     if bot.max_token:
-        wh_url = f"{APP_URL}/webhook/max/{bot.id}"
+        wh_url = _max_webhook_url(APP_URL, bot.id, bot.max_token)
         try:
             r = await setup_max_webhook(bot.max_token, wh_url)
             bot.max_webhook_set = bool(r.get("ok"))
@@ -1013,7 +1023,7 @@ async def deploy_bot(bot_id: int, db: Session = Depends(get_db),
 
     # MAX
     if bot.max_token:
-        wh_url = f"{APP_URL}/webhook/max/{bot.id}"
+        wh_url = _max_webhook_url(APP_URL, bot.id, bot.max_token)
         r = await setup_max_webhook(bot.max_token, wh_url)
         bot.max_webhook_set = bool(r.get("ok"))
         me = await get_max_me(bot.max_token)

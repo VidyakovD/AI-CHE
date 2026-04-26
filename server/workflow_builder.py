@@ -194,9 +194,163 @@ def _validate(g: dict) -> dict:
     }
 
 
-def build_from_task(task: str, user_api_key: str | None = None) -> dict:
+# ── Готовые workflow-блоки (templates кусочков) ─────────────────────────────
+# Snippets которые AI «склеивает» вместо генерации с нуля. Меньше токенов на
+# Claude → дешевле + надёжнее (готовые проверенные паттерны).
+# Передаём в SYSTEM_PROMPT — LLM видит примеры структуры.
+
+WORKFLOW_BLOCKS = {
+    "lead_capture": """
+LEAD-CAPTURE BLOCK — квалификация → запрос контакта → сохранение заявки:
+nodes:
+  trigger_tg → node_claude (квалификация) → request_contact (попросить телефон)
+  → save_record (record_type=lead, notify_owner=true) → output_tg (благодарность)
+Вариация: после save_record можно добавить output_tg_buttons для CTA «записаться» / «узнать цены».
+""",
+    "booking_flow": """
+BOOKING BLOCK — выбор услуги → дата → телефон → бронь:
+nodes:
+  trigger_tg → output_tg_buttons (меню услуг)
+  → orchestrator (выбор услуги по callback) → 3 ветки:
+       services: node_claude (показать слоты) → output_tg
+       prices: output_tg (прайс)
+       book: request_contact → save_record (record_type=booking) → output_tg (подтверждение)
+""",
+    "faq_rag": """
+FAQ-RAG BLOCK — поиск в базе знаний с фоллбэком на оператора:
+nodes:
+  trigger_tg → kb_rag (query={{input}}, top=3, model=gpt-4o-mini)
+  → condition (check="не нашёл, не уверен, обратитесь")
+       да-ветка: save_record (record_type=ticket) → output_tg «передал оператору»
+       нет-ветка: output_tg (готовый ответ из RAG)
+""",
+    "sales_warmup": """
+SALES BLOCK — прогрев с ссылкой на оплату:
+nodes:
+  trigger_tg → node_claude (выявление потребности) → output_tg_buttons
+  (с кнопками «купить»/«узнать больше»/«нет, спасибо»)
+  → orchestrator → 3 ветки c разными ответами и save_record(type=lead)
+""",
+    "quiz_funnel": """
+QUIZ BLOCK — серия вопросов → сегментация → персональная рекомендация:
+nodes:
+  trigger_tg → output_tg_buttons (вопрос 1) → orchestrator (по callback)
+  → output_tg_buttons (вопрос 2) → orchestrator → output_tg_buttons (вопрос 3)
+  → node_claude (рекомендация по ответам в storage) → save_record (record_type=quiz)
+  → output_tg (персональный текст)
+""",
+    "broadcast": """
+BROADCAST BLOCK — лид-магнит при подписке + рассылки:
+nodes:
+  trigger_tg (только /start) → output_tg_file (PDF лид-магнит)
+  → save_record (record_type=subscriber)
+  → trigger_schedule (раз в неделю по recipients из БД) → node_claude → output_tg
+""",
+}
+
+
+def _select_relevant_blocks(task_lower: str) -> list[str]:
+    """Простая эвристика: какие блоки релевантны задаче."""
+    keywords = {
+        "lead_capture": ["лид", "заявк", "контакт", "телефон", "заинтересова"],
+        "booking_flow": ["запис", "брон", "услуг", "салон", "мастер", "слот"],
+        "faq_rag": ["вопрос", "faq", "ответ", "база зна", "знани", "поддержк"],
+        "sales_warmup": ["продаж", "купить", "оплат", "прогрев", "товар"],
+        "quiz_funnel": ["квиз", "тест", "опрос", "анкет", "выбор"],
+        "broadcast": ["рассылк", "подпис", "лид-магнит", "новостн"],
+    }
+    relevant = []
+    for block, kws in keywords.items():
+        if any(kw in task_lower for kw in kws):
+            relevant.append(block)
+    return relevant or list(keywords.keys())[:3]  # fallback — топ-3
+
+
+def _enhance_task_with_gpt(task: str, user_api_key: str | None = None) -> tuple[str, dict]:
+    """
+    Двухэтапный пайплайн: GPT-4o-mini структурирует сырое описание клиента
+    в детальное ТЗ с указанием платформы, нужных полей формы, веток ответов.
+    Это позволяет Claude генерить более качественный граф.
+
+    Аналогично _enhance_spec_with_gpt в server/routes/sites.py.
+    Стоит ~0.3 ₽, занимает 3-5 сек, заметно поднимает качество workflow.
+
+    Returns: (enhanced_task, usage_dict)
+    """
+    relevant_blocks = _select_relevant_blocks(task.lower())
+    blocks_hint = "\n".join(WORKFLOW_BLOCKS[b] for b in relevant_blocks)
+    enhance_prompt = f"""Ты — продакт-менеджер AI-чат-ботов. К тебе пришёл клиент с
+сырым описанием бота. Твоя задача — превратить его в структурированное ТЗ
+для разработчика-LLM, который соберёт workflow-граф из готовых нод.
+
+Используй markdown-формат с разделами:
+
+## Платформа
+TG / VK / MAX / Avito / Widget / несколько сразу
+
+## Цель бота
+В одну фразу — что бот делает для клиента бизнеса
+
+## Триггер
+Что запускает диалог — приветственное сообщение, команда /start, входящее в чат?
+
+## Сценарий разговора
+Пошагово что бот спрашивает и как реагирует:
+- шаг 1: ...
+- шаг 2: ...
+
+## Поля формы (если собираем заявки)
+- имя (текст)
+- телефон (request_contact)
+- ...
+
+## Ветки ответов
+Если разные ответы для разных тем — перечисли темы и реакции
+
+## Уведомления
+Куда уведомлять владельца о новой заявке?
+
+## Дополнительные фичи
+- Inline-кнопки? (output_tg_buttons / output_max_buttons)
+- База знаний RAG? (kb_rag)
+- Расписание рассылок? (trigger_schedule)
+- AI-ответы? Какая модель — gpt-4o-mini для FAQ или claude для сложных?
+
+ПОЛЕЗНЫЕ ГОТОВЫЕ ПАТТЕРНЫ для этой задачи:
+{blocks_hint}
+
+ИСХОДНОЕ ОПИСАНИЕ КЛИЕНТА:
+{task}
+
+Выдай детальное ТЗ. Только markdown-текст, без преамбул."""
+    try:
+        raw = generate_response(
+            "gpt-4o-mini",
+            [{"role": "user", "content": enhance_prompt}],
+            extra={"max_tokens": 2000},
+            user_api_key=user_api_key,
+        )
+        enhanced = raw.get("content", "") if isinstance(raw, dict) else str(raw)
+        usage = {
+            "input_tokens": raw.get("input_tokens", 0) if isinstance(raw, dict) else 0,
+            "output_tokens": raw.get("output_tokens", 0) if isinstance(raw, dict) else 0,
+        }
+        if enhanced and len(enhanced.strip()) > 200:
+            return enhanced.strip(), usage
+    except Exception as e:
+        log.warning(f"workflow_builder enhance failed (non-fatal): {e}")
+    return task, {"input_tokens": 0, "output_tokens": 0}
+
+
+def build_from_task(task: str, user_api_key: str | None = None,
+                    use_enhance: bool = True) -> dict:
     """
     Собирает воркфлоу по тексту задачи.
+
+    use_enhance: если True (default) — сначала GPT-4o-mini структурирует ТЗ,
+    потом Claude генерит граф. Себестоимость +0.3 ₽ но качество заметно выше.
+    Можно отключить для дешёвых тарифов.
+
     Возвращает {name, explanation, wfc_nodes, wfc_edges, usage}.
     Бросает ValueError при невалидном LLM-ответе.
     """
@@ -206,10 +360,15 @@ def build_from_task(task: str, user_api_key: str | None = None) -> dict:
     if len(task) > 4000:
         task = task[:4000]
 
+    enhance_usage = {"input_tokens": 0, "output_tokens": 0}
+    final_task = task
+    if use_enhance:
+        final_task, enhance_usage = _enhance_task_with_gpt(task, user_api_key)
+
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": (
-            f"Задача пользователя:\n{task}\n\n"
+            f"ТЗ от клиента (после структурирования):\n{final_task}\n\n"
             "Собери воркфлоу. Никакого текста кроме JSON."
         )},
     ]
@@ -248,5 +407,12 @@ def build_from_task(task: str, user_api_key: str | None = None) -> dict:
         log.error(f"workflow_builder JSON parse failed: {e}; raw={text[:500]}")
         raise ValueError(f"LLM вернул не-JSON: {e}")
     result = _validate(parsed)
-    result["usage"] = usage
+    # Сводный usage: enhance (GPT-mini) + основная генерация (Claude/GPT/etc).
+    # Caller (routes/chatbots.py) считает по нему стоимость для списания.
+    result["usage"] = {
+        "input_tokens": int(usage.get("input_tokens", 0)) + int(enhance_usage.get("input_tokens", 0)),
+        "output_tokens": int(usage.get("output_tokens", 0)) + int(enhance_usage.get("output_tokens", 0)),
+        "enhance_input": int(enhance_usage.get("input_tokens", 0)),
+        "enhance_output": int(enhance_usage.get("output_tokens", 0)),
+    }
     return result

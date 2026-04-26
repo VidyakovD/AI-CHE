@@ -1,5 +1,7 @@
 """Webhook обработчики для входящих сообщений мессенджеров."""
 import logging
+import time
+import threading
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,35 @@ def _get_active_bot(bot_id: int, db: Session) -> ChatBot | None:
     if not bot or bot.status != "active":
         return None
     return bot
+
+
+# ── Idempotency: дедупликация webhook-апдейтов ──────────────────────────────
+# Мессенджеры (особенно MAX и VK) могут переотправить тот же update_id
+# при сетевом сбое или рестарте. Без дедупа — двойная обработка =
+# двойное списание токенов и дубль ответ юзеру.
+# In-memory кэш (платформа, bot_id, update_id) → timestamp. TTL 1 час.
+_DEDUP_TTL = 3600
+_dedup_cache: dict[tuple, float] = {}
+_dedup_lock = threading.Lock()
+
+
+def _is_duplicate_update(platform: str, bot_id: int, update_id) -> bool:
+    """True если этот update_id уже обрабатывался в последний час."""
+    if update_id is None or update_id == "":
+        return False  # без id дедуп невозможен — пропускаем
+    key = (platform, int(bot_id), str(update_id))
+    now = time.monotonic()
+    with _dedup_lock:
+        # Чистим expired по дороге
+        if len(_dedup_cache) > 5000:
+            cutoff = now - _DEDUP_TTL
+            for k, ts in list(_dedup_cache.items()):
+                if ts < cutoff:
+                    _dedup_cache.pop(k, None)
+        if key in _dedup_cache:
+            return True
+        _dedup_cache[key] = now
+        return False
 
 
 # ── Telegram ─────────────────────────────────────────────────────────────────
@@ -242,10 +273,25 @@ async def max_webhook(bot_id: int, request: Request,
                       db: Session = Depends(get_db)):
     """Обработка входящих от MAX Bot API.
     Update types: message_created, message_callback (по подписке).
-    Доки: https://dev.max.ru/docs-api"""
+    Доки: https://dev.max.ru/docs-api
+
+    Авторизация: secret в URL-параметре `?secret=...`. MAX не передаёт
+    собственный signature header, поэтому защищаем URL через secret который
+    знаем только мы и MAX (зашиваем при subscribe). Computed по bot.max_token
+    + JWT_SECRET, так что подделать без знания этих двух значений невозможно.
+    """
     bot = _get_active_bot(bot_id, db)
     if not bot or not bot.max_token:
         return {"ok": True}
+
+    # SECURITY: проверка secret — без неё любой может POST'ить и сжигать баланс.
+    expected_secret = tg_webhook_secret(bot.max_token)
+    if expected_secret:
+        got_secret = request.query_params.get("secret", "")
+        import hmac as _hmac
+        if not got_secret or not _hmac.compare_digest(got_secret, expected_secret):
+            log.warning(f"[MAX Bot {bot_id}] webhook без/с неверным secret — отклонено")
+            raise HTTPException(401, "Invalid or missing secret")
 
     try:
         body = await request.json()
@@ -253,6 +299,19 @@ async def max_webhook(bot_id: int, request: Request,
         return {"ok": True}
 
     update_type = body.get("update_type") or body.get("type")
+
+    # IDEMPOTENCY: дедуп по timestamp+sender+message_id чтобы переотправленный
+    # webhook не вызвал двойное AI-списание.
+    msg_outer = body.get("message", body.get("callback", {})) or {}
+    update_id = (
+        msg_outer.get("body", {}).get("mid")  # message_id в MAX
+        or msg_outer.get("timestamp")
+        or body.get("timestamp")
+        or body.get("update_id")
+    )
+    if _is_duplicate_update("max", bot_id, update_id):
+        log.info(f"[MAX Bot {bot_id}] duplicate update {update_id} — пропускаем")
+        return {"ok": True}
 
     # message_created — новое сообщение от юзера
     if update_type == "message_created":
@@ -287,7 +346,9 @@ async def max_webhook(bot_id: int, request: Request,
             return {"ok": True}
         answer = await handle_message(bot, user_id, text, "max", user_name,
                                       extra_ctx=extra_ctx)
-        if answer:
+        # ВАЖНО: проверка `if answer and answer.strip()` — пустая строка не попадёт
+        # в send_max (MAX API возвращает 400 на пустой текст).
+        if answer and isinstance(answer, str) and answer.strip():
             await send_max(bot.max_token, user_id, answer)
 
     # message_callback — нажатие на inline-кнопку
@@ -304,7 +365,7 @@ async def max_webhook(bot_id: int, request: Request,
                                                      "callback_data": payload,
                                                      "is_max": True,
                                                      "is_callback": True})
-            if answer:
+            if answer and isinstance(answer, str) and answer.strip():
                 await send_max(bot.max_token, user_id, answer)
 
     return {"ok": True}

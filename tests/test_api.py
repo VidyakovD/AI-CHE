@@ -37,13 +37,25 @@ def client():
 
 
 @pytest.fixture(autouse=True)
-def _clear_cookies(client):
+def _clear_cookies_and_rl(client):
     """
     TestClient persistent держит cookies между тестами. После миграции на
     JWT-cookie это ломает тесты которые ожидают anon-state (или Bearer-only).
     Чистим перед каждым тестом — изоляция явнее.
+
+    Также чистим SQLite rate-limit БД (server/security.py использует rl.db),
+    иначе несколько тестов с /auth/login подряд попадают под 429.
     """
     client.cookies.clear()
+    try:
+        from server.security import _rl_conn
+        c = _rl_conn()
+        try:
+            c.execute("DELETE FROM rl")
+        finally:
+            c.close()
+    except Exception:
+        pass
     yield
 
 
