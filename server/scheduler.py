@@ -79,10 +79,21 @@ def _should_fire(cfg: dict, now_local: datetime, last_fired: datetime | None) ->
 
 
 async def _scheduler_tick():
-    """Одна проверка — бежим по всем активным ботам и их расписаниям."""
+    """Одна проверка — бежим по всем активным ботам и их расписаниям.
+
+    Оптимизация: pre-фильтруем в SQL по подстроке "trigger_schedule" в
+    workflow_json. На 1000 ботов отсекает 95%+ нерелевантных строк
+    без полной загрузки JSON в Python.
+    """
     db = SessionLocal()
     try:
-        bots = db.query(ChatBot).filter_by(status="active").all()
+        bots = (
+            db.query(ChatBot)
+            .filter_by(status="active")
+            .filter(ChatBot.workflow_json.isnot(None))
+            .filter(ChatBot.workflow_json.like('%trigger_schedule%'))
+            .all()
+        )
     finally:
         db.close()
 
@@ -303,8 +314,23 @@ async def _db_backup_tick():
         finally:
             src_conn.close()
             dst_conn.close()
+        # Проверка целостности скопированного файла. Без этого corrupted backup
+        # может остаться незамеченным до момента когда он понадобится для
+        # восстановления — это худший вариант.
+        check_conn = sqlite3.connect(dst)
+        try:
+            cur = check_conn.execute("PRAGMA integrity_check")
+            row = cur.fetchone()
+            integrity_ok = bool(row and row[0] == "ok")
+        finally:
+            check_conn.close()
+        if not integrity_ok:
+            log.error(f"[db-backup] integrity_check FAILED for {dst} — removing")
+            try: os.remove(dst)
+            except Exception: pass
+            return
         size_mb = os.path.getsize(dst) / 1024 / 1024
-        log.info(f"[db-backup] {dst} ({size_mb:.1f} MB)")
+        log.info(f"[db-backup] {dst} ({size_mb:.1f} MB) integrity=ok")
     except Exception as e:
         log.error(f"[db-backup] failed: {e}")
         # Удалим частичную копию чтобы не путать
@@ -330,24 +356,46 @@ async def _db_backup_tick():
 
 
 async def _cleanup_old_action_logs_tick():
-    """Удаляет аудит-логи старше 90 дней. info-level — старше 30 дней.
-    Errors / critical храним 90 дней — могут понадобиться для разбора."""
+    """Удаляет аудит-логи в три эшелона retention:
+      - обычные info: 30 дней
+      - auth.* / payment.* / record.* info: 365 дней (нужны для forensic
+        и юридических вопросов: «когда я зарегистрировался?», «когда был платёж?»)
+      - error/warn/critical: 90 дней (нужны для разбора инцидентов)
+    """
     from datetime import datetime, timedelta
     from server.db import db_session
     from server.models import ActionLog
-    cutoff_info = datetime.utcnow() - timedelta(days=30)
-    cutoff_err = datetime.utcnow() - timedelta(days=90)
+    now = datetime.utcnow()
+    cutoff_info_short = now - timedelta(days=30)
+    cutoff_info_long = now - timedelta(days=365)
+    cutoff_err = now - timedelta(days=90)
     try:
         with db_session() as db:
+            # info обычные (не auth/payment) — 30 дней
             n_info = (db.query(ActionLog)
-                      .filter(ActionLog.ts < cutoff_info, ActionLog.level == "info")
+                      .filter(ActionLog.ts < cutoff_info_short,
+                              ActionLog.level == "info")
+                      .filter(~ActionLog.action.like("auth.%"))
+                      .filter(~ActionLog.action.like("payment.%"))
+                      .filter(~ActionLog.action.like("record.%"))
                       .delete(synchronize_session=False))
+            # auth/payment/record info — 1 год
+            n_long = (db.query(ActionLog)
+                      .filter(ActionLog.ts < cutoff_info_long,
+                              ActionLog.level == "info")
+                      .filter(
+                          ActionLog.action.like("auth.%") |
+                          ActionLog.action.like("payment.%") |
+                          ActionLog.action.like("record.%"))
+                      .delete(synchronize_session=False))
+            # warn/error/critical — 90 дней
             n_err = (db.query(ActionLog)
-                     .filter(ActionLog.ts < cutoff_err)
+                     .filter(ActionLog.ts < cutoff_err,
+                             ActionLog.level != "info")
                      .delete(synchronize_session=False))
             db.commit()
-            if n_info or n_err:
-                log.info(f"[audit-cleanup] removed {n_info} info, {n_err} other")
+            if n_info or n_long or n_err:
+                log.info(f"[audit-cleanup] removed info={n_info} long={n_long} non-info={n_err}")
     except Exception as e:
         log.error(f"[audit-cleanup] failed: {e}")
 

@@ -325,7 +325,12 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           </div>
         </div>
         <div id="previewWrap" class="preview-wrap vp-desktop">
-          <iframe id="previewFrame" class="preview-frame"></iframe>
+          <!-- sandbox БЕЗ allow-same-origin: AI-сгенерированный HTML
+               не имеет доступа ни к нашим cookies, ни к localStorage parent.
+               allow-scripts нужен для injected runtime редактора. -->
+          <iframe id="previewFrame" class="preview-frame"
+                  sandbox="allow-scripts allow-modals allow-popups allow-forms"
+                  referrerpolicy="no-referrer"></iframe>
         </div>
       </div>
       <!-- Spec tab -->
@@ -887,24 +892,60 @@ async function generateCode(){
 }
 
 
-// Polling статуса фоновой генерации. Шлём раз в 4 сек, ждём до 10 минут.
+// AbortController текущего polling — отменяется при unload/смене проекта,
+// чтобы при закрытии вкладки не оставалось висящих fetch (тратят bandwidth
+// на сервер до server-side timeout, плюс могут давать гонки UI-обновлений).
+let _pollAbort = null;
+window.addEventListener('beforeunload', () => {
+  try { _pollAbort && _pollAbort.abort(); } catch(e){}
+});
+
+// Polling статуса фоновой генерации. Базово раз в 4 сек,
+// при подряд идущих сетевых ошибках — exponential backoff (4 → 8 → 16 → 30с).
 async function pollGenerationStatus(){
-  const maxAttempts = 150;  // 150 * 4 сек = 10 минут максимум
+  // Отменяем предыдущий polling если был
+  if(_pollAbort){ try { _pollAbort.abort(); } catch(e){} }
+  _pollAbort = new AbortController();
+  const myAbort = _pollAbort;
+
   const startTime = Date.now();
-  for(let i = 0; i < maxAttempts; i++){
-    await new Promise(r => setTimeout(r, 4000));
+  const maxDurationMs = 10 * 60 * 1000;  // 10 минут wallclock
+  let consecutiveErrors = 0;
+  let nextDelayMs = 4000;
+  const projectId = currentProjectId;
+
+  while(Date.now() - startTime < maxDurationMs){
+    if(myAbort.signal.aborted) return;
+    if(currentProjectId !== projectId){
+      // Юзер открыл другой проект — этот polling больше не актуален
+      return;
+    }
+    await new Promise(r => setTimeout(r, nextDelayMs));
+    if(myAbort.signal.aborted) return;
+
     let data;
     try{
-      const r = await fetch(`${API}/sites/projects/${currentProjectId}/generation-status`,{
+      const r = await fetch(`${API}/sites/projects/${projectId}/generation-status`,{
         headers: authHeaders(),
+        signal: myAbort.signal,
       });
       if(!r.ok){
-        // Редкий 404 / 401 — продолжаем polling, может временный сбой
+        // 5xx → backoff. 4xx без авторизации → останавливаемся.
+        if(r.status === 401 || r.status === 403){
+          alert('Сессия истекла. Перезайдите в аккаунт.');
+          isGenerating = false; return;
+        }
+        consecutiveErrors++;
+        nextDelayMs = Math.min(4000 * Math.pow(2, consecutiveErrors - 1), 30000);
         continue;
       }
       data = await r.json();
+      consecutiveErrors = 0;
+      nextDelayMs = 4000;
     }catch(e){
-      // Сетевая ошибка — продолжаем
+      if(e.name === 'AbortError') return;
+      consecutiveErrors++;
+      nextDelayMs = Math.min(4000 * Math.pow(2, consecutiveErrors - 1), 30000);
       continue;
     }
     // Обновляем индикатор прогресса
@@ -915,22 +956,19 @@ async function pollGenerationStatus(){
     showLoading(`${data.progress || 'Работаю…'} (${timeStr})`);
 
     if(data.status === 'done'){
-      // Готово — обновляем UI и показываем результат
       currentProject = await getProjectDetail();
       hideAllPhases();
       showDonePhase(data.code_html);
       isGenerating = false;
       return;
     }
-    if(data.status === 'failed'){
+    if(data.status === 'failed' || data.status === 'refunded'){
       hideAllPhases();
-      alert(data.error || 'Не удалось сгенерировать сайт. Попробуйте ещё раз.');
+      alert(data.error || 'Не удалось сгенерировать сайт. Деньги возвращены.');
       isGenerating = false;
       return;
     }
-    // status === 'running' — продолжаем polling
   }
-  // Превысили 10 мин — таймаут
   hideAllPhases();
   alert('Генерация занимает слишком долго (> 10 минут). Попробуйте позже — возможно Claude перегружен.');
   isGenerating = false;
@@ -1262,19 +1300,32 @@ function toggleEditMode(){
   refreshPreview();
 }
 
-// Слушаем сообщения от iframe
+// Слушаем сообщения от iframe.
+// Sandbox без allow-same-origin → e.origin === "null" — поэтому проверяем
+// e.source строго против contentWindow нашего фрейма. Любые сообщения от
+// чужих окон/iframe (включая встроенные через innerHTML) — игнорируем.
 window.addEventListener('message', e => {
+  const frame = document.getElementById('previewFrame');
+  if(!frame || e.source !== frame.contentWindow) return;
   if(!e.data || typeof e.data !== 'object') return;
+  // Доп. защита: тип сообщения должен быть строкой из allow-list
+  const allowedTypes = new Set(['site:htmlChange','site:imgClick','site:blockClick']);
+  if(!allowedTypes.has(e.data.type)) return;
   if(e.data.type === 'site:htmlChange'){
-    // Обновляем исходный код в textarea (только если редактирование активно)
-    if(editMode) document.getElementById('codeEditor').value = e.data.html;
+    if(editMode && typeof e.data.html === 'string'){
+      document.getElementById('codeEditor').value = e.data.html;
+    }
   }
   if(e.data.type === 'site:imgClick'){
-    selectedImg = e.data.src;
-    replaceSelectedImage();
+    if(typeof e.data.src === 'string'){
+      selectedImg = e.data.src;
+      replaceSelectedImage();
+    }
   }
   if(e.data.type === 'site:blockClick'){
-    aiEditBlock(e.data.blockId, e.data.html);
+    if(typeof e.data.blockId === 'string' && typeof e.data.html === 'string'){
+      aiEditBlock(e.data.blockId, e.data.html);
+    }
   }
 });
 

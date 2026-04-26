@@ -81,13 +81,24 @@ def _make_verify_token(db, user_id, purpose, generate_code, VERIFY_TTL_MINUTES):
 
 
 def _use_verify_token(db, user_id, code, purpose):
-    vt = db.query(VerifyToken).filter_by(
-        user_id=user_id, token=code, purpose=purpose, used=False).first()
-    if not vt or vt.expires_at < datetime.utcnow():
-        return False
-    vt.used = True
+    """
+    Атомарно помечает токен использованным. Гарантирует ровно одного
+    «победителя» при гонке: используем UPDATE ... WHERE used=False
+    и проверяем rowcount — выиграл ровно тот вызов где БД отдала 1 строку.
+
+    Без этого два параллельных POST /verify-email с одним кодом могли пройти
+    SELECT-then-UPDATE одновременно, оба увидели used=False — и оба
+    выполнили действие (например welcome-bonus тоже мог дублироваться,
+    хотя сам бонус защищён отдельным atomic gate).
+    """
+    now = datetime.utcnow()
+    rowcount = db.query(VerifyToken).filter_by(
+        user_id=user_id, token=code, purpose=purpose, used=False,
+    ).filter(VerifyToken.expires_at > now).update(
+        {"used": True}, synchronize_session=False,
+    )
     db.commit()
-    return True
+    return rowcount == 1
 
 
 def _deduct(db, user, cost_kop, description, model=None):

@@ -2,6 +2,46 @@
 
 Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-04-26 после последнего большого спринта**.
 
+## Спринт «Security audit + harden» (2026-04-26)
+
+Прошёл полный аудит. Закрыты ВСЕ топ-7 P0 + 13 P1 + 3 P2. 76/76 тестов зелёные.
+
+**P0 (критично):**
+- `code_python` sandbox — whitelist AST-узлов вместо blacklist + wallclock timeout (signal.SIGALRM) + лимиты на длину/число узлов/литералы. Запрет ClassDef, Lambda, While, `**` оператор. По умолчанию выключен (`ENABLE_PYTHON_SANDBOX=true`).
+- `http_request` нода — двойной DNS-резолв (все A-записи), расширенный CIDR блок-лист (169.254/16, 100.64/10, fd00::/8, ::ffff:0:0/96 и др.), no-redirect + 1MB лимит ответа + revalidate Location при 3xx.
+- YooKassa webhook — **HARD-FAIL** если `YOOKASSA_SECRET_KEY` не задан (раньше silent accept). Override для тестов: `ALLOW_UNVERIFIED_WEBHOOK=true` или `DEV_MODE=true`.
+- OAuth Google/VK — `state`-параметр через новую таблицу `oauth_states` (TTL 10 мин). Защита от login CSRF.
+- Iframe preview сайта — `sandbox="allow-scripts allow-modals allow-popups allow-forms"` (без allow-same-origin → AI-HTML не имеет доступа к нашему cookie/localStorage). `addEventListener('message')` теперь проверяет `e.source === frame.contentWindow` + allowlist `e.data.type`.
+- Sites — refund при failure фоновой генерации через идемпотентный `_refund_site_generation` (gen_status="refunded" гарантирует не-дубль).
+- ai.py — `_sanitize_error()` + автоматический `_SecretFilter` на logger. Маскирует `sk-*`, `Bearer *`, `Authorization=*`, `AIza*`, прокси-URL с креденшалами, `?key=...`.
+
+**P1 (высокий):**
+- `_use_verify_token` — атомарный `UPDATE WHERE used=False` (раньше SELECT-then-UPDATE с race).
+- `deduct_atomic` — exponential backoff с jitter (8 попыток, 5ms→500ms).
+- `_get_api_keys` — через `db_session()` контекст-менеджер (rollback safety).
+- Veo polling — общий wallclock-cap `VEO_POLL_TIMEOUT_SEC` (по умолчанию 360с).
+- `/message` — поддержка `Idempotency-Key` header (cache 5 мин). Двойной клик / network retry → один и тот же ответ без двойного списания.
+- Scheduler — SQL pre-filter `workflow_json LIKE '%trigger_schedule%'` (раньше грузил все боты с полным workflow JSON каждые 30с).
+- CORS — fail-fast если `DEV_MODE=true` И `APP_ENV=production` одновременно.
+- `BuyTokenRequest.return_url` — валидация против `APP_URL.host` (защита от open-redirect фишинга).
+- `_notify_admin` — текст ошибки санитизируется перед отправкой в Telegram.
+- systemd unit — hardening: `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ProtectHome`, `RestrictAddressFamilies`, `SystemCallFilter`, `MemoryDenyWriteExecute`. Restart=on-failure + StartLimitBurst.
+- CI workflow `.github/workflows/ci.yml` — pytest + ruff + pip-audit на каждый PR.
+- Тесты — добавлены 4 теста на YooKassa HMAC: missing/malformed/wrong sig/hard-fail без secret.
+- Все textarea во views получают `maxlength=50000` через автопатч в `icons.js` + MutationObserver.
+- Sites polling — AbortController + exponential backoff (4→8→16→30с) + abort на `beforeunload` + abort при смене проекта.
+
+**P2:**
+- `/admin/users` — offset/limit/search pagination (раньше hardcoded 200).
+- Audit retention 3 эшелона: обычный info — 30 дней, `auth.*`/`payment.*`/`record.*` info — 365 дней (forensic), warn/error — 90 дней.
+- DB backup — `PRAGMA integrity_check` после каждого. Corrupted backup удаляется + ERROR в логе.
+- Новая модель `OAuthState` (создаётся через `Base.metadata.create_all` на старте).
+
+**Defer (отложено отдельным спринтом):**
+- JWT в `localStorage` → httpOnly cookie + CSRF-токен. Большая миграция backend+frontend, нужно отдельным заходом с тестами.
+
+
+
 ## Кто юзер и что делаем
 - Юзер — Денис, владелец `aiche.ru`. **B2B AI-платформа** для предпринимателей.
 - Стек: FastAPI + SQLite + JS SPA. Прод в Нидерландах (Clouvider).

@@ -70,13 +70,55 @@ HTTP = httpx.AsyncClient(timeout=30)
 # ── SSRF защита для http_request node ─────────────────────────────────────────
 # Блокирует обращения к localhost / link-local / приватным сетям / cloud metadata.
 # Без этого владелец бота мог бы через http_request читать http://localhost:8000/admin,
-# http://169.254.169.254/ (AWS/Яндекс Cloud metadata), сканировать внутреннюю сеть и т.д.
-_SSRF_BLOCKED_HOSTS = {"localhost", "0.0.0.0", "metadata.google.internal"}
+# http://169.254.169.254/ (AWS/Яндекс/GCP/Hetzner Cloud metadata), сканировать внутреннюю сеть.
+_SSRF_BLOCKED_HOSTS = {
+    "localhost", "0.0.0.0", "ip6-localhost", "ip6-loopback",
+    "metadata.google.internal", "metadata", "metadata.goog",
+}
+
+# Дополнительные CIDR-блоки сверх ipaddress.is_private/is_reserved
+import ipaddress as _ipaddr
+_SSRF_BLOCKED_CIDRS = [
+    _ipaddr.ip_network("169.254.0.0/16"),    # link-local + cloud metadata (AWS, GCP, Azure, Yandex)
+    _ipaddr.ip_network("100.64.0.0/10"),     # CG-NAT (часто используется в k8s/docker)
+    _ipaddr.ip_network("fd00::/8"),          # IPv6 ULA
+    _ipaddr.ip_network("fe80::/10"),         # IPv6 link-local
+    _ipaddr.ip_network("::ffff:0:0/96"),     # IPv4-mapped IPv6 — иначе можно обойти через ::ffff:127.0.0.1
+    _ipaddr.ip_network("64:ff9b::/96"),      # NAT64
+]
+
+
+def _ssrf_ip_blocked(ip_str: str) -> str | None:
+    """Возвращает причину блокировки или None."""
+    try:
+        ip = _ipaddr.ip_address(ip_str)
+    except ValueError:
+        return f"invalid IP: {ip_str}"
+    if (ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+        return f"private/reserved IP: {ip_str}"
+    for net in _SSRF_BLOCKED_CIDRS:
+        try:
+            if ip in net:
+                return f"blocked CIDR: {ip_str} in {net}"
+        except TypeError:
+            # IPv4 vs IPv6 mismatch — пропускаем
+            continue
+    return None
 
 
 def _ssrf_validate(url: str) -> str | None:
-    """Возвращает текст ошибки если URL ведёт в запрещённую сеть, иначе None."""
-    import ipaddress
+    """
+    Возвращает текст ошибки если URL ведёт в запрещённую сеть, иначе None.
+
+    Двойной резолв (getaddrinfo возвращает все записи) + расширенный блок-лист
+    защищают от:
+      - прямого указания приватных IP / cloud metadata
+      - DNS round-robin с одной публичной + одной приватной A-записью
+      - IPv4-mapped IPv6 (::ffff:127.0.0.1)
+    Полная защита от DNS-rebinding требует pin'а IP в HTTP-клиенте — это
+    делается отдельно в _ssrf_safe_request().
+    """
     import socket
     from urllib.parse import urlparse
     try:
@@ -85,26 +127,34 @@ def _ssrf_validate(url: str) -> str | None:
         return "invalid URL"
     if parsed.scheme not in ("http", "https"):
         return "только http/https"
-    host = (parsed.hostname or "").lower()
+    host = (parsed.hostname or "").lower().strip().rstrip(".")
     if not host:
         return "нет хоста"
     if host in _SSRF_BLOCKED_HOSTS:
         return "internal host blocked"
-    # Попытка резолва в IP (resolv первой A-записи). Если DNS-rebinding — не защищает
-    # на 100%, но отсекает прямое указание приватных IP.
+    # Попытка трактовать host как литеральный IP (включая IPv6 в скобках)
+    try:
+        reason = _ssrf_ip_blocked(host)
+        if reason:
+            return reason
+        # Если это валидный IP-литерал — резолв не нужен
+        return None
+    except ValueError:
+        pass
+    # Резолв ВСЕХ адресов через getaddrinfo. Если хоть один в блок-листе — отказ.
     try:
         infos = socket.getaddrinfo(host, None)
-        for info in infos:
-            ip_str = info[4][0]
-            try:
-                ip = ipaddress.ip_address(ip_str)
-            except ValueError:
-                continue
-            if (ip.is_private or ip.is_loopback or ip.is_link_local
-                    or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
-                return f"private/reserved IP: {ip_str}"
     except socket.gaierror:
         return "DNS-резолв не удался"
+    seen: set[str] = set()
+    for info in infos:
+        ip_str = info[4][0]
+        if ip_str in seen:
+            continue
+        seen.add(ip_str)
+        reason = _ssrf_ip_blocked(ip_str)
+        if reason:
+            return reason
     return None
 
 
@@ -541,6 +591,8 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
     if ntype == "http_request":
         import json as _json
         method = (cfg.get("method") or "GET").upper()
+        if method not in ("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"):
+            return f"[HTTP blocked: метод {method} запрещён]"
         url = cfg.get("url", "")
         if not url: return ""
         # Подстановка переменных {{input}} в url/body/headers
@@ -555,8 +607,11 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
             headers = _json.loads(subst(cfg.get("headers") or "{}"))
         except Exception:
             headers = {}
+        # Запрещаем юзеру переопределить Host (защита от DNS-rebinding через Host header).
+        headers = {k: v for k, v in headers.items()
+                   if isinstance(k, str) and k.lower() != "host"}
         body_raw = subst(cfg.get("body") or "")
-        kwargs = {"headers": headers, "timeout": 15.0}
+        kwargs = {"headers": headers, "timeout": 15.0, "follow_redirects": False}
         if body_raw:
             try:
                 kwargs["json"] = _json.loads(body_raw)
@@ -564,10 +619,21 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                 kwargs["content"] = body_raw
         try:
             if method == "GET":
-                r = await HTTP.get(url, headers=headers, timeout=15.0)
+                r = await HTTP.get(url, headers=headers, timeout=15.0,
+                                   follow_redirects=False)
             else:
                 r = await HTTP.request(method, url, **kwargs)
-            text = r.text
+            # Если 3xx — ре-валидируем Location против SSRF (один шаг следования).
+            if 300 <= r.status_code < 400:
+                loc = r.headers.get("location", "")
+                if loc:
+                    err2 = _ssrf_validate(loc)
+                    if err2:
+                        log.warning(f"[HTTP] redirect SSRF blocked: {loc} ({err2})")
+                        return f"[HTTP blocked redirect: {err2}]"
+                # Не следуем редиректам автоматически — возвращаем как есть.
+            # Лимит размера ответа: 1 МБ, чтобы не сожрать память.
+            text = r.text[:1_048_576]
             # Попытка извлечь JSONPath
             extract = cfg.get("extract", "")
             if extract and extract.startswith("$"):
@@ -588,8 +654,9 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                     pass
             return text
         except Exception as e:
-            log.error(f"[HTTP] {url}: {e}")
-            return f"[HTTP error: {e}]"
+            # Не логируем сам URL/exception целиком — может содержать токены/пароли в query.
+            log.error(f"[HTTP] request failed: {type(e).__name__}")
+            return f"[HTTP error: {type(e).__name__}]"
 
     # ── Storage ────────────────────────────────────────────────────────────
     if ntype == "storage_get":
@@ -2059,26 +2126,71 @@ _PY_SANDBOX_FORBIDDEN_NAMES = {
     "eval", "exec", "compile", "open", "__import__",
     "globals", "locals", "vars", "getattr", "setattr", "delattr",
     "input", "breakpoint", "exit", "quit", "help",
-    "memoryview", "bytearray", "bytes",
+    "memoryview", "bytearray", "bytes", "type", "object",
+    "super", "classmethod", "staticmethod", "property",
 }
+
+# Whitelist разрешённых AST-узлов. Всё что НЕ в списке — отвергается.
+# Намеренно убраны: ClassDef, FunctionDef, AsyncFunctionDef, Lambda
+#   (можно скрыть в них escape: class X: __init_subclass__ etc.),
+# While (бесконечные циклы), Yield/YieldFrom, AsyncFor/AsyncWith,
+# GeneratorExp без bound, Global, Nonlocal, Try (можно поглотить ошибку
+# и продолжить вредоносный код), Import*, JoinedStr/FormattedValue
+# (через f-string легче проворачивать атаки), Starred (распаковка может
+# взорвать память), MatchClass, MatchStar.
+import ast as _ast
+_PY_SANDBOX_ALLOWED_NODES = {
+    _ast.Module, _ast.Expression, _ast.Expr,
+    _ast.Assign, _ast.AugAssign, _ast.AnnAssign,
+    _ast.For, _ast.If, _ast.Pass, _ast.Break, _ast.Continue,
+    _ast.Return, _ast.BoolOp, _ast.BinOp, _ast.UnaryOp, _ast.Compare,
+    _ast.Call, _ast.IfExp, _ast.Subscript, _ast.Attribute,
+    _ast.Name, _ast.Load, _ast.Store, _ast.Del,
+    _ast.Constant, _ast.List, _ast.Tuple, _ast.Set, _ast.Dict,
+    _ast.ListComp, _ast.SetComp, _ast.DictComp,
+    _ast.comprehension, _ast.Slice,
+    _ast.And, _ast.Or, _ast.Not,
+    _ast.Add, _ast.Sub, _ast.Mult, _ast.Div, _ast.FloorDiv, _ast.Mod,
+    _ast.LShift, _ast.RShift, _ast.BitOr, _ast.BitAnd, _ast.BitXor,
+    _ast.UAdd, _ast.USub, _ast.Invert,
+    _ast.Eq, _ast.NotEq, _ast.Lt, _ast.LtE, _ast.Gt, _ast.GtE,
+    _ast.Is, _ast.IsNot, _ast.In, _ast.NotIn,
+    _ast.keyword, _ast.arguments, _ast.arg,
+}
+
+# Мягкие ограничения, чтобы остановить тривиальные ресурсные атаки
+_PY_SANDBOX_MAX_CODE_LEN = 4000          # символов исходника
+_PY_SANDBOX_MAX_NODES = 250              # узлов AST
+_PY_SANDBOX_MAX_INT_LITERAL = 10**6      # литерал-числа
+_PY_SANDBOX_TIMEOUT_SEC = 2              # wallclock timeout (Linux only)
 
 
 def _ast_validate_python(code: str) -> str | None:
     """
     Возвращает текст ошибки, если код содержит запрещённые конструкции.
-    Не идеален (не гарантирует безопасность), но отсекает большинство атак.
+
+    Whitelist-подход: разрешаем только явно перечисленные узлы AST.
+    Это резко режет поверхность атаки, но не делает sandbox безопасным.
+    Полная безопасность достижима только через subprocess + seccomp.
     """
     import ast
+    if len(code) > _PY_SANDBOX_MAX_CODE_LEN:
+        return f"Код слишком длинный (>{_PY_SANDBOX_MAX_CODE_LEN} символов)"
     try:
         tree = ast.parse(code, mode="exec")
     except SyntaxError as e:
         return f"Синтаксическая ошибка: {e}"
 
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            return "Импорты запрещены в sandbox"
+    nodes = list(ast.walk(tree))
+    if len(nodes) > _PY_SANDBOX_MAX_NODES:
+        return f"Слишком сложный код (>{_PY_SANDBOX_MAX_NODES} узлов AST)"
+
+    for node in nodes:
+        if type(node) not in _PY_SANDBOX_ALLOWED_NODES:
+            return f"Запрещённая конструкция: {type(node).__name__}"
         if isinstance(node, ast.Attribute):
             # Запрещаем dunder-доступ (.__class__, .__bases__, ...)
+            # и любые приватные атрибуты на всякий случай.
             if node.attr.startswith("_"):
                 return f"Доступ к скрытым атрибутам ({node.attr}) запрещён"
         if isinstance(node, ast.Name) and node.id in _PY_SANDBOX_FORBIDDEN_NAMES:
@@ -2086,6 +2198,15 @@ def _ast_validate_python(code: str) -> str | None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             if node.func.id in _PY_SANDBOX_FORBIDDEN_NAMES:
                 return f"Вызов {node.func.id}() запрещён"
+        # Защита от 'a' * 10**9 / int литерал-бомб
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, int) and abs(node.value) > _PY_SANDBOX_MAX_INT_LITERAL:
+                return f"Слишком большое число ({node.value})"
+            if isinstance(node.value, str) and len(node.value) > 10000:
+                return "Строковый литерал слишком длинный"
+        # Запрещаем степень — `2 ** 100000` мгновенно съест CPU/память
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
+            return "Оператор ** запрещён в sandbox"
     return None
 
 
@@ -2095,7 +2216,8 @@ def _run_python_sandbox(code: str, input_text: str, ctx: dict) -> str:
     (ENABLE_PYTHON_SANDBOX=true чтобы включить).
 
     Даже с AST-валидацией exec() не безопасен — это RCE-вектор.
-    Включать только в доверенной среде.
+    Включать только в доверенной среде, например для self-hosted
+    инсталляций где владелец = единственный автор воркфлоу.
     """
     import json as _j
     import os as _os
@@ -2127,6 +2249,22 @@ def _run_python_sandbox(code: str, input_text: str, ctx: dict) -> str:
         "ctx": ctx_copy,
         "output": "",
     }
+
+    # Wallclock timeout через signal.alarm — работает только на Linux,
+    # только в главном потоке. На прочих платформах просто выполняется без таймера.
+    import signal as _sig
+    _has_alarm = hasattr(_sig, "SIGALRM")
+    _old_handler = None
+    if _has_alarm:
+        def _on_timeout(_sig_num, _frame):
+            raise TimeoutError(f"Превышен лимит {_PY_SANDBOX_TIMEOUT_SEC}с")
+        try:
+            _old_handler = _sig.signal(_sig.SIGALRM, _on_timeout)
+            _sig.alarm(_PY_SANDBOX_TIMEOUT_SEC)
+        except (ValueError, OSError):
+            # signal вне главного потока — не критично, продолжаем без таймера
+            _has_alarm = False
+            _old_handler = None
     try:
         exec(code, safe_globals, safe_locals)
         out = safe_locals.get("output", "")
@@ -2134,6 +2272,17 @@ def _run_python_sandbox(code: str, input_text: str, ctx: dict) -> str:
             try: out = _j.dumps(out, ensure_ascii=False)
             except Exception: out = str(out)
         return out[:10000]
+    except TimeoutError as e:
+        log.error(f"[Python sandbox] timeout: {e}")
+        return f"[Python sandbox: {e}]"
     except Exception as e:
-        log.error(f"[Python sandbox] error: {e}")
-        return f"[Ошибка Python: {e}]"
+        log.error(f"[Python sandbox] error: {type(e).__name__}")
+        return f"[Ошибка Python: {type(e).__name__}]"
+    finally:
+        if _has_alarm:
+            try:
+                _sig.alarm(0)
+                if _old_handler is not None:
+                    _sig.signal(_sig.SIGALRM, _old_handler)
+            except (ValueError, OSError):
+                pass

@@ -114,15 +114,24 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 _raw_origins = os.getenv("ALLOWED_ORIGINS", "")
 _origins = [o.strip() for o in _raw_origins.split(",") if o.strip()] if _raw_origins else []
 _dev_mode = os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
+_app_env = os.getenv("APP_ENV", "production").lower()  # дефолт production — fail-safe
+# Защита от опечатки: даже если кто-то в .env проставит DEV_MODE=true рядом
+# с APP_ENV=production, мы НЕ открываем CORS на "*". Лучше чтобы сервис
+# не стартанул, чем работал с открытыми кросс-доменными запросами.
+if _dev_mode and _app_env == "production":
+    raise RuntimeError(
+        "DEV_MODE=true несовместим с APP_ENV=production. "
+        "Уберите DEV_MODE или установите APP_ENV=dev."
+    )
 if not _origins:
-    if _dev_mode:
+    if _dev_mode and _app_env != "production":
         log.warning("DEV_MODE: CORS allows all origins — НЕ ВКЛЮЧАЙТЕ В ПРОДЕ")
         _origins = ["*"]
     else:
         raise RuntimeError(
             "ALLOWED_ORIGINS не задан. В проде укажите домены через запятую "
             "(например: https://aiche.ru,https://www.aiche.ru). "
-            "Для локальной разработки установите DEV_MODE=true."
+            "Для локальной разработки установите DEV_MODE=true и APP_ENV=dev."
         )
 app.add_middleware(
     CORSMiddleware,

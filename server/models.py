@@ -69,6 +69,21 @@ class VerifyToken(Base):
     user = relationship("User", back_populates="verify_tokens")
 
 
+class OAuthState(Base):
+    """
+    CSRF-state параметр для OAuth флоу. Создаётся в /start, потребляется в /callback.
+    Отдельная таблица т.к. user_id неизвестен до завершения флоу.
+    """
+    __tablename__ = "oauth_states"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    state      = Column(String, unique=True, index=True, nullable=False)
+    provider   = Column(String, nullable=False)   # "google" | "vk"
+    used       = Column(Boolean, default=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
 

@@ -215,6 +215,57 @@ class TestWebhooks:
         assert r.status_code == 200
 
 
+# ── YooKassa webhook signature ───────────────────────────────────────────────
+
+class TestYooKassaWebhookSignature:
+    """
+    Гарантия что подделать webhook ЮKassa нельзя:
+      - валидный HMAC-secret обязателен
+      - кривая подпись = 401
+      - правильная подпись + неправильное тело = 401
+    """
+
+    def _set_secret(self, monkeypatch, value: str):
+        monkeypatch.setenv("YOOKASSA_SECRET_KEY", value)
+        # Гарантируем что в проде не сработает «accept без secret»
+        monkeypatch.delenv("ALLOW_UNVERIFIED_WEBHOOK", raising=False)
+
+    def test_missing_signature_when_secret_set(self, client, monkeypatch):
+        self._set_secret(monkeypatch, "test-secret-12345")
+        r = client.post("/payment/webhook", json={"object": {"id": "pay_x"}})
+        assert r.status_code == 401
+        assert "Signature required" in r.text
+
+    def test_malformed_signature(self, client, monkeypatch):
+        self._set_secret(monkeypatch, "test-secret-12345")
+        r = client.post("/payment/webhook",
+                        json={"object": {"id": "pay_x"}},
+                        headers={"X-Content-Signature": "garbage"})
+        assert r.status_code == 401
+        assert "Malformed" in r.text
+
+    def test_wrong_signature(self, client, monkeypatch):
+        self._set_secret(monkeypatch, "test-secret-12345")
+        # 64 hex но вычисленные с другим ключом — должны не совпасть
+        import hmac, hashlib
+        body = b'{"object":{"id":"pay_fake"}}'
+        wrong = hmac.new(b"wrong-secret", body, hashlib.sha256).hexdigest()
+        r = client.post("/payment/webhook", content=body,
+                        headers={"X-Content-Signature": f"sha256={wrong}",
+                                 "Content-Type": "application/json"})
+        assert r.status_code == 401
+        assert "Invalid" in r.text
+
+    def test_hard_fail_when_secret_unset_in_prod(self, client, monkeypatch):
+        """В проде без secret webhook должен возвращать 503, а не 200."""
+        monkeypatch.delenv("YOOKASSA_SECRET_KEY", raising=False)
+        monkeypatch.delenv("DEV_MODE", raising=False)
+        monkeypatch.delenv("ALLOW_UNVERIFIED_WEBHOOK", raising=False)
+        r = client.post("/payment/webhook", json={"object": {"id": "pay_x"}})
+        # 503 — secret обязателен в проде, иначе любой может зачислить себе.
+        assert r.status_code == 503
+
+
 # ── Chatbot Engine ────────────────────────────────────────────────────────────
 
 class TestChatbotEngine:

@@ -59,7 +59,10 @@ def deduct_atomic(db: Session, user_id: int, cost: int) -> int:
         charged = cost
     else:
         # Баланса не хватило — спишем остаток. Оптимистичная блокировка через WHERE balance==prev.
-        for _ in range(5):
+        # Exponential backoff с jitter, чтобы при шторме (несколько параллельных
+        # запросов на последние копейки) не зацикливать retry-ы вхолостую.
+        import random as _r, time as _t
+        for attempt in range(8):
             cur = db.execute(
                 select(User.tokens_balance).where(User.id == user_id)
             ).scalar() or 0
@@ -74,6 +77,10 @@ def deduct_atomic(db: Session, user_id: int, cost: int) -> int:
             if (res.rowcount or 0) > 0:
                 charged = cur
                 break
+            # Backoff: 5ms · 2^attempt + jitter (max ~640ms на 8й итерации)
+            _t.sleep(min(0.005 * (2 ** attempt), 0.5) + _r.uniform(0, 0.005))
+        if charged == 0:
+            log.warning(f"deduct_atomic: contention exhausted for user {user_id} cost={cost}")
 
     if charged > 0:
         _maybe_send_low_balance_alert(db, user_id)

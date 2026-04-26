@@ -238,9 +238,21 @@ PROVIDERS_LIST = [
 # ── Admin: Users ──────────────────────────────────────────────────────────────
 
 @router.get("/users")
-def admin_users(user: User = Depends(current_user), db: Session = Depends(get_db)):
+def admin_users(offset: int = 0, limit: int = 200,
+                q: str | None = None,
+                user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Список юзеров с offset/limit-пагинацией. Опциональный поиск по email/name."""
     require_admin(user)
-    users = db.query(User).order_by(User.created_at.desc()).limit(200).all()
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+    query = db.query(User).order_by(User.created_at.desc())
+    if q:
+        # `escape` не нужен т.к. SQLAlchemy параметризует bind, но _ и % всё равно
+        # сматчатся буквально — если юзер ищет «1_2», получит «1_2», «1A2», «1B2».
+        # Это безопасно, просто косметика поиска.
+        like = f"%{q.strip()[:80]}%"
+        query = query.filter((User.email.ilike(like)) | (User.name.ilike(like)))
+    users = query.offset(offset).limit(limit).all()
     return [_user_dict(u) for u in users]
 
 

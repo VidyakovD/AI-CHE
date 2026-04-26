@@ -190,6 +190,12 @@ def tg_webhook_secret(tg_token: str) -> str:
     Производный secret для X-Telegram-Bot-Api-Secret-Token.
     Не требует хранения в БД — выводится из tg_token + JWT_SECRET.
     Меняется только если меняется JWT_SECRET или tg_token.
+
+    [:32] — 128 бит, на грани best-practice. Не увеличиваем до полного
+    SHA-256 (64 hex), потому что это сломает все уже выставленные
+    Telegram webhook'и: setWebhook был вызван со старым 32-char secret,
+    и пока бот не пере-настроится, все апдейты будут падать с 401.
+    Защита от тайминг-атаки уже даёт hmac.compare_digest в проверке.
     """
     import hmac, hashlib
     base = os.getenv("JWT_SECRET", "")

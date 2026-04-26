@@ -1,7 +1,8 @@
 import os, json, uuid, logging
+from urllib.parse import urlparse
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db, current_user, _user_dict
@@ -14,12 +15,39 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="", tags=["payments"])
 
 
-_DEFAULT_RETURN_URL = os.getenv("APP_URL", "http://localhost:8000").rstrip("/") + "/?payment=success"
+_APP_URL = os.getenv("APP_URL", "http://localhost:8000").rstrip("/")
+_DEFAULT_RETURN_URL = _APP_URL + "/?payment=success"
+_ALLOWED_RETURN_HOST = (urlparse(_APP_URL).hostname or "").lower()
+
+
+def _validate_return_url(url: str) -> str:
+    """
+    Защищает от open-redirect: разрешаем только URL c host == APP_URL.host.
+    Если юзер передал произвольный — fallback на дефолт.
+    """
+    if not url:
+        return _DEFAULT_RETURN_URL
+    try:
+        p = urlparse(url)
+    except Exception:
+        return _DEFAULT_RETURN_URL
+    if p.scheme not in ("http", "https"):
+        return _DEFAULT_RETURN_URL
+    host = (p.hostname or "").lower()
+    if host != _ALLOWED_RETURN_HOST:
+        log.warning(f"buy-tokens: return_url={url!r} host={host!r} not allowed → fallback")
+        return _DEFAULT_RETURN_URL
+    return url
 
 
 class BuyTokenRequest(BaseModel):
     package_id: int
     return_url: str = _DEFAULT_RETURN_URL
+
+    @field_validator("return_url")
+    @classmethod
+    def _check_return_url(cls, v: str) -> str:
+        return _validate_return_url(v)
 
 
 @router.post("/payment/webhook")
@@ -36,6 +64,18 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
 
     hmac_header = request.headers.get("X-Content-Signature")
     secret = os.getenv("YOOKASSA_SECRET_KEY", "")
+    # HARD FAIL без секрета: иначе webhook становится unauthenticated и
+    # любой может зачислить себе баланс (нужно знать только user_id).
+    # Исключение — DEV_MODE / явный ALLOW_UNVERIFIED_WEBHOOK для тестов.
+    _allow_unverified = (
+        os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
+        or os.getenv("ALLOW_UNVERIFIED_WEBHOOK", "").lower() in ("1", "true", "yes")
+    )
+    if not secret:
+        if not _allow_unverified:
+            log.error("Webhook: YOOKASSA_SECRET_KEY not set in production — rejecting")
+            raise HTTPException(503, "Webhook signature secret not configured")
+        log.warning("Webhook: secret not set, accepting unverified (dev mode)")
     if secret:
         if not hmac_header:
             log.warning("Webhook: missing X-Content-Signature while secret is configured")
@@ -156,7 +196,8 @@ def buy_tokens(req: BuyTokenRequest, user: User = Depends(current_user),
             "status": p.status,
         }
     except Exception as e:
-        raise HTTPException(500, f"Ошибка платежа: {e}")
+        log.error(f"buy-tokens: YooKassa create failed: {type(e).__name__}: {e}")
+        raise HTTPException(500, "Ошибка создания платежа, попробуйте позже")
 
 
 @router.get("/payment/confirm-tokens/{payment_id}")

@@ -1,6 +1,27 @@
 # TODO — задачи в работе и на очереди
 
-_Последнее обновление: 2026-04-26_
+_Последнее обновление: 2026-04-26 (после security audit + harden спринта)_
+
+## 🔴 Security debt после P0/P1 спринта
+
+### JWT в localStorage → httpOnly cookie + CSRF (defer)
+**Зачем:** сейчас XSS = моментальный угон сессии (token читается JS). httpOnly cookie + CSRF-токен в заголовке = XSS получает только короткое окно.
+
+**Где трогать:**
+- `server/auth.py` — добавить `set_access_cookie(response, token)` хелпер.
+- `server/routes/auth.py` — `/login`, `/register/verify-email`, `/oauth/exchange` — устанавливать `Set-Cookie: access_token=...; HttpOnly; Secure; SameSite=Lax; Path=/`.
+- `server/routes/deps.py:current_user` — читать токен сначала из cookie, потом из Authorization (back-compat).
+- Новый middleware: для всех `POST/PUT/DELETE/PATCH` требовать `X-CSRF-Token` совпадающий с cookie `csrf_token` (double-submit pattern).
+- Все views — убрать `localStorage.setItem('obs_token')`, читать csrf-token из cookie через JS, добавлять в `fetch` header.
+- `/auth/logout` — очистка cookie через `Set-Cookie: access_token=; Max-Age=0`.
+
+**Why deferred:** инвазивная миграция, требует тестов на back-compat (старые залогиненные клиенты должны продолжать работать), отдельные тесты на CSRF middleware.
+
+### Прочие из аудита (низкий приоритет)
+- `tg_webhook_secret()[:32]` оставлено (128 бит — приемлемо, увеличение сломает выставленные webhook'и).
+- Tailwind CDN → локальный bundle (300ms latency + supply-chain risk).
+- Hardcoded цены `SITE_QUALITY_TIERS`/`CODE_GEN_PREMIUM_COST` — мигрировать в `model_pricing` БД с UI в админке.
+- ARIA / a11y — пройтись по основным views.
 
 ## 🟡 В разработке / на очереди
 

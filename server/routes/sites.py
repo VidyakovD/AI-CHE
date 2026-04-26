@@ -431,6 +431,45 @@ def _strip_markdown_code_fence(content: str) -> str:
     return content
 
 
+def _refund_site_generation(project_id: int, reason: str) -> None:
+    """
+    Возвращает деньги пользователю если фоновая генерация сайта упала.
+    Идемпотентно: проверяет SiteProject.gen_status — рефанд только если статус
+    ещё не "refunded" (защита от двойного refund при повторных вызовах).
+    """
+    from server.db import db_session
+    from server.billing import credit_atomic
+    try:
+        with db_session() as db:
+            p = db.query(SiteProject).filter_by(id=project_id).first()
+            if not p or not p.user_id:
+                return
+            # Идемпотентность: помечаем gen_status="refunded" перед credit.
+            # Если параллельный вызов уже сделал refund — пропускаем.
+            if p.gen_status == "refunded":
+                return
+            cost = int(p.price_tokens or 0)
+            if cost <= 0:
+                return
+            # Атомарный credit с одновременным сбросом price_tokens
+            credit_atomic(db, p.user_id, cost)
+            db.add(Transaction(
+                user_id=p.user_id, type="refund", tokens_delta=cost,
+                description=f"Авто-возврат за неудачную генерацию сайта #{project_id}: {reason[:200]}",
+            ))
+            p.price_tokens = 0
+            p.gen_status = "refunded"
+            p.gen_error = (p.gen_error or "") + f" [возврат {cost/100:.0f} ₽]"
+            db.commit()
+            log.warning(f"[Sites/bg] project {project_id} refunded {cost} kop ({reason})")
+            from server.audit_log import log_action
+            log_action("site.generate_failed", user_id=p.user_id, target_type="site_project",
+                       target_id=project_id, level="warn", success=False,
+                       details={"refunded_kop": cost, "reason": reason[:500]})
+    except Exception as ex:
+        log.error(f"[Sites/bg] refund failed for {project_id}: {type(ex).__name__}: {ex}")
+
+
 async def _run_site_generation(project_id: int, quality: str = "standard"):
     """Фоновая задача — генерит HTML сайта.
 
@@ -439,6 +478,7 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
 
     Все исключения ловим и пишем в БД (gen_status=failed + gen_error),
     чтобы фронт показал нормальное сообщение, а не виртуальный 500.
+    При любой ошибке деньги возвращаются автоматически (см. _refund_site_generation).
     """
     from server.db import db_session
     tier = SITE_QUALITY_TIERS.get(quality, SITE_QUALITY_TIERS["standard"])
@@ -486,9 +526,10 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
                 p = db.query(SiteProject).filter_by(id=project_id).first()
                 if p:
                     p.gen_status = "failed"
-                    p.gen_error = "AI не вернул корректный HTML. Попробуйте ещё раз."
+                    p.gen_error = "AI не вернул корректный HTML. Деньги возвращены."
                     p.conversation_phase = "spec_approved"
                     db.commit()
+            _refund_site_generation(project_id, "AI returned non-HTML")
             return
 
         content = _strip_markdown_code_fence(content)
@@ -556,11 +597,15 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
                 p = db.query(SiteProject).filter_by(id=project_id).first()
                 if p:
                     p.gen_status = "failed"
-                    p.gen_error = f"Ошибка генерации: {e}"
+                    # Не пишем сам exception в текст — может содержать proxy URL
+                    # с креденшалами или API-ключ. Тип достаточен для UX.
+                    p.gen_error = f"Ошибка генерации ({type(e).__name__}). Деньги возвращены."
                     p.conversation_phase = "spec_approved"
                     db.commit()
         except Exception:
             pass
+        # Авто-возврат списанной суммы (идемпотентен, не дублируется)
+        _refund_site_generation(project_id, f"{type(e).__name__}: {e}"[:200])
 
 
 @router.post("/sites/projects/{project_id}/generate-code")

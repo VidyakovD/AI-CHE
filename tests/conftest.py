@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Должно быть установлено ДО импорта main.py (CORS-проверка в main.py).
 os.environ.setdefault("DEV_MODE", "true")
+os.environ.setdefault("APP_ENV", "dev")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-32-chars-long-yes-yes")
 
 

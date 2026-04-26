@@ -35,10 +35,10 @@ def _get_api_keys(provider: str, sep=","):
     if cached and (now - cached[0]) < _API_KEY_CACHE_TTL:
         return list(cached[1])
 
-    from server.db import SessionLocal
+    from server.db import db_session
     from server.models import ApiKey
-    db = SessionLocal()
-    try:
+    # Через контекст-менеджер: rollback при ошибке + гарантированный close.
+    with db_session() as db:
         if provider == "kling":
             rows = db.query(ApiKey).filter_by(provider="kling").all()
             result = [r.key_value.strip() for r in rows if r.key_value.strip()]
@@ -61,8 +61,61 @@ def _get_api_keys(provider: str, sep=","):
 
         _api_key_cache[provider] = (now, result)
         return list(result)
-    finally:
-        db.close()
+
+
+# Регулярки для маскирования секретов в логах/нотификациях.
+# AI-провайдеры часто бросают exception с полным URL запроса (включая
+# api_key в query) или с заголовком Authorization. Не должно попадать в логи.
+import re as _re
+_SECRET_PATTERNS = [
+    (_re.compile(r"(sk-[A-Za-z0-9_\-]{8,})"),               r"sk-***"),
+    (_re.compile(r"(Bearer\s+)[A-Za-z0-9_\-\.]+", _re.I),   r"\1***"),
+    (_re.compile(r"(Authorization[:=]\s*)[^\s,;]+", _re.I), r"\1***"),
+    (_re.compile(r"(api[_\-]?key[:=]\s*)[^\s,;&]+", _re.I), r"\1***"),
+    # Прокси-URL с креденшалами:  http://user:pass@host:port/...
+    (_re.compile(r"(https?://)([^:/@\s]+):([^@\s]+)@"),     r"\1***:***@"),
+    # Google API key (AIza...)
+    (_re.compile(r"(AIza[A-Za-z0-9_\-]{30,})"),              r"AIza***"),
+    # query-параметр key=...&
+    (_re.compile(r"([?&]key=)[^&\s]+"),                     r"\1***"),
+]
+
+
+def _sanitize_error(msg) -> str:
+    """Удаляет секреты из текста ошибки/сообщения перед логированием."""
+    s = str(msg)
+    for pat, repl in _SECRET_PATTERNS:
+        s = pat.sub(repl, s)
+    return s[:1500]
+
+
+class _SecretFilter(logging.Filter):
+    """
+    Logging-фильтр: пропускает каждый record.msg / args через _sanitize_error.
+    Подключается к логгеру `server.ai` чтобы все f-string'и с exception-ами
+    автоматически чистились от API-ключей и proxy creds.
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            if isinstance(record.msg, str):
+                # Сначала отрендерим сообщение с args, потом санитизируем —
+                # иначе паттерны ошибок в args не отловятся.
+                if record.args:
+                    try:
+                        rendered = record.msg % record.args
+                    except Exception:
+                        rendered = record.msg
+                    record.msg = _sanitize_error(rendered)
+                    record.args = ()
+                else:
+                    record.msg = _sanitize_error(record.msg)
+        except Exception:
+            pass
+        return True
+
+
+# Подключаем фильтр один раз при импорте модуля.
+log.addFilter(_SecretFilter())
 
 
 def invalidate_api_key_cache(provider: str = None):
@@ -114,14 +167,19 @@ def try_with_keys(provider: str, call_fn, *, on_no_keys: str | None = None):
         except Exception as e:
             last_err = e
             tail = key[-6:] if len(key) >= 6 else "***"
-            log.warning(f"[{provider}] key=...{tail} error: {e}")
+            log.warning(f"[{provider}] key=...{tail} error: {_sanitize_error(e)}")
             continue
-    _notify_admin(f"{provider}: все ключи исчерпаны: {last_err}")
+    _notify_admin(f"{provider}: все ключи исчерпаны: {_sanitize_error(last_err)}")
     return None
 
 
 def _notify_admin(error_msg: str, context: dict | None = None):
-    """Отправляет ошибку в Telegram админу + в ERROR_WEBHOOK если настроен."""
+    """Отправляет ошибку в Telegram админу + в ERROR_WEBHOOK если настроен.
+
+    Сообщение проходит _sanitize_error чтобы не утекли API-ключи / proxy creds
+    в Telegram-чат админа (история чата может быть скомпрометирована).
+    """
+    error_msg = _sanitize_error(error_msg)
     # 1. Custom webhook (для интеграции с внешним error-handler)
     err_hook = os.getenv("ERROR_WEBHOOK_URL")
     if err_hook:
@@ -145,7 +203,7 @@ def _notify_admin(error_msg: str, context: dict | None = None):
         httpx.post(f"https://api.telegram.org/bot{token}/sendMessage",
                    json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
                    timeout=10)
-    except:
+    except Exception:
         pass
 
 # ── token cost map (КОПЕЙКИ за запрос — fallback если нет model_pricing записи) ─
@@ -563,13 +621,26 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
                     last_err = f"no operation name: {r.text[:200]}"
                     continue
 
-                # Polling операции до 5 минут (raз в 10 сек)
+                # Polling операции до wallclock-лимита (по умолчанию 360с).
+                # Раньше было `for _ in range(30): time.sleep(10)` — но при медленном
+                # GET'е (timeout=60) общая длительность могла дойти до 30·(10+60)=35мин,
+                # удерживая воркер. Теперь жёсткий wallclock-cap.
                 op_url = f"https://generativelanguage.googleapis.com/v1beta/{op_name}?key={key}"
                 video_uri = None
-                with httpx.Client(proxy=proxy, timeout=60) as client:
-                    for _ in range(30):
+                _veo_poll_deadline = time.monotonic() + float(
+                    os.getenv("VEO_POLL_TIMEOUT_SEC", "360")
+                )
+                with httpx.Client(proxy=proxy, timeout=30) as client:
+                    while time.monotonic() < _veo_poll_deadline:
                         time.sleep(10)
-                        pr = client.get(op_url)
+                        if time.monotonic() >= _veo_poll_deadline:
+                            last_err = "polling deadline exceeded"
+                            break
+                        try:
+                            pr = client.get(op_url)
+                        except Exception as poll_e:
+                            last_err = f"poll exception: {type(poll_e).__name__}"
+                            continue
                         if pr.status_code != 200:
                             continue
                         opd = pr.json()

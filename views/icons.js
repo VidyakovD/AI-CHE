@@ -125,4 +125,33 @@
   window.ICONS = ICONS;
   // Утилита для динамически вставляемого HTML — вызывать после insertAdjacentHTML
   window.renderIcons = _replaceAll;
+
+  // ── Глобальный лимит на размер textarea ───────────────────────────────────
+  // Защита от DoS: пользователь может вставить мегабайты текста и положить
+  // event-loop на сериализации/обработке. Дефолт — 50000 символов (≈100KB).
+  // Переопределить per-textarea: <textarea maxlength="200000"> или data-no-limit="1".
+  const _DEFAULT_TEXTAREA_MAX = 50000;
+  function _ensureTextareaLimits(root) {
+    (root || document).querySelectorAll('textarea').forEach(t => {
+      if (!t.hasAttribute('maxlength')) {
+        // Не трогаем редакторы кода (там лимит ставится отдельно)
+        if (t.id === 'codeEditor' || t.dataset.noLimit === '1') return;
+        t.setAttribute('maxlength', String(_DEFAULT_TEXTAREA_MAX));
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => _ensureTextareaLimits());
+  } else {
+    _ensureTextareaLimits();
+  }
+  // Применять и к динамически добавленным textarea
+  try {
+    const _mo = new MutationObserver(muts => {
+      muts.forEach(m => m.addedNodes.forEach(n => {
+        if (n.nodeType === 1) _ensureTextareaLimits(n);
+      }));
+    });
+    _mo.observe(document.documentElement, {childList: true, subtree: true});
+  } catch (e) { /* no-op */ }
 })();

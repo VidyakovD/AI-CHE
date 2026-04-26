@@ -1,5 +1,5 @@
-import os, json, uuid, logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+import os, json, uuid, logging, time, threading
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
@@ -9,6 +9,39 @@ from server.models import User, Message, Transaction, ModelPricing, UsageLog
 from server.ai import generate_response, get_token_cost, resolve_model
 from server.security import validate_upload_filename
 from server.billing import deduct_atomic, get_balance
+
+
+# ── In-memory idempotency cache для /message ────────────────────────────────
+# Если клиент передаёт `Idempotency-Key`, мы кэшируем response на 5 минут.
+# Двойной клик или ретрай по сетевой ошибке вернёт тот же ответ без
+# повторного вызова AI и повторного списания.
+# Cache живёт в процессе — для multi-worker setup нужен Redis (TODO).
+_IDEMPOTENCY_TTL_SEC = 300
+_idempotency_cache: dict[tuple[int, str], tuple[float, dict]] = {}
+_idempotency_lock = threading.Lock()
+
+
+def _idempotency_get(user_id: int, key: str) -> dict | None:
+    """Возвращает кэшированный response для (user_id, key) или None."""
+    if not key:
+        return None
+    now = time.monotonic()
+    with _idempotency_lock:
+        # Чистим expired по дороге
+        for k, (ts, _) in list(_idempotency_cache.items()):
+            if now - ts > _IDEMPOTENCY_TTL_SEC:
+                _idempotency_cache.pop(k, None)
+        item = _idempotency_cache.get((user_id, key))
+        if item and (now - item[0]) <= _IDEMPOTENCY_TTL_SEC:
+            return item[1]
+    return None
+
+
+def _idempotency_put(user_id: int, key: str, value: dict) -> None:
+    if not key:
+        return
+    with _idempotency_lock:
+        _idempotency_cache[(user_id, key)] = (time.monotonic(), value)
 
 
 def calculate_cost(model_id: str, input_tokens: int, output_tokens: int, db: Session) -> int:
@@ -123,12 +156,23 @@ def get_chats(model: str, db: Session = Depends(get_db), user=Depends(optional_u
 
 
 @router.post("/message")
-def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depends(current_user)):
+def send_message(req: MessageRequest,
+                 idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+                 db: Session = Depends(get_db), user=Depends(current_user)):
     cfg = resolve_model(req.model)
     real_model = cfg["real_model"] if cfg else req.model
 
     if not user.is_verified:
         raise HTTPException(403, "Подтвердите email для отправки сообщений")
+
+    # Idempotency: повторный запрос с тем же ключом возвращает кэшированный
+    # ответ и НЕ списывает баланс повторно. Защита от двойного клика.
+    # Ключ ограничиваем до 80 символов и отбрасываем пустоту.
+    _idem_key = (idempotency_key or "").strip()[:80]
+    if _idem_key:
+        cached = _idempotency_get(user.id, _idem_key)
+        if cached is not None:
+            return cached
 
     # Предварительная блокировка: списываем минимум, чтобы отсечь пустые балансы
     min_cost = 1
@@ -214,8 +258,11 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
         db.add(Message(chat_id=req.chat_id, role="assistant", content=content,
                        model=req.model, user_id=user.id, tokens_used=0))
         db.commit()
-        return {"response": {"type": "text", "content": content, "ch_charged": 0,
-                              "input_tokens": 0, "output_tokens": 0, "refunded": True}}
+        refunded = {"response": {"type": "text", "content": content, "ch_charged": 0,
+                                  "input_tokens": 0, "output_tokens": 0, "refunded": True}}
+        if _idem_key:
+            _idempotency_put(user.id, _idem_key, refunded)
+        return refunded
 
     cost = calculate_cost(cost_model, input_tokens, output_tokens, db)
 
@@ -266,7 +313,11 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
             resp_dict["url"] = answer["url"]
         if answer.get("model"):
             resp_dict["model"] = answer["model"]
-    return {"response": resp_dict}
+    final = {"response": resp_dict}
+    # Кэшируем под Idempotency-Key для защиты от ретраев / двойных кликов
+    if _idem_key:
+        _idempotency_put(user.id, _idem_key, final)
+    return final
 
 
 @router.post("/upload")
