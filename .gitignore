@@ -1,4 +1,6 @@
 *.db
+chat.db.*
+backups/
 *.pyc
 __pycache__/
 .env
