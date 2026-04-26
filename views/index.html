@@ -246,8 +246,20 @@ body.welcome #inputArea{display:none!important}
   <!-- Input -->
   <div id="inputArea" class="fixed bottom-0 right-0 left-0 lg:left-[272px] p-4 bg-gradient-to-t from-background via-background/95 to-transparent">
     <div class="max-w-4xl mx-auto w-full">
+      <!-- Свёрнутая панель параметров (кнопка для повторного открытия) -->
+      <div id="videoParamsCollapsed" class="hidden mb-2 flex justify-end">
+        <button onclick="toggleVideoParams()" class="text-[11px] text-primary hover:underline flex items-center gap-1 px-3 py-1 rounded-lg hover:bg-primary/8 transition">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z"/></svg>
+          Параметры
+        </button>
+      </div>
       <div id="videoParamsPanel" class="hidden mb-3 p-4 bg-surface2 rounded-xl border border-outline/20 space-y-3">
-        <p class="text-xs font-bold text-primary uppercase tracking-wider" id="videoParamsTitle">Параметры видео</p>
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-bold text-primary uppercase tracking-wider" id="videoParamsTitle">Параметры видео</p>
+          <button onclick="toggleVideoParams()" class="text-on-dim/60 hover:text-primary transition" title="Свернуть">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>
+          </button>
+        </div>
         <div class="grid grid-cols-2 gap-3" id="videoParamsGrid"></div>
       </div>
       <div id="attachmentPreview" class="hidden mb-2">
@@ -995,8 +1007,15 @@ document.getElementById("modelMenuBtn").onclick=e=>{e.stopPropagation();document
 function toggleVideoPanel(model){
   const panel=document.getElementById("videoParamsPanel");
   const grid=document.getElementById("videoParamsGrid");
+  const compact=document.getElementById("videoParamsCollapsed");
   videoUrls={};  // reset all slots
-  if(!VIDEO_MODELS.includes(model)){panel.classList.add("hidden");return;}
+  if(!VIDEO_MODELS.includes(model)){
+    panel.classList.add("hidden");
+    if(compact) compact.classList.add("hidden");
+    return;
+  }
+  // Свернутый индикатор скрываем — открываем основную панель
+  if(compact) compact.classList.add("hidden");
   panel.classList.remove("hidden");
   document.getElementById("videoParamsTitle").textContent=`Параметры ${model.toUpperCase()}`;
   grid.innerHTML="";
@@ -1098,6 +1117,23 @@ function toggleVideoPanel(model){
 }
 
 // videoUrls declared above
+
+// Свернуть/развернуть панель параметров. Свёрнутая = показываем компактную
+// «… Параметры» кнопку чтобы юзер мог снова открыть, не путая с другими ботами.
+function toggleVideoParams(){
+  const panel = document.getElementById("videoParamsPanel");
+  const compact = document.getElementById("videoParamsCollapsed");
+  if(!panel || !compact) return;
+  if(panel.classList.contains("hidden")){
+    // разворачиваем
+    panel.classList.remove("hidden");
+    compact.classList.add("hidden");
+  } else {
+    panel.classList.add("hidden");
+    // Показываем компактную кнопку только если модель — видео/нано
+    if(VIDEO_MODELS.includes(currentModel)) compact.classList.remove("hidden");
+  }
+}
 
 function onVidParamChange(paramId,value,model){
   if(paramId==="generation_mode") updateKlingZones(value, model);
@@ -1969,8 +2005,29 @@ async function sendMessage(){
   try{
     if(!currentChat)await createChat();
     showChat();
-    addUserMsg(text,att?.url||null,att?.isImg||false);
+    // Если у видео-режима подгружен стартовый кадр — показываем его в чате
+    // как картинку вместе с текстом промпта (юзер видит «вот моё фото для оживления»).
+    let userAttUrl = att?.url || null;
+    let userAttIsImg = att?.isImg || false;
+    if(VIDEO_MODELS.includes(currentModel) && videoUrls.start && !userAttUrl){
+      userAttUrl = videoUrls.start;
+      userAttIsImg = true;
+    }
+    addUserMsg(text, userAttUrl, userAttIsImg);
     addTyping();ta.value="";ta.style.height="auto";updateSendBtn();
+    // Сворачиваем панель параметров после отправки + показываем компактный
+    // индикатор для повторного открытия. Стартовый кадр сбрасываем,
+    // иначе он автоматически приклеится к следующему запросу.
+    const _panel = document.getElementById("videoParamsPanel");
+    const _compact = document.getElementById("videoParamsCollapsed");
+    if(_panel && !_panel.classList.contains("hidden")){
+      _panel.classList.add("hidden");
+      if(_compact && VIDEO_MODELS.includes(currentModel)) _compact.classList.remove("hidden");
+    }
+    if(VIDEO_MODELS.includes(currentModel) && videoUrls.start){
+      // Сбрасываем превью и сам URL — следующий запрос будет text→video
+      try { clearVidImg('start'); } catch {}
+    }
     const body={chat_id:currentChat,message:text,model:currentModel};
     if(att)body.file_url=att.url;
     // Все прикреплённые файлы (для gpt-image-1 edit с несколькими reference)
