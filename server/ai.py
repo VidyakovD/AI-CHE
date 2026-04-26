@@ -1,6 +1,11 @@
 import os, random, time, base64, httpx, logging
 from openai import OpenAI
 import anthropic as AnthropicSDK
+
+# Anthropic SDK по умолчанию ставит httpx-timeout 60 сек, но Claude Sonnet
+# с max_tokens=16000 + большой prompt легко уходит за 90 сек. Для генерации
+# сайта особенно важно — ждём до 10 минут (override через env при необходимости).
+_ANTHROPIC_TIMEOUT = float(os.getenv("ANTHROPIC_TIMEOUT_SEC", "600"))
 from dotenv import load_dotenv
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -885,7 +890,9 @@ def anthropic_response(model: str, messages: list, extra: dict = None,
             else:
                 import anthropic as _ant
                 _max_tok = int((extra or {}).get("max_tokens", 8192))
-                resp = _ant.Anthropic(api_key=key).messages.create(
+                # timeout=600s — для генерации сайтов (Sonnet с 16k max_tokens
+                # часто думает 90-180 сек, а с auto-continue ещё дольше).
+                resp = _ant.Anthropic(api_key=key, timeout=_ANTHROPIC_TIMEOUT).messages.create(
                     model=model, max_tokens=_max_tok,
                     messages=claude_msgs,
                     system=system_block if use_caching else system_text,

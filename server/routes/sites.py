@@ -318,34 +318,22 @@ def _inject_chatbot_widget(html: str, bot_id: int, app_url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Code generation & iteration
+# Code generation: фоновая задача + polling (вместо синхронного long-running)
 # ---------------------------------------------------------------------------
-@router.post("/sites/projects/{project_id}/generate-code")
-def site_project_generate_code(project_id: int, body: dict | None = None,
-                                db: Session = Depends(get_db), user=Depends(optional_user)):
-    """Generate site code from spec + images."""
-    if not user:
-        raise HTTPException(401, "Нужна авторизация")
-    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
-    if not p:
-        raise HTTPException(404, "Проект не найден")
-    if not p.spec_text:
-        raise HTTPException(400, "Сначала создайте ТЗ")
+# Раньше: /generate-code блокирует HTTP-запрос на 1-3 минуты, клиент таймаутит,
+# юзер видит «Ошибка генерации». Сейчас: эндпоинт сразу возвращает {status:running},
+# фоновая asyncio-задача пишет result в БД, фронт polling'ит /generation-status.
 
-    cost = CODE_GEN_CH_COST  # 1500 ₽ фикс
-    if not deduct_strict(db, user.id, cost):
-        raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
-    p.price_tokens += cost
-    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
-                       description=f"Создание сайта ({cost/100:.0f} ₽)"))
+import asyncio
 
-    # Build prompt with images context
+
+def _build_site_prompt(spec_text: str, image_paths_json: str | None) -> tuple[str, list[str]]:
+    """Строит финальный prompt для Claude по ТЗ + картинкам пользователя."""
     img_context = ""
-    full_urls = []
+    full_urls: list[str] = []
     try:
-        imgs = json.loads(p.image_paths) if p.image_paths else []
+        imgs = json.loads(image_paths_json) if image_paths_json else []
         if imgs:
-            # Даём AI полные URL чтобы картинки работали на любом хостинге
             base_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
             full_urls = [f"{base_url}{u}" if u.startswith("/") else u for u in imgs]
             lines = "\n".join(f"  {i+1}. {u}" for i, u in enumerate(full_urls))
@@ -363,7 +351,7 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
         f"названия блоков и разделов — берутся ТОЛЬКО из ТЗ. Не придумывай шаблонные тексты "
         f"про рестораны, кофейни, меню если этого нет в ТЗ. Все заголовки, тексты, призывы — "
         f"строго по теме ТЗ.\n\n"
-        f"=== ТЗ ===\n{p.spec_text}\n=== КОНЕЦ ТЗ ===\n"
+        f"=== ТЗ ===\n{spec_text}\n=== КОНЕЦ ТЗ ===\n"
         f"{img_context}\n"
         f"Технические требования:\n"
         f"- Чистый, современный адаптивный HTML+CSS (mobile-first)\n"
@@ -374,68 +362,229 @@ def site_project_generate_code(project_id: int, body: dict | None = None,
         f"- Картинки: используй ТОЛЬКО URL из списка выше (если он есть). Иначе — CSS-плейсхолдеры\n"
         f"- Ответ: ТОЛЬКО HTML-код, без markdown-обёрток и объяснений\n"
     )
+    return prompt, full_urls
 
-    p.conversation_phase = "generating_code"
-    db.commit()
 
-    # max_tokens=16000 — большие лендинги не влезают в дефолтные 8192
-    answer = generate_response("claude", [{"role": "user", "content": prompt}],
-                               extra={"max_tokens": 16000})
-    content = answer.get("content", "") if isinstance(answer, dict) else ""
+def _enhance_spec_with_gpt(spec_text: str) -> str:
+    """Pre-process сырого ТЗ через GPT-4o-mini: расширяем структуру, добавляем
+    дизайн-направление, цвета, секции, чтобы Claude получил более качественный
+    бриф. Стоит ~0.5₽, занимает 5-10 сек, но сильно поднимает качество HTML.
 
-    if not content.strip().startswith("<") or "временно недоступен" in content:
-        p.conversation_phase = "spec_approved"
-        db.commit()
-        raise HTTPException(503, "AI не вернул корректный HTML. Попробуйте ещё раз.")
+    Если GPT недоступен / упал — возвращаем исходный текст (не блокируем).
+    """
+    enhance_prompt = (
+        "Ты — арт-директор. Тебе передано сырое ТЗ на одностраничный сайт от клиента. "
+        "Твоя задача — расширить ТЗ, добавив:\n"
+        "1. Структуру страницы (Hero / O нас / Услуги / Преимущества / Кейсы / Отзывы / "
+        "FAQ / Контакты — выбери релевантные).\n"
+        "2. Цветовую палитру (3-5 цветов в HEX) подходящую под нишу.\n"
+        "3. Тон и стиль (минимализм / премиум / дружелюбный / и т.п.).\n"
+        "4. Конкретные тексты для Hero (заголовок + подзаголовок + CTA).\n"
+        "5. По 2-4 пункта для каждого раздела — конкретно, не «пример пункта».\n"
+        "6. Призыв к действию на разных секциях.\n\n"
+        "СТРОГО соблюдай тематику и нишу из исходного ТЗ. Не выдумывай новый бизнес.\n"
+        "Длина итогового ТЗ: 800-1500 слов. Только структурированный текст, без преамбулы.\n\n"
+        f"=== ИСХОДНОЕ ТЗ ОТ КЛИЕНТА ===\n{spec_text}\n=== КОНЕЦ ===\n\n"
+        "Выдай развёрнутое ТЗ:"
+    )
+    try:
+        from server.ai import generate_response as _gen
+        ans = _gen("gpt-4o-mini", [{"role": "user", "content": enhance_prompt}],
+                   extra={"max_tokens": 3000})
+        text = ans.get("content", "") if isinstance(ans, dict) else ""
+        if text and len(text.strip()) > 200:
+            return text.strip()
+    except Exception as e:
+        log.warning(f"[Sites] enhance_spec failed (non-fatal): {e}")
+    return spec_text
 
-    # Clean markdown
+
+def _strip_markdown_code_fence(content: str) -> str:
+    """Убирает ```html ... ``` обёртки если Claude всё-таки добавил."""
     for marker in ["```html\n", "```\n", "```html", "```"]:
         if content.startswith(marker):
             content = content[len(marker):]
             content = content.rsplit("```", 1)[0] if "```" in content else content
             break
+    return content
 
-    # Auto-continue: если HTML обрезан, передаём Claude полный контекст
-    # (ТЗ + уже сгенерированную часть как assistant turn) и просим продолжить.
-    # Без ТЗ модель додумывала тематику с потолка (бывало что в lasting-tail
-    # были общие слова → выходил «лендинг ресторана» вместо промышленных труб).
-    for attempt in range(2):
-        if "</html>" in content.lower():
-            break
-        log.info(f"[Sites] HTML усечён ({len(content)} симв), продолжение #{attempt+1}")
-        cont_messages = [
-            {"role": "user", "content": prompt},
-            {"role": "assistant", "content": content},
-            {"role": "user", "content": (
-                "Ты не закончил — ответ обрезался. Продолжи строго с того места "
-                "где остановился (не повторяй уже написанное), до закрывающего "
-                "</html>. Не меняй тематику, следуй ТЗ выше. Ответ — только "
-                "продолжение HTML, без markdown и объяснений."
-            )},
-        ]
-        cont = generate_response("claude", cont_messages, extra={"max_tokens": 16000})
-        cont_text = cont.get("content", "") if isinstance(cont, dict) else ""
-        for marker in ["```html\n", "```\n", "```html", "```"]:
-            if cont_text.startswith(marker):
-                cont_text = cont_text[len(marker):]
-                cont_text = cont_text.rsplit("```", 1)[0] if "```" in cont_text else cont_text
+
+async def _run_site_generation(project_id: int):
+    """Фоновая задача — генерит HTML сайта. Все исключения ловим и пишем
+    в БД (gen_status=failed + gen_error), чтобы фронт показал нормальное
+    сообщение, а не виртуальный 500."""
+    from server.db import db_session
+    try:
+        # 1. Загружаем проект
+        with db_session() as db:
+            p = db.query(SiteProject).filter_by(id=project_id).first()
+            if not p:
+                log.error(f"[Sites/bg] project {project_id} not found")
+                return
+            spec = p.spec_text or ""
+            image_paths_json = p.image_paths
+            p.gen_progress = "Улучшаю ТЗ через GPT-4o…"
+            db.commit()
+
+        # 2. Pre-process ТЗ через GPT-4o-mini (отдельный thread — sync вызов)
+        loop = asyncio.get_event_loop()
+        enhanced = await loop.run_in_executor(None, _enhance_spec_with_gpt, spec)
+
+        with db_session() as db:
+            p = db.query(SiteProject).filter_by(id=project_id).first()
+            if p:
+                p.enhanced_spec = enhanced
+                p.gen_progress = "Claude генерирует HTML (1/3)…"
+                db.commit()
+
+        # 3. Основная генерация Claude (timeout=600s в SDK)
+        prompt, _full_urls = _build_site_prompt(enhanced, image_paths_json)
+        # generate_response — sync; запускаем в executor чтобы не блочить event loop
+        ans = await loop.run_in_executor(
+            None,
+            lambda: generate_response("claude",
+                                       [{"role": "user", "content": prompt}],
+                                       {"max_tokens": 16000}),
+        )
+        content = (ans.get("content", "") if isinstance(ans, dict) else "").strip()
+
+        if not content.startswith("<") or "временно недоступен" in content:
+            with db_session() as db:
+                p = db.query(SiteProject).filter_by(id=project_id).first()
+                if p:
+                    p.gen_status = "failed"
+                    p.gen_error = "AI не вернул корректный HTML. Попробуйте ещё раз."
+                    p.conversation_phase = "spec_approved"
+                    db.commit()
+            return
+
+        content = _strip_markdown_code_fence(content)
+
+        # 4. Auto-continue до </html> (до 3 попыток вместо 2 — больше шанс закрытия)
+        for attempt in range(3):
+            if "</html>" in content.lower():
                 break
-        if not cont_text.strip():
-            break
-        content += cont_text
+            with db_session() as db:
+                p = db.query(SiteProject).filter_by(id=project_id).first()
+                if p:
+                    p.gen_progress = f"Claude дописывает ({attempt+2}/3)…"
+                    db.commit()
 
-    # Если всё равно нет </html> — добавим закрывающие теги вручную
-    if "</html>" not in content.lower():
-        log.warning(f"[Sites] HTML так и не закрылся после 2 попыток, добавляем теги")
-        if "</body>" not in content.lower():
-            content += "\n</body>"
-        content += "\n</html>"
+            cont_messages = [
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": content},
+                {"role": "user", "content": (
+                    "Ты не закончил — ответ обрезался. Продолжи строго с того места "
+                    "где остановился (не повторяй уже написанное), до закрывающего "
+                    "</html>. Не меняй тематику, следуй ТЗ выше. Ответ — только "
+                    "продолжение HTML, без markdown и объяснений."
+                )},
+            ]
+            cont = await loop.run_in_executor(
+                None,
+                lambda: generate_response("claude", cont_messages, {"max_tokens": 16000}),
+            )
+            cont_text = (cont.get("content", "") if isinstance(cont, dict) else "")
+            cont_text = _strip_markdown_code_fence(cont_text)
+            if not cont_text.strip():
+                break
+            content += cont_text
 
-    p.code_html = content
-    p.conversation_phase = "done"
-    p.status = "done"
+        # 5. Гарантируем закрытие тегов
+        if "</html>" not in content.lower():
+            log.warning(f"[Sites/bg] project {project_id}: HTML не закрылся, добавляю теги")
+            if "</body>" not in content.lower():
+                content += "\n</body>"
+            content += "\n</html>"
+
+        # 6. Сохраняем результат
+        with db_session() as db:
+            p = db.query(SiteProject).filter_by(id=project_id).first()
+            if p:
+                p.code_html = content
+                p.conversation_phase = "done"
+                p.status = "done"
+                p.gen_status = "done"
+                p.gen_progress = "Готово!"
+                p.gen_error = None
+                db.commit()
+        log.info(f"[Sites/bg] project {project_id} done ({len(content)} symbols)")
+
+    except Exception as e:
+        log.error(f"[Sites/bg] project {project_id} failed: {e}", exc_info=True)
+        try:
+            with db_session() as db:
+                p = db.query(SiteProject).filter_by(id=project_id).first()
+                if p:
+                    p.gen_status = "failed"
+                    p.gen_error = f"Ошибка генерации: {e}"
+                    p.conversation_phase = "spec_approved"
+                    db.commit()
+        except Exception:
+            pass
+
+
+@router.post("/sites/projects/{project_id}/generate-code")
+async def site_project_generate_code(project_id: int, body: dict | None = None,
+                                      db: Session = Depends(get_db),
+                                      user=Depends(optional_user)):
+    """Запускает фоновую генерацию HTML сайта.
+
+    Возвращает сразу {status:'running'} — фронт polling'ит /generation-status
+    раз в несколько секунд, пока не получит status=done или failed.
+    Это избавляет от 60-сек client-timeout'а при долгой генерации Claude.
+    """
+    if not user:
+        raise HTTPException(401, "Нужна авторизация")
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.spec_text:
+        raise HTTPException(400, "Сначала создайте ТЗ")
+    if p.gen_status == "running":
+        # Не запускаем второй раз — фронт пусть polling'ит существующую задачу
+        return {"status": "running", "progress": p.gen_progress or "Уже генерируется…"}
+
+    cost = CODE_GEN_CH_COST  # 1500 ₽ фикс
+    if not deduct_strict(db, user.id, cost):
+        raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
+    p.price_tokens = (p.price_tokens or 0) + cost
+    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+                       description=f"Создание сайта ({cost/100:.0f} ₽)"))
+
+    # Помечаем как «running» сразу, чтобы фронт увидел при первом polling
+    from datetime import datetime as _dt
+    p.gen_status = "running"
+    p.gen_started_at = _dt.utcnow()
+    p.gen_progress = "Запускаю генерацию…"
+    p.gen_error = None
+    p.conversation_phase = "generating_code"
     db.commit()
-    return {"code_html": content, "status": p.status, "phase": p.conversation_phase}
+
+    # Запускаем фоновую задачу (event loop uvicorn'а будет её крутить)
+    asyncio.create_task(_run_site_generation(project_id))
+
+    return {"status": "running", "progress": p.gen_progress}
+
+
+@router.get("/sites/projects/{project_id}/generation-status")
+def site_project_generation_status(project_id: int,
+                                    db: Session = Depends(get_db),
+                                    user: User = Depends(current_user)):
+    """Polling статуса генерации. Фронт зовёт раз в 3-5 сек.
+    Возвращает {status, progress, error, code_html (когда done)}."""
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    out = {
+        "status": p.gen_status or "idle",
+        "progress": p.gen_progress or "",
+        "error": p.gen_error or None,
+        "phase": p.conversation_phase,
+    }
+    if p.gen_status == "done":
+        out["code_html"] = p.code_html
+    return out
 
 
 @router.post("/sites/projects/{project_id}/repair-code")

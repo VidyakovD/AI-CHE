@@ -351,6 +351,12 @@ class SiteProject(Base):
     image_paths  = Column(Text, nullable=True)    # JSON array of uploaded image/logo paths
     hosted_path  = Column(String, nullable=True)  # e.g. "sites/123/" for hosted URL
     attached_bot_id = Column(Integer, ForeignKey("chatbots.id"), nullable=True)  # виджет чат-бота
+    # Фоновая генерация: статус и прогресс live-генерации (фронт polling'ит)
+    gen_status   = Column(String, nullable=True)  # idle | running | done | failed
+    gen_started_at = Column(DateTime, nullable=True)
+    gen_progress = Column(String, nullable=True)  # «Улучшаю ТЗ…» / «Claude думает (1/3)…» / «Готово»
+    gen_error    = Column(Text, nullable=True)    # текст ошибки если failed
+    enhanced_spec = Column(Text, nullable=True)   # обогащённое ТЗ из GPT-4o (для дебага)
     created_at   = Column(DateTime, default=datetime.utcnow)
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

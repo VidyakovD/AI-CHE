@@ -77,6 +77,12 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # который сгенерил этот бот через AI-диалог в TG/MAX.
     ("chatbots", "parent_bot_id", "INTEGER"),
     ("chatbots", "auto_generated", "BOOLEAN DEFAULT 0"),
+    # Фоновая генерация сайта (вместо синхронной — клиент таймаутил после 60-90 сек)
+    ("site_projects", "gen_status", "VARCHAR"),
+    ("site_projects", "gen_started_at", "DATETIME"),
+    ("site_projects", "gen_progress", "VARCHAR"),
+    ("site_projects", "gen_error", "TEXT"),
+    ("site_projects", "enhanced_spec", "TEXT"),
     # Виджет: список доменов, с которых разрешён WS-коннект (через запятую).
     # Пусто/NULL = разрешено любым (legacy back-compat).
     ("chatbots", "widget_allowed_origins", "TEXT"),

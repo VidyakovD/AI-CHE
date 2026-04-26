@@ -740,10 +740,13 @@ async function handleImageUpload(event){
 }
 
 // ── Phase 3: Code generation ──────────────────────────────────────────────
+// Генерация запускается в фоне на бэкенде. Фронт получает {status:running}
+// сразу и polling'ит /generation-status каждые 4 сек. Так клиент НЕ таймаутит
+// даже если Claude думает 5-10 минут.
 async function generateCode(){
   if(isGenerating) return;
   isGenerating = true;
-  showLoading('Генерация кода сайта...');
+  showLoading('Запускаю генерацию…');
 
   try{
     const r = await fetch(`${API}/sites/projects/${currentProjectId}/generate-code`,{
@@ -751,18 +754,66 @@ async function generateCode(){
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
-      if(r.status===402) throw new Error('Недостаточно средств (нужно '+fmtRub(CODE_ITER_CH_COST)+')');
-      throw new Error(d.detail || 'Ошибка генерации');
+      if(r.status===402) throw new Error('Недостаточно средств (нужно 1500 ₽)');
+      throw new Error(d.detail || 'Ошибка запуска генерации');
     }
-    const data = await r.json();
-    currentProject = await getProjectDetail();
-    hideAllPhases();
-    showDonePhase(data.code_html);
+    // Backend сразу вернул {status:'running'} — крутим polling.
+    await pollGenerationStatus();
   }catch(e){
     hideAllPhases();
     alert(e.message);
+    isGenerating = false;
   }
+  // isGenerating снимется в pollGenerationStatus когда статус done/failed.
+}
 
+
+// Polling статуса фоновой генерации. Шлём раз в 4 сек, ждём до 10 минут.
+async function pollGenerationStatus(){
+  const maxAttempts = 150;  // 150 * 4 сек = 10 минут максимум
+  const startTime = Date.now();
+  for(let i = 0; i < maxAttempts; i++){
+    await new Promise(r => setTimeout(r, 4000));
+    let data;
+    try{
+      const r = await fetch(`${API}/sites/projects/${currentProjectId}/generation-status`,{
+        headers: authHeaders(),
+      });
+      if(!r.ok){
+        // Редкий 404 / 401 — продолжаем polling, может временный сбой
+        continue;
+      }
+      data = await r.json();
+    }catch(e){
+      // Сетевая ошибка — продолжаем
+      continue;
+    }
+    // Обновляем индикатор прогресса
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const minutes = Math.floor(elapsed / 60);
+    const secStr = (elapsed % 60).toString().padStart(2, '0');
+    const timeStr = minutes ? `${minutes}:${secStr}` : `${elapsed}c`;
+    showLoading(`${data.progress || 'Работаю…'} (${timeStr})`);
+
+    if(data.status === 'done'){
+      // Готово — обновляем UI и показываем результат
+      currentProject = await getProjectDetail();
+      hideAllPhases();
+      showDonePhase(data.code_html);
+      isGenerating = false;
+      return;
+    }
+    if(data.status === 'failed'){
+      hideAllPhases();
+      alert(data.error || 'Не удалось сгенерировать сайт. Попробуйте ещё раз.');
+      isGenerating = false;
+      return;
+    }
+    // status === 'running' — продолжаем polling
+  }
+  // Превысили 10 мин — таймаут
+  hideAllPhases();
+  alert('Генерация занимает слишком долго (> 10 минут). Попробуйте позже — возможно Claude перегружен.');
   isGenerating = false;
 }
 
