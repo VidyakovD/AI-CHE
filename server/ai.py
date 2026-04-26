@@ -508,17 +508,27 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
         except Exception as e:
             log.warning(f"[Veo] failed to load image {image_url}: {e}")
 
-    # Параметры (общие для всех Veo моделей; Google игнорит unknown поля)
-    parameters = {"aspectRatio": ar, "sampleCount": 1, "personGeneration": person_gen or "allow_all"}
-    if neg:
-        parameters["negativePrompt"] = neg
-    if seed is not None:
-        parameters["seed"] = seed
-    if not enhance_prompt:
-        parameters["enhancePrompt"] = False
-    if not generate_audio:
-        # Для Veo 3 нативное аудио включено по умолчанию — отключаем явно.
-        parameters["generateAudio"] = False
+    # Capabilities per real_model — Google по-разному поддерживает параметры.
+    # Если параметр не поддержан — вообще не отправляем, иначе 400 INVALID_ARGUMENT.
+    def _build_params(real_model: str) -> dict:
+        is_veo3 = real_model.startswith("veo-3.")
+        is_fast = "fast" in real_model
+        # Только Veo 3 НЕ-fast и Veo 3.1 поддерживают нативное аудио.
+        supports_audio = is_veo3 and not is_fast
+        # negativePrompt в Veo 3 deprecated (как и в Imagen 4).
+        supports_neg = real_model.startswith("veo-2")
+
+        params = {"aspectRatio": ar, "sampleCount": 1,
+                  "personGeneration": person_gen or "allow_all"}
+        if seed is not None:
+            params["seed"] = seed
+        if not enhance_prompt:
+            params["enhancePrompt"] = False
+        if supports_neg and neg:
+            params["negativePrompt"] = neg
+        if supports_audio:
+            params["generateAudio"] = bool(generate_audio)
+        return params
 
     proxy = _google_proxy()
 
@@ -529,9 +539,11 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
                 start_url = (f"https://generativelanguage.googleapis.com/v1beta/"
                              f"models/{real_model}:predictLongRunning?key={key}")
                 instance = {"prompt": prompt}
-                if image_payload:
+                # i2v поддерживается только Veo 3.x — для Veo 2 пропускаем.
+                if image_payload and real_model.startswith("veo-3."):
                     instance["image"] = image_payload
-                payload = {"instances": [instance], "parameters": parameters}
+                payload = {"instances": [instance],
+                           "parameters": _build_params(real_model)}
                 with httpx.Client(proxy=proxy, timeout=180) as client:
                     r = client.post(start_url, json=payload)
                 if r.status_code != 200:
