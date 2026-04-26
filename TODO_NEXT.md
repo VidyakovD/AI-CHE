@@ -1,6 +1,43 @@
 # TODO — задачи в работе и на очереди
 
-_Последнее обновление: 2026-04-26 (после security audit + harden спринта)_
+_Последнее обновление: 2026-04-26 (после Sites bugs + Bot constructor + Storage спринта)_
+
+## ✅ Закрыто в последнем спринте
+
+- ✅ Sites bugs — узкое превью, потеря работы (auto-save), GPT enhance переписан
+- ✅ Bot constructor — двухэтапный GPT→Claude pipeline, library блоков, френдли entry-point
+- ✅ MAX security — webhook secret + idempotency + 401/403 disable + HTTPS validate
+- ✅ Self-hosting export workflow в ZIP с README
+- ✅ Storage assets (лидмагниты) с тарификацией 50 ₽/мес за 100 МБ
+- ✅ JWT в httpOnly cookie + CSRF middleware
+- ✅ Pricing config в БД (заменил hardcoded SITE_QUALITY_TIERS)
+- ✅ FK CASCADE в моделях + миграция-скрипт
+- ✅ Pagination /records (back-compat)
+- ✅ ARIA / a11y проход (44 правки в 5 views)
+
+## 🟠 Незакрытое
+
+### Self-hosted standalone-runtime
+**Сейчас сделано**: экспорт workflow в ZIP с README (для импорта в другую AI Студию Че).
+**НЕ сделано**: standalone-движок который можно запустить отдельно от платформы.
+**Why deferred**: chatbot_engine.py = 110KB кода с многими зависимостями (БД,
+шифрование, AI-провайдеры). Standalone версия = килотонна работы.
+**Решение**: документировать API/архитектуру, помогать enterprise-клиентам форкать
+весь репо если им нужен полный self-hosted (договариваться индивидуально).
+
+### Storage UI в личном кабинете
+API готов (/assets/*), но UI ещё нет. Нужно добавить вкладку «Файлы» в
+`views/index.html` (личный кабинет) или в `views/chatbots.html` (для лидмагнитов
+конкретного бота). Загрузка drag-n-drop + список + удаление + копирование
+public URL для использования в воркфлоу.
+
+### Архивация asset'ов при просрочке оплаты
+Сейчас если баланс кончился — storage_billing_tick пропускает списание.
+Нужно: после N дней (например 7) без оплаты → is_active=False, файлы остаются
+на диске но недоступны через public URL. Через 30 дней — физическое удаление.
+
+### Tailwind CDN → локальный bundle (defer)
+Supply-chain risk + 300ms latency. Требует node-сборки или 280KB prebuilt CSS.
 
 ## 🔴 Security debt после P0/P1 спринта
 

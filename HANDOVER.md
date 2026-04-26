@@ -2,6 +2,59 @@
 
 Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-04-26 после последнего большого спринта**.
 
+## Спринт «Sites bugs + Bot constructor + Storage» (2026-04-26 второй заход)
+
+### Sites — баги + улучшения (afc3425)
+- Узкое превью: дефолт модалки 90vw → 96vw, padding tab-pane 4 → 2.
+  Если на широком экране (>1280px) сохранена ширина <70% экрана — сбрасываем
+  localStorage (юзер мог случайно ужать).
+- **Auto-save**: добавлен флаг `_unsavedChanges` + debounce 1.5с.
+  Любое изменение в textarea / postMessage от iframe → автосейв.
+  Перед closeDetail / downloadSite / downloadZip — синхронный saveCode.
+  beforeunload показывает alert если есть unsaved.
+  После замены картинки — мгновенный saveCode.
+- **GPT enhance переписан**: теперь промпт на 1500-3500 слов с разделами
+  (бизнес-контекст, тон/стиль, цветовая палитра HEX с ролями, 10 секций
+  обязательной структуры, UX-фишки, технические требования, картинки).
+  Premium tier (Opus) использует gpt-4o (не mini) для enhance.
+
+### Bot constructor (dcf7d5c)
+- **MAX webhook security (P0)**: `?secret=...` URL-параметр через `tg_webhook_secret`,
+  compare_digest проверка, 401 без secret. Раньше любой мог POST'ить и сжигать баланс.
+- **MAX idempotency**: in-memory dedup по message_id, TTL 1 час, авточистка.
+- **Двухэтапный pipeline GPT → Claude в workflow_builder**:
+  GPT-4o-mini сначала структурирует сырое описание клиента в детальное ТЗ
+  (платформа, цель, триггер, сценарий, поля формы, ветки, фичи).
+  Claude по такому ТЗ строит граф → лучше качество, дешевле итог.
+- **Library WORKFLOW_BLOCKS**: готовые snippet'ы (lead_capture, booking,
+  faq_rag, sales_warmup, quiz_funnel, broadcast). `_select_relevant_blocks`
+  по ключевым словам передаёт релевантные в enhance prompt — Claude
+  собирает из проверенных паттернов вместо генерации с нуля.
+- **Френдли entry-point** в `views/chatbots.html`: empty-state hero с градиентом,
+  3 пути с цветными бейджами (Старт/AI/Pro), quick-start чипы (запись, заявки,
+  FAQ, продажи), подсказка про @BotFather.
+- MAX bug: пустой ответ AI больше не отправляется.
+
+### Storage assets + self-hosting export + MAX P1 (124f15b)
+- **Self-hosting export**: GET /chatbots/{id}/export?format=zip
+  Скачивает ZIP с bot.json + README.md. Токены НЕ включены (защита от утечки).
+  README объясняет как импортировать в другую инсталляцию или поднять движок.
+  Audit-log: bot.export.
+- **Storage assets** (лидмагниты PDF/картинки/видео):
+  - Новая модель StoredAsset (user_id, bot_id, path, public_token, size_bytes)
+  - GET /assets, /assets/usage, POST /assets/upload, DELETE /assets/{id}
+  - GET /assets/public/{token} — публичная скачка для бота
+  - pricing-key `storage.per_100mb_month` = 50 ₽/мес за 100 МБ
+  - scheduler: storage_billing_loop списывает дневную ставку (rate/30)
+    с округлением вверх до 100 МБ. Если баланса нет — пропускаем.
+- **MAX P1**:
+  - send_max при 401/403 → _disable_max_bot_for_token() помечает все
+    боты с этим токеном как max_webhook_set=False + audit-log.
+  - setup_max_webhook валидирует HTTPS перед регистрацией.
+  - Не логируем full exception (был утечной точкой) — только тип.
+
+---
+
 ## Спринт «Security audit + harden» (2026-04-26)
 
 Прошёл полный аудит. Закрыты ВСЕ топ-7 P0 + 13 P1 + 3 P2. 76/76 тестов зелёные.
