@@ -506,8 +506,9 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
 
                 # Скачиваем видео по URI (всё ещё через прокси) — это файл из Files API.
                 # URI-формат: .../v1beta/files/<id>:download?alt=media — нужен ?key= параметр.
+                # follow_redirects=True — Files API часто отдаёт 302 на storage.googleapis.com.
                 dl_url = video_uri + (("&" if "?" in video_uri else "?") + f"key={key}")
-                with httpx.Client(proxy=proxy, timeout=300) as client:
+                with httpx.Client(proxy=proxy, timeout=300, follow_redirects=True) as client:
                     dr = client.get(dl_url)
                 if dr.status_code != 200:
                     last_err = f"download: {dr.status_code}"
