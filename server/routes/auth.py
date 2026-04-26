@@ -11,7 +11,7 @@ from server.models import User, Transaction, VerifyToken
 from server.auth import hash_password, verify_password, create_token, create_refresh_token, decode_token, generate_code, VERIFY_TTL_MINUTES
 from server.security import validate_email, validate_password
 from server.email_service import send_verification, send_password_reset, send_welcome
-from server.billing import credit_atomic
+from server.billing import credit_atomic, claim_welcome_bonus, claim_referral_signup_bonus
 import uuid
 import logging
 
@@ -81,28 +81,32 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     if db.query(User).filter_by(email=email).first():
         raise HTTPException(400, "Email уже зарегистрирован")
 
-    ref_code, referred_by = uuid.uuid4().hex[:8].upper(), None
+    ref_code = uuid.uuid4().hex[:8].upper()
+    referrer_id = None
+    referred_by = None
     if req.referral_code:
         referrer = db.query(User).filter_by(referral_code=req.referral_code.upper()).first()
         if referrer:
-            already_used = db.query(Transaction).filter(
-                Transaction.user_id == referrer.id,
-                Transaction.type == "bonus",
-                Transaction.description.contains(email)
-            ).first()
             referred_by = req.referral_code.upper()
-            if not already_used:
-                from server.billing import credit_atomic
-                _ref_bonus = int(os.getenv("REFERRAL_SIGNUP_BONUS", "1000"))  # было 10 000 (1 000 ₽ халявы)
-                credit_atomic(db, referrer.id, _ref_bonus)
-                db.add(Transaction(user_id=referrer.id, type="bonus", tokens_delta=_ref_bonus,
-                                   description=f"Реферальный бонус за {email}"))
+            referrer_id = referrer.id
 
     user = User(email=email, password_hash=hash_password(req.password),
                 name=req.name or email.split("@")[0], tokens_balance=0,
                 agreed_to_terms=True, is_verified=False,
                 referral_code=ref_code, referred_by=referred_by)
     db.add(user); db.commit(); db.refresh(user)
+
+    # Реферальный бонус — atomic gate на User.referral_signup_bonus_paid_at:
+    # даже при гонке двух concurrent /register с одним email (что невозможно
+    # из-за UNIQUE на email, но защищаемся в depth) — бонус начислится 1 раз.
+    # Сам бонус выплачивается рефереру СРАЗУ при регистрации (а не при verify).
+    if referrer_id:
+        _ref_bonus = int(os.getenv("REFERRAL_SIGNUP_BONUS", "1000"))
+        if claim_referral_signup_bonus(db, user.id, referrer_id, _ref_bonus):
+            db.add(Transaction(user_id=referrer_id, type="bonus",
+                               tokens_delta=_ref_bonus,
+                               description=f"Реферальный бонус за {email}"))
+            db.commit()
 
     code = _make_verify_token(db, user.id, "verify_email", generate_code, VERIFY_TTL_MINUTES)
     try:
@@ -125,14 +129,15 @@ def verify_email(req: VerifyEmailRequest, db: Session = Depends(get_db)):
         raise HTTPException(400, "Неверный или истёкший код")
     user.is_verified = True
     db.commit()
-    # Бонус задаётся в рублях через env, по умолчанию 50 ₽ = 5000 копеек
+    # Бонус задаётся в рублях через env, по умолчанию 50 ₽ = 5000 копеек.
+    # Atomic gate на User.welcome_bonus_claimed_at — даже при гонке двух
+    # /verify-email бонус начислится ровно один раз (UPDATE ... WHERE IS NULL).
     _welcome_rub = float(os.getenv("WELCOME_BONUS_RUB", "50"))
     _welcome_kop = int(round(_welcome_rub * 100))
-    # Атомарное начисление — не перетирает параллельный реферальный бонус
-    credit_atomic(db, user.id, _welcome_kop)
-    db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=_welcome_kop,
-                       description=f"Приветственный бонус: {_welcome_rub:.0f} ₽"))
-    db.commit()
+    if claim_welcome_bonus(db, user.id, _welcome_kop):
+        db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=_welcome_kop,
+                           description=f"Приветственный бонус: {_welcome_rub:.0f} ₽"))
+        db.commit()
     db.refresh(user)
     try:
         send_welcome(user.email, user.name or "")

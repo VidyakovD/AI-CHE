@@ -14,6 +14,16 @@ router = APIRouter(tags=["widget"])
 APP_URL = os.getenv("APP_URL", "https://aiche.ru")
 
 
+def _safe_js_string(s: str) -> str:
+    """JSON-escape строки для безопасной вставки в JS-литерал.
+    json.dumps экранирует кавычки, бэктики, бэкслеши, управляющие символы,
+    а также `</script>` (через `\\u003c`) — защита от XSS при вставке имени бота
+    в виджет, который рендерится на чужих сайтах."""
+    # ensure_ascii=False оставит русский текст читаемым; затем чиним </script>.
+    s = json.dumps(s, ensure_ascii=False)
+    return s.replace("</", "<\\/")
+
+
 @router.get("/widget/{bot_id}.js")
 def widget_js(bot_id: int, db: Session = Depends(get_db)):
     """Отдаёт JS-файл виджета. Встраивается на сайт клиента."""
@@ -23,10 +33,12 @@ def widget_js(bot_id: int, db: Session = Depends(get_db)):
 
     ws_url = APP_URL.replace("https://", "wss://").replace("http://", "ws://")
 
+    bot_name_js = _safe_js_string(bot.name or "AI помощник")
     js = f"""
 (function(){{
   if(window.__AICHE_LOADED__)return;window.__AICHE_LOADED__=true;
   var BOT_ID={bot_id};
+  var BOT_NAME={bot_name_js};
   var WS_URL="{ws_url}/ws/widget/{bot_id}";
   var API_URL="{APP_URL}";
 
@@ -63,10 +75,13 @@ def widget_js(bot_id: int, db: Session = Depends(get_db)):
   btn.innerHTML='<svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>';
   document.body.appendChild(btn);
 
-  // Чат окно
+  // Чат окно. BOT_NAME вставляется через textContent — не как HTML, поэтому
+  // даже если имя содержит '<script>' или '</script>' — не выполнится.
   var chat=document.createElement("div");chat.id="aiche-chat";
-  chat.innerHTML='<div id="aiche-chat-hdr"><span>{esc_name}</span><button onclick="document.getElementById(\\'aiche-chat\\').classList.remove(\\'open\\')">\\u2715</button></div><div id="aiche-msgs"></div><div id="aiche-inp-wrap"><input id="aiche-inp" placeholder="Напишите сообщение..." autocomplete="off"/><button id="aiche-send" disabled><svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button></div>';
+  chat.innerHTML='<div id="aiche-chat-hdr"><span id="aiche-name"></span><button id="aiche-close-btn">\\u2715</button></div><div id="aiche-msgs"></div><div id="aiche-inp-wrap"><input id="aiche-inp" placeholder="Напишите сообщение..." autocomplete="off"/><button id="aiche-send" disabled><svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button></div>';
   document.body.appendChild(chat);
+  document.getElementById("aiche-name").textContent=BOT_NAME;
+  document.getElementById("aiche-close-btn").onclick=function(){{chat.classList.remove("open");}};
 
   btn.onclick=function(){{chat.classList.toggle("open");if(chat.classList.contains("open"))document.getElementById("aiche-inp").focus();}};
 
@@ -105,20 +120,62 @@ def widget_js(bot_id: int, db: Session = Depends(get_db)):
   connect();
   addMsg("Здравствуйте! Чем могу помочь?","bot");
 }})();
-""".replace("{esc_name}", bot.name.replace("'", "\\'").replace('"', '\\"'))
+"""
 
     return Response(js, media_type="application/javascript",
                     headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
 
 
+def _origin_host(origin: str) -> str:
+    """https://example.com:8443 → example.com (без порта)."""
+    if not origin:
+        return ""
+    o = origin.lower().strip()
+    for prefix in ("https://", "http://", "wss://", "ws://"):
+        if o.startswith(prefix):
+            o = o[len(prefix):]
+            break
+    return o.split("/", 1)[0].split(":", 1)[0]
+
+
+def _origin_allowed(origin: str, allowed_csv: str | None) -> bool:
+    """Проверка Origin против CSV-whitelist бота. Пустой whitelist = разрешено всё."""
+    if not allowed_csv or not allowed_csv.strip():
+        return True
+    if not origin:
+        # При непустом whitelist отсутствие Origin (нативный клиент / curl) — отказ.
+        return False
+    host = _origin_host(origin)
+    for raw in allowed_csv.split(","):
+        item = _origin_host(raw.strip())
+        if not item:
+            continue
+        # Поддерживаем wildcard "*.example.com"
+        if item.startswith("*."):
+            if host == item[2:] or host.endswith("." + item[2:]):
+                return True
+        elif host == item:
+            return True
+    return False
+
+
 @router.websocket("/ws/widget/{bot_id}")
 async def widget_ws(websocket: WebSocket, bot_id: int):
-    """WebSocket для виджета чата на сайте."""
+    """WebSocket для виджета чата на сайте.
+
+    Проверяем Origin против ChatBot.widget_allowed_origins (если задан),
+    чтобы чужой сайт не мог подключиться к виджету и спамить от имени юзера.
+    """
     db = next(get_db())
     try:
         bot = db.query(ChatBot).filter_by(id=bot_id).first()
         if not bot or not bot.widget_enabled or bot.status != "active":
             await websocket.close(code=4001, reason="Bot not available")
+            return
+        origin = websocket.headers.get("origin", "")
+        if not _origin_allowed(origin, getattr(bot, "widget_allowed_origins", None)):
+            log.warning(f"[Widget WS] bot={bot_id} reject origin={origin!r}")
+            await websocket.close(code=4003, reason="Origin not allowed")
             return
     finally:
         db.close()

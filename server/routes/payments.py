@@ -88,15 +88,26 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
             # в pkg.tokens — теперь это копейки, см. миграцию × 10)
             amount_kop = int(pkg.tokens) if pkg.tokens else amount_kop
 
+    # Порядок: сначала Transaction (UNIQUE на yookassa_payment_id ловит дубль),
+    # потом credit_atomic. Если параллельный webhook вставил Tx первым — наш
+    # commit упадёт IntegrityError, словим и вернём already_credited.
     credit_atomic(db, db_user.id, amount_kop)
-    credit_referral_bonus(db, db_user, amount_kop, pkg_name or f"{amount_rub:.2f} ₽")
+    credit_referral_bonus(db, db_user, amount_kop, pkg_name or f"{amount_rub:.2f} ₽",
+                          payment_id=payment_id)
     db.add(Transaction(
         user_id=db_user.id, type="payment", amount_rub=amount_rub,
         tokens_delta=amount_kop,
         description=f"Пополнение баланса: {pkg_name or f'{amount_rub:.2f} ₽'} (webhook)",
         yookassa_payment_id=payment_id,
     ))
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        # IntegrityError на UNIQUE(yookassa_payment_id) — конкурентный
+        # webhook опередил. Откатываем и возвращаем already_credited.
+        db.rollback()
+        log.warning(f"Webhook: race for payment {payment_id}: {e}")
+        return {"status": "already_credited"}
     log.info(f"Webhook: credited {amount_kop} kop ({amount_rub} ₽) for user {user_id}")
     return {"status": "ok"}
 
@@ -174,13 +185,19 @@ def confirm_tokens(payment_id: str, user: User = Depends(current_user),
     db_user = db.query(User).filter_by(id=user.id).first()
     amount_kop = int(pkg.tokens) if pkg.tokens else int(round(float(pkg.price_rub) * 100))
     credit_atomic(db, user.id, amount_kop)
-    credit_referral_bonus(db, db_user, amount_kop, pkg.name)
+    credit_referral_bonus(db, db_user, amount_kop, pkg.name, payment_id=payment_id)
     db.add(Transaction(
         user_id=user.id, type="payment",
         amount_rub=pkg.price_rub, tokens_delta=amount_kop,
         description=f"Пополнение баланса: {pkg.name}",
         yookassa_payment_id=payment_id,
     ))
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        # UNIQUE(yookassa_payment_id) — webhook опередил.
+        db.rollback()
+        log.warning(f"Confirm-tokens: race for payment {payment_id}: {e}")
+        return {"status": "already_credited"}
     return {"status": "credited", "kopecks_added": amount_kop,
             "rub_added": amount_kop / 100}

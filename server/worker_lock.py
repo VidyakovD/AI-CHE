@@ -83,8 +83,12 @@ def _try_acquire(name: str, ttl_sec: float) -> bool:
         finally:
             conn.close()
     except Exception as e:
-        log.warning(f"[worker_lock] {name}: acquire failed: {e}")
-        return True  # fail-open: лучше выполнить дважды, чем не выполнить ни разу
+        # Fail-CLOSED. Лучше пропустить tick (его сделает другой воркер
+        # или мы сами на следующем цикле), чем выполнить задачу дважды:
+        # IMAP-письмо обработается дважды → ответ отправится дважды;
+        # scheduled workflow триггернётся дважды → деньги списываются 2×.
+        log.warning(f"[worker_lock] {name}: acquire failed (skipping tick): {e}")
+        return False
 
 
 def _release(name: str):

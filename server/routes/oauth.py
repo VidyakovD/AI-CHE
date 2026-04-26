@@ -56,15 +56,16 @@ def _login_or_create(db: Session, email: str, name: str, provider: str, sub: str
                 f"Email {email} уже зарегистрирован. Войдите паролем или через "
                 f"другого провайдера, и привяжите {provider} в личном кабинете."
             )
-    # 3. Создаём нового
+    # 3. Создаём нового. Бонус — в копейках, единая логика с обычной регистрацией.
     if not email:
         email = f"{provider}_{sub}@oauth.local"
-    welcome = int(os.getenv("WELCOME_BONUS_CH", "500"))
+    _welcome_rub = float(os.getenv("WELCOME_BONUS_RUB", "50"))
+    _welcome_kop = int(round(_welcome_rub * 100))
     user = User(
         email=email,
         password_hash=hash_password(uuid.uuid4().hex),  # случайный, нельзя залогиниться паролем
         name=name or email.split("@")[0],
-        tokens_balance=welcome,
+        tokens_balance=0,
         is_active=True,
         is_verified=True,
         agreed_to_terms=True,
@@ -73,9 +74,12 @@ def _login_or_create(db: Session, email: str, name: str, provider: str, sub: str
         oauth_sub=sub,
     )
     db.add(user); db.commit(); db.refresh(user)
-    db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=welcome,
-                       description=f"Приветственный бонус (через {provider})"))
-    db.commit()
+    # Атомарный gate — даже при гонке двух callback бонус выплатится 1 раз.
+    from server.billing import claim_welcome_bonus
+    if claim_welcome_bonus(db, user.id, _welcome_kop):
+        db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=_welcome_kop,
+                           description=f"Приветственный бонус: {_welcome_rub:.0f} ₽ (через {provider})"))
+        db.commit()
     return user
 
 

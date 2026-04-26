@@ -256,15 +256,23 @@ class PromoApplyBody(BaseModel):
 @router.post("/promo/apply")
 def apply_promo(body: PromoApplyBody, user: User = Depends(current_user),
                 db: Session = Depends(get_db)):
+    """Применить промокод: бонус в копейках сразу зачисляется на баланс.
+
+    bonus_tokens у нас теперь хранится в копейках (после миграции 2026-04-25).
+    discount_pct остаётся информационным — фронт показывает скидку при выборе
+    пакета пополнения, но фактическое применение делает /payment/buy-tokens
+    (TODO: пробросить promo_code в metadata платежа).
+    """
     from sqlalchemy import update as sa_update
+    from sqlalchemy.exc import IntegrityError
     code = db.query(PromoCode).filter_by(code=body.code.upper(), is_active=True).first()
     if not code:
         raise HTTPException(404, "Промокод не найден или неактивен")
-    # Check not already used by this user
+    # Pre-check для понятного сообщения. Race-защита — UNIQUE на (code_id, user_id).
     used = db.query(PromoUse).filter_by(code_id=code.id, user_id=user.id).first()
     if used:
         raise HTTPException(400, "Промокод уже использован вами")
-    # Атомарный increment c защитой от race condition (двое параллельно не превысят max_uses)
+    # Атомарный increment counters (двое параллельно не превысят max_uses)
     res = db.execute(
         sa_update(PromoCode)
         .where(PromoCode.id == code.id, PromoCode.used_count < code.max_uses)
@@ -278,6 +286,23 @@ def apply_promo(body: PromoApplyBody, user: User = Depends(current_user),
         credit_atomic(db, user.id, code.bonus_tokens)
         db.add(Transaction(user_id=user.id, type="bonus", tokens_delta=code.bonus_tokens,
                            description=f"Промокод: {code.code}"))
-    db.commit()
-    return {"discount_pct": code.discount_pct, "bonus_tokens": code.bonus_tokens,
-            "message": f"Промокод применён: {'-'+str(code.discount_pct)+'%' if code.discount_pct else ''} {'+'+str(code.bonus_tokens)+' CH' if code.bonus_tokens else ''}"}
+    try:
+        db.commit()
+    except IntegrityError:
+        # UNIQUE(code_id, user_id) — race: параллельный запрос успел вставить
+        # PromoUse раньше нас. Откатываем + считаем «уже использован».
+        db.rollback()
+        raise HTTPException(400, "Промокод уже использован вами")
+
+    parts = []
+    if code.discount_pct:
+        parts.append(f"-{code.discount_pct}% скидка на следующее пополнение")
+    if code.bonus_tokens:
+        parts.append(f"+{code.bonus_tokens / 100:.2f} ₽ на баланс")
+    msg = "Промокод применён: " + (", ".join(parts) if parts else "ок")
+    return {
+        "discount_pct": code.discount_pct,
+        "bonus_kopecks": code.bonus_tokens,
+        "bonus_rub": (code.bonus_tokens or 0) / 100,
+        "message": msg,
+    }

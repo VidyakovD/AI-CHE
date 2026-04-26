@@ -259,6 +259,21 @@ def upload_file(file: UploadFile = File(...), user=Depends(optional_user)):
     if ext in (".mp4", ".mov") and detected not in ("mp4",):
         raise HTTPException(400, "Файл не похож на MP4/MOV")
 
+    # SVG / XML — бьются по содержимому (script, foreignObject, on*=, javascript:).
+    # Браузер выполнит JS внутри SVG если открыть его как <img src> или <object>.
+    if ext == ".svg" or detected == "svg":
+        try:
+            text_lower = data[:65536].decode("utf-8", errors="ignore").lower()
+        except Exception:
+            text_lower = ""
+        _SVG_BAD = (
+            "<script", "</script", "<foreignobject", "javascript:",
+            " onload=", " onerror=", " onclick=", " onmouseover=",
+            " onfocus=", " onblur=", " onanimation", " ontoggle=",
+        )
+        if any(b in text_lower for b in _SVG_BAD):
+            raise HTTPException(400, "SVG содержит исполняемый код (script/on-handler) — отклонено")
+
     fid  = str(uuid.uuid4())
     # Sanitize filename: убираем спецсимволы, оставляем только ASCII + . _ -
     import re

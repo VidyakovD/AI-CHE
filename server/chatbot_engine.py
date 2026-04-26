@@ -19,8 +19,49 @@ from server.models import User, Transaction
 
 log = logging.getLogger("chatbot")
 
-# ── RAM-хранилище контекста диалогов ─────────────────────────────────────────
-_conversations: dict[str, deque] = defaultdict(lambda: deque(maxlen=20))
+# ── Persistent conversation memory ──────────────────────────────────────────
+# Раньше: in-memory `_conversations` dict — терялся при рестарте, не работал
+# на multi-worker (каждый uvicorn worker имел свою копию). Сейчас — SQLite
+# таблица BotConversationTurn, переживает рестарт, общая для всех воркеров.
+# Lookup делаем «по запросу» — нет hot-cache, но при нашем RPS это не bottleneck.
+
+_CONV_HISTORY_LIMIT = 20  # столько последних тёрнов берём для контекста
+
+
+def conv_history(bot_id: int, chat_id: str, limit: int = _CONV_HISTORY_LIMIT) -> list[dict]:
+    """Последние N тёрнов диалога из БД, в порядке возрастания id."""
+    from server.db import db_session
+    from server.models import BotConversationTurn
+    try:
+        with db_session() as db:
+            rows = (db.query(BotConversationTurn)
+                    .filter_by(bot_id=bot_id, chat_id=str(chat_id))
+                    .order_by(BotConversationTurn.id.desc())
+                    .limit(limit).all())
+            # вернули в DESC, разворачиваем в ASC чтобы AI видел в хронологии
+            return [{"role": r.role, "content": r.content} for r in reversed(rows)]
+    except Exception as e:
+        log.warning(f"[conv_history] bot={bot_id} chat={chat_id}: {e}")
+        return []
+
+
+def conv_append(bot_id: int, chat_id: str, role: str, content: str) -> None:
+    """Добавить один тёрн в историю диалога."""
+    from server.db import db_session
+    from server.models import BotConversationTurn
+    if not content:
+        return
+    try:
+        with db_session() as db:
+            db.add(BotConversationTurn(
+                bot_id=bot_id, chat_id=str(chat_id),
+                role=role, content=content[:8000],  # safety-cap чтобы не раздувать
+            ))
+            db.commit()
+    except Exception as e:
+        log.warning(f"[conv_append] bot={bot_id} chat={chat_id}: {e}")
+
+
 _recent_chats: dict[int, dict[str, list]] = defaultdict(lambda: defaultdict(list))
 
 HTTP = httpx.AsyncClient(timeout=30)
@@ -151,8 +192,7 @@ def _get_bot_workflow(bot) -> dict | None:
 async def _simple_reply(bot, chat_id, user_text, platform, user_name,
                         usage_acc: dict | None = None) -> str:
     """Простой режим: system_prompt → AI модель → ответ."""
-    key = f"bot_{bot.id}:chat_{chat_id}"
-    history = _conversations[key]
+    history = conv_history(bot.id, chat_id)
 
     messages = []
     if bot.system_prompt:
@@ -178,8 +218,9 @@ async def _simple_reply(bot, chat_id, user_text, platform, user_name,
     if not answer:
         return "Не удалось получить ответ."
 
-    history.append({"role": "user", "content": user_text})
-    history.append({"role": "assistant", "content": answer})
+    # Persist в БД — заменяет старый in-memory deque
+    conv_append(bot.id, chat_id, "user", user_text)
+    conv_append(bot.id, chat_id, "assistant", answer)
     return answer
 
 
@@ -222,9 +263,8 @@ async def _execute_workflow(bot, chat_id, user_text, platform, user_name,
     if not trigger_node:
         return await _simple_reply(bot, chat_id, user_text, platform, user_name)
 
-    # Контекст выполнения
-    key = f"bot_{bot.id}:chat_{chat_id}"
-    history = _conversations[key]
+    # Контекст выполнения. История диалога — из persistent SQLite-стора.
+    history = conv_history(bot.id, chat_id)
 
     ctx = {
         "input_text": user_text,
@@ -307,10 +347,13 @@ async def _execute_workflow(bot, chat_id, user_text, platform, user_name,
             log.error(f"[Bot {bot.id}] Node {nid} ({node['type']}) error: {e}")
             ctx["results"][nid] = f"[Ошибка: {e}]"
 
-    # Сохраняем контекст
+    # Persist diaglog в БД (заменяет старый in-memory deque).
+    # local list — для read-через-ctx внутри текущего вызова, без второго SELECT.
     history.append({"role": "user", "content": user_text})
+    conv_append(bot.id, chat_id, "user", user_text)
     if ctx["final_output"]:
         history.append({"role": "assistant", "content": ctx["final_output"]})
+        conv_append(bot.id, chat_id, "assistant", ctx["final_output"])
 
     return ctx["final_output"] or ctx["results"].get(order[-1], "")
 
@@ -801,6 +844,277 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
             await send_max(max_token, max_uid, input_text)
         return input_text
 
+    # ── Новые ноды для богатого UX в TG/MAX ───────────────────────────────
+    if ntype == "request_contact":
+        # Просим юзера поделиться телефоном через reply-keyboard.
+        # Когда юзер нажмёт «Поделиться номером» — мессенджер пришлёт
+        # сообщение с contact объектом, движок сохранит телефон в ctx.
+        ctx["final_output"] = input_text
+        prompt_text = cfg.get("prompt") or "Поделитесь, пожалуйста, номером телефона:"
+        button_text = cfg.get("button") or "📞 Поделиться номером"
+        platform = ctx.get("platform")
+        if platform == "tg":
+            tg_token = cfg.get("tg_token") or ctx["bot"].tg_token
+            tg_chat = ctx.get("chat_id")
+            if tg_token and tg_chat:
+                await send_telegram_with_reply_keyboard(
+                    tg_token, tg_chat, prompt_text,
+                    [{"text": button_text, "request_contact": True}],
+                )
+        elif platform == "max":
+            max_token = cfg.get("max_token") or ctx["bot"].max_token
+            max_uid = ctx.get("max_user_id") or ctx.get("chat_id")
+            if max_token and max_uid:
+                await send_max_with_reply_keyboard(
+                    max_token, max_uid, prompt_text,
+                    [{"text": button_text, "request_contact": True}],
+                )
+        return prompt_text
+
+    if ntype == "request_location":
+        ctx["final_output"] = input_text
+        prompt_text = cfg.get("prompt") or "Поделитесь, пожалуйста, геолокацией:"
+        button_text = cfg.get("button") or "📍 Отправить локацию"
+        platform = ctx.get("platform")
+        if platform == "tg":
+            tg_token = cfg.get("tg_token") or ctx["bot"].tg_token
+            tg_chat = ctx.get("chat_id")
+            if tg_token and tg_chat:
+                await send_telegram_with_reply_keyboard(
+                    tg_token, tg_chat, prompt_text,
+                    [{"text": button_text, "request_location": True}],
+                )
+        elif platform == "max":
+            max_token = cfg.get("max_token") or ctx["bot"].max_token
+            max_uid = ctx.get("max_user_id") or ctx.get("chat_id")
+            if max_token and max_uid:
+                await send_max_with_reply_keyboard(
+                    max_token, max_uid, prompt_text,
+                    [{"text": button_text, "request_geolocation": True}],
+                )
+        return prompt_text
+
+    if ntype == "output_photo":
+        # Отправить картинку с подписью. URL или путь /uploads/...
+        # Работает в TG и MAX, в widget — отправляем как обычное сообщение со ссылкой.
+        ctx["final_output"] = input_text
+        photo_url = (cfg.get("photo_url") or cfg.get("url") or "").strip()
+        caption = (cfg.get("caption") or input_text or "")
+        if not photo_url:
+            return input_text
+        platform = ctx.get("platform")
+        if platform == "tg":
+            tg_token = cfg.get("tg_token") or ctx["bot"].tg_token
+            tg_chat = cfg.get("tg_chat_id") or ctx.get("chat_id")
+            if tg_token and tg_chat:
+                await send_telegram_photo(tg_token, tg_chat, photo_url, caption)
+        elif platform == "max":
+            max_token = cfg.get("max_token") or ctx["bot"].max_token
+            max_uid = ctx.get("max_user_id") or ctx.get("chat_id")
+            if max_token and max_uid:
+                await send_max_photo(max_token, max_uid, photo_url, caption)
+        return input_text
+
+    if ntype == "edit_message":
+        # Заменить текст ранее отправленного сообщения (только TG; в MAX no-op).
+        # cfg.message_id или ctx["last_message_id"] — id сообщения для редактирования.
+        # cfg.text — новый текст (плейсхолдер {{input}} → input_text).
+        ctx["final_output"] = input_text
+        if ctx.get("platform") != "tg":
+            return input_text  # MAX не поддерживает editMessageText
+        tg_token = cfg.get("tg_token") or ctx["bot"].tg_token
+        tg_chat = ctx.get("chat_id")
+        msg_id = cfg.get("message_id") or ctx.get("last_message_id")
+        new_text = (cfg.get("text") or input_text).replace("{{input}}", input_text)
+        if tg_token and tg_chat and msg_id:
+            await edit_telegram_message(tg_token, tg_chat, msg_id, new_text)
+        return input_text
+
+    if ntype == "save_record":
+        # Сохраняет заявку/бронь/заказ/опрос в bot_records.
+        # cfg:
+        #   record_type: "lead" | "booking" | "order" | "quiz" | "ticket" | "subscriber"
+        #   notify_owner: bool — уведомить владельца в TG
+        #   payload_keys: список ключей из ctx, которые попадут в payload
+        #                 (по умолчанию — всё, что начинается с "form_")
+        # ctx-ключи берутся: customer_name, customer_phone, customer_email,
+        # + ctx["form_*"] (например form_service, form_date) для payload.
+
+        # В preview-режиме НЕ сохраняем — тесты не должны засорять bot_records.
+        if ctx.get("is_preview"):
+            return cfg.get("ack_text") or "✓ (превью) Заявка была бы сохранена."
+
+        from server.models import BotRecord as _BR
+        rec_type = (cfg.get("record_type") or "lead").strip()
+        # Собираем payload — либо явный список ключей, либо все form_*
+        payload_keys = cfg.get("payload_keys") or [
+            k for k in ctx.keys() if isinstance(k, str) and k.startswith("form_")
+        ]
+        payload = {k.replace("form_", "", 1): ctx.get(k) for k in payload_keys if ctx.get(k) is not None}
+        # Если пусто — кладём само сообщение юзера для контекста
+        if not payload:
+            payload = {"text": (input_text or "")[:500]}
+
+        try:
+            with SessionLocal() as _db:
+                rec = _BR(
+                    bot_id=ctx["bot"].id,
+                    user_id=ctx["bot"].user_id,
+                    chat_id=str(ctx.get("chat_id", "")),
+                    record_type=rec_type,
+                    customer_name=(ctx.get("customer_name") or ctx.get("user_name") or "")[:200],
+                    customer_phone=(ctx.get("customer_phone") or "")[:50],
+                    customer_email=(ctx.get("customer_email") or "")[:200],
+                    payload=json.dumps(payload, ensure_ascii=False),
+                    status="new",
+                )
+                _db.add(rec); _db.commit(); _db.refresh(rec)
+                ctx["last_record_id"] = rec.id
+                log.info(f"[save_record] bot={ctx['bot'].id} type={rec_type} id={rec.id}")
+        except Exception as e:
+            log.error(f"[save_record] failed: {e}")
+            return f"⚠ Не удалось сохранить заявку. Попробуйте ещё раз."
+
+        # Уведомление владельцу: только если у бота есть TG-токен
+        # (даже если бот работает в MAX — владелец чаще всего хочет в TG).
+        if cfg.get("notify_owner"):
+            owner_chat = (cfg.get("owner_tg_chat_id") or "").strip()
+            owner_token = ctx["bot"].tg_token if hasattr(ctx["bot"], "tg_token") else None
+            if owner_token and owner_chat:
+                try:
+                    pretty_payload = "\n".join(f"  • *{k}:* {v}" for k, v in payload.items())
+                    msg = (
+                        f"🔔 *Новая {rec_type}* от бота «{ctx['bot'].name}»\n\n"
+                        f"👤 {ctx.get('customer_name') or '(имя не указано)'}\n"
+                        f"📞 {ctx.get('customer_phone') or '(телефон не указан)'}\n"
+                        f"{pretty_payload}\n\n"
+                        f"_id записи: {ctx.get('last_record_id')}_"
+                    )
+                    await send_telegram(owner_token, owner_chat, msg, parse_mode="Markdown")
+                except Exception as e:
+                    log.warning(f"[save_record] owner notify failed: {e}")
+
+        return cfg.get("ack_text") or "✓ Заявка принята! Мы скоро свяжемся."
+
+    if ntype == "chat_action_typing":
+        # Показать «бот печатает…» перед длинным AI-вызовом.
+        # Не блокирует — просто шлёт action и идём дальше.
+        if ctx.get("platform") == "tg":
+            tg_token = ctx["bot"].tg_token if hasattr(ctx["bot"], "tg_token") else None
+            tg_chat = ctx.get("chat_id")
+            if tg_token and tg_chat:
+                await send_telegram_chat_action(tg_token, tg_chat, "typing")
+        return input_text
+
+    if ntype == "output_max_buttons":
+        # Inline-кнопки в MAX — аналог output_tg_buttons.
+        # cfg.buttons формат: «Да=yes\nНет=no» (по строке на кнопку).
+        ctx["final_output"] = input_text
+        max_token = cfg.get("max_token") or (ctx["bot"].max_token if hasattr(ctx["bot"], "max_token") else None)
+        max_uid = cfg.get("max_user_id") or ctx.get("max_user_id") or ctx.get("chat_id")
+        buttons = []
+        for line in (cfg.get("buttons") or "").splitlines():
+            line = line.strip()
+            if "=" in line:
+                text, data = line.split("=", 1)
+                buttons.append({"text": text.strip(), "callback_data": data.strip()})
+        if max_token and max_uid and buttons:
+            await send_max(max_token, max_uid, input_text, buttons=buttons)
+        elif max_token and max_uid:
+            # Если кнопки не заданы — отправим обычным сообщением
+            await send_max(max_token, max_uid, input_text)
+        return input_text
+
+    # ── Bot-constructor: создаёт дочерний бот по диалогу с клиентом ──────
+    if ntype == "bot_constructor":
+        # Юзер платформы (например, владелец салона) общается с этим
+        # «бот-конструктором» в TG/MAX, описывает задачу. Когда говорит
+        # «готово»/«создавай»/«/build» — мы зовём workflow_builder, делаем
+        # дочерний ChatBot и возвращаем юзеру ссылку/инструкцию.
+        # Триггеры build (case-insensitive): /build, /готово, «давай создавай», «всё, создай»
+        text_lower = (input_text or "").strip().lower()
+        BUILD_TRIGGERS = ("/build", "/готово", "/done", "создавай", "давай создадим",
+                          "поехали", "всё готово", "всё, создай", "создай бота")
+        is_build_cmd = any(t in text_lower for t in BUILD_TRIGGERS) or text_lower.startswith("/build")
+        if not is_build_cmd:
+            # Просто продолжаем диалог — отдаём управление обычному AI-ноду дальше по графу.
+            return input_text
+
+        # Достаём всю историю диалога — это и есть «описание задачи»
+        history = ctx.get("history") or []
+        if not history:
+            return ("Расскажите подробнее, какого бота вам нужно: тематика, "
+                    "услуги, как принимать заявки. Когда расскажете — напишите «/build».")
+
+        # Строим текстовый дайджест диалога для workflow_builder
+        digest_lines = []
+        for turn in history[-30:]:
+            role = turn.get("role", "user")
+            content = (turn.get("content") or "").strip()
+            if not content:
+                continue
+            digest_lines.append(f"{'Клиент' if role == 'user' else 'Конструктор'}: {content}")
+        digest = "\n".join(digest_lines)
+        if len(digest) > 4000:
+            digest = digest[-4000:]
+
+        # Зовём workflow_builder + создаём ChatBot. Владелец = владелец parent-бота
+        # (для MVP без OAuth-привязки клиента-салона к платформе).
+        try:
+            from server.workflow_builder import build_from_task
+            from server.billing import deduct_atomic, get_balance
+            from server.models import ChatBot as _CB
+
+            owner_user_id = ctx["bot"].user_id
+            with SessionLocal() as _db:
+                if get_balance(_db, owner_user_id) < 500:
+                    return "❌ У владельца платформы закончились средства (минимум 5 ₽ на сборку). Пополните баланс."
+                # Лимит дочерних ботов
+                from server.models import User as _User
+                owner = _db.query(_User).filter_by(id=owner_user_id).first()
+                if owner:
+                    max_auto = int(getattr(owner, "max_auto_bots", 5) or 5)
+                    cnt = _db.query(_CB).filter_by(user_id=owner_user_id, auto_generated=True).count()
+                    if cnt >= max_auto:
+                        return f"❌ Лимит AI-сгенеренных ботов исчерпан ({max_auto}). Удалите ненужных в /chatbots.html."
+
+                wf = build_from_task(digest)
+                # Списываем за сборку по реальным токенам
+                usage = wf.get("usage") or {}
+                cost_kop = max(50, int(usage.get("input_tokens", 0) / 1000 * 80
+                                    + usage.get("output_tokens", 0) / 1000 * 300))
+                deduct_atomic(_db, owner_user_id, cost_kop)
+                from server.models import Transaction as _Tx
+                _db.add(_Tx(user_id=owner_user_id, type="usage", tokens_delta=-cost_kop,
+                            description=f"Конструктор-бот: создание дочернего ({cost_kop/100:.2f} ₽)",
+                            model="claude"))
+
+                bot_name = (wf.get("name") or "AI-бот")[:60]
+                child = _CB(
+                    user_id=owner_user_id,
+                    name=bot_name,
+                    model="gpt",
+                    workflow_json=json.dumps(wf, ensure_ascii=False),
+                    parent_bot_id=ctx["bot"].id,
+                    auto_generated=True,
+                    status="off",  # пока не подключены каналы — спит
+                )
+                _db.add(child); _db.commit(); _db.refresh(child)
+                child_id = child.id
+                expl = wf.get("explanation", "")
+
+            return (
+                f"✅ Бот «{bot_name}» создан (id={child_id})!\n\n"
+                f"Что собрал AI: {expl[:300]}\n\n"
+                f"⚙️ Чтобы запустить — откройте в личном кабинете "
+                f"https://aiche.ru/chatbots.html, привяжите токен Telegram "
+                f"(от @BotFather) или MAX (от @MasterBot) — webhook поднимется автоматически.\n\n"
+                f"Списано: {cost_kop/100:.2f} ₽ за сборку workflow."
+            )
+        except Exception as e:
+            log.error(f"[bot_constructor] failed: {e}")
+            return f"❌ Не удалось собрать бота: {e}. Опишите задачу подробнее и попробуйте /build снова."
+
     # ── Агенты из библиотеки (agent_smm, agent_copywriter, etc.) ──────────
     if ntype.startswith("agent_"):
         agent_id = ntype.replace("agent_", "")
@@ -1051,6 +1365,127 @@ async def send_telegram_with_buttons(token: str, chat_id: str, text: str,
         return {"ok": False}
 
 
+async def send_telegram_with_reply_keyboard(token: str, chat_id: str, text: str,
+                                             buttons: list[dict],
+                                             one_time: bool = True,
+                                             resize: bool = True) -> dict:
+    """Reply-keyboard в TG (постоянная клавиатура внизу).
+
+    buttons: list[dict] — каждый элемент:
+      {text: "...", request_contact: True} — попросить телефон
+      {text: "...", request_location: True} — попросить геолокацию
+      {text: "..."} — обычная кнопка-текст (бот получит как text)
+    one_time=True — клавиатура исчезнет после первого нажатия.
+    """
+    try:
+        # MAX/TG: кнопки разложены по 1 в ряд для вертикального меню
+        keyboard = [[b] for b in buttons]
+        payload = {
+            "chat_id": str(chat_id),
+            "text": text[:4096] or "Выберите вариант:",
+            "reply_markup": {
+                "keyboard": keyboard,
+                "resize_keyboard": resize,
+                "one_time_keyboard": one_time,
+            },
+        }
+        r = await HTTP.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload)
+        return r.json()
+    except Exception as e:
+        log.error(f"[TG reply-kb] {e}")
+        return {"ok": False}
+
+
+async def send_telegram_photo(token: str, chat_id: str, photo: str,
+                               caption: str = "", parse_mode: str = "Markdown") -> dict:
+    """Отправить фото. photo — URL или относительный путь /uploads/...
+    Если файл локальный — multipart upload, если URL — TG сам скачает."""
+    import os as _os
+    try:
+        # URL → передаём как поле photo (TG скачает)
+        if photo.startswith(("http://", "https://")):
+            payload = {"chat_id": str(chat_id), "photo": photo}
+            if caption:
+                payload["caption"] = caption[:1024]
+                payload["parse_mode"] = parse_mode
+            r = await HTTP.post(f"https://api.telegram.org/bot{token}/sendPhoto", json=payload)
+            return r.json()
+        # Локальный путь
+        base = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))  # корень проекта
+        abs_path = _os.path.join(base, photo.lstrip("/"))
+        if not _os.path.exists(abs_path):
+            log.error(f"[TG photo] file not found: {abs_path}")
+            return {"ok": False, "description": "file not found"}
+        with open(abs_path, "rb") as f:
+            files = {"photo": (_os.path.basename(abs_path), f)}
+            data = {"chat_id": str(chat_id)}
+            if caption:
+                data["caption"] = caption[:1024]
+                data["parse_mode"] = parse_mode
+            r = await HTTP.post(f"https://api.telegram.org/bot{token}/sendPhoto",
+                                files=files, data=data)
+        return r.json()
+    except Exception as e:
+        log.error(f"[TG photo] {e}")
+        return {"ok": False}
+
+
+async def edit_telegram_message(token: str, chat_id: str, message_id: int,
+                                 text: str, parse_mode: str = "Markdown",
+                                 buttons: list[dict] | None = None) -> dict:
+    """Заменить текст ранее отправленного сообщения. Когда юзер нажимает
+    кнопку «Выбрать дату», заменяем «выбери услугу» на «✓ Услуга: Маникюр»
+    вместо нового спама. UX становится приличным."""
+    try:
+        payload = {
+            "chat_id": str(chat_id),
+            "message_id": int(message_id),
+            "text": text[:4096],
+            "parse_mode": parse_mode,
+        }
+        if buttons:
+            keyboard = [[{"text": b.get("text", "")[:64],
+                          "callback_data": str(b.get("callback_data", ""))[:64]}]
+                        for b in buttons[:10]]
+            payload["reply_markup"] = {"inline_keyboard": keyboard}
+        r = await HTTP.post(f"https://api.telegram.org/bot{token}/editMessageText",
+                            json=payload)
+        return r.json()
+    except Exception as e:
+        log.error(f"[TG edit] {e}")
+        return {"ok": False}
+
+
+async def set_telegram_commands(token: str, commands: list[dict]) -> dict:
+    """Установить меню команд бота — то что показывается в меню «/».
+    commands: list of {"command": "start", "description": "Начать работу"}.
+    Вызывается при деплое, не в каждом ответе."""
+    try:
+        payload = {"commands": [
+            {"command": c.get("command", "").lstrip("/")[:32],
+             "description": (c.get("description", "") or "")[:256]}
+            for c in commands[:10]
+        ]}
+        r = await HTTP.post(f"https://api.telegram.org/bot{token}/setMyCommands",
+                            json=payload)
+        return r.json()
+    except Exception as e:
+        log.error(f"[TG commands] {e}")
+        return {"ok": False}
+
+
+async def send_telegram_chat_action(token: str, chat_id: str,
+                                     action: str = "typing") -> dict:
+    """«Бот печатает…» — показывается до 5 сек или до следующего сообщения.
+    Вызываем перед длинным AI-вызовом, чтобы юзер не думал что бот завис."""
+    try:
+        r = await HTTP.post(f"https://api.telegram.org/bot{token}/sendChatAction",
+                            json={"chat_id": str(chat_id), "action": action})
+        return r.json()
+    except Exception:
+        return {"ok": False}
+
+
 async def send_telegram_document(token: str, chat_id: str, file_path: str,
                                  caption: str = "") -> dict:
     """Отправить документ. file_path — относительно корня проекта."""
@@ -1114,13 +1549,32 @@ async def delete_max_webhook(max_token: str, webhook_url: str | None = None) -> 
 
 
 async def send_max(max_token: str, user_id: str | int, text: str,
-                   format_: str = "markdown") -> dict:
-    """Отправить сообщение в MAX. user_id — int из update.message.sender.user_id."""
+                   format_: str = "markdown",
+                   buttons: list[dict] | None = None) -> dict:
+    """Отправить сообщение в MAX. user_id — int из update.message.sender.user_id.
+
+    buttons (опц): список dict {text, callback_data} — отправляются как
+    inline keyboard (attachment type=inline_keyboard, по докам MAX).
+    """
     try:
         params = {"access_token": max_token, "user_id": str(user_id)}
         body = {"text": text[:4000]}
         if format_:
             body["format"] = format_
+        if buttons:
+            # MAX inline-buttons: payload = массив рядов кнопок.
+            # Пока кладём по одной кнопке в ряд (вертикальный список) —
+            # MAX-API поддерживает payload как [[btn1, btn2], [btn3]].
+            body["attachments"] = [{
+                "type": "inline_keyboard",
+                "payload": {
+                    "buttons": [[{
+                        "type": "callback",
+                        "text": b.get("text", "")[:64],
+                        "payload": str(b.get("callback_data", ""))[:64],
+                    }] for b in buttons[:10]]
+                }
+            }]
         r = await HTTP.post(f"{MAX_API}/messages", params=params, json=body)
         try:
             data = r.json() if r.content else {}
@@ -1132,6 +1586,66 @@ async def send_max(max_token: str, user_id: str | int, text: str,
     except Exception as e:
         log.error(f"[MAX] send error: {e}")
         return {"ok": False, "description": str(e)}
+
+
+async def send_max_with_reply_keyboard(max_token: str, user_id: str | int, text: str,
+                                         buttons: list[dict]) -> dict:
+    """Reply-keyboard в MAX (постоянная клавиатура).
+
+    buttons элементы:
+      {text: "...", request_contact: True} — попросить телефон
+      {text: "...", request_geolocation: True} — попросить локацию
+      {text: "..."} — обычная кнопка-текст
+    MAX-API использует attachments: type=request_keyboard.
+    """
+    try:
+        params = {"access_token": max_token, "user_id": str(user_id)}
+        # Конвертируем в MAX-формат buttons (по 1 в ряд)
+        mx_buttons = []
+        for b in buttons[:10]:
+            row = {"text": b.get("text", "")[:64], "type": "text"}
+            if b.get("request_contact"):
+                row["type"] = "request_contact"
+            elif b.get("request_geolocation") or b.get("request_location"):
+                row["type"] = "request_geolocation"
+            mx_buttons.append([row])
+        body = {
+            "text": (text or "Выберите вариант:")[:4000],
+            "attachments": [{
+                "type": "request_keyboard",
+                "payload": {"buttons": mx_buttons},
+            }],
+        }
+        r = await HTTP.post(f"{MAX_API}/messages", params=params, json=body)
+        return {"ok": r.status_code == 200, "status_code": r.status_code}
+    except Exception as e:
+        log.error(f"[MAX reply-kb] {e}")
+        return {"ok": False}
+
+
+async def send_max_photo(max_token: str, user_id: str | int, photo: str,
+                          caption: str = "") -> dict:
+    """Отправить фото в MAX. photo — URL (в идеале) или путь /uploads/...
+    Для локальных файлов сначала загружаем через POST /uploads → получаем url."""
+    import os as _os
+    try:
+        photo_url = photo
+        if not photo.startswith(("http://", "https://")):
+            # MAX не принимает multipart напрямую в /messages —
+            # нужно сначала залить файл и взять url. Пока fallback на нашу
+            # публичную раздачу /uploads — APP_URL должен быть настроен.
+            app_url = _os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+            photo_url = f"{app_url}{photo if photo.startswith('/') else '/' + photo}"
+        params = {"access_token": max_token, "user_id": str(user_id)}
+        body = {
+            "text": (caption or "")[:1000],
+            "attachments": [{"type": "image", "payload": {"url": photo_url}}],
+        }
+        r = await HTTP.post(f"{MAX_API}/messages", params=params, json=body)
+        return {"ok": r.status_code == 200, "status_code": r.status_code}
+    except Exception as e:
+        log.error(f"[MAX photo] {e}")
+        return {"ok": False}
 
 
 async def get_max_me(max_token: str) -> dict:

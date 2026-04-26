@@ -120,3 +120,45 @@ def get_balance(db: Session, user_id: int) -> int:
         select(User.tokens_balance).where(User.id == user_id)
     ).scalar()
     return int(val or 0)
+
+
+def claim_welcome_bonus(db: Session, user_id: int, amount: int) -> bool:
+    """
+    Атомарно ставит welcome_bonus_claimed_at и зачисляет бонус.
+    Возвращает True если бонус действительно зачислен (первый раз),
+    False если уже был получен ранее (race / повтор).
+
+    Защита от двойного клейма даже при гонке двух /verify-email.
+    Caller должен сделать db.commit().
+    """
+    if amount <= 0 or not user_id:
+        return False
+    res = db.execute(
+        sa_update(User)
+        .where(User.id == user_id, User.welcome_bonus_claimed_at.is_(None))
+        .values(welcome_bonus_claimed_at=datetime.utcnow())
+    )
+    if (res.rowcount or 0) == 0:
+        return False  # уже был зачислен
+    return credit_atomic(db, user_id, amount)
+
+
+def claim_referral_signup_bonus(db: Session, referred_user_id: int,
+                                 referrer_id: int, amount: int) -> bool:
+    """
+    Атомарно отмечает что за регистрацию referred_user рефереру уже
+    выплачен bounty, и начисляет amount рефереру.
+    Защита от гонки двух concurrent /register с одним email.
+    Caller должен сделать db.commit().
+    """
+    if amount <= 0 or not referred_user_id or not referrer_id:
+        return False
+    res = db.execute(
+        sa_update(User)
+        .where(User.id == referred_user_id,
+               User.referral_signup_bonus_paid_at.is_(None))
+        .values(referral_signup_bonus_paid_at=datetime.utcnow())
+    )
+    if (res.rowcount or 0) == 0:
+        return False
+    return credit_atomic(db, referrer_id, amount)

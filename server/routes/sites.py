@@ -296,11 +296,25 @@ def site_project_attach_bot(project_id: int, body: AttachBotBody,
 
 
 def _inject_chatbot_widget(html: str, bot_id: int, app_url: str) -> str:
-    """Вставляет <script src='/widget/{bot_id}.js'></script> перед </body>."""
-    widget_tag = f'<script src="{app_url}/widget/{bot_id}.js" async></script>'
-    if "</body>" in html:
-        return html.replace("</body>", f"{widget_tag}\n</body>", 1)
-    return html + "\n" + widget_tag
+    """Вставляет <script src='/widget/{bot_id}.js'></script> перед последним </body>.
+
+    Старая версия делала html.replace("</body>", ..., count=1) — это вставляло
+    скрипт перед ПЕРВЫМ </body>. Если в HTML несколько </body> (битый AI-вывод
+    с auto-continue, или iframe внутри) — скрипт мог попасть не туда. Также
+    если </body> вообще нет — пристёгивали в конец без проверки на </html>.
+
+    Сейчас: ищем последнее вхождение </body> case-insensitive; если нет —
+    вставляем перед </html>; если и его нет — добавляем оба тега.
+    """
+    widget_tag = f'<script src="{app_url}/widget/{bot_id}.js" async></script>\n'
+    lower = html.lower()
+    body_idx = lower.rfind("</body>")
+    if body_idx >= 0:
+        return html[:body_idx] + widget_tag + html[body_idx:]
+    html_idx = lower.rfind("</html>")
+    if html_idx >= 0:
+        return html[:html_idx] + widget_tag + "</body>\n" + html[html_idx:]
+    return html + "\n" + widget_tag + "</body></html>\n"
 
 
 # ---------------------------------------------------------------------------
@@ -562,6 +576,106 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
     p.code_html = content
     db.commit()
     return {"code_html": content}
+
+
+# ---------------------------------------------------------------------------
+# Точечная AI-правка одного блока сайта (5 ₽ за правку, экономно vs 1500 ₽
+# за полную регенерацию). Юзер выделяет блок в превью → пишет инструкцию
+# → backend просит Claude переписать ТОЛЬКО этот блок → подменяем в code_html.
+# ---------------------------------------------------------------------------
+
+class EditBlockBody(BaseModel):
+    block_html: str          # текущий HTML блока (от <section> до </section>)
+    instruction: str         # что юзер хочет изменить
+    block_id: str | None = None   # data-edit-id блока (для логов/повторной подмены на фронте)
+
+
+# Лимит размера блока — защита от того, что юзер пришлёт весь сайт в block_html.
+# 64 KB достаточно для самого жирного hero-блока с inline SVG.
+_MAX_BLOCK_BYTES = 64 * 1024
+
+
+@router.post("/sites/projects/{project_id}/edit-block")
+def site_project_edit_block(project_id: int, body: EditBlockBody,
+                            db: Session = Depends(get_db),
+                            user: User = Depends(current_user)):
+    """Перегенерирует ТОЛЬКО переданный блок HTML по инструкции (5 ₽).
+
+    Возвращает обновлённый HTML блока. Подмену в code_html делает фронт
+    (через MutationObserver или явный /save-code), backend не парсит DOM.
+    """
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.code_html:
+        raise HTTPException(400, "Сначала сгенерируйте код сайта")
+
+    block = (body.block_html or "").strip()
+    instr = (body.instruction or "").strip()
+    if not block:
+        raise HTTPException(400, "Пустой block_html")
+    if not instr:
+        raise HTTPException(400, "Пустая инструкция")
+    if len(block.encode("utf-8")) > _MAX_BLOCK_BYTES:
+        raise HTTPException(413, f"Блок слишком большой (макс. {_MAX_BLOCK_BYTES//1024} KB)")
+
+    cost = CODE_ITER_CH_COST  # 5 ₽
+    if not deduct_strict(db, user.id, cost):
+        raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
+    p.price_tokens = (p.price_tokens or 0) + cost
+    db.add(Transaction(
+        user_id=user.id, type="usage", tokens_delta=-cost,
+        description=f"AI-правка блока сайта ({cost/100:.0f} ₽)",
+        model="claude",
+    ))
+
+    prompt = (
+        "Ты — веб-разработчик. Тебе передан ОДИН блок HTML с одностраничного "
+        "сайта (например <section>, <header>, <div>). Юзер хочет внести "
+        "точечное изменение.\n\n"
+        f"=== ИНСТРУКЦИЯ ОТ ЮЗЕРА ===\n{instr}\n\n"
+        f"=== ТЕКУЩИЙ HTML БЛОКА ===\n{block}\n=== КОНЕЦ ===\n\n"
+        "Верни ТОЛЬКО обновлённый HTML этого блока, без обёрток ```html, "
+        "без объяснений, без рекомендаций. Сохрани внешний контейнер "
+        "(тот же тег, те же id/class), меняй только то, о чём попросил юзер. "
+        "Если правка не нужна или непонятна — верни исходный блок без "
+        "изменений. Не добавляй <html>/<body>/<head>."
+    )
+    try:
+        answer = generate_response("claude", [{"role": "user", "content": prompt}],
+                                   extra={"max_tokens": 8000})
+    except Exception as e:
+        # Возвращаем деньги — ничего не сделали
+        from server.billing import credit_atomic
+        credit_atomic(db, user.id, cost)
+        db.add(Transaction(user_id=user.id, type="refund", tokens_delta=cost,
+                           description=f"Возврат: ошибка AI-правки блока ({e})",
+                           model="claude"))
+        db.commit()
+        raise HTTPException(503, "AI временно недоступен, средства возвращены")
+
+    new_html = answer.get("content", "") if isinstance(answer, dict) else str(answer)
+    # Снимаем markdown-обёртки если AI ослушался
+    for marker in ["```html\n", "```\n", "```html", "```"]:
+        if new_html.startswith(marker):
+            new_html = new_html[len(marker):]
+            new_html = new_html.rsplit("```", 1)[0] if "```" in new_html else new_html
+            break
+    new_html = new_html.strip()
+
+    # Sanity: блок должен начинаться с тега. Если AI вернул мусор — возвращаем
+    # деньги и старый блок (фронт не подменит → юзер увидит что не сработало).
+    if not new_html.startswith("<"):
+        from server.billing import credit_atomic
+        credit_atomic(db, user.id, cost)
+        db.add(Transaction(user_id=user.id, type="refund", tokens_delta=cost,
+                           description="Возврат: AI вернул не-HTML для правки блока",
+                           model="claude"))
+        db.commit()
+        raise HTTPException(503, "AI вернул некорректный HTML, средства возвращены")
+
+    db.commit()
+    return {"new_html": new_html, "block_id": body.block_id, "cost_kop": cost}
 
 
 # ---------------------------------------------------------------------------

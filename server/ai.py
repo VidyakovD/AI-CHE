@@ -70,6 +70,51 @@ def invalidate_api_key_cache(provider: str = None):
 def _shuffle(lst): random.shuffle(lst); return lst
 
 
+# ── Универсальный wrapper «попробовать каждый ключ» ─────────────────────────
+# Раньше каждый *_response функция дублировал паттерн:
+#   keys = _shuffle(_get_api_keys(provider))
+#   if not keys: _notify_admin(...); return {"type":"text","content":"...недоступен..."}
+#   for key in keys:
+#     try: ... return result
+#     except Exception as e: log.warning(...); continue
+#   _notify_admin("все ключи исчерпаны")
+#   return {"type":"text","content":"...недоступен..."}
+# Теперь вынесено сюда. Используется в новых провайдерах + постепенно мигрируем
+# существующие (риск-оф-зрения: чтобы не сломать прод за один проход).
+
+_FALLBACK_TEXT = "Сервис временно недоступен. Повторите попытку позже…"
+
+
+def _fallback_response() -> dict:
+    """Стандартный ответ когда AI-провайдер недоступен (все ключи в ауте)."""
+    return {"type": "text", "content": _FALLBACK_TEXT}
+
+
+def try_with_keys(provider: str, call_fn, *, on_no_keys: str | None = None):
+    """Прогоняет call_fn(key) по всем ключам провайдера, возвращает первый
+    успешный результат. При полном провале — _notify_admin + None (caller
+    должен вернуть _fallback_response()).
+
+    Не пишет fallback-ответ сам — провайдеры могут хотеть кастомный stub
+    (например, openai_image добавляет «Опишите что нарисовать»).
+    """
+    keys = _shuffle(_get_api_keys(provider))
+    if not keys:
+        _notify_admin(on_no_keys or f"{provider}: API keys пуст")
+        return None
+    last_err: Exception | None = None
+    for key in keys:
+        try:
+            return call_fn(key)
+        except Exception as e:
+            last_err = e
+            tail = key[-6:] if len(key) >= 6 else "***"
+            log.warning(f"[{provider}] key=...{tail} error: {e}")
+            continue
+    _notify_admin(f"{provider}: все ключи исчерпаны: {last_err}")
+    return None
+
+
 def _notify_admin(error_msg: str, context: dict | None = None):
     """Отправляет ошибку в Telegram админу + в ERROR_WEBHOOK если настроен."""
     # 1. Custom webhook (для интеграции с внешним error-handler)
@@ -354,191 +399,227 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
 
-def _genai_veo(model: str, prompt: str, ar: str, duration: int) -> dict:
-    """Синхронная обёртка над Google GenAI SDK для Veo."""
-    from google import genai
-    from google.genai import types
-    import asyncio
+# ── Google Veo (видео-генерация) ────────────────────────────────────────────
+# Использует Generative Language API (predictLongRunning + операция).
+# Через прокси — Google AI Studio блокирует RU-сегменты по ASN.
+# Veo 3.0-fast иногда отвечает 503 «Deadline expired» (квота). Fallback:
+# по очереди пробуем veo-3.1-fast → veo-3.0 → veo-2.0.
 
-    keys = _shuffle(_get_api_keys("google"))
-    extra = {}
-    for key in keys:
-        try:
-            client = genai.Client(api_key=key)
+# Маппинг model_id (UI) → real_model в API (с приоритетом fallback'ов).
+_VEO_MODELS = {
+    "veo-3":   ["veo-3.1-fast-generate-preview", "veo-3.0-generate-001", "veo-2.0-generate-001"],
+    "veo-3.1": ["veo-3.1-fast-generate-preview", "veo-3.0-generate-001", "veo-2.0-generate-001"],
+    "veo-2":   ["veo-2.0-generate-001"],
+    "veo-fast":["veo-3.0-fast-generate-001", "veo-3.1-fast-generate-preview", "veo-2.0-generate-001"],
+}
 
-            # Асинхронный polling в синхронном контексте
-            async def _run():
-                operation = await client.aio.models.generate_videos(
-                    model=model,
-                    prompt=prompt,
-                    config=types.GenerateVideosConfig(
-                        aspect_ratio=ar,
-                        duration_seconds=duration,
-                    ),
-                )
-                # Poll до завершения (каждые 10 сек, макс 5 мин)
-                for _ in range(30):
-                    await asyncio.sleep(10)
-                    operation = await client.aio.operations.get(
-                        operation.name,
-                        poll=types.GeneratedVideosList,
-                    )
-                    if operation.done:
-                        break
-                if not operation.done:
-                    raise RuntimeError("Veo did not complete within the timeout")
-                # Скачиваем результат
-                videos = operation.result.generated_videos
-                if videos:
-                    downloaded = await client.aio.files.download(
-                        file=videos[0].video
-                    )
-                    import base64
-                    return base64.b64encode(downloaded.data).decode()
-                raise RuntimeError("Veo returned no results")
 
-            return asyncio.get_event_loop().run_until_complete(_run())
-        except RuntimeError as e:
-            last_error = e
-            continue
-    raise RuntimeError(f"Veo failed: {last_error}")
+def _save_video_bytes(data: bytes, ext: str = "mp4") -> str:
+    """Сохраняет видео в /uploads/ и возвращает URL."""
+    import os as _os, uuid as _uuid
+    project_root = _os.path.dirname(_BASE_DIR)
+    upload_dir = _os.path.join(project_root, "uploads")
+    _os.makedirs(upload_dir, exist_ok=True)
+    fid = f"vid_{_uuid.uuid4().hex[:12]}.{ext}"
+    path = _os.path.join(upload_dir, fid)
+    with open(path, "wb") as f:
+        f.write(data)
+    return f"/uploads/{fid}"
 
 
 def veo_response(model: str, messages: list, extra: dict = None) -> dict:
-    """
+    """Google Veo — генерация видео. Через Generative Language API + прокси.
+
     extra params:
-      prompt, aspect_ratio (16:9|9:16|1:1), duration_seconds (5-8),
-      sample_count (1-4), enhance_prompt (bool)
+      prompt, aspect_ratio (16:9 | 9:16), sample_count (1)
+    Возвращает {type:'video', url, content} при успехе или текст при ошибке.
+
+    ВАЖНО: операция асинхронная (predictLongRunning), polling до 5 минут.
+    Если хочется неблокирующего UX — лучше через очередь (server.agent_runner),
+    но пока для простоты ждём прямо здесь.
     """
+    import time
     extra = extra or {}
-    keys = _get_api_keys("google")
+    keys = _shuffle(_get_api_keys("google"))
     if not keys:
         _notify_admin("Veo: GOOGLE_API_KEYS пуст")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
     prompt = extra.get("prompt") or _last_text(messages) or ""
-    ar = extra.get("aspect_ratio", "16:9")
-    duration = int(extra.get("duration_seconds", 6))
+    if not prompt:
+        return {"type": "text", "content": "Опишите что снять (хотя бы пару слов)."}
 
-    try:
-        import httpx as _hx, asyncio
+    ar = extra.get("aspect_ratio") or "16:9"
+    if ar not in ("16:9", "9:16"):
+        ar = "16:9"
 
-        # Fallback: старый REST подход с polling (если SDK не импортирован)
-        from google import genai as _genai_sdk
-        has_sdk = True
-    except ImportError:
-        has_sdk = False
+    candidates = _VEO_MODELS.get(model, _VEO_MODELS["veo-3"])
+    proxy = _google_proxy()
 
-    if has_sdk:
-        try:
-            return {"type": "text", "content": f"[Veo] Генерация запущена, модель: {model}. Результат будет отправлен при завершении."}
-        except Exception:
-            pass
-
-    # Fallback: старый REST polling через Vertex API
-    project_id = os.getenv("VEO_PROJECT_ID", "")
-    if not project_id:
-        return {"type": "text", "content": "Veo: VEO_PROJECT_ID не настроен"}
-
-    keys = _shuffle(keys)
+    last_err: str | None = None
     for key in keys:
-        try:
-            # Запуск
-            headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-            resp = httpx.post(
-                f"https://us-central1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/us-central1/publishers/google/models/{model}:predict",
-                json={"instances": [{"prompt": prompt}]},
-                headers=headers, timeout=60
-            )
-            data = resp.json()
-            predictions = data.get("predictions", [])
-            if predictions and predictions[0].get("bytesBase64Encoded"):
-                b64 = predictions[0]["bytesBase64Encoded"]
-                return {"type": "video_base64", "content": b64}
-            return {"type": "text", "content": str(data)}
-        except Exception:
-            if key == keys[-1]:
-                _notify_admin(f"Veo: все ключи исчерпаны")
-                return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
-    return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
+        for real_model in candidates:
+            try:
+                start_url = (f"https://generativelanguage.googleapis.com/v1beta/"
+                             f"models/{real_model}:predictLongRunning?key={key}")
+                payload = {
+                    "instances": [{"prompt": prompt}],
+                    "parameters": {"aspectRatio": ar, "sampleCount": 1},
+                }
+                with httpx.Client(proxy=proxy, timeout=180) as client:
+                    r = client.post(start_url, json=payload)
+                if r.status_code != 200:
+                    err = r.text[:200]
+                    last_err = f"start {real_model}: {r.status_code} {err}"
+                    log.warning(f"[Veo] {last_err}")
+                    continue
+                op_name = r.json().get("name")
+                if not op_name:
+                    last_err = f"no operation name: {r.text[:200]}"
+                    continue
+
+                # Polling операции до 5 минут (raз в 10 сек)
+                op_url = f"https://generativelanguage.googleapis.com/v1beta/{op_name}?key={key}"
+                video_uri = None
+                with httpx.Client(proxy=proxy, timeout=60) as client:
+                    for _ in range(30):
+                        time.sleep(10)
+                        pr = client.get(op_url)
+                        if pr.status_code != 200:
+                            continue
+                        opd = pr.json()
+                        if not opd.get("done"):
+                            continue
+                        if "error" in opd:
+                            last_err = f"op error: {opd['error']}"
+                            break
+                        # Достаём первый сгенеренный видео-URI
+                        resp = opd.get("response", {}) or {}
+                        gvr = resp.get("generateVideoResponse", {}) or {}
+                        samples = gvr.get("generatedSamples", []) or []
+                        if samples:
+                            video_uri = samples[0].get("video", {}).get("uri")
+                        break
+                if not video_uri:
+                    log.warning(f"[Veo] {real_model}: no video uri ({last_err})")
+                    continue
+
+                # Скачиваем видео по URI (всё ещё через прокси) — это файл из Files API.
+                # URI-формат: .../v1beta/files/<id>:download?alt=media — нужен ?key= параметр.
+                dl_url = video_uri + (("&" if "?" in video_uri else "?") + f"key={key}")
+                with httpx.Client(proxy=proxy, timeout=300) as client:
+                    dr = client.get(dl_url)
+                if dr.status_code != 200:
+                    last_err = f"download: {dr.status_code}"
+                    continue
+                url_local = _save_video_bytes(dr.content, "mp4")
+                return {"type": "video", "url": url_local, "content": url_local,
+                        "model": real_model}
+            except Exception as e:
+                last_err = f"{real_model}: {e}"
+                log.warning(f"[Veo] key=...{key[-6:]} {last_err}")
+                continue
+    _notify_admin(f"Veo: все ключи и модели исчерпаны: {last_err}")
+    return {"type": "text", "content": f"Видео не сгенерировано: {last_err or 'неизвестная ошибка'}"}
 
 
-# ── NanoBanana ────────────────────────────────────────────────────────────────
+# ── NanoBanana / Imagen 4 ────────────────────────────────────────────────────
+# Использует Google Generative Language API через прокси (для обхода
+# гео-блока Google AI Studio из РФ-сегментов хостинга).
+# Прокси задаётся env GOOGLE_HTTPS_PROXY=http://user:pass@host:port — если
+# не задан, идём напрямую (что в РФ обычно не сработает).
+
+def _google_proxy() -> str | None:
+    """Возвращает URL прокси для Google-вызовов или None если не задан."""
+    return (os.getenv("GOOGLE_HTTPS_PROXY") or "").strip() or None
+
+
+def _save_image_b64(b64: str, mime: str = "image/png") -> str:
+    """Сохраняет base64-картинку в /uploads/ и возвращает URL.
+    Так фронт может показать через <img src=/uploads/...> без data: схем."""
+    import base64, os as _os, uuid as _uuid
+    project_root = _os.path.dirname(_BASE_DIR)
+    upload_dir = _os.path.join(project_root, "uploads")
+    _os.makedirs(upload_dir, exist_ok=True)
+    ext = "png" if "png" in mime else "jpg"
+    fid = f"img_{_uuid.uuid4().hex[:12]}.{ext}"
+    path = _os.path.join(upload_dir, fid)
+    with open(path, "wb") as f:
+        f.write(base64.b64decode(b64))
+    return f"/uploads/{fid}"
+
+
+# Таблица: ID модели в нашем UI → реальное имя в Google API.
+# Imagen 3 устарел — есть только Imagen 4. Ранжирование по качеству:
+# fast (быстрее, дешевле) → standard → ultra (медленнее, лучше).
+_IMAGEN_MODELS = {
+    "nano-v1":           "imagen-4.0-fast-generate-001",  # дефолт — быстрый
+    "imagen-4-fast":     "imagen-4.0-fast-generate-001",
+    "imagen-4":          "imagen-4.0-generate-001",
+    "imagen-4-ultra":    "imagen-4.0-ultra-generate-001",
+}
+
 
 def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
-    """Google Imagen 3 — генерация изображений через Google GenAI SDK."""
+    """Google Imagen 4 — генерация изображений через REST API.
+
+    Использует прокси из env GOOGLE_HTTPS_PROXY (Google AI Studio
+    блокирует RU-сегменты хостинга по ASN).
+    """
     keys = _shuffle(_get_api_keys("google"))
     extra = extra or {}
     if not keys:
-        _notify_admin("Nano Banana: GOOGLE_API_KEYS пуст")
+        _notify_admin("Imagen: GOOGLE_API_KEYS пуст")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
     prompt = _last_text(messages)
     if not prompt:
         return {"type": "text", "content": "Опишите изображение в сообщении чата."}
 
-    ar_map = {"1:1": "1:1", "16:9": "16:9", "9:16": "9:16", "4:3": "4:3", "3:4": "3:4"}
-    ar = extra.get("aspect_ratio", "1:1")
+    ar = (extra.get("aspect_ratio") or "1:1").strip()
+    if ar not in ("1:1", "16:9", "9:16", "4:3", "3:4"):
+        ar = "1:1"
+    sample_count = max(1, min(int(extra.get("sample_count", 1) or 1), 4))
+    real_model = _IMAGEN_MODELS.get(model, _IMAGEN_MODELS["nano-v1"])
 
+    proxy = _google_proxy()
+    last_err: Exception | None = None
     for key in keys:
         try:
-            from google import genai
-            from google.genai import types
-            client = genai.Client(api_key=key)
-
-            response = client.models.generate_content(
-                model="imagen-3.0-generate-002",  # или другая модель из БД
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    image_config=types.ImageConfig(
-                        aspect_ratio=ar_map.get(ar, "1:1")
-                    ),
-                ),
-            )
-
-            # Извлекаем inline_data из ответа
-            for candidate in response.candidates or []:
-                for part in candidate.content.parts or []:
-                    if hasattr(part, "inline_data") and part.inline_data:
-                        data_bytes = part.inline_data.data
-                        import base64
-                        b64 = base64.b64encode(data_bytes).decode()
-                        mime = part.inline_data.mime_type or "image/png"
-                        return {"type": "image", "content": f"data:{mime};base64,{b64}"}
-
-            # Fallback: если модель не поддерживает inline_data, пробуем старый REST
-            return _nanobanana_rest(keys[keys.index(key)+1:], prompt, ar, ar_map)
-
-        except NotImplementedError:
-            # SDK не поддерживает эту модель — пробуем REST
-            return _nanobanana_rest(keys[keys.index(key)+1:], prompt, ar, ar_map)
-        except Exception:
-            if key == keys[-1]:
-                return _nanobanana_rest([], prompt, ar, ar_map)
-
-    return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
-
-
-def _nanobanana_rest(keys: list, prompt: str, ar: str, ar_map: dict) -> dict:
-    """Fallback: старый REST вызов если SDK не сработал."""
-    if not keys:
-        return {"type": "text", "content": "Nano Banana: все ключи исчерпаны или API не поддерживается"}
-    for key in keys:
-        try:
-            resp = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={key}",
-                json={"instances": [{"prompt": prompt}],
-                      "parameters": {"sampleCount": 1, "aspectRatio": ar_map.get(ar, "1:1")}},
-                timeout=60
-            )
-            resp.raise_for_status()
+            url = (f"https://generativelanguage.googleapis.com/v1beta/"
+                   f"models/{real_model}:predict?key={key}")
+            payload = {
+                "instances": [{"prompt": prompt}],
+                "parameters": {
+                    "sampleCount": sample_count,
+                    "aspectRatio": ar,
+                },
+            }
+            with httpx.Client(proxy=proxy, timeout=120) as client:
+                resp = client.post(url, json=payload)
+            if resp.status_code != 200:
+                log.warning(f"[Imagen] {real_model} key=...{key[-6:]} status={resp.status_code} body={resp.text[:200]}")
+                last_err = RuntimeError(f"HTTP {resp.status_code}")
+                continue
             data = resp.json()
-            b64 = data["predictions"][0]["bytesBase64Encoded"]
-            mime = data["predictions"][0].get("mimeType", "image/png")
-            return {"type": "image", "content": f"data:{mime};base64,{b64}"}
-        except:
-            if key == keys[-1]:
-                _notify_admin(f"Nano Banana: все ключи исчерпаны")
-                return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
+            preds = data.get("predictions", [])
+            if not preds:
+                log.warning(f"[Imagen] empty predictions: {data}")
+                continue
+            # Берём первую картинку, остальные игнорируем (UI пока не показывает галерею)
+            p0 = preds[0]
+            b64 = p0.get("bytesBase64Encoded")
+            mime = p0.get("mimeType", "image/png")
+            if not b64:
+                log.warning(f"[Imagen] no bytesBase64Encoded: keys={list(p0.keys())}")
+                continue
+            url_local = _save_image_b64(b64, mime)
+            return {"type": "image", "url": url_local, "content": url_local}
+        except Exception as e:
+            last_err = e
+            log.warning(f"[Imagen] key=...{key[-6:]} error: {e}")
+            continue
+    _notify_admin(f"Imagen: все ключи исчерпаны: {last_err}")
+    return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -817,50 +898,36 @@ def grok_search_response(prompt: str, enable_web: bool = True, enable_x: bool = 
 
 
 # ── GROK (xAI) ───────────────────────────────────────────────────────────────
-def grok_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_get_api_keys("grok"))
-    if not keys:
-        _notify_admin("Grok: GROK_API_KEYS пуст")
-        return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
+# Хелпер для OpenAI-совместимых endpoint'ов (Grok, Perplexity, и любые другие
+# с `client.chat.completions.create`). Извлекаем 1 раз — экономит ~30 строк дублей.
+def _openai_compatible_response(provider: str, base_url: str, model: str,
+                                 messages: list, default_model: str = "") -> dict:
     from openai import OpenAI
-    for key in keys:
-        try:
-            client = OpenAI(api_key=key, base_url="https://api.x.ai/v1", timeout=90)
-            resp = client.chat.completions.create(model=model, messages=messages)
-            usage = getattr(resp, "usage", None)
-            return {
-                "type": "text", "content": resp.choices[0].message.content,
-                "input_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
-                "output_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
-            }
-        except Exception as e:
-            log.error(f"[Grok] key=...{key[-6:]} error={e}")
-            if key == keys[-1]:
-                _notify_admin(f"Grok: все ключи исчерпаны (модель {model})")
-                return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
+    def _call(key):
+        client = OpenAI(api_key=key, base_url=base_url, timeout=90)
+        resp = client.chat.completions.create(
+            model=model or default_model, messages=messages,
+        )
+        usage = getattr(resp, "usage", None)
+        return {
+            "type": "text",
+            "content": resp.choices[0].message.content,
+            "input_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
+            "output_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
+        }
+    return try_with_keys(provider, _call) or _fallback_response()
+
+
+def grok_response(model: str, messages: list, extra: dict = None) -> dict:
+    return _openai_compatible_response("grok", "https://api.x.ai/v1", model, messages)
+
 
 # ── PERPLEXITY ────────────────────────────────────────────────────────────────
 def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
-    keys = _shuffle(_get_api_keys("perplexity"))
-    if not keys:
-        _notify_admin("Perplexity: PERPLEXITY_API_KEYS пуст")
-        return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
-    from openai import OpenAI
-    for key in keys:
-        try:
-            client = OpenAI(api_key=key, base_url="https://api.perplexity.ai", timeout=90)
-            resp = client.chat.completions.create(model=model or "sonar-small-chat", messages=messages)
-            usage = getattr(resp, "usage", None)
-            return {
-                "type": "text", "content": resp.choices[0].message.content,
-                "input_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
-                "output_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
-            }
-        except Exception as e:
-            log.error(f"[Perplexity] key=...{key[-6:]} error={e}")
-            if key == keys[-1]:
-                _notify_admin(f"Perplexity: все ключи исчерпаны")
-                return {"type":"text","content":"Сервис временно недоступен. Повторите попытку позже…"}
+    return _openai_compatible_response(
+        "perplexity", "https://api.perplexity.ai", model, messages,
+        default_model="sonar-small-chat",
+    )
 
 # ── OPENAI IMAGE (DALL-E) ─────────────────────────────────────────────────────
 def openai_image_response(model: str, messages: list, extra: dict = None) -> dict:
@@ -926,6 +993,13 @@ def openai_image_response(model: str, messages: list, extra: dict = None) -> dic
     if real_model == "gpt-image-1":
         # нормализуем dall-e размеры в gpt-image
         size = {"1024x1792": "1024x1536", "1792x1024": "1536x1024"}.get(size, size)
+        if size not in ("1024x1024", "1024x1536", "1536x1024", "auto"):
+            log.warning(f"[Image gen] gpt-image-1: некорректный size={size}, fallback 1024x1024")
+            size = "1024x1024"
+    elif real_model == "dall-e-3":
+        if size not in ("1024x1024", "1024x1792", "1792x1024"):
+            log.warning(f"[Image gen] dall-e-3: некорректный size={size}, fallback 1024x1024")
+            size = "1024x1024"
     quality = extra.get("quality")
 
     from openai import OpenAI

@@ -131,7 +131,10 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{
 .ok{color:#6bff9e;font-size:12px;margin-top:4px;display:none}
 /* Welcome screen hides input */
 body.welcome #inputArea{display:none!important}
+.icn{display:inline-flex;align-items:center;vertical-align:-2px;margin-right:4px}
+.icn svg{display:block}
 </style>
+<script src="/icons.js" defer></script>
 </head>
 <body class="bg-background text-on-surface font-body welcome">
 
@@ -270,9 +273,9 @@ body.welcome #inputArea{display:none!important}
       <!-- Формат картинки (виден только если выбрана image-модель) -->
       <div id="imageSizeBar" class="hidden flex items-center justify-center gap-2 mt-2 px-1">
         <span class="text-[10px] text-on-surface-dim/50 mr-1">Формат:</span>
-        <button data-size="1024x1024" onclick="setImageSize('1024x1024')" class="img-size-btn active px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition">⬜ Квадрат</button>
-        <button data-size="1024x1792" onclick="setImageSize('1024x1792')" class="img-size-btn px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition">📱 Вертикаль</button>
-        <button data-size="1792x1024" onclick="setImageSize('1792x1024')" class="img-size-btn px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition">🖥 Горизонталь</button>
+        <button data-size="1024x1024" onclick="setImageSize('1024x1024')" class="img-size-btn active px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition inline-flex items-center gap-1.5"><span class="w-3 h-3 border border-current rounded-sm inline-block"></span>Квадрат</button>
+        <button data-size="1024x1792" onclick="setImageSize('1024x1792')" class="img-size-btn px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition inline-flex items-center gap-1.5"><span data-i="mobile"></span>Вертикаль</button>
+        <button data-size="1792x1024" onclick="setImageSize('1792x1024')" class="img-size-btn px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition inline-flex items-center gap-1.5"><span data-i="desktop"></span>Горизонталь</button>
       </div>
       <div class="flex items-center justify-between gap-2 mt-2 px-1">
         <p id="modelCostHint" class="text-[10px] text-on-surface-dim/50 truncate flex-1"></p>
@@ -524,7 +527,7 @@ body.welcome #inputArea{display:none!important}
   <div class="bg-surface rounded-2xl w-full max-w-3xl mx-4 border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-6 py-4 flex items-center justify-between">
       <div>
-        <h2 class="text-lg font-bold font-headline text-[#1e1a14]" id="solsTitle">💼 Бизнес-решения</h2>
+        <h2 class="text-lg font-bold font-headline text-[#1e1a14] flex items-center gap-2" id="solsTitle"><span data-i="briefcase"></span> Бизнес-решения</h2>
         <p class="text-[11px] text-[#1e1a14]/70 mt-0.5">Готовые экспертные сценарии с фикс-ценой</p>
       </div>
       <button onclick="closeM('solutionsModal')" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20">
@@ -645,8 +648,14 @@ const MODELS=[
   {id:"grok",            label:"Grok 3",           group:"Grok",       tab:"Grok",       icon:"bolt"},
   // Картинки — через GPT Image (модель gpt-image-1 от OpenAI, поддерживает редактирование)
   {id:"gpt-image",       label:"Картинки (GPT)",   group:"Картинки",   tab:"Картинки",   icon:"image"},
+  // Альтернатива от Google — Imagen (Nano Banana). Те же квадрат/16:9/9:16, чище для иллюстраций.
+  {id:"nano",            label:"Картинки (Imagen)",group:"Картинки",   tab:null,         icon:"image"},
+  // Видео-генерация через Google Veo 3 — отдельная вкладка «Видео».
+  {id:"veo",             label:"Видео (Veo 3)",    group:"Видео",      tab:"Видео",      icon:"videocam"},
 ];
-const VIDEO_MODELS=[];  // временно скрыли видео-модели (kling/veo/nano)
+// VIDEO_MODELS — те, для которых рендерим панель видео-параметров (см. updatePanel).
+// nano — это картинки (контролы рисуются как для картинок), поэтому НЕ попадает сюда.
+const VIDEO_MODELS=["veo"];
 const VIDEO_PARAMS={
   // ── Kling: полные параметры по официальной документации API ──────────────
   kling:[
@@ -1037,7 +1046,7 @@ function toggleVideoPanel(model){
           <button onclick="event.stopPropagation();clearVidImg('avatar')" class="mt-1 text-xs text-error hover:underline block mx-auto">Удалить фото</button>
         </div>
         <div id="videoAvatarPhotoPlaceholder" class="py-1">
-          <p class="text-xs text-on-dim/60">📸 Фото лица для аватара</p>
+          <p class="text-xs text-on-dim/60 inline-flex items-center gap-1.5"><span data-i="camera"></span>Фото лица для аватара</p>
           <p class="text-[10px] text-on-dim/40 mt-0.5">Лицо должно быть чётко видно</p>
         </div>
       </div>
@@ -2025,7 +2034,7 @@ function addFriendlyError(text){
   w.innerHTML=`
     <div class="rounded-2xl px-4 py-3 shadow border" style="background:var(--md-sys-color-error-container,#3a1a1a);border-color:rgba(239,68,68,.3);color:var(--md-sys-color-on-error-container,#fecaca)">
       <div class="flex items-start gap-2">
-        <span style="font-size:18px;line-height:1">⚠️</span>
+        <span class="inline-flex" style="color:#ef4444" data-i="warn"></span>
         <div class="flex-1">
           <div class="text-sm">${esc(text)}</div>
           <button onclick="document.getElementById('messageInput').focus()" class="mt-2 text-xs underline opacity-80 hover:opacity-100">Повторить</button>
@@ -2045,7 +2054,7 @@ async function addInsufficientBalanceMsg(currentBalance){
     : "";
   wrap.innerHTML=`
     <div class="rounded-2xl px-8 py-6 text-center shadow-xl" style="background:var(--md-sys-color-surface-container-high);max-width:380px;width:100%;border:1px solid rgba(255,140,66,.25)">
-      <div class="text-3xl mb-2">💳</div>
+      <div class="mb-2 inline-flex justify-center text-primary"><span style="transform:scale(2);display:inline-flex" data-i="creditCard"></span></div>
       <div class="text-base font-semibold mb-1" style="color:var(--md-sys-color-on-surface)">Недостаточно средств на балансе</div>
       <div class="text-sm mb-2" style="color:var(--md-sys-color-on-surface-dim)">Этот запрос стоит дороже, чем у вас осталось</div>
       ${balLine}
@@ -2298,7 +2307,7 @@ async function switchSolTab(_tab){
     if(!sols.length){grid.innerHTML=`<div class="col-span-3 text-center text-on-surface-dim/40 py-12 text-sm">Решений пока нет</div>`;return;}
     grid.innerHTML=sols.map(s=>`
       <div class="bg-surface2 rounded-xl border border-outline/20 hover:border-primary/35 transition overflow-hidden flex flex-col cursor-pointer group" onclick="launchSolution(${s.id},'${esc(s.title)}',${s.steps_count})">
-        ${s.image_url?`<img src="${esc(s.image_url)}" class="w-full h-32 object-cover group-hover:opacity-88 transition"/>`:`<div class="w-full h-32 bg-surface3 flex items-center justify-center text-4xl">💼</div>`}
+        ${s.image_url?`<img src="${esc(s.image_url)}" class="w-full h-32 object-cover group-hover:opacity-88 transition"/>`:`<div class="w-full h-32 bg-surface3 flex items-center justify-center text-primary"><svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/></svg></div>`}
         <div class="p-3 flex flex-col gap-1.5 flex-1">
           <p class="font-bold text-sm font-headline">${esc(s.title)}</p>
           ${s.description?`<p class="text-xs text-on-surface-dim/70 line-clamp-2">${esc(s.description)}</p>`:""}

@@ -41,6 +41,11 @@ class User(Base):
     oauth_sub        = Column(String, nullable=True)  # ID юзера у провайдера
     low_balance_threshold  = Column(Integer, default=100)   # порог уведомления (0 — отключено)
     low_balance_alerted_at = Column(DateTime, nullable=True)  # когда последний раз слали
+    # Однократность приветственного и реферального бонуса (atomic-gates).
+    welcome_bonus_claimed_at      = Column(DateTime, nullable=True)
+    referral_signup_bonus_paid_at = Column(DateTime, nullable=True)
+    # Лимит дочерних ботов через AI-конструктор (защита от runaway).
+    max_auto_bots    = Column(Integer, default=5)
     created_at       = Column(DateTime, default=datetime.utcnow)
 
     messages      = relationship("Message",      back_populates="user")
@@ -505,6 +510,59 @@ class ImapCredential(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class BotRecord(Base):
+    """Универсальная таблица заявок/броней/заказов/опросов из чат-бота.
+
+    Один шаблон бота = один record_type:
+      - lead       — лидогенерация (имя, телефон, ниша, бюджет)
+      - booking    — запись на услугу (имя, телефон, услуга, дата, время)
+      - order      — заказ из мини-магазина (товары, адрес, телефон)
+      - quiz       — результат квиза/воронки (ответы, сегмент)
+      - ticket     — заявка в поддержку из FAQ-бота
+      - subscriber — подписчик контент-бота
+
+    Любые специфичные поля шаблона лежат в payload (JSON-словарь).
+    Так одной таблицей покрываем все 6 шаблонов и любые будущие.
+
+    UI «Записи» в карточке бота показывает таблицу с фильтром по record_type.
+    """
+    __tablename__ = "bot_records"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    bot_id          = Column(Integer, ForeignKey("chatbots.id"), index=True, nullable=False)
+    user_id         = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
+    chat_id         = Column(String, index=True, nullable=True)   # с какого чата пришло
+    record_type     = Column(String, nullable=False, index=True)
+    customer_name   = Column(String, nullable=True)
+    customer_phone  = Column(String, nullable=True)
+    customer_email  = Column(String, nullable=True)
+    payload         = Column(Text, nullable=True)                 # JSON {service, slot_at, ...}
+    status          = Column(String, default="new", index=True)   # new / processed / cancelled
+    notes           = Column(Text, nullable=True)                 # внутренние заметки владельца
+    created_at      = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class BotConversationTurn(Base):
+    """Один тёрн диалога в чат-боте — для multi-turn контекста.
+
+    Раньше история жила в RAM (`_conversations` dict в chatbot_engine.py),
+    что ломалось при рестарте сервера и не работало на N uvicorn workers
+    (каждый процесс имел свою копию контекста). Теперь — SQLite, переживает
+    рестарт, общая для всех воркеров.
+
+    Очистка: периодический job в scheduler удаляет тёрны старше 30 дней.
+    """
+    __tablename__ = "bot_conversation_turns"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    bot_id      = Column(Integer, index=True, nullable=False)
+    chat_id     = Column(String, index=True, nullable=False)
+    role        = Column(String, nullable=False)   # "user" | "assistant" | "system"
+    content     = Column(Text, nullable=False)
+    created_at  = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class ChatBot(Base):
     """Постоянный бот — слушает входящие и отвечает через AI 24/7."""
     __tablename__ = "chatbots"
@@ -533,6 +591,10 @@ class ChatBot(Base):
     # Виджет
     widget_enabled  = Column(Boolean, default=False)
     widget_secret   = Column(EncryptedString, nullable=True)
+    # Список доменов через запятую («example.com, app.example.com»).
+    # Пусто = принимаем любой Origin (back-compat). При непустом — WS-коннект
+    # с чужого Origin отбивается с code=4003.
+    widget_allowed_origins = Column(Text, nullable=True)
     # Воркфлоу (JSON граф нод/связей из конструктора)
     workflow_json   = Column(Text, nullable=True)
     # Лимиты
@@ -540,6 +602,10 @@ class ChatBot(Base):
     cost_per_reply  = Column(Integer, default=5)
     replies_today   = Column(Integer, default=0)
     replies_reset_at= Column(DateTime, nullable=True)
+    # Конструктор ботов: parent_bot_id — бот-конструктор, через который этот
+    # бот был создан в TG/MAX. auto_generated=True для AI-сгенеренных ботов.
+    parent_bot_id   = Column(Integer, nullable=True)
+    auto_generated  = Column(Boolean, default=False)
     # Статус
     status          = Column(String, default="off")  # off / active / paused
     created_at      = Column(DateTime, default=datetime.utcnow)

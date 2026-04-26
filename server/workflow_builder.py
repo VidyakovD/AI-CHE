@@ -69,6 +69,14 @@ OUTPUT (отправка ответа):
 - output_tg_audio     — TG голосовое. Поля: file_path.
 - output_vk           — VK ответ.
 - output_max          — MAX ответ. Поля: max_token (пусто=из триггера), max_user_id (пусто=отвечает тому кто написал).
+- output_max_buttons  — MAX inline-кнопки. Поля: buttons («Да=yes\\nНет=no»). Юзер тыкнул кнопку → message_callback с payload как новый input.
+- request_contact     — попросить юзера поделиться телефоном через reply-keyboard. Поля: prompt (текст), button (текст кнопки). После нажатия в ctx появятся customer_phone и customer_name. Использовать в шаблонах booking/lead.
+- request_location    — попросить геолокацию. Поля: prompt, button. После — customer_lat/customer_lng в ctx.
+- output_photo        — отправить картинку. Поля: photo_url (URL или /uploads/...), caption.
+- edit_message        — заменить текст ранее отправленного сообщения (TG only). Поля: text (с {{input}}). UX чище — не плодим спам новых сообщений.
+- chat_action_typing  — показать «бот печатает…» перед длинным AI-вызовом.
+- save_record         — сохранить заявку/бронирование/заказ в bot_records. Поля: record_type (lead/booking/order/quiz/ticket), notify_owner (bool — отправить владельцу в TG). Берёт customer_name/phone/email из ctx + payload из ctx переменных.
+- bot_constructor     — мета-нода для бота-конструктора. Когда юзер пишет «/build» (или «готово/создавай») — собирает дочерний ChatBot из истории диалога через workflow_builder и возвращает инструкцию по подключению. Иначе пропускает input дальше как есть. Использовать ОДИН раз в графе перед AI-нодой: trigger_tg → bot_constructor → node_claude → output_tg.
 - output_save         — сохранить в историю (видна в ЛК).
 - output_hook         — POST на внешний URL. Поля: url.
 """
@@ -135,7 +143,14 @@ _VALID_TYPES = {
     "yd_list", "yd_upload",
     "kb_add", "kb_search_file", "kb_search", "kb_rag",
     "output_tg", "output_tg_buttons", "output_tg_file", "output_tg_audio",
-    "output_vk", "output_max", "output_save", "output_hook",
+    "output_vk", "output_max", "output_max_buttons", "output_save", "output_hook",
+    # Богатые UX-ноды для шаблонов бизнес-ботов
+    "request_contact", "request_location", "output_photo", "edit_message",
+    "chat_action_typing",
+    # Универсальная нода-сохранение в bot_records (booking/lead/order/quiz)
+    "save_record",
+    # Мета-нода: «бот, который создаёт ботов»
+    "bot_constructor",
 }
 
 

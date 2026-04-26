@@ -47,7 +47,9 @@ body {
 .cover .brand {
     color: #c89052;
     font-size: 14pt;
-    letter-spacing: 0.4em;
+    /* xhtml2pdf не понимает em для letter-spacing, использует pt:
+       0.4em ≈ 5.6pt при 14pt шрифте. */
+    letter-spacing: 5.6pt;
     text-transform: uppercase;
     font-weight: 600;
     margin-bottom: 12mm;
@@ -59,6 +61,8 @@ body {
     margin-bottom: 6mm;
     border: none;
     padding: 0;
+    /* На обложке H1 не должен иметь page-break (наследуется из общего h1) */
+    page-break-before: avoid;
 }
 .cover .subtitle {
     color: #666;
@@ -84,6 +88,8 @@ h1 {
     padding-bottom: 4mm;
     margin-top: 8mm;
     margin-bottom: 6mm;
+    /* H1 — крупный раздел: всегда с новой страницы для читаемости отчёта */
+    page-break-before: always;
     page-break-after: avoid;
 }
 h2 {
@@ -92,6 +98,7 @@ h2 {
     margin-top: 8mm;
     margin-bottom: 3mm;
     page-break-after: avoid;
+    page-break-inside: avoid;
 }
 h3 {
     color: #2a2a2a;

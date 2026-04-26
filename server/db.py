@@ -4,7 +4,32 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATABASE_URL = "sqlite:///./chat.db"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    DATABASE_URL,
+    # 30s busy_timeout — спасает от "database is locked" под нагрузкой
+    # (несколько uvicorn workers + scheduler + IMAP параллельно).
+    connect_args={"check_same_thread": False, "timeout": 30},
+)
+
+
+# WAL + foreign_keys включаем на каждое новое соединение.
+# WAL: writers не блокируют readers (критично для длинных AI-вызовов).
+# foreign_keys: SQLite по умолчанию ВЫКЛ — без этого CASCADE/FK не работают.
+from sqlalchemy import event as _sa_event
+
+
+@_sa_event.listens_for(engine, "connect")
+def _sqlite_pragma_on_connect(dbapi_connection, _connection_record):
+    cur = dbapi_connection.cursor()
+    try:
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA synchronous=NORMAL")  # баланс между скоростью и надёжностью
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.execute("PRAGMA busy_timeout=30000")
+    finally:
+        cur.close()
+
+
 SessionLocal = sessionmaker(bind=engine)
 
 Base = declarative_base()
@@ -37,6 +62,10 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # Уведомления о низком балансе
     ("users", "low_balance_threshold", "INTEGER DEFAULT 100"),
     ("users", "low_balance_alerted_at", "DATETIME"),
+    # Однократность приветственного бонуса (atomic gate — см. routes/auth.py).
+    ("users", "welcome_bonus_claimed_at", "DATETIME"),
+    # Однократность реферального бонуса за регистрацию (на referred-user).
+    ("users", "referral_signup_bonus_paid_at", "DATETIME"),
     # MAX (мессенджер VK group)
     ("chatbots", "max_token", "VARCHAR"),
     ("chatbots", "max_webhook_set", "BOOLEAN DEFAULT 0"),
@@ -44,6 +73,15 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("site_projects", "attached_bot_id", "INTEGER"),
     ("presentation_projects", "attached_bot_id", "INTEGER"),
     ("presentation_projects", "image_paths", "TEXT"),
+    # Конструктор ботов: parent_bot_id указывает на бот-конструктор,
+    # который сгенерил этот бот через AI-диалог в TG/MAX.
+    ("chatbots", "parent_bot_id", "INTEGER"),
+    ("chatbots", "auto_generated", "BOOLEAN DEFAULT 0"),
+    # Виджет: список доменов, с которых разрешён WS-коннект (через запятую).
+    # Пусто/NULL = разрешено любым (legacy back-compat).
+    ("chatbots", "widget_allowed_origins", "TEXT"),
+    # Лимит дочерних ботов через AI-конструктор — защита от runaway-creation.
+    ("users", "max_auto_bots", "INTEGER DEFAULT 5"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен
@@ -53,9 +91,17 @@ LIGHTWEIGHT_INDEXES: list[tuple[str, str]] = [
     ("uq_subscriptions_yookassa_id",
      "CREATE UNIQUE INDEX IF NOT EXISTS uq_subscriptions_yookassa_id "
      "ON subscriptions(yookassa_payment_id) WHERE yookassa_payment_id IS NOT NULL"),
-    ("ix_transactions_yookassa_id",
-     "CREATE INDEX IF NOT EXISTS ix_transactions_yookassa_id "
+    # ВАЖНО: было INDEX (не UNIQUE) — при гонке webhook+confirm можно было
+    # вставить две Transaction с одним payment_id и зачислить реф. бонус 2×.
+    # Теперь UNIQUE — second INSERT уйдёт в IntegrityError → catch → rollback.
+    ("uq_transactions_yookassa_id",
+     "CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_yookassa_id "
      "ON transactions(yookassa_payment_id) WHERE yookassa_payment_id IS NOT NULL"),
+    # Один юзер — одна активация промокода (защита от race в /promo/apply,
+    # где SELECT → INSERT не атомарно, два параллельных запроса оба пройдут).
+    ("uq_promo_uses_code_user",
+     "CREATE UNIQUE INDEX IF NOT EXISTS uq_promo_uses_code_user "
+     "ON promo_uses(code_id, user_id)"),
 ]
 
 

@@ -234,7 +234,152 @@ async def apikey_check_loop():
         await asyncio.sleep(3600)
 
 
+async def _cleanup_old_pdfs_tick():
+    """Удаляет PDF-отчёты бизнес-решений старше 30 дней.
+    Без этого /uploads/solutions/ растёт неограниченно — каждый run = новый PDF."""
+    import os, time
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    folder = os.path.join(base, "uploads", "solutions")
+    if not os.path.isdir(folder):
+        return
+    cutoff = time.time() - 30 * 86400
+    removed = 0
+    for name in os.listdir(folder):
+        if not name.startswith("sol_") or not name.endswith(".pdf"):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                removed += 1
+        except Exception:
+            pass
+    if removed:
+        log.info(f"[pdf-cleanup] removed {removed} PDFs older than 30 days")
+
+
+async def pdf_cleanup_loop():
+    """Раз в сутки чистит старые PDF (с lock — не дублируется на multi-worker)."""
+    from server.worker_lock import worker_lock
+    await asyncio.sleep(600)  # подождать 10 мин после старта
+    while True:
+        try:
+            with worker_lock("pdf_cleanup", ttl_sec=3600 * 23) as acquired:
+                if acquired:
+                    await _cleanup_old_pdfs_tick()
+        except Exception as e:
+            log.error(f"[pdf cleanup] error: {e}")
+        await asyncio.sleep(86400)
+
+
+# ── Auto-backup chat.db (раз в сутки, hot backup + retention 14 дней) ────────
+
+async def _db_backup_tick():
+    """Делает hot-backup chat.db через sqlite3.backup() — не блокирует writes.
+
+    Сохраняет в /backups/chat.db.YYYY-MM-DD; старше 14 дней удаляет.
+    Без этого деплой = git pull + restart, и при ошибке миграции откатиться
+    некуда, кроме как руками вытаскивать журналы WAL.
+    """
+    import os, sqlite3, datetime, glob
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = os.path.join(base, "chat.db")
+    if not os.path.exists(src):
+        return
+    backup_dir = os.path.join(base, "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    today = datetime.date.today().isoformat()
+    dst = os.path.join(backup_dir, f"chat.db.{today}")
+    if os.path.exists(dst):
+        return  # уже сделали сегодня (например рестарт сервера)
+    try:
+        # SQLite-native backup API — атомарно копирует, не блокируя writers
+        # надолго (использует WAL + iterdump-friendly mode).
+        src_conn = sqlite3.connect(src)
+        dst_conn = sqlite3.connect(dst)
+        try:
+            with dst_conn:
+                src_conn.backup(dst_conn)
+        finally:
+            src_conn.close()
+            dst_conn.close()
+        size_mb = os.path.getsize(dst) / 1024 / 1024
+        log.info(f"[db-backup] {dst} ({size_mb:.1f} MB)")
+    except Exception as e:
+        log.error(f"[db-backup] failed: {e}")
+        # Удалим частичную копию чтобы не путать
+        if os.path.exists(dst):
+            try: os.remove(dst)
+            except Exception: pass
+        return
+
+    # Retention: удаляем backup-ы старше 14 дней
+    cutoff = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
+    removed = 0
+    for path in glob.glob(os.path.join(backup_dir, "chat.db.*")):
+        try:
+            tag = os.path.basename(path).replace("chat.db.", "")
+            # tag = YYYY-MM-DD
+            if len(tag) == 10 and tag < cutoff:
+                os.remove(path)
+                removed += 1
+        except Exception:
+            pass
+    if removed:
+        log.info(f"[db-backup] retention: removed {removed} backups older than 14 days")
+
+
+async def _cleanup_old_conversations_tick():
+    """Удаляет тёрны диалогов старше 30 дней — иначе таблица растёт без границ.
+    Каждый бот в день может писать сотни сообщений × 100k клиентов = миллионы строк."""
+    from datetime import datetime, timedelta
+    from server.db import db_session
+    from server.models import BotConversationTurn
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    try:
+        with db_session() as db:
+            n = (db.query(BotConversationTurn)
+                 .filter(BotConversationTurn.created_at < cutoff)
+                 .delete(synchronize_session=False))
+            db.commit()
+            if n:
+                log.info(f"[conv-cleanup] removed {n} turns older than 30d")
+    except Exception as e:
+        log.error(f"[conv-cleanup] failed: {e}")
+
+
+async def conv_cleanup_loop():
+    """Раз в сутки чистит старые тёрны диалогов чат-ботов."""
+    from server.worker_lock import worker_lock
+    await asyncio.sleep(900)  # 15 мин после старта
+    while True:
+        try:
+            with worker_lock("conv_cleanup", ttl_sec=3600 * 23) as acquired:
+                if acquired:
+                    await _cleanup_old_conversations_tick()
+        except Exception as e:
+            log.error(f"[conv-cleanup] tick error: {e}")
+        await asyncio.sleep(86400)
+
+
+async def db_backup_loop():
+    """Раз в 24ч hot-backup БД (с advisory lock — не дублируется)."""
+    from server.worker_lock import worker_lock
+    await asyncio.sleep(120)  # подождать 2 мин после старта (миграции должны успеть)
+    while True:
+        try:
+            with worker_lock("db_backup", ttl_sec=3600 * 23) as acquired:
+                if acquired:
+                    await _db_backup_tick()
+        except Exception as e:
+            log.error(f"[db-backup] tick error: {e}")
+        await asyncio.sleep(86400)
+
+
 def start_scheduler():
-    """Запустить scheduler и health-check API-ключей в фоне."""
+    """Фоновые задачи: scheduler / API-keys health / PDF cleanup / DB backup / conv cleanup."""
     asyncio.create_task(scheduler_loop())
     asyncio.create_task(apikey_check_loop())
+    asyncio.create_task(pdf_cleanup_loop())
+    asyncio.create_task(db_backup_loop())
+    asyncio.create_task(conv_cleanup_loop())

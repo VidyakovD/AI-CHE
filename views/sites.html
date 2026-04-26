@@ -67,7 +67,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 ::-webkit-scrollbar{width:6px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:rgba(74,63,47,0.5);border-radius:3px}
+.icn{display:inline-flex;align-items:center;vertical-align:-2px;margin-right:4px}
+.icn svg{display:block}
 </style>
+<script src="/icons.js" defer></script>
 </head>
 <body class="dark">
 
@@ -105,7 +108,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     <h2 class="text-xl font-bold font-headline mb-2">Соберите свой первый сайт</h2>
     <p class="text-on-dim text-sm mb-6 max-w-md mx-auto">AI поможет составить ТЗ через диалог, сгенерирует код и опубликует на нашем хостинге. Уйдёт 5–15 минут.</p>
     <button onclick="openCreate()" class="btn-p w-full sm:w-auto">+ Создать первый проект</button>
-    <p class="text-xs text-on-dim/60 mt-6 max-w-md mx-auto">💡 Подсказка: начните с одностраничника — лендинг, визитка, портфолио. Потом можно дорабатывать «Доделай по инструкции…».</p>
+    <p class="text-xs text-on-dim/60 mt-6 max-w-md mx-auto inline-flex items-start gap-1.5"><span class="icn text-primary mt-0.5" data-i="lightbulb"></span><span>Подсказка: начните с одностраничника — лендинг, визитка, портфолио. Потом можно дорабатывать «Доделай по инструкции…».</span></p>
   </div>
 </div>
 
@@ -269,12 +272,16 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
             <span id="editModeLabel">Редактировать</span>
           </button>
-          <button id="replaceImgBtn" onclick="replaceSelectedImage()" class="btn-g text-xs py-1.5 hidden">🖼 Заменить картинку</button>
+          <button id="aiBlockBtn" onclick="toggleAiBlockMode()" class="btn-g text-xs py-1.5 flex items-center gap-1.5">
+            <span data-i="sparkle"></span><span id="aiBlockLabel">AI-правка блока (5 ₽)</span>
+          </button>
+          <button id="replaceImgBtn" onclick="replaceSelectedImage()" class="btn-g text-xs py-1.5 hidden flex items-center gap-1.5"><span data-i="image"></span> Заменить картинку</button>
           <span id="editHint" class="text-xs text-on-dim hidden">Клик на элемент → правка текста · Клик на картинку → замена</span>
+          <span id="aiBlockHint" class="text-xs text-on-dim hidden">Клик на блок (section/header/...) → опиши что изменить</span>
           <div class="ml-auto flex gap-1">
-            <button class="vp-btn active" data-vp="desktop" onclick="setViewport('desktop')" title="Полная ширина">🖥 Desktop</button>
-            <button class="vp-btn" data-vp="tablet" onclick="setViewport('tablet')" title="Планшет 768px">📱 Tablet</button>
-            <button class="vp-btn" data-vp="mobile" onclick="setViewport('mobile')" title="Телефон 375px">📱 Mobile</button>
+            <button class="vp-btn active inline-flex items-center gap-1" data-vp="desktop" onclick="setViewport('desktop')" title="Полная ширина"><span data-i="desktop"></span>Desktop</button>
+            <button class="vp-btn inline-flex items-center gap-1" data-vp="tablet" onclick="setViewport('tablet')" title="Планшет 768px"><span data-i="tablet"></span>Tablet</button>
+            <button class="vp-btn inline-flex items-center gap-1" data-vp="mobile" onclick="setViewport('mobile')" title="Телефон 375px"><span data-i="mobile"></span>Mobile</button>
           </div>
         </div>
         <div id="previewWrap" class="preview-wrap vp-desktop">
@@ -311,7 +318,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       </button>
       <!-- Привязка чат-бота: виджет автоматически вставится при «Опубликовать» -->
       <div class="flex items-center gap-2 ml-2">
-        <label class="text-xs text-on-dim whitespace-nowrap">🤖 Чат-бот на сайт:</label>
+        <label class="text-xs text-on-dim whitespace-nowrap inline-flex items-center gap-1.5"><span class="text-primary" data-i="bot"></span>Чат-бот на сайт:</label>
         <select id="attachBotSelect" onchange="attachBotToSite(this.value)" class="inp text-xs py-1" style="min-width:160px">
           <option value="">— нет —</option>
         </select>
@@ -891,6 +898,7 @@ function copyCode(){
 
 // ── Preview ───────────────────────────────────────────────────────────────
 let editMode = false;
+let aiBlockMode = false;
 let selectedImg = null;
 
 function refreshPreview(){
@@ -901,43 +909,169 @@ function refreshPreview(){
   const injected = code.replace(/<\/body>/i, `
 <script>
   window.__editMode = ${editMode};
+  window.__aiBlockMode = ${aiBlockMode};
   const TEXT_TAGS=['H1','H2','H3','H4','H5','H6','P','SPAN','A','LI','BUTTON','LABEL','STRONG','EM','DIV'];
+  // Top-level "блоки" для AI-правки: семантические разделы и контейнеры верхнего уровня
+  const BLOCK_TAGS=['SECTION','HEADER','FOOTER','MAIN','ARTICLE','ASIDE','NAV'];
+  let _blockSeq = 0;
+  function tagBlocks(){
+    document.querySelectorAll(BLOCK_TAGS.join(',')).forEach(el=>{
+      if(!el.dataset.editId) el.dataset.editId = 'b' + (++_blockSeq);
+    });
+  }
+  function clearAiOverlay(){
+    document.querySelectorAll('.__ai_block_btn').forEach(b=>b.remove());
+    document.querySelectorAll('[data-edit-id]').forEach(el=>{
+      el.style.outline='';
+      el.onclick=null;
+    });
+  }
   function applyEditMode(){
     document.querySelectorAll('*').forEach(el=>{
       el.removeAttribute('contenteditable');
       el.style.outline='';
       el.style.cursor='';
     });
-    if(!window.__editMode) return;
-    document.querySelectorAll('*').forEach(el=>{
-      const tag = el.tagName;
-      // Только "листовые" текстовые элементы
-      const hasOnlyText = [...el.childNodes].every(n=>n.nodeType===3 || (n.nodeType===1 && n.tagName==='BR'));
-      if(TEXT_TAGS.includes(tag) && hasOnlyText && el.textContent.trim()){
-        el.setAttribute('contenteditable','true');
-        el.style.cursor='text';
-        el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.5)');
-        el.addEventListener('mouseleave',()=>el.style.outline='');
-      }
-      if(tag==='IMG'){
+    clearAiOverlay();
+
+    if(window.__editMode){
+      document.querySelectorAll('*').forEach(el=>{
+        const tag = el.tagName;
+        // Только "листовые" текстовые элементы
+        const hasOnlyText = [...el.childNodes].every(n=>n.nodeType===3 || (n.nodeType===1 && n.tagName==='BR'));
+        if(TEXT_TAGS.includes(tag) && hasOnlyText && el.textContent.trim()){
+          el.setAttribute('contenteditable','true');
+          el.style.cursor='text';
+          el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.5)');
+          el.addEventListener('mouseleave',()=>el.style.outline='');
+        }
+        if(tag==='IMG'){
+          el.style.cursor='pointer';
+          el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.7)');
+          el.addEventListener('mouseleave',()=>el.style.outline='');
+          el.addEventListener('click',()=>{
+            window.parent.postMessage({type:'site:imgClick',src:el.src,alt:el.alt||''},'*');
+          });
+        }
+      });
+      document.addEventListener('input',e=>{
+        window.parent.postMessage({type:'site:htmlChange',html:document.documentElement.outerHTML},'*');
+      });
+    }
+
+    if(window.__aiBlockMode){
+      tagBlocks();
+      document.querySelectorAll('[data-edit-id]').forEach(el=>{
+        el.style.outline='2px dashed rgba(255,140,66,0.45)';
         el.style.cursor='pointer';
-        el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.7)');
-        el.addEventListener('mouseleave',()=>el.style.outline='');
-        el.addEventListener('click',()=>{
-          window.parent.postMessage({type:'site:imgClick',src:el.src,alt:el.alt||''},'*');
-        });
-      }
-    });
-    document.addEventListener('input',e=>{
-      // Сохранить HTML обратно в родитель
-      window.parent.postMessage({type:'site:htmlChange',html:document.documentElement.outerHTML},'*');
-    });
+        el.addEventListener('mouseenter',()=>el.style.outline='2px solid rgba(255,140,66,0.85)');
+        el.addEventListener('mouseleave',()=>el.style.outline='2px dashed rgba(255,140,66,0.45)');
+        el.addEventListener('click',ev=>{
+          ev.stopPropagation();
+          ev.preventDefault();
+          window.parent.postMessage({
+            type:'site:blockClick',
+            blockId: el.dataset.editId,
+            html: el.outerHTML,
+          },'*');
+        }, true);
+      });
+    }
   }
   applyEditMode();
 <\/script>
 </body>`);
   const blob = new Blob([injected],{type:'text/html'});
   frame.src = URL.createObjectURL(blob);
+}
+
+function toggleAiBlockMode(){
+  aiBlockMode = !aiBlockMode;
+  // AI-блок-мод и обычное редактирование — взаимоисключающие
+  if(aiBlockMode && editMode){
+    editMode = false;
+    document.getElementById('editModeLabel').textContent = 'Редактировать';
+    document.getElementById('editHint').classList.add('hidden');
+  }
+  document.getElementById('aiBlockLabel').textContent = aiBlockMode ? 'Готово' : 'AI-правка блока (5 ₽)';
+  document.getElementById('aiBlockHint').classList.toggle('hidden', !aiBlockMode);
+  refreshPreview();
+}
+
+async function aiEditBlock(blockId, blockHtml){
+  const instruction = prompt('Что изменить в этом блоке?\n(например: «сделай заголовок крупнее и добавь подзаголовок», «поменяй цвет на синий», «убери третью карточку»)');
+  if(!instruction || !instruction.trim()) return;
+  showLoading('AI правит блок...');
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProjectId}/edit-block`,{
+      method:'POST', headers:authHeaders(),
+      body:JSON.stringify({block_id: blockId, block_html: blockHtml, instruction: instruction.trim()}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      if(r.status===402) throw new Error('Недостаточно средств — пополните баланс');
+      throw new Error(d.detail || 'Ошибка');
+    }
+    const data = await r.json();
+    // Подменяем блок прямо в текущем code_html и перезагружаем preview
+    const code = document.getElementById('codeEditor').value;
+    // Ищем блок по data-edit-id в исходном коде. Если data-edit-id ещё нет —
+    // добавляем его перед первой подменой.
+    let updated = code;
+    const idAttr = `data-edit-id="${blockId}"`;
+    if(updated.includes(idAttr)){
+      // Заменяем кусок от <tag ... data-edit-id="X" ...> до соответствующего </tag>
+      // Простой способ — индекс начала тега и find-matching-close.
+      updated = replaceBlockByEditId(updated, blockId, data.new_html);
+    } else {
+      // Блок ещё не имеет data-edit-id в исходнике (он был добавлен только в DOM iframe).
+      // Тогда подменяем по индексу — fallback: ищем outerHTML целиком (он должен совпасть).
+      const idx = updated.indexOf(blockHtml);
+      if(idx >= 0){
+        updated = updated.slice(0, idx) + data.new_html + updated.slice(idx + blockHtml.length);
+      } else {
+        throw new Error('Блок не найден в исходном HTML — обновите превью и попробуйте снова');
+      }
+    }
+    document.getElementById('codeEditor').value = updated;
+    // Сохраняем на сервер
+    await saveCode();
+    // Обновляем баланс и счётчик
+    if(window.refreshBalance) window.refreshBalance();
+    refreshPreview();
+  }catch(e){
+    alert('Ошибка: ' + e.message);
+  }
+  hideLoading();
+}
+
+// Заменяет блок с указанным data-edit-id на newHtml. Простой "matching tag" парсер.
+function replaceBlockByEditId(source, blockId, newHtml){
+  const idAttr = `data-edit-id="${blockId}"`;
+  const startIdx = source.indexOf(idAttr);
+  if(startIdx < 0) return source;
+  // Найти открывающий < перед этим атрибутом
+  const tagOpen = source.lastIndexOf('<', startIdx);
+  if(tagOpen < 0) return source;
+  // Извлечь имя тега
+  const m = source.slice(tagOpen+1).match(/^([a-zA-Z][a-zA-Z0-9]*)/);
+  if(!m) return source;
+  const tag = m[1];
+  // Найти соответствующий </tag> через подсчёт вложенности
+  const openRe = new RegExp(`<${tag}[\\s>]`,'gi');
+  const closeRe = new RegExp(`</${tag}\\s*>`,'gi');
+  let depth = 1;
+  let pos = source.indexOf('>', tagOpen) + 1;
+  while(pos < source.length && depth > 0){
+    openRe.lastIndex = pos;
+    closeRe.lastIndex = pos;
+    const o = openRe.exec(source);
+    const c = closeRe.exec(source);
+    if(!c) return source;
+    if(o && o.index < c.index){ depth++; pos = o.index + 1; }
+    else { depth--; pos = c.index + c[0].length; }
+  }
+  return source.slice(0, tagOpen) + newHtml + source.slice(pos);
 }
 
 // Переключение ширины превью — для проверки сайта на разных устройствах
@@ -968,6 +1102,9 @@ window.addEventListener('message', e => {
   if(e.data.type === 'site:imgClick'){
     selectedImg = e.data.src;
     replaceSelectedImage();
+  }
+  if(e.data.type === 'site:blockClick'){
+    aiEditBlock(e.data.blockId, e.data.html);
   }
 });
 

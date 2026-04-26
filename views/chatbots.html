@@ -27,7 +27,18 @@ select.inp option{background:#272018;color:#f0e6d8}
 @keyframes pulse-green{0%,100%{opacity:1}50%{opacity:.4}}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
 .modal-bg.show{display:flex}
+.icn{display:inline-flex;align-items:center;vertical-align:-2px;margin-right:4px}
+.icn svg{display:block}
+.ch-chip{display:inline-flex;align-items:center;gap:0;padding:3px 8px;border-radius:8px;background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.18);color:#c89052;font-size:11px;line-height:1}
+.ch-chip svg{width:12px;height:12px}
+/* Бренд-цвета каналов — узнаваемо. Используются на иконках и в чипах. */
+.brand-tg{color:#229ED9}
+.brand-vk{color:#4680C2}
+.brand-avito{color:#00A046}
+.brand-max{color:#E53935}
+.brand-widget{color:#ff8c42}
 </style>
+<script src="/icons.js" defer></script>
 </head>
 <body class="dark">
 <div class="max-w-5xl mx-auto px-5 py-8">
@@ -41,10 +52,135 @@ select.inp option{background:#272018;color:#f0e6d8}
         <p class="text-sm text-on-dim">Создайте бота и подключите его к любому каналу</p>
       </div>
     </div>
-    <button onclick="openCreate()" class="btn-p">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-      Создать бота
-    </button>
+    <div class="flex items-center gap-2">
+      <button onclick="openCreateChooser()" class="btn-p flex items-center gap-1.5">
+        <span data-i="plus"></span> Создать бота
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Chooser: 3 пути создания бота ── -->
+  <div id="createChooserModal" class="modal-bg">
+    <div class="bg-surface rounded-2xl w-full max-w-3xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
+      <div class="sig px-6 py-4 flex items-center justify-between">
+        <div>
+          <h2 class="font-headline font-bold text-[#1e1a14] text-lg">Создание бота</h2>
+          <p class="text-[11px] text-[#1e1a14]/70 mt-0.5">Выберите способ — каждый занимает 5–10 минут</p>
+        </div>
+        <button onclick="closeCreateChooser()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+      </div>
+      <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <button onclick="closeCreateChooser();openTemplates()" class="text-left bg-surface2 hover:bg-surface3 rounded-2xl p-5 border border-outline/20 hover:border-primary/40 transition group">
+          <div class="w-10 h-10 rounded-xl sig flex items-center justify-center mb-3 text-[#1e1a14]"><span data-i="clipboard"></span></div>
+          <p class="font-bold mb-1.5">Из шаблона</p>
+          <p class="text-xs text-on-dim leading-relaxed">6 готовых ботов: запись, лиды, FAQ, продажи, квиз, рассылка. Подставите данные — и работает.</p>
+          <p class="text-[10px] text-primary mt-3 font-medium">Рекомендуем →</p>
+        </button>
+        <button onclick="closeCreateChooser();openAiCreate()" class="text-left bg-surface2 hover:bg-surface3 rounded-2xl p-5 border border-outline/20 hover:border-primary/40 transition group">
+          <div class="w-10 h-10 rounded-xl sig flex items-center justify-center mb-3 text-[#1e1a14]"><span data-i="wand"></span></div>
+          <p class="font-bold mb-1.5">AI-конструктор</p>
+          <p class="text-xs text-on-dim leading-relaxed">Опишите задачу — AI сам соберёт workflow под вашу нестандартную задачу.</p>
+          <p class="text-[10px] text-on-dim/60 mt-3">5–30 ₽ за сборку</p>
+        </button>
+        <button onclick="closeCreateChooser();openCreate()" class="text-left bg-surface2 hover:bg-surface3 rounded-2xl p-5 border border-outline/20 hover:border-primary/40 transition group">
+          <div class="w-10 h-10 rounded-xl sig flex items-center justify-center mb-3 text-[#1e1a14]"><span data-i="settings"></span></div>
+          <p class="font-bold mb-1.5">С нуля</p>
+          <p class="text-xs text-on-dim leading-relaxed">Свой системный промпт + Canvas-конструктор сценария. Для технических.</p>
+          <p class="text-[10px] text-on-dim/60 mt-3">Полная свобода</p>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Галерея шаблонов ── -->
+  <div id="templatesModal" class="modal-bg">
+    <div class="bg-surface rounded-2xl w-full max-w-5xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
+      <div class="sig px-6 py-4 flex items-center justify-between">
+        <div>
+          <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2"><span data-i="clipboard"></span> Шаблоны бизнес-ботов</h2>
+          <p class="text-[11px] text-[#1e1a14]/70 mt-0.5">Готовые сценарии под популярные задачи. Нажмите на карточку — заполните данные — запустите.</p>
+        </div>
+        <button onclick="closeTemplates()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+      </div>
+      <div class="p-6 max-h-[80vh] overflow-y-auto">
+        <div id="templatesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">Загрузка…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Шаг подстановки данных шаблона ── -->
+  <div id="templateSetupModal" class="modal-bg">
+    <div class="bg-surface rounded-2xl w-full max-w-2xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
+      <div class="sig px-6 py-4 flex items-center justify-between">
+        <div>
+          <h2 id="tplSetupTitle" class="font-headline font-bold text-[#1e1a14] text-lg">Настройка шаблона</h2>
+          <p id="tplSetupHint" class="text-[11px] text-[#1e1a14]/70 mt-0.5"></p>
+        </div>
+        <button onclick="closeTemplateSetup()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+      </div>
+      <div class="p-6 max-h-[80vh] overflow-y-auto">
+        <p id="tplSetupDesc" class="text-sm text-on-dim mb-5 leading-relaxed"></p>
+        <div id="tplSetupFields" class="space-y-4 mb-5"></div>
+        <div class="border-t border-outline/15 pt-4 mt-5 space-y-3">
+          <p class="text-xs uppercase text-on-dim tracking-wider">Куда подключить</p>
+          <div>
+            <label class="block text-xs text-on-dim mb-1">Telegram-токен (от @BotFather, опционально)</label>
+            <input id="tplSetupTg" type="password" class="inp text-xs" placeholder="Можно подключить позже"/>
+          </div>
+          <div>
+            <label class="block text-xs text-on-dim mb-1">MAX-токен (от @MasterBot, опционально)</label>
+            <input id="tplSetupMax" type="password" class="inp text-xs" placeholder="Можно подключить позже"/>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 pt-4 border-t border-outline/15 mt-4">
+          <button onclick="closeTemplateSetup()" class="btn-g">Отмена</button>
+          <button id="tplSetupBtn" onclick="submitTemplate()" class="btn-p inline-flex items-center gap-1.5"><span data-i="sparkle"></span> Создать бота</button>
+        </div>
+        <p id="tplSetupStatus" class="text-xs text-on-dim mt-3 hidden"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── AI Constructor Modal ── -->
+  <div id="aiCreateModal" class="modal-bg">
+    <div class="bg-surface rounded-2xl w-full max-w-xl border border-outline/25 shadow-2xl overflow-hidden">
+      <div class="sig px-6 py-4 flex items-center justify-between">
+        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2"><span class="icn" data-i="wand"></span> AI-конструктор бота</h2>
+        <button onclick="closeAiCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+      </div>
+      <div class="p-6 space-y-4">
+        <p class="text-sm text-on-dim leading-relaxed">
+          Опишите задачу — AI соберёт workflow и создаст готового бота. Подключите токены TG/MAX, и бот сразу начнёт работать. Сборка ≈ 5-30 ₽ по реальным токенам Claude.
+        </p>
+        <div>
+          <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Задача</label>
+          <textarea id="ai_desc" rows="5" class="inp resize-none text-sm leading-relaxed"
+            placeholder="Например: бот для записи в салон красоты на маникюр и стрижку. Спрашивает услугу, дату, время, имя и телефон. Подтверждает запись и присылает напоминание за час."></textarea>
+        </div>
+        <div>
+          <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Имя бота (опционально)</label>
+          <input id="ai_name" type="text" class="inp text-sm" placeholder="Авто из задачи если пусто"/>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">TG-токен (опц)</label>
+            <input id="ai_tg" type="password" class="inp text-xs" placeholder="от @BotFather"/>
+          </div>
+          <div>
+            <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">MAX-токен (опц)</label>
+            <input id="ai_max" type="password" class="inp text-xs" placeholder="от @MasterBot в MAX"/>
+          </div>
+        </div>
+        <label class="flex items-center gap-2 text-sm">
+          <input id="ai_widget" type="checkbox"/> Включить виджет на сайт
+        </label>
+        <div class="flex justify-end gap-2 pt-2">
+          <button onclick="closeAiCreate()" class="btn-g">Отмена</button>
+          <button id="aiCreateBtn" onclick="submitAiCreate()" class="btn-p">Собрать через AI</button>
+        </div>
+        <div id="aiCreateStatus" class="text-xs text-on-dim hidden"></div>
+      </div>
+    </div>
   </div>
 
   <div id="botGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
@@ -56,7 +192,7 @@ select.inp option{background:#272018;color:#f0e6d8}
     <h2 class="text-xl font-bold font-headline mb-2">Ваш первый чат-бот</h2>
     <p class="text-on-dim text-sm mb-6 max-w-md mx-auto">Бот отвечает клиентам 24/7 в Telegram, VK, Авито или на вашем сайте. Подключение — за 2 минуты, код не нужен.</p>
     <button onclick="openCreate()" class="btn-p w-full sm:w-auto">+ Создать первого бота</button>
-    <p class="text-xs text-on-dim/60 mt-6">💡 Нужна инструкция? <a href="/docs/connect_bot.md" class="text-primary underline">Как подключить бота</a></p>
+    <p class="text-xs text-on-dim/60 mt-6 flex items-center justify-center gap-1.5"><span class="icn" data-i="lightbulb"></span> Нужна инструкция? <a href="/docs/connect_bot.md" class="text-primary underline">Как подключить бота</a></p>
   </div>
 </div>
 
@@ -97,25 +233,25 @@ select.inp option{background:#272018;color:#f0e6d8}
           <!-- Telegram -->
           <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
             <div class="flex items-center gap-3 mb-3">
-              <span class="text-xl">✈️</span>
+              <span class="brand-tg" style="display:inline-flex" data-i="plane"></span>
               <div><p class="font-medium text-sm">Telegram</p><p class="text-xs text-on-dim/60">Бот отвечает в личных сообщениях и группах</p></div>
             </div>
             <div class="relative">
               <input id="tg_token" type="password" placeholder="Bot Token от @BotFather" class="inp text-xs pr-9"/>
-              <button type="button" onclick="togglePwd('tg_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-50 hover:opacity-100" title="Показать/скрыть">👁</button>
+              <button type="button" onclick="togglePwd('tg_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 inline-flex items-center" title="Показать/скрыть" data-i="eye"></button>
             </div>
             <p class="text-[10px] text-on-dim/40 mt-1">Создайте бота у @BotFather → /newbot → скопируйте токен сюда</p>
           </div>
           <!-- VK -->
           <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
             <div class="flex items-center gap-3 mb-3">
-              <span class="text-xl">🔵</span>
+              <span class="brand-vk" style="display:inline-flex" data-i="people"></span>
               <div><p class="font-medium text-sm">ВКонтакте</p><p class="text-xs text-on-dim/60">Отвечает на сообщения в сообществе</p></div>
             </div>
             <div class="space-y-2">
               <div class="relative">
                 <input id="vk_token" type="password" placeholder="Access Token сообщества" class="inp text-xs pr-9"/>
-                <button type="button" onclick="togglePwd('vk_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-50 hover:opacity-100">👁</button>
+                <button type="button" onclick="togglePwd('vk_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 inline-flex items-center" title="Показать/скрыть" data-i="eye"></button>
               </div>
               <input id="vk_group_id" type="text" placeholder="ID группы (123456789)" class="inp text-xs"/>
             </div>
@@ -123,14 +259,14 @@ select.inp option{background:#272018;color:#f0e6d8}
           <!-- Авито -->
           <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
             <div class="flex items-center gap-3 mb-3">
-              <span class="text-xl">🟢</span>
+              <span class="brand-avito" style="display:inline-flex" data-i="chat"></span>
               <div><p class="font-medium text-sm">Авито</p><p class="text-xs text-on-dim/60">Отвечает в мессенджере Авито</p></div>
             </div>
             <div class="space-y-2">
               <input id="avito_client_id" type="text" placeholder="Client ID" class="inp text-xs"/>
               <div class="relative">
                 <input id="avito_client_secret" type="password" placeholder="Client Secret" class="inp text-xs pr-9"/>
-                <button type="button" onclick="togglePwd('avito_client_secret', this)" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-50 hover:opacity-100">👁</button>
+                <button type="button" onclick="togglePwd('avito_client_secret', this)" class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 inline-flex items-center" title="Показать/скрыть" data-i="eye"></button>
               </div>
               <input id="avito_user_id" type="text" placeholder="User ID (ваш ID на Авито)" class="inp text-xs"/>
             </div>
@@ -139,13 +275,13 @@ select.inp option{background:#272018;color:#f0e6d8}
           <!-- MAX -->
           <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
             <div class="flex items-center gap-3 mb-3">
-              <span class="text-xl">🟥</span>
+              <span class="brand-max" style="display:inline-flex" data-i="bolt"></span>
               <div><p class="font-medium text-sm">MAX</p><p class="text-xs text-on-dim/60">Российский мессенджер max.ru</p></div>
             </div>
             <div class="space-y-2">
               <div class="relative">
                 <input id="max_token" type="password" placeholder="Bot Token от @MasterBot в MAX" class="inp text-xs pr-9"/>
-                <button type="button" onclick="togglePwd('max_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-50 hover:opacity-100">👁</button>
+                <button type="button" onclick="togglePwd('max_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 inline-flex items-center" title="Показать/скрыть" data-i="eye"></button>
               </div>
             </div>
             <p class="text-[10px] text-on-dim/40 mt-1">В MAX найдите @MasterBot → /newbot → получите токен. Webhook поставится автоматически.</p>
@@ -153,7 +289,7 @@ select.inp option{background:#272018;color:#f0e6d8}
           <!-- Виджет -->
           <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
             <div class="flex items-center gap-3 mb-3">
-              <span class="text-xl">🌐</span>
+              <span class="brand-widget" style="display:inline-flex" data-i="globe"></span>
               <div><p class="font-medium text-sm">Виджет на сайт</p><p class="text-xs text-on-dim/60">Чат-окно в правом нижнем углу</p></div>
             </div>
             <label class="flex items-center gap-3 cursor-pointer">
@@ -174,7 +310,7 @@ select.inp option{background:#272018;color:#f0e6d8}
       </div>
       <!-- Инфо: стоимость рассчитывается автоматически по токенам -->
       <div class="bg-surface2/60 rounded-xl p-3 border border-outline/20 text-xs text-on-dim leading-relaxed">
-        <p class="font-semibold text-on-surface mb-1">💰 Стоимость ответа</p>
+        <p class="font-semibold text-on-surface mb-1 flex items-center gap-1.5"><span class="icn text-primary" data-i="money"></span> Стоимость ответа</p>
         <p>Списывается <b class="text-primary">автоматически по реальным токенам</b> выбранной модели.</p>
         <p class="mt-1.5">Примерная стоимость одного ответа: <span id="costEstimate"><b>0.10–1 ₽</b></span></p>
         <p class="mt-1 text-on-dim/70">Минимум 1 копейка. История транзакций — в личном кабинете.</p>
@@ -199,6 +335,117 @@ select.inp option{background:#272018;color:#f0e6d8}
     </div>
     <div class="p-5">
       <div id="summaryContent" class="text-sm leading-relaxed whitespace-pre-wrap text-on-surface min-h-[80px]"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Доработать через AI: френдли-мостик к workflow ── -->
+<div id="aiImproveModal" class="modal-bg">
+  <div class="bg-surface rounded-2xl w-full max-w-xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
+    <div class="sig px-6 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2"><span data-i="sparkle"></span> Доработать через AI</h2>
+        <p id="aiImproveBotName" class="text-[11px] text-[#1e1a14]/70 mt-0.5">—</p>
+      </div>
+      <button onclick="closeAiImprove()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+    </div>
+    <div class="p-6 space-y-4">
+      <p class="text-sm text-on-dim leading-relaxed">
+        Опишите простыми словами, что хотите изменить или добавить — AI сам подправит сценарий бота. Не нужно лезть в граф.
+      </p>
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Что улучшить</label>
+        <textarea id="aiImproveInstr" rows="4" class="inp text-sm resize-none"
+          placeholder="Например: 'Добавь вопрос про бюджет перед тем как просить телефон' / 'Сделай тон бота строже' / 'Убери шаг с email — он не нужен'"></textarea>
+        <p class="text-[10px] text-on-dim/60 mt-1.5">Стоимость: ~5–15 ₽ по реальным токенам Claude.</p>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t border-outline/15">
+        <button onclick="closeAiImprove()" class="btn-g">Отмена</button>
+        <button id="aiImproveBtn" onclick="submitAiImprove()" class="btn-p inline-flex items-center gap-1.5"><span data-i="sparkle"></span> Применить</button>
+      </div>
+      <div id="aiImproveStatus" class="text-xs text-on-dim hidden"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Аналитика бота ── -->
+<div id="analyticsModal" class="modal-bg">
+  <div class="bg-surface rounded-2xl w-full max-w-3xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
+    <div class="sig px-6 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2"><span data-i="chart"></span> Аналитика бота</h2>
+        <p id="analyticsBotName" class="text-[11px] text-[#1e1a14]/70 mt-0.5">—</p>
+      </div>
+      <button onclick="closeAnalytics()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+    </div>
+    <div class="p-6 max-h-[80vh] overflow-y-auto">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="text-xs text-on-dim">Период:</span>
+        <button onclick="loadAnalytics(7)" class="btn-g text-xs">7 дней</button>
+        <button onclick="loadAnalytics(30)" class="btn-g text-xs">30 дней</button>
+        <button onclick="loadAnalytics(90)" class="btn-g text-xs">3 месяца</button>
+      </div>
+      <div id="analyticsBody"><p class="text-on-dim text-sm">Загрузка…</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Превью диалога: «песочница» проверить бота до запуска ── -->
+<div id="previewModal" class="modal-bg">
+  <div class="bg-surface rounded-2xl w-full max-w-lg border border-outline/25 shadow-2xl overflow-hidden mx-4 flex flex-col" style="max-height:85vh">
+    <div class="sig px-5 py-3 flex items-center justify-between flex-shrink-0">
+      <div>
+        <h3 class="font-headline font-bold text-[#1e1a14] flex items-center gap-2"><span data-i="chat"></span> Превью диалога</h3>
+        <p id="previewBotName" class="text-[11px] text-[#1e1a14]/70 mt-0.5">—</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="resetPreview()" class="text-[10px] px-2 py-1 rounded-md bg-black/10 hover:bg-black/20 text-[#1e1a14] flex items-center gap-1" title="Очистить диалог"><span data-i="refresh"></span></button>
+        <button onclick="closePreview()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]">✕</button>
+      </div>
+    </div>
+    <div id="previewMsgs" class="flex-1 overflow-y-auto p-4 space-y-3 bg-surface2/30">
+      <p class="text-xs text-on-dim text-center">Напишите боту — увидите как он ответит. Это песочница, ничего не списывается, заявки не сохраняются.</p>
+    </div>
+    <div class="p-3 border-t border-outline/15 flex gap-2 flex-shrink-0">
+      <input id="previewInput" type="text" class="inp text-sm flex-1" placeholder="Напишите сообщение…" onkeydown="if(event.key==='Enter')sendPreview()"/>
+      <button onclick="sendPreview()" class="btn-p px-4 inline-flex items-center gap-1.5"><span data-i="play"></span>Отправить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Записи бота: заявки, брони, заказы, опросы ── -->
+<div id="recordsModal" class="modal-bg">
+  <div class="bg-surface rounded-2xl w-full max-w-4xl border border-outline/25 shadow-2xl overflow-hidden">
+    <div class="sig px-6 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2">
+          <span data-i="clipboard"></span> Записи бота
+        </h2>
+        <p class="text-[11px] text-[#1e1a14]/70 mt-0.5" id="recordsBotName">—</p>
+      </div>
+      <button onclick="closeRecords()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+    </div>
+    <div class="p-5 max-h-[80vh] overflow-y-auto">
+      <div class="flex items-center gap-2 mb-4 flex-wrap">
+        <select id="recordsTypeFilter" class="inp text-xs flex-1 max-w-[200px]" onchange="loadRecords()">
+          <option value="">Все типы</option>
+          <option value="lead">Лиды</option>
+          <option value="booking">Записи</option>
+          <option value="order">Заказы</option>
+          <option value="quiz">Квизы</option>
+          <option value="ticket">Тикеты</option>
+          <option value="subscriber">Подписчики</option>
+        </select>
+        <select id="recordsStatusFilter" class="inp text-xs flex-1 max-w-[160px]" onchange="loadRecords()">
+          <option value="">Все статусы</option>
+          <option value="new">Новые</option>
+          <option value="processed">Обработаны</option>
+          <option value="cancelled">Отменены</option>
+        </select>
+        <button onclick="loadRecords()" class="btn-g text-xs flex items-center gap-1"><span data-i="refresh"></span> Обновить</button>
+        <a id="recordsCsvBtn" href="#" download class="btn-g text-xs flex items-center gap-1 ml-auto"><span data-i="download"></span> CSV</a>
+      </div>
+      <div id="recordsTable" class="text-xs text-on-surface">Загрузка…</div>
     </div>
   </div>
 </div>
@@ -241,11 +488,19 @@ function render(){
   const modelLabels={gpt:'GPT-4o mini','gpt-4o':'GPT-4o',claude:'Claude Sonnet',gemini:'Gemini',perplexity:'Perplexity'};
   grid.innerHTML=bots.map(b=>{
     const ch=[];
-    if(b.tg_token_set)ch.push(`<span title="${b.tg_webhook_set?'Webhook подтверждён — бот получает сообщения':'Webhook не установлен — нажмите ▶ Запуск'}">✈️ TG${b.tg_webhook_set?' ✓':' ⚠️'}</span>`);
-    if(b.vk_token_set)ch.push(`<span title="${b.vk_confirmed?'Callback API подтверждён':'Ожидает подтверждения от VK Callback API'}">🔵 VK${b.vk_confirmed?' ✓':' ⚠️'}</span>`);
-    if(b.avito_set)ch.push('<span title="Авито Messenger подключён">🟢 Авито</span>');
-    if(b.max_token_set)ch.push(`<span title="${b.max_webhook_set?'MAX webhook подтверждён':'MAX webhook не установлен — нажмите ▶ Запуск'}">🟥 MAX${b.max_webhook_set?' ✓':' ⚠️'}</span>`);
-    if(b.widget_enabled)ch.push('<span title="Виджет на сайт активен">🌐 Виджет</span>');
+    // Канал-чипы рендерятся динамически — берём SVG через window.ICONS.
+    // Цвет иконки = бренд канала (Telegram blue, VK blue, Авито green, MAX red),
+    // чтобы юзер сразу узнавал по цвету какой канал.
+    const _i = (n) => (window.ICONS && window.ICONS[n]) || '';
+    const chip = (icon, label, ok, brandClass) =>
+      `<span class="ch-chip"><span class="${brandClass||''}">${_i(icon)}</span>` +
+      `<span style="margin-left:4px">${label}</span>` +
+      `<span style="margin-left:3px;opacity:.7">${ok===true?_i('check'):ok===false?_i('warn'):''}</span></span>`;
+    if(b.tg_token_set)ch.push(`<span title="${b.tg_webhook_set?'Webhook подтверждён':'Webhook не установлен — нажмите Запуск'}">${chip('plane','TG',b.tg_webhook_set,'brand-tg')}</span>`);
+    if(b.vk_token_set)ch.push(`<span title="${b.vk_confirmed?'Callback API подтверждён':'Ожидает подтверждения VK'}">${chip('people','VK',b.vk_confirmed,'brand-vk')}</span>`);
+    if(b.avito_set)ch.push(`<span title="Авито Messenger подключён">${chip('chat','Авито',true,'brand-avito')}</span>`);
+    if(b.max_token_set)ch.push(`<span title="${b.max_webhook_set?'MAX webhook подтверждён':'MAX webhook не установлен — нажмите Запуск'}">${chip('bolt','MAX',b.max_webhook_set,'brand-max')}</span>`);
+    if(b.widget_enabled)ch.push(`<span title="Виджет на сайт активен">${chip('globe','Виджет',true,'brand-widget')}</span>`);
     const sc=b.status==='active'?'dot-active':b.status==='paused'?'dot-paused':'dot-off';
     const sl=b.status==='active'?'Активен':b.status==='paused'?'На паузе':'Выключен';
     return `
@@ -256,10 +511,14 @@ function render(){
             <p class="text-xs text-on-dim mt-0.5">${modelLabels[b.model]||b.model}</p>
           </div>
           <div class="flex gap-1.5 flex-shrink-0" onclick="event.stopPropagation()">
-            ${b.status==='active'?`<button onclick="pauseBot(${b.id})" class="btn-g text-[10px] py-1 px-2">⏸ Пауза</button>`
-              :`<button onclick="deployBot(${b.id})" class="btn-g text-[10px] py-1 px-2">▶ Запуск</button>`}
-            <button onclick="showSummary(${b.id})" class="btn-g text-[10px] py-1 px-2" title="Пересказ">📋</button>
-            <button onclick="deleteBot(${b.id})" class="btn-d text-[10px] py-1 px-2">✕</button>
+            ${b.status==='active'?`<button onclick="pauseBot(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1">${_i('pause')}<span>Пауза</span></button>`
+              :`<button onclick="deployBot(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1">${_i('play')}<span>Запуск</span></button>`}
+            <button onclick="openPreview(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Превью диалога (песочница)" aria-label="Превью">${_i('eye')}</button>
+            <button onclick="openAnalytics(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Аналитика" aria-label="Аналитика">${_i('chart')}</button>
+            <button onclick="openAiImprove(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Доработать через AI" aria-label="AI-доработка">${_i('sparkle')}</button>
+            <button onclick="openRecords(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Заявки и записи" aria-label="Записи">${_i('clipboard')}</button>
+            <button onclick="showSummary(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Пересказ диалогов" aria-label="Пересказ">${_i('chat')}</button>
+            <button onclick="deleteBot(${b.id})" class="btn-d text-[10px] py-1 px-2 inline-flex items-center" title="Удалить" aria-label="Удалить">${_i('close')}</button>
           </div>
         </div>
         <div class="flex items-center gap-2 mb-2">
@@ -327,6 +586,227 @@ async function editBot(id){
 }
 
 function closeCreate(){document.getElementById('createModal').classList.remove('show');}
+
+// ── Chooser: «Создать бота» — три пути ───────────────────────────────────
+function openCreateChooser(){
+  document.getElementById('createChooserModal').classList.add('show');
+}
+function closeCreateChooser(){
+  document.getElementById('createChooserModal').classList.remove('show');
+}
+document.getElementById('createChooserModal')?.addEventListener('click', e => {
+  if(e.target === e.currentTarget) closeCreateChooser();
+});
+
+
+// ── Галерея шаблонов ─────────────────────────────────────────────────────
+const TEMPLATE_ICON = {
+  lead_capture: 'people',
+  sales_warmup: 'money',
+  faq_support: 'lightbulb',
+  booking: 'flag',
+  quiz_funnel: 'clipboard',
+  content_broadcast: 'document',
+};
+
+let _allTemplates = [];
+
+async function openTemplates(){
+  document.getElementById('templatesModal').classList.add('show');
+  const grid = document.getElementById('templatesGrid');
+  grid.innerHTML = '<p class="text-on-dim text-sm col-span-full">Загрузка…</p>';
+  try{
+    const r = await fetch(`${API}/chatbots/templates`);
+    const data = await r.json();
+    _allTemplates = data.templates || [];
+    renderTemplates(_allTemplates);
+  }catch(e){
+    grid.innerHTML = `<p class="text-red-400 text-sm col-span-full">Ошибка: ${e.message}</p>`;
+  }
+}
+
+function renderTemplates(list){
+  const grid = document.getElementById('templatesGrid');
+  grid.innerHTML = list.map(t => `
+    <button onclick='openTemplateSetup(${JSON.stringify(t.slug)})'
+      class="text-left bg-surface2 hover:bg-surface3 rounded-2xl p-5 border border-outline/20 hover:border-primary/40 transition group">
+      <div class="flex items-start justify-between mb-3">
+        <div class="w-11 h-11 rounded-xl sig flex items-center justify-center text-[#1e1a14]"><span data-i="${TEMPLATE_ICON[t.slug]||'sparkle'}"></span></div>
+        <span class="text-[10px] uppercase tracking-wider text-on-dim/70">${t.category||''}</span>
+      </div>
+      <p class="font-bold mb-1.5">${t.name}</p>
+      <p class="text-xs text-on-dim leading-relaxed mb-3">${t.short}</p>
+      <p class="text-[10px] text-on-dim/60">Для: ${t.who||'—'}</p>
+    </button>
+  `).join('');
+  if(window.renderIcons) window.renderIcons();
+}
+
+function closeTemplates(){
+  document.getElementById('templatesModal').classList.remove('show');
+}
+document.getElementById('templatesModal')?.addEventListener('click', e => {
+  if(e.target === e.currentTarget) closeTemplates();
+});
+
+
+// ── Шаг подстановки данных шаблона ───────────────────────────────────────
+let _currentTplSlug = null;
+
+function openTemplateSetup(slug){
+  const tpl = _allTemplates.find(t => t.slug === slug);
+  if(!tpl) return;
+  _currentTplSlug = slug;
+  closeTemplates();
+  document.getElementById('tplSetupTitle').textContent = tpl.name;
+  document.getElementById('tplSetupHint').textContent = `Шаблон → подставьте данные → запуск`;
+  document.getElementById('tplSetupDesc').textContent = tpl.description;
+  document.getElementById('tplSetupTg').value = '';
+  document.getElementById('tplSetupMax').value = '';
+  document.getElementById('tplSetupStatus').classList.add('hidden');
+  document.getElementById('tplSetupBtn').disabled = false;
+
+  // Рендерим поля из tpl.customizable
+  const wrap = document.getElementById('tplSetupFields');
+  wrap.innerHTML = tpl.customizable.map(f => {
+    const id = `tpl_f_${f.key}`;
+    const required = f.required ? `<span class="text-red-400">*</span>` : '';
+    let input;
+    if(f.options){
+      input = `<select id="${id}" class="inp text-sm">${f.options.map(o => `<option value="${o}" ${o===f.default?'selected':''}>${o}</option>`).join('')}</select>`;
+    } else if(f.multiline){
+      input = `<textarea id="${id}" rows="3" class="inp text-sm resize-none" placeholder="${f.placeholder||''}">${f.default||''}</textarea>`;
+    } else {
+      input = `<input id="${id}" type="text" class="inp text-sm" placeholder="${f.placeholder||''}" value="${f.default||''}"/>`;
+    }
+    return `
+      <div>
+        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">${f.label} ${required}</label>
+        ${input}
+      </div>`;
+  }).join('');
+}
+
+function closeTemplateSetup(){
+  document.getElementById('templateSetupModal').classList.remove('show');
+}
+document.getElementById('templateSetupModal')?.addEventListener('click', e => {
+  if(e.target === e.currentTarget) closeTemplateSetup();
+});
+
+// Авто-показываем templateSetupModal при openTemplateSetup
+const _origOpenTemplateSetup = openTemplateSetup;
+openTemplateSetup = function(slug){
+  _origOpenTemplateSetup(slug);
+  document.getElementById('templateSetupModal').classList.add('show');
+};
+
+async function submitTemplate(){
+  if(!_currentTplSlug) return;
+  const tpl = _allTemplates.find(t => t.slug === _currentTplSlug);
+  if(!tpl) return;
+  const params = {};
+  for(const f of tpl.customizable){
+    const el = document.getElementById(`tpl_f_${f.key}`);
+    params[f.key] = el ? el.value.trim() : '';
+    if(f.required && !params[f.key]){
+      toast(`Заполните: ${f.label}`, 'warn');
+      el?.focus();
+      return;
+    }
+  }
+  const btn = document.getElementById('tplSetupBtn');
+  const status = document.getElementById('tplSetupStatus');
+  btn.disabled = true;
+  btn.innerHTML = `<span data-i="spinner"></span> Создаю…`;
+  if(window.renderIcons) window.renderIcons();
+  status.classList.remove('hidden');
+  status.textContent = 'Подготовка workflow и подключение каналов…';
+
+  try{
+    const body = {
+      params,
+      tg_token: document.getElementById('tplSetupTg').value.trim() || null,
+      max_token: document.getElementById('tplSetupMax').value.trim() || null,
+    };
+    const r = await fetch(`${API}/chatbots/from-template/${_currentTplSlug}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json',...hdrs()},
+      body: JSON.stringify(body),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(_friendlyErr({message: d.detail}, r.status));
+    }
+    const data = await r.json();
+    closeTemplateSetup();
+    toast(`✓ Бот «${data.name}» создан`, 'success');
+    if(typeof loadBots === 'function') await loadBots();
+  }catch(e){
+    status.textContent = '✗ ' + e.message;
+    btn.disabled = false;
+    btn.innerHTML = `<span data-i="sparkle"></span> Попробовать снова`;
+    if(window.renderIcons) window.renderIcons();
+  }
+}
+
+
+// ── AI-конструктор бота ─────────────────────────────────────────────────
+function openAiCreate(){
+  document.getElementById('ai_desc').value = '';
+  document.getElementById('ai_name').value = '';
+  document.getElementById('ai_tg').value = '';
+  document.getElementById('ai_max').value = '';
+  document.getElementById('ai_widget').checked = false;
+  document.getElementById('aiCreateStatus').classList.add('hidden');
+  document.getElementById('aiCreateBtn').disabled = false;
+  document.getElementById('aiCreateBtn').textContent = 'Собрать через AI';
+  document.getElementById('aiCreateModal').classList.add('show');
+}
+function closeAiCreate(){document.getElementById('aiCreateModal').classList.remove('show');}
+
+async function submitAiCreate(){
+  const desc = document.getElementById('ai_desc').value.trim();
+  if(desc.length < 10){
+    toast('Опишите задачу подробнее (минимум 10 символов)', 'warn');
+    return;
+  }
+  const btn = document.getElementById('aiCreateBtn');
+  const status = document.getElementById('aiCreateStatus');
+  btn.disabled = true;
+  btn.textContent = 'Собираю workflow…';
+  status.classList.remove('hidden');
+  status.textContent = 'AI собирает граф нод по описанию (10–20 секунд)…';
+  try{
+    const r = await fetch(`${API}/chatbots/ai-create`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+(localStorage.getItem('obs_token')||'')},
+      body: JSON.stringify({
+        description: desc,
+        name: document.getElementById('ai_name').value.trim() || null,
+        tg_token: document.getElementById('ai_tg').value.trim() || null,
+        max_token: document.getElementById('ai_max').value.trim() || null,
+        widget_enabled: document.getElementById('ai_widget').checked,
+      }),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(_friendlyErr({message: d.detail}, r.status));
+    }
+    const data = await r.json();
+    closeAiCreate();
+    toast(`✅ Бот «${data.name}» создан (списано ${(data.build_charged_rub||0).toFixed(2)} ₽)`, 'success');
+    if(data.workflow_explanation){
+      // короткое объяснение от AI — выведем в alert чтобы юзер прочитал
+      setTimeout(()=> alert('Что собрал AI:\n\n' + data.workflow_explanation), 400);
+    }
+    if(typeof loadBots === 'function') await loadBots();
+  }catch(e){
+    status.textContent = '❌ ' + e.message;
+    btn.disabled = false;
+    btn.textContent = 'Попробовать снова';
+  }
+}
 
 // ── Toast (вместо alert) ─────────────────────────────────────────────────
 function toast(text, type='info'){
@@ -451,6 +931,396 @@ async function deleteBot(id){
   }catch(e){ toast(_friendlyErr(e, e.status), 'error'); }
 }
 
+// ── Доработать через AI ───────────────────────────────────────────────────
+let _aiImproveBot = null;
+
+function openAiImprove(botId, botName){
+  _aiImproveBot = botId;
+  document.getElementById('aiImproveBotName').textContent = botName ? `«${botName}»` : '';
+  document.getElementById('aiImproveInstr').value = '';
+  document.getElementById('aiImproveStatus').classList.add('hidden');
+  document.getElementById('aiImproveBtn').disabled = false;
+  document.getElementById('aiImproveModal').classList.add('show');
+}
+function closeAiImprove(){
+  document.getElementById('aiImproveModal').classList.remove('show');
+  _aiImproveBot = null;
+}
+document.getElementById('aiImproveModal').addEventListener('click', e => {
+  if(e.target === e.currentTarget) closeAiImprove();
+});
+
+async function submitAiImprove(){
+  if(!_aiImproveBot) return;
+  const instr = document.getElementById('aiImproveInstr').value.trim();
+  if(instr.length < 5){
+    toast('Опишите подробнее, что хотите изменить', 'warn');
+    return;
+  }
+  const btn = document.getElementById('aiImproveBtn');
+  const status = document.getElementById('aiImproveStatus');
+  btn.disabled = true;
+  btn.innerHTML = `<span data-i="spinner"></span> AI правит…`;
+  if(window.renderIcons) window.renderIcons();
+  status.classList.remove('hidden');
+  status.textContent = 'AI анализирует workflow и вносит правки (10–20 сек)…';
+
+  try{
+    const r = await fetch(`${API}/chatbots/${_aiImproveBot}/ai-improve`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json',...hdrs()},
+      body: JSON.stringify({instruction: instr}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(_friendlyErr({message: d.detail}, r.status));
+    }
+    const data = await r.json();
+    closeAiImprove();
+    toast(`✓ Бот обновлён (списано ${(data.charged_rub||0).toFixed(2)} ₽)`, 'success');
+    if(data.explanation){
+      setTimeout(() => alert('Что AI поменял:\n\n' + data.explanation), 300);
+    }
+    if(typeof loadBots === 'function') await loadBots();
+  }catch(e){
+    status.textContent = '✗ ' + e.message;
+    btn.disabled = false;
+    btn.innerHTML = `<span data-i="sparkle"></span> Попробовать снова`;
+    if(window.renderIcons) window.renderIcons();
+  }
+}
+
+
+// ── Аналитика бота ────────────────────────────────────────────────────────
+let _analyticsBot = null;
+
+function openAnalytics(botId, botName){
+  _analyticsBot = botId;
+  document.getElementById('analyticsBotName').textContent = botName ? `«${botName}» — статистика работы` : '';
+  document.getElementById('analyticsModal').classList.add('show');
+  loadAnalytics(30);
+}
+function closeAnalytics(){
+  document.getElementById('analyticsModal').classList.remove('show');
+  _analyticsBot = null;
+}
+document.getElementById('analyticsModal').addEventListener('click', e => {
+  if(e.target === e.currentTarget) closeAnalytics();
+});
+
+async function loadAnalytics(days){
+  if(!_analyticsBot) return;
+  const body = document.getElementById('analyticsBody');
+  body.innerHTML = '<p class="text-on-dim text-sm">Загрузка…</p>';
+  try{
+    const r = await fetch(`${API}/chatbots/${_analyticsBot}/analytics?days=${days}`, {headers: hdrs()});
+    if(!r.ok) throw new Error('Не удалось загрузить');
+    const d = await r.json();
+
+    // KPI карточки
+    const kpi = (label, value, sub) => `
+      <div class="bg-surface2 rounded-xl p-4 border border-outline/15">
+        <p class="text-[10px] uppercase text-on-dim tracking-wider mb-1">${label}</p>
+        <p class="text-2xl font-bold font-headline text-primary">${value}</p>
+        ${sub ? `<p class="text-[10px] text-on-dim/70 mt-0.5">${sub}</p>` : ''}
+      </div>`;
+
+    // SVG bar chart — простейший, без библиотек
+    const ts = d.timeseries || [];
+    const maxD = Math.max(1, ...ts.map(p => p.dialogs));
+    const maxR = Math.max(1, ...ts.map(p => p.records));
+    const W = 100; // viewBox width per bar
+    const cw = ts.length ? W / ts.length : 0;
+    const bars = ts.map((p, i) => {
+      const dh = (p.dialogs / maxD) * 80;  // макс высота 80%
+      const rh = (p.records / Math.max(maxR, maxD)) * 80;
+      const x = i * cw;
+      return `
+        <rect x="${x + cw*0.15}" y="${100-dh}" width="${cw*0.35}" height="${dh}" fill="#ff8c42" opacity="0.85"/>
+        <rect x="${x + cw*0.55}" y="${100-rh}" width="${cw*0.30}" height="${rh}" fill="#6bff9e" opacity="0.85"/>`;
+    }).join('');
+
+    // Записи по типам
+    const TYPE_LBL = {lead:'🟢 Лиды', booking:'📅 Записи', order:'🛒 Заказы',
+                     quiz:'📝 Квизы', ticket:'🛟 Тикеты', subscriber:'📬 Подписчики'};
+    const byType = Object.entries(d.records_by_type || {}).map(([t,n]) =>
+      `<div class="flex justify-between text-xs py-1.5 border-b border-outline/10 last:border-b-0">
+        <span>${TYPE_LBL[t]||t}</span>
+        <span class="font-medium">${n}</span>
+      </div>`).join('') || '<p class="text-xs text-on-dim">Заявок пока нет</p>';
+
+    const topQ = (d.top_questions || []).map(q =>
+      `<div class="flex justify-between text-xs py-1 border-b border-outline/10 last:border-b-0">
+        <span class="truncate flex-1">${q.q.replace(/[<>&]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</span>
+        <span class="text-on-dim ml-2">×${q.count}</span>
+      </div>`).join('') || '<p class="text-xs text-on-dim">Пока нет данных. Они появятся после первых диалогов.</p>';
+
+    body.innerHTML = `
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        ${kpi('Диалогов', d.total_dialogs, `за ${d.period_days} дней`)}
+        ${kpi('Сообщений от клиентов', d.total_msgs_in)}
+        ${kpi('Заявок собрано', d.records_total)}
+        ${kpi('Конверсия', `${d.conv_rate_pct}%`, 'из диалога в заявку')}
+      </div>
+
+      ${ts.length ? `
+        <div class="bg-surface2 rounded-xl p-4 border border-outline/15 mb-5">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-xs uppercase text-on-dim tracking-wider">Динамика по дням</p>
+            <div class="flex gap-3 text-[10px] text-on-dim">
+              <span><span style="display:inline-block;width:10px;height:10px;background:#ff8c42;border-radius:2px;vertical-align:middle"></span> Диалоги</span>
+              <span><span style="display:inline-block;width:10px;height:10px;background:#6bff9e;border-radius:2px;vertical-align:middle"></span> Заявки</span>
+            </div>
+          </div>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:140px">${bars}</svg>
+          <div class="flex justify-between text-[9px] text-on-dim/60 mt-1">
+            <span>${ts[0]?.date||''}</span><span>${ts[ts.length-1]?.date||''}</span>
+          </div>
+        </div>
+      ` : ''}
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="bg-surface2 rounded-xl p-4 border border-outline/15">
+          <p class="text-xs uppercase text-on-dim tracking-wider mb-3">Заявки по типам</p>
+          ${byType}
+        </div>
+        <div class="bg-surface2 rounded-xl p-4 border border-outline/15">
+          <p class="text-xs uppercase text-on-dim tracking-wider mb-3">Топ-вопросы</p>
+          ${topQ}
+        </div>
+      </div>
+    `;
+  }catch(e){
+    body.innerHTML = `<p class="text-red-400 text-sm">Ошибка: ${e.message}</p>`;
+  }
+}
+
+
+// ── Превью диалога (песочница) ────────────────────────────────────────────
+let _previewBot = null;
+let _previewChatId = null;
+
+function openPreview(botId, botName){
+  _previewBot = botId;
+  _previewChatId = `preview_${Date.now()}_${botId}`;
+  document.getElementById('previewBotName').textContent = botName ? `«${botName}» — тестовый чат` : '';
+  document.getElementById('previewMsgs').innerHTML =
+    '<p class="text-xs text-on-dim text-center py-4">Напишите боту сообщение — увидите как он ответит. Это песочница: ничего не списывается, заявки не сохраняются.</p>';
+  document.getElementById('previewInput').value = '';
+  document.getElementById('previewModal').classList.add('show');
+  setTimeout(() => document.getElementById('previewInput').focus(), 100);
+}
+
+function closePreview(){
+  document.getElementById('previewModal').classList.remove('show');
+  _previewBot = null;
+}
+
+function _previewBubble(role, text){
+  const isUser = role === 'user';
+  const bubble = document.createElement('div');
+  bubble.className = isUser ? 'flex justify-end' : 'flex justify-start';
+  bubble.innerHTML = `
+    <div class="max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${isUser
+      ? 'bg-primary text-[#1e1a14] rounded-br-sm'
+      : 'bg-surface3 text-on-surface rounded-bl-sm'}">
+      ${String(text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>')}
+    </div>`;
+  document.getElementById('previewMsgs').appendChild(bubble);
+  const msgs = document.getElementById('previewMsgs');
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function _previewTyping(on){
+  const id = '__preview_typing';
+  let el = document.getElementById(id);
+  if(on && !el){
+    el = document.createElement('div');
+    el.id = id;
+    el.className = 'flex justify-start';
+    el.innerHTML = `<div class="bg-surface3 text-on-dim px-3.5 py-2 rounded-2xl rounded-bl-sm text-xs">
+      <span class="inline-block w-1.5 h-1.5 bg-on-dim rounded-full mr-0.5 animate-pulse"></span>
+      <span class="inline-block w-1.5 h-1.5 bg-on-dim rounded-full mr-0.5 animate-pulse" style="animation-delay:.15s"></span>
+      <span class="inline-block w-1.5 h-1.5 bg-on-dim rounded-full animate-pulse" style="animation-delay:.3s"></span>
+    </div>`;
+    document.getElementById('previewMsgs').appendChild(el);
+    const m = document.getElementById('previewMsgs'); m.scrollTop = m.scrollHeight;
+  }
+  if(!on && el) el.remove();
+}
+
+async function sendPreview(){
+  const inp = document.getElementById('previewInput');
+  const text = inp.value.trim();
+  if(!text || !_previewBot) return;
+  inp.value = '';
+  _previewBubble('user', text);
+  _previewTyping(true);
+  try{
+    const r = await fetch(`${API}/chatbots/${_previewBot}/preview`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json',...hdrs()},
+      body: JSON.stringify({message: text, chat_id: _previewChatId}),
+    });
+    const data = await r.json();
+    _previewTyping(false);
+    if(!r.ok){
+      _previewBubble('bot', '⚠ ' + (data.detail || 'Ошибка'));
+      return;
+    }
+    _previewBubble('bot', data.answer || '(пустой ответ)');
+  }catch(e){
+    _previewTyping(false);
+    _previewBubble('bot', '✗ Ошибка сети: ' + e.message);
+  }
+}
+
+async function resetPreview(){
+  if(!_previewBot) return;
+  try{
+    await fetch(`${API}/chatbots/${_previewBot}/preview?chat_id=${_previewChatId}`, {
+      method:'DELETE', headers: hdrs(),
+    });
+  }catch{}
+  _previewChatId = `preview_${Date.now()}_${_previewBot}`;
+  document.getElementById('previewMsgs').innerHTML =
+    '<p class="text-xs text-on-dim text-center py-4">Диалог очищен. Напишите снова.</p>';
+}
+
+document.getElementById('previewModal').addEventListener('click', e => {
+  if(e.target === e.currentTarget) closePreview();
+});
+
+
+// ── Записи бота (заявки/брони/заказы) ─────────────────────────────────────
+let _currentRecordsBot = null;
+
+function openRecords(botId, botName){
+  _currentRecordsBot = botId;
+  document.getElementById('recordsBotName').textContent = botName ? `«${botName}»` : '';
+  document.getElementById('recordsTypeFilter').value = '';
+  document.getElementById('recordsStatusFilter').value = '';
+  document.getElementById('recordsModal').classList.add('show');
+  loadRecords();
+}
+function closeRecords(){
+  document.getElementById('recordsModal').classList.remove('show');
+  _currentRecordsBot = null;
+}
+
+const RECORD_TYPE_LABELS = {
+  lead: '🟢 Лид', booking: '📅 Запись', order: '🛒 Заказ',
+  quiz: '📝 Квиз', ticket: '🛟 Тикет', subscriber: '📬 Подписчик',
+};
+const STATUS_LABELS = {
+  new: 'Новая', processed: 'Обработана', cancelled: 'Отменена',
+};
+
+async function loadRecords(){
+  if(!_currentRecordsBot) return;
+  const tbl = document.getElementById('recordsTable');
+  tbl.innerHTML = '<p class="text-on-dim text-xs">Загрузка...</p>';
+  const t = document.getElementById('recordsTypeFilter').value;
+  const s = document.getElementById('recordsStatusFilter').value;
+  // CSV-кнопка
+  const params = new URLSearchParams();
+  if(t) params.set('type', t);
+  document.getElementById('recordsCsvBtn').href = `${API}/chatbots/${_currentRecordsBot}/records.csv?${params}` +
+    `&_h=${encodeURIComponent(localStorage.getItem('obs_token')||'')}`;
+  // Записи нельзя через href передать Authorization, поэтому скачиваем через blob
+  document.getElementById('recordsCsvBtn').onclick = async (ev)=>{
+    ev.preventDefault();
+    try{
+      const r = await fetch(`${API}/chatbots/${_currentRecordsBot}/records.csv?${params}`, {headers: hdrs()});
+      if(!r.ok) throw new Error('Ошибка скачивания');
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `bot_${_currentRecordsBot}_records.csv`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+    }catch(e){ toast(e.message, 'error'); }
+  };
+  try{
+    const q = new URLSearchParams();
+    if(t) q.set('type', t);
+    if(s) q.set('status', s);
+    const r = await fetch(`${API}/chatbots/${_currentRecordsBot}/records?${q}`, {headers: hdrs()});
+    if(!r.ok) throw new Error('Ошибка загрузки');
+    const rows = await r.json();
+    if(!rows.length){
+      tbl.innerHTML = '<div class="text-center py-12 text-on-dim text-sm">Пока нет записей. Они появятся, когда клиенты начнут писать боту.</div>';
+      return;
+    }
+    const fmt = d => d ? new Date(d).toLocaleString('ru-RU', {dateStyle:'short', timeStyle:'short'}) : '—';
+    const escape = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const payloadStr = p => {
+      if(!p || typeof p !== 'object') return '';
+      return Object.entries(p).slice(0, 4).map(([k,v]) => `<b>${escape(k)}:</b> ${escape(v)}`).join(' · ');
+    };
+    tbl.innerHTML = `
+      <table class="w-full text-xs border-collapse">
+        <thead>
+          <tr class="border-b border-outline/30 text-on-dim text-left">
+            <th class="py-2 px-2 font-medium">Когда</th>
+            <th class="py-2 px-2 font-medium">Тип</th>
+            <th class="py-2 px-2 font-medium">Клиент</th>
+            <th class="py-2 px-2 font-medium">Контакты</th>
+            <th class="py-2 px-2 font-medium">Детали</th>
+            <th class="py-2 px-2 font-medium">Статус</th>
+            <th class="py-2 px-2 font-medium"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr class="border-b border-outline/15 hover:bg-surface2/40">
+              <td class="py-2 px-2 whitespace-nowrap text-on-dim">${fmt(r.created_at)}</td>
+              <td class="py-2 px-2">${RECORD_TYPE_LABELS[r.type]||escape(r.type)}</td>
+              <td class="py-2 px-2 font-medium">${escape(r.name)||'—'}</td>
+              <td class="py-2 px-2"><div>${escape(r.phone)||''}</div><div class="text-on-dim/70">${escape(r.email)||''}</div></td>
+              <td class="py-2 px-2 max-w-[260px] text-on-dim/85">${payloadStr(r.payload)}</td>
+              <td class="py-2 px-2">
+                <select class="inp text-[10px] py-0.5 px-1" onchange="updateRecordStatus(${r.id}, this.value)">
+                  ${['new','processed','cancelled'].map(s => `<option value="${s}" ${r.status===s?'selected':''}>${STATUS_LABELS[s]}</option>`).join('')}
+                </select>
+              </td>
+              <td class="py-2 px-2"><button onclick="deleteRecord(${r.id})" class="btn-d text-[10px] py-1 px-1.5 inline-flex items-center" title="Удалить">${ICONS.trash||'×'}</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <p class="text-[10px] text-on-dim/60 mt-3">Всего: ${rows.length}. Скачайте CSV для отправки менеджеру или импорта в CRM.</p>
+    `;
+  }catch(e){
+    tbl.innerHTML = `<p class="text-red-400 text-xs">Ошибка: ${e.message}</p>`;
+  }
+}
+
+async function updateRecordStatus(recId, status){
+  if(!_currentRecordsBot) return;
+  try{
+    await fetch(`${API}/chatbots/${_currentRecordsBot}/records/${recId}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json',...hdrs()},
+      body: JSON.stringify({status}),
+    });
+    toast(`Статус: ${STATUS_LABELS[status]||status}`, 'success');
+  }catch{ toast('Не удалось обновить', 'error'); }
+}
+
+async function deleteRecord(recId){
+  if(!_currentRecordsBot || !confirm('Удалить эту запись?')) return;
+  try{
+    await fetch(`${API}/chatbots/${_currentRecordsBot}/records/${recId}`, {method:'DELETE', headers: hdrs()});
+    loadRecords();
+  }catch{ toast('Ошибка', 'error'); }
+}
+
+document.getElementById('recordsModal').addEventListener('click', e => {
+  if(e.target === e.currentTarget) closeRecords();
+});
+
+
 async function showSummary(id){
   document.getElementById('summaryContent').textContent='Загрузка...';
   document.getElementById('summaryModal').classList.add('show');
@@ -467,8 +1337,9 @@ function closeSummary(){document.getElementById('summaryModal').classList.remove
 function togglePwd(id, btn){
   const inp = document.getElementById(id);
   if(!inp) return;
-  if(inp.type === 'password'){ inp.type = 'text'; btn.textContent = '🙈'; }
-  else { inp.type = 'password'; btn.textContent = '👁'; }
+  // Toggle password visibility — иконка глаз/перечёркнутый-глаз вместо эмодзи.
+  if(inp.type === 'password'){ inp.type = 'text'; btn.innerHTML = (window.ICONS&&window.ICONS.eyeOff)||'×'; }
+  else { inp.type = 'password'; btn.innerHTML = (window.ICONS&&window.ICONS.eye)||'·'; }
 }
 
 function copyWidgetCode(){

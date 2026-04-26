@@ -29,16 +29,18 @@ async def telegram_webhook(bot_id: int, request: Request,
     if not bot or not bot.tg_token:
         return {"ok": True}  # Telegram ожидает 200
 
-    # Проверка X-Telegram-Bot-Api-Secret-Token (защита от подделки webhook'а)
+    # Проверка X-Telegram-Bot-Api-Secret-Token (защита от подделки webhook'а).
+    # Без secret-заголовка — отклоняем, т.к. иначе любой может POST-ить на
+    # /webhook/tg/{bot_id} от чьего угодно имени и тратить наш AI-баланс.
     expected_secret = tg_webhook_secret(bot.tg_token)
     if expected_secret:
         got = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if got and got != expected_secret:
+        if not got:
+            log.warning(f"[TG Bot {bot_id}] webhook без secret — отклоняем")
+            raise HTTPException(401, "Secret token required (re-register webhook)")
+        if got != expected_secret:
             log.warning(f"[TG Bot {bot_id}] Invalid secret token")
             raise HTTPException(401, "Invalid secret")
-        if not got:
-            # Старый webhook без secret — лог warning, но принимаем
-            log.warning(f"[TG Bot {bot_id}] webhook без secret — пересоздайте через 'Запуск'")
 
     try:
         body = await request.json()
@@ -94,6 +96,23 @@ async def telegram_webhook(bot_id: int, request: Request,
         if photos:
             extra_ctx["file_id"] = photos[-1].get("file_id")
         text = text or msg.get("caption", "[photo]")
+    elif msg.get("contact"):
+        # Юзер нажал кнопку «Поделиться номером» из reply-keyboard.
+        # Сохраняем телефон в ctx — следующая нода сможет взять из ctx["customer_phone"].
+        ct = msg["contact"]
+        phone = ct.get("phone_number", "")
+        first = ct.get("first_name", "") or user_name
+        last = ct.get("last_name", "") or ""
+        extra_ctx["customer_phone"] = phone
+        extra_ctx["customer_name"] = (first + " " + last).strip() or user_name
+        extra_ctx["is_contact"] = True
+        text = text or f"📞 {phone}"
+    elif msg.get("location"):
+        loc = msg["location"]
+        extra_ctx["customer_lat"] = loc.get("latitude")
+        extra_ctx["customer_lng"] = loc.get("longitude")
+        extra_ctx["is_location"] = True
+        text = text or f"📍 {loc.get('latitude')},{loc.get('longitude')}"
 
     if not text:
         return {"ok": True}
@@ -246,12 +265,28 @@ async def max_webhook(bot_id: int, request: Request,
         # Пропускаем сообщения от самого бота (на всякий)
         if sender.get("is_bot"):
             return {"ok": True}
+
+        extra_ctx = {"max_token": bot.max_token, "max_user_id": user_id, "is_max": True}
+        # MAX контакт/локация приходят в attachments массиве
+        attachments = body_obj.get("attachments") or msg.get("attachments") or []
+        for att in attachments:
+            atype = att.get("type", "")
+            payload = att.get("payload") or {}
+            if atype == "contact":
+                extra_ctx["customer_phone"] = payload.get("phone", "") or payload.get("phone_number", "")
+                extra_ctx["customer_name"] = payload.get("name", "") or user_name
+                extra_ctx["is_contact"] = True
+                text = text or f"📞 {extra_ctx['customer_phone']}"
+            elif atype in ("location", "geolocation"):
+                extra_ctx["customer_lat"] = payload.get("latitude")
+                extra_ctx["customer_lng"] = payload.get("longitude")
+                extra_ctx["is_location"] = True
+                text = text or f"📍 {payload.get('latitude')},{payload.get('longitude')}"
+
         if not text or not user_id:
             return {"ok": True}
         answer = await handle_message(bot, user_id, text, "max", user_name,
-                                      extra_ctx={"max_token": bot.max_token,
-                                                 "max_user_id": user_id,
-                                                 "is_max": True})
+                                      extra_ctx=extra_ctx)
         if answer:
             await send_max(bot.max_token, user_id, answer)
 

@@ -31,8 +31,75 @@ from server.routes.webhook import router as webhook_router
 from server.routes.widget import router as widget_router
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
+
+
+# ── Логирование: structured JSON опционально ────────────────────────────────
+# В проде: STRUCTURED_LOGS=1 → JSON-строки (grep/jq friendly, для централизованных логов).
+# В деве: текстовый формат, человекочитаемый.
+def _setup_logging():
+    import json as _json, sys
+    level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    handler = logging.StreamHandler(sys.stderr)
+
+    if os.getenv("STRUCTURED_LOGS", "").lower() in ("1", "true", "yes"):
+        class _JsonFmt(logging.Formatter):
+            def format(self, record):
+                payload = {
+                    "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+                    "level": record.levelname,
+                    "logger": record.name,
+                    "msg": record.getMessage(),
+                }
+                if record.exc_info:
+                    payload["exc"] = self.formatException(record.exc_info)
+                # Любые extra-поля — добавляем в payload
+                for key in ("user_id", "bot_id", "payment_id", "request_id", "ip"):
+                    if hasattr(record, key):
+                        payload[key] = getattr(record, key)
+                return _json.dumps(payload, ensure_ascii=False)
+        handler.setFormatter(_JsonFmt())
+    else:
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+
+    root = logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(level)
+
+
+_setup_logging()
 log = logging.getLogger(__name__)
+
+
+# ── Sentry опционально ──────────────────────────────────────────────────────
+# Если SENTRY_DSN задан — инициализируем перед созданием FastAPI app, чтобы
+# отлавливать exceptions в startup-хуках и middleware. PII (email, токены) не шлём.
+def _setup_sentry():
+    dsn = os.getenv("SENTRY_DSN", "").strip()
+    if not dsn:
+        return
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.starlette import StarletteIntegration
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.getenv("SENTRY_ENV", "production"),
+            release=os.getenv("APP_VERSION", "unknown"),
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_RATE", "0.05")),
+            send_default_pii=False,
+            integrations=[FastApiIntegration(), StarletteIntegration()],
+        )
+        log.info("Sentry initialized")
+    except ImportError:
+        log.warning("SENTRY_DSN задан, но sentry-sdk не установлен — pip install sentry-sdk[fastapi]")
+    except Exception as e:
+        log.error(f"Sentry init failed: {e}")
+
+
+_setup_sentry()
 
 models.Base.metadata.create_all(bind=engine)
 from server.db import apply_lightweight_migrations  # noqa: E402
@@ -67,6 +134,21 @@ app.add_middleware(
 
 from server.security import rate_limit_middleware  # noqa: E402
 app.middleware("http")(rate_limit_middleware)
+
+
+# ── Request-ID middleware (для трассировки в structured logs) ───────────────
+import uuid as _uuid_mod  # noqa: E402
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Каждый запрос получает X-Request-ID — попадает в response header
+    и в `log.extra={'request_id': ...}` через record.request_id.
+    Помогает связать строки логов одного юзер-запроса в Sentry/grafana."""
+    rid = request.headers.get("X-Request-ID") or _uuid_mod.uuid4().hex[:16]
+    request.state.request_id = rid
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
 
 
 # ── Body size limit (10 MB для JSON-эндпоинтов) + security headers ─────────────
@@ -142,6 +224,16 @@ _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "
 
 def _html(name: str) -> FileResponse:
     return FileResponse(os.path.join(_BASE, name), headers=_NO_CACHE)
+
+@app.get("/icons.js", include_in_schema=False)
+def serve_icons():
+    """Единый набор векторных иконок — заменяет эмодзи в UI."""
+    return FileResponse(
+        os.path.join(_BASE, "icons.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
 
 @app.get("/", include_in_schema=False)
 def serve_root():

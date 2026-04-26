@@ -62,11 +62,25 @@ RULES = {
     "/webhook/tg/":              (120, 60),
     "/webhook/vk/":              (120, 60),
     "/webhook/avito/":           (120, 60),
+    "/webhook/max/":             (120, 60),
     "/payment/webhook":          (60,  60),
+    # Платежи — защита от перебора чужих payment_id и от спама создания платежей
+    "/payment/buy-tokens":       (20,  60),
+    "/payment/confirm-tokens":   (30,  60),
     # Админ-эндпоинты + deploy — защита от брут-форса DEPLOY_TOKEN
     "/internal/deploy":          (10, 3600),
     # Агент / воркфлоу / генерации — дорогие
     "/agent/run":                (30,  60),
+    # AI-конструктор бота — стоит реальных копеек, лимит на спам
+    "/chatbots/ai-create":       (10, 300),
+    "/chatbots/ai-build-workflow": (20, 300),
+    # Точечная AI-правка блоков сайта — 5 ₽ за вызов, лимит против перебора
+    "/sites/projects":           (120, 60),
+    # Кабинет / поддержка / транзакции — защита от scrape
+    "/user/cabinet/stats":       (60,  60),
+    "/user/transactions.csv":    (10, 300),    # тяжёлый CSV-экспорт
+    "/user/support/refund":      (3,  3600),   # 3 заявки в час
+    "/user/support/delete-data": (3,  3600),
 }
 
 _TRUSTED_PROXIES = {p.strip() for p in os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1").split(",") if p.strip()}
