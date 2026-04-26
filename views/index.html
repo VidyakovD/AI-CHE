@@ -646,16 +646,16 @@ const MODELS=[
   {id:"perplexity",      label:"Perplexity",       group:"Perplexity", tab:"Perplexity", icon:"travel_explore"},
   {id:"perplexity-large",label:"Perplexity Large", group:"Perplexity", tab:null,         icon:"travel_explore"},
   {id:"grok",            label:"Grok 3",           group:"Grok",       tab:"Grok",       icon:"bolt"},
-  // Картинки — через GPT Image (модель gpt-image-1 от OpenAI, поддерживает редактирование)
+  // Картинки от OpenAI: gpt-image-1 (поддерживает редактирование по референсу).
   {id:"gpt-image",       label:"Картинки (GPT)",   group:"Картинки",   tab:"Картинки",   icon:"image"},
-  // Альтернатива от Google — Imagen (Nano Banana). Те же квадрат/16:9/9:16, чище для иллюстраций.
-  {id:"nano",            label:"Картинки (Imagen)",group:"Картинки",   tab:null,         icon:"image"},
+  // Nano Banana = Google Imagen 4. Отдельная вкладка для удобства.
+  {id:"nano",            label:"Nano Banana",      group:"Nano",       tab:"Nano",       icon:"image"},
   // Видео-генерация через Google Veo 3 — отдельная вкладка «Видео».
   {id:"veo",             label:"Видео (Veo 3)",    group:"Видео",      tab:"Видео",      icon:"videocam"},
 ];
-// VIDEO_MODELS — те, для которых рендерим панель видео-параметров (см. updatePanel).
-// nano — это картинки (контролы рисуются как для картинок), поэтому НЕ попадает сюда.
-const VIDEO_MODELS=["veo"];
+// VIDEO_MODELS — модели, для которых рендерим панель параметров (см. toggleVideoPanel).
+// nano (Imagen) тоже сюда — у него свой набор полей в VIDEO_PARAMS.
+const VIDEO_MODELS=["veo","nano"];
 const VIDEO_PARAMS={
   // ── Kling: полные параметры по официальной документации API ──────────────
   kling:[
@@ -704,15 +704,41 @@ const VIDEO_PARAMS={
     {id:"keep_audio",       label:"Сохранить аудио референса",type:"toggle",default:true},
   ],
   veo:[
+    {id:"model_variant",    label:"Качество модели",     type:"select",   default:"veo-3-fast", options:[
+      ["veo-3-fast","Veo 3 fast — быстрая, без аудио (300 ₽)"],
+      ["veo-3","Veo 3 + нативное аудио (500 ₽)"],
+      ["veo-3-1","Veo 3.1 preview, лучшее качество (600 ₽)"],
+      ["veo-2","Veo 2 — старая, дешевле (200 ₽)"],
+    ]},
     {id:"aspect_ratio",     label:"Соотношение сторон",  type:"select",   default:"16:9", options:["16:9","9:16"]},
-    {id:"duration_seconds", label:"Длительность (сек)",  type:"select",   default:"6",    options:["5","6","7","8"]},
-    {id:"sample_count",     label:"Вариантов",           type:"select",   default:"1",    options:["1","2","3","4"]},
-    {id:"enhance_prompt",   label:"Улучшить промпт",     type:"toggle",   default:true},
-    {id:"image_mode",       label:"Режим изображения",   type:"select",   default:"",     options:[["","Только текст"],["i2v","Image→Video (обрезка авто)"]]},
+    {id:"image_mode",       label:"Режим",               type:"select",   default:"",     options:[
+      ["","Текст → видео"],
+      ["i2v","Картинка → видео (загрузить стартовый кадр)"],
+    ]},
+    {id:"negative_prompt",  label:"Что исключить (negative)", type:"text", default:"",   placeholder:"blurry, distorted, low quality"},
+    {id:"person_generation",label:"Генерация людей",     type:"select",   default:"allow_all", options:[
+      ["allow_all","Разрешить всех"],
+      ["allow_adult","Только взрослые"],
+      ["dont_allow","Не разрешать людей"],
+    ]},
+    {id:"generate_audio",   label:"Нативное аудио (Veo 3)", type:"toggle", default:true},
+    {id:"seed",             label:"Seed (для повтора результата)", type:"text", default:"", placeholder:"число от 1 до 999999"},
+    {id:"enhance_prompt",   label:"Улучшить промпт через AI", type:"toggle", default:true},
   ],
   nano:[
+    {id:"model_variant",    label:"Качество",            type:"select",   default:"imagen-4-fast", options:[
+      ["imagen-4-fast","Imagen 4 fast — быстрая (10 ₽)"],
+      ["imagen-4","Imagen 4 standard (15 ₽)"],
+      ["imagen-4-ultra","Imagen 4 Ultra — лучшее качество (25 ₽)"],
+    ]},
     {id:"aspect_ratio",     label:"Соотношение сторон",  type:"select",   default:"1:1",  options:["1:1","16:9","9:16","4:3","3:4"]},
     {id:"sample_count",     label:"Количество вариантов",type:"select",   default:"1",    options:["1","2","3","4"]},
+    {id:"negative_prompt",  label:"Что исключить (negative)", type:"text", default:"",   placeholder:"blurry, watermarks"},
+    {id:"person_generation",label:"Генерация людей",     type:"select",   default:"allow_all", options:[
+      ["allow_all","Разрешить всех"],
+      ["allow_adult","Только взрослые"],
+      ["dont_allow","Не разрешать людей"],
+    ]},
   ],
 };
 
@@ -1075,6 +1101,21 @@ function toggleVideoPanel(model){
 
 function onVidParamChange(paramId,value,model){
   if(paramId==="generation_mode") updateKlingZones(value, model);
+  // Для Veo: image_mode = "i2v" → показать загрузку стартового кадра
+  if(paramId==="image_mode" && model==="veo") updateVeoZones(value);
+}
+
+function updateVeoZones(mode){
+  const img    = document.getElementById("videoImgZone");
+  const tail   = document.getElementById("videoTailZone");
+  const motion = document.getElementById("videoMotionZone");
+  const avatar = document.getElementById("videoAvatarZone");
+  [img,tail,motion,avatar].forEach(z=>z&&z.classList.add("hidden"));
+  const hint = document.getElementById("videoImgHint");
+  if(mode==="i2v"){
+    img?.classList.remove("hidden");
+    if(hint) hint.textContent="Стартовое фото для оживления (16:9 или 9:16)";
+  }
 }
 
 function updateKlingZones(mode, model){
@@ -1968,8 +2009,8 @@ async function sendMessage(){
     } else {
       const r=data.response;
       if(!r){addFriendlyError("Сервер не вернул ответ. Попробуйте повторить запрос.");}
-      else if(r.type==="video_task"||r.type==="video_base64")addVideoMsg(r);
-      else if(r.type==="image"){addMsg(r.content||"","ai","image");}
+      else if(r.type==="video"||r.type==="video_task"||r.type==="video_base64")addVideoMsg(r);
+      else if(r.type==="image"){addMsg(r.url||r.content||"","ai","image");}
       else addMsg(r.content||"Ошибка","ai");
       // Пост-обработка — не должна влиять на отображение ответа
       try{
@@ -2236,17 +2277,54 @@ function addVideoMsg(r){
   const c=document.getElementById("chatContainer");
   const w=document.createElement("div");
   w.className="flex flex-col items-start space-y-1.5 max-w-[90%] self-start";
-  const inner=r.type==="video_task"
-    ?`<div class="flex items-center gap-3 p-4 bg-surface2 rounded-xl border border-outline/20">
+  let inner = "";
+  if (r.type === "video_task") {
+    inner = `<div class="flex items-center gap-3 p-4 bg-surface2 rounded-xl border border-outline/20">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px" class="text-primary animate-spin"><path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"/></svg>
-        <div><p class="text-sm font-medium">Видео генерируется</p><p class="text-xs text-on-surface-dim/60 font-mono mt-0.5">${esc(r.content)}</p></div></div>`
-    :`<video controls class="rounded-xl max-w-xs border border-outline/20"><source src="data:video/mp4;base64,${r.content}" type="video/mp4"/></video>`;
+        <div><p class="text-sm font-medium">Видео генерируется</p><p class="text-xs text-on-surface-dim/60 font-mono mt-0.5">${esc(r.content)}</p></div></div>`;
+  } else {
+    // r.type === "video" (новый: URL /uploads/vid_xxx.mp4) или "video_base64" (legacy)
+    const src = r.url || (r.type==="video_base64" ? `data:video/mp4;base64,${r.content}` : r.content);
+    const fname = (r.url||"video.mp4").split("/").pop();
+    inner = `<div class="ai-video-wrap" style="position:relative;display:inline-block;border-radius:12px;overflow:hidden">
+      <video controls preload="metadata" class="rounded-xl border border-outline/20" style="max-width:480px;max-height:360px;display:block">
+        <source src="${esc(src)}" type="video/mp4"/>
+      </video>
+      <div class="ai-img-actions" style="position:absolute;top:8px;right:8px;display:flex;gap:6px;opacity:0;transition:opacity .15s">
+        <a href="${esc(src)}" download="${esc(fname)}" title="Скачать" class="ai-img-btn" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+        </a>
+        <button onclick="regenerateVideo(event)" title="Перегенерировать с новым промптом" class="ai-img-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+        </button>
+      </div>
+    </div>${r.model?`<p class="text-[10px] text-on-dim/50 mt-1.5 text-right">модель: ${esc(r.model)}</p>`:""}`;
+  }
   w.innerHTML=`<div class="flex items-center gap-2 mb-1">
     <div class="w-5 h-5 rounded-md sig flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:12px;height:12px;color:#1e1a14"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg></div>
     <span class="text-[10px] uppercase tracking-widest text-primary font-bold">AI Студия Че</span>
   </div>
   <div class="glass ghost p-4 rounded-2xl rounded-bl-sm shadow-xl">${inner}</div>`;
   c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
+  // hover-actions появляются на наведение (используем существующий CSS .ai-img-wrap:hover)
+  const wrap = w.querySelector('.ai-video-wrap');
+  if(wrap){
+    wrap.addEventListener('mouseenter',()=>{const a=wrap.querySelector('.ai-img-actions'); if(a) a.style.opacity='1';});
+    wrap.addEventListener('mouseleave',()=>{const a=wrap.querySelector('.ai-img-actions'); if(a) a.style.opacity='0';});
+  }
+}
+
+function regenerateVideo(e){
+  if(e) e.stopPropagation();
+  const ta = document.getElementById('messageInput');
+  if(!ta) return;
+  const prev = window._lastVideoPrompt || '';
+  ta.value = prev;
+  ta.focus();
+  ta.style.height='auto';
+  ta.style.height = Math.min(ta.scrollHeight, 128)+'px';
+  ta.scrollIntoView({behavior:'smooth', block:'end'});
+  if(typeof updateSendBtn==='function') updateSendBtn();
 }
 
 let _typingStart = 0;

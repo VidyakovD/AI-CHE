@@ -156,13 +156,25 @@ TOKEN_COST = {
     "sonar-large-chat":         800,
     "grok-3-mini":              300,
     "grok-3":                   800,
-    # Media — фикс per-request (с маржой ~3-4× к себестоимости OpenAI)
+    # ── Картинки (фикс-цена за 1 картинку, в копейках) ──────────────────────
     "dall-e-3":                1500,   # 15 ₽ — себест $0.04 ≈ 3.6 ₽
     "gpt-image-1":             1500,   # 15 ₽ — себест $0.04-0.06 ≈ 4-6 ₽
-    "nano-v1":                 1000,
+    # Imagen 4: себест $0.02-$0.06 → продаём с маржой 4-5×.
+    "nano-v1":                 1000,                                  # legacy alias = imagen-4-fast
+    "imagen-4.0-fast-generate-001":   1000,   # 10 ₽ (себест $0.02 ≈ 1.8₽)
+    "imagen-4.0-generate-001":        1500,   # 15 ₽ (себест $0.04 ≈ 3.6₽)
+    "imagen-4.0-ultra-generate-001":  2500,   # 25 ₽ (себест $0.06 ≈ 5.4₽)
+    # ── Видео (фикс-цена за 1 ролик ~5 сек, в копейках) ─────────────────────
+    # Veo себест: $0.30-$0.75 за 5-сек ролик в зависимости от качества.
+    "veo-3":                          30000,  # 300 ₽ (legacy alias = veo-3 fast)
+    "veo-2.0-generate-001":           20000,  # 200 ₽ (себест ~$0.30 = 27₽; маржа 7×)
+    "veo-3.0-fast-generate-001":      30000,  # 300 ₽ (себест ~$0.40 = 36₽; маржа 8×)
+    "veo-3.0-generate-001":           50000,  # 500 ₽ (себест ~$0.60 + аудио = 60₽; маржа 8×)
+    "veo-3.1-fast-generate-preview":  40000,  # 400 ₽ (preview, чуть дороже fast)
+    "veo-3.1-generate-preview":       60000,  # 600 ₽ (лучшее качество)
+    # Kling (старая интеграция, не пересчитывалась)
     "kling-v1":                5000,   # 50 ₽
     "kling-v1-5":              8000,
-    "veo-3":                   6000,
 }
 
 def get_token_cost(model: str) -> int:
@@ -405,12 +417,16 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
 # Veo 3.0-fast иногда отвечает 503 «Deadline expired» (квота). Fallback:
 # по очереди пробуем veo-3.1-fast → veo-3.0 → veo-2.0.
 
-# Маппинг model_id (UI) → real_model в API (с приоритетом fallback'ов).
+# Маппинг variant из UI → точное имя модели в Google API.
+# Каждый вариант — список fallback'ов: если первая занята квотой/503, пробуем
+# следующую. Это критично для Veo 3.0 fast — оно регулярно «Deadline expired».
 _VEO_MODELS = {
-    "veo-3":   ["veo-3.1-fast-generate-preview", "veo-3.0-generate-001", "veo-2.0-generate-001"],
-    "veo-3.1": ["veo-3.1-fast-generate-preview", "veo-3.0-generate-001", "veo-2.0-generate-001"],
-    "veo-2":   ["veo-2.0-generate-001"],
-    "veo-fast":["veo-3.0-fast-generate-001", "veo-3.1-fast-generate-preview", "veo-2.0-generate-001"],
+    # Дефолт (когда model="veo-3" из MODEL_REGISTRY и нет model_variant)
+    "veo-3":      ["veo-3.0-fast-generate-001", "veo-3.1-fast-generate-preview", "veo-3.0-generate-001", "veo-2.0-generate-001"],
+    # UI-варианты:
+    "veo-3-fast": ["veo-3.0-fast-generate-001", "veo-3.1-fast-generate-preview", "veo-2.0-generate-001"],
+    "veo-3-1":    ["veo-3.1-fast-generate-preview", "veo-3.1-generate-preview", "veo-3.0-generate-001"],
+    "veo-2":      ["veo-2.0-generate-001"],
 }
 
 
@@ -453,7 +469,51 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
     if ar not in ("16:9", "9:16"):
         ar = "16:9"
 
-    candidates = _VEO_MODELS.get(model, _VEO_MODELS["veo-3"])
+    # variant из UI приоритетнее MODEL_REGISTRY id
+    variant = (extra.get("model_variant") or "").strip()
+    candidates = _VEO_MODELS.get(variant) or _VEO_MODELS.get(model) or _VEO_MODELS["veo-3"]
+
+    # Доп. параметры
+    neg = (extra.get("negative_prompt") or "").strip()
+    person_gen = (extra.get("person_generation") or "").strip()
+    generate_audio = bool(extra.get("generate_audio", True))
+    enhance_prompt = bool(extra.get("enhance_prompt", True))
+    seed = extra.get("seed")
+    try:
+        seed = int(seed) if seed not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        seed = None
+
+    # Image-to-video: первый кадр — путь к локальному файлу /uploads/img_xxx.png
+    # из загрузки в UI (handleVidImg → POST /upload). Имеет приоритет над text-only.
+    image_url = (extra.get("image_url") or extra.get("file_url") or "").strip()
+    image_payload = None
+    if image_url:
+        try:
+            import base64 as _b64, mimetypes
+            project_root = os.path.dirname(_BASE_DIR)
+            local_path = os.path.join(project_root, image_url.lstrip("/"))
+            if os.path.exists(local_path):
+                with open(local_path, "rb") as f:
+                    img_b64 = _b64.b64encode(f.read()).decode("ascii")
+                mime = mimetypes.guess_type(local_path)[0] or "image/png"
+                image_payload = {"bytesBase64Encoded": img_b64, "mimeType": mime}
+                log.info(f"[Veo] image2video mode: {local_path} ({mime})")
+        except Exception as e:
+            log.warning(f"[Veo] failed to load image {image_url}: {e}")
+
+    # Параметры (общие для всех Veo моделей; Google игнорит unknown поля)
+    parameters = {"aspectRatio": ar, "sampleCount": 1, "personGeneration": person_gen or "allow_all"}
+    if neg:
+        parameters["negativePrompt"] = neg
+    if seed is not None:
+        parameters["seed"] = seed
+    if not enhance_prompt:
+        parameters["enhancePrompt"] = False
+    if not generate_audio:
+        # Для Veo 3 нативное аудио включено по умолчанию — отключаем явно.
+        parameters["generateAudio"] = False
+
     proxy = _google_proxy()
 
     last_err: str | None = None
@@ -462,10 +522,10 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
             try:
                 start_url = (f"https://generativelanguage.googleapis.com/v1beta/"
                              f"models/{real_model}:predictLongRunning?key={key}")
-                payload = {
-                    "instances": [{"prompt": prompt}],
-                    "parameters": {"aspectRatio": ar, "sampleCount": 1},
-                }
+                instance = {"prompt": prompt}
+                if image_payload:
+                    instance["image"] = image_payload
+                payload = {"instances": [instance], "parameters": parameters}
                 with httpx.Client(proxy=proxy, timeout=180) as client:
                     r = client.post(start_url, json=payload)
                 if r.status_code != 200:
@@ -564,8 +624,8 @@ _IMAGEN_MODELS = {
 def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
     """Google Imagen 4 — генерация изображений через REST API.
 
-    Использует прокси из env GOOGLE_HTTPS_PROXY (Google AI Studio
-    блокирует RU-сегменты хостинга по ASN).
+    Поддерживает model_variant (fast/standard/ultra), aspectRatio, sampleCount,
+    negative_prompt, personGeneration. Прокси через GOOGLE_HTTPS_PROXY.
     """
     keys = _shuffle(_get_api_keys("google"))
     extra = extra or {}
@@ -580,7 +640,17 @@ def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
     if ar not in ("1:1", "16:9", "9:16", "4:3", "3:4"):
         ar = "1:1"
     sample_count = max(1, min(int(extra.get("sample_count", 1) or 1), 4))
-    real_model = _IMAGEN_MODELS.get(model, _IMAGEN_MODELS["nano-v1"])
+    # model_variant из UI приоритетнее чем model_id — так юзер выбирает fast/std/ultra.
+    variant = (extra.get("model_variant") or "").strip()
+    real_model = _IMAGEN_MODELS.get(variant) or _IMAGEN_MODELS.get(model) or _IMAGEN_MODELS["nano-v1"]
+    neg = (extra.get("negative_prompt") or "").strip()
+    person_gen = (extra.get("person_generation") or "").strip()
+
+    parameters = {"sampleCount": sample_count, "aspectRatio": ar}
+    if person_gen in ("allow_all", "allow_adult", "dont_allow"):
+        parameters["personGeneration"] = person_gen
+    if neg:
+        parameters["negativePrompt"] = neg
 
     proxy = _google_proxy()
     last_err: Exception | None = None
@@ -588,25 +658,18 @@ def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
         try:
             url = (f"https://generativelanguage.googleapis.com/v1beta/"
                    f"models/{real_model}:predict?key={key}")
-            payload = {
-                "instances": [{"prompt": prompt}],
-                "parameters": {
-                    "sampleCount": sample_count,
-                    "aspectRatio": ar,
-                },
-            }
+            payload = {"instances": [{"prompt": prompt}], "parameters": parameters}
             with httpx.Client(proxy=proxy, timeout=120) as client:
                 resp = client.post(url, json=payload)
             if resp.status_code != 200:
                 log.warning(f"[Imagen] {real_model} key=...{key[-6:]} status={resp.status_code} body={resp.text[:200]}")
-                last_err = RuntimeError(f"HTTP {resp.status_code}")
+                last_err = RuntimeError(f"HTTP {resp.status_code}: {resp.text[:120]}")
                 continue
             data = resp.json()
             preds = data.get("predictions", [])
             if not preds:
                 log.warning(f"[Imagen] empty predictions: {data}")
                 continue
-            # Берём первую картинку, остальные игнорируем (UI пока не показывает галерею)
             p0 = preds[0]
             b64 = p0.get("bytesBase64Encoded")
             mime = p0.get("mimeType", "image/png")
@@ -614,13 +677,14 @@ def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
                 log.warning(f"[Imagen] no bytesBase64Encoded: keys={list(p0.keys())}")
                 continue
             url_local = _save_image_b64(b64, mime)
-            return {"type": "image", "url": url_local, "content": url_local}
+            return {"type": "image", "url": url_local, "content": url_local,
+                    "model": real_model}
         except Exception as e:
             last_err = e
             log.warning(f"[Imagen] key=...{key[-6:]} error: {e}")
             continue
     _notify_admin(f"Imagen: все ключи исчерпаны: {last_err}")
-    return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
+    return {"type": "text", "content": f"Сервис временно недоступен: {last_err}"}
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

@@ -186,7 +186,26 @@ MODEL_USD_COST = {
     "veo":             None,     # 120 CH fixed
     "nano":            None,     # 10 CH fixed
 }
-FIXED_COSTS = {"kling":200,"kling-pro":400,"veo":120,"nano":10,"dalle":40}
+FIXED_COSTS = {
+    "kling":200,"kling-pro":400,"dalle":40,
+    # Видео и картинки — фикс per-request, в копейках (было CH × 10).
+    # Используем для main-table «X ₽ за запрос». Реальные цены вариантов
+    # nano/veo обновляются динамически из server.ai.TOKEN_COST по ID variant'а
+    # в эндпоинте /pricing/variants.
+    "nano":1000,"veo":30000,
+}
+
+
+# Цены отдельных вариантов моделей (Imagen 4 fast/std/ultra, Veo 2/3/3.1)
+# для динамического показа в UI «Эта модель стоит X ₽ за запрос».
+# Ключ — value опции из VIDEO_PARAMS.model_variant.
+def _model_variant_cost_kop(variant: str) -> int | None:
+    from server.ai import TOKEN_COST, _IMAGEN_MODELS, _VEO_MODELS
+    real = (_IMAGEN_MODELS.get(variant) or
+            (_VEO_MODELS.get(variant)[0] if _VEO_MODELS.get(variant) else None))
+    if not real:
+        return None
+    return TOKEN_COST.get(real)
 
 
 def calc_tokens(model: str, usd_rate: float) -> int:
@@ -243,6 +262,23 @@ def get_rate(db: Session = Depends(get_db)):
 def get_token_costs(db: Session = Depends(get_db)):
     rate = get_usd_rate(db)
     return {m: calc_tokens(m, rate) for m in MODEL_USD_COST}
+
+
+@router.get("/pricing/variants")
+def get_variant_costs():
+    """Цены отдельных вариантов моделей (для динамического UI selector'а).
+    Возвращает {variant_id: cost_kopecks}. Используется в /views/index.html
+    чтобы показать «Эта модель стоит X ₽» при смене variant в селекте."""
+    out = {}
+    # Imagen variants
+    for v in ("imagen-4-fast", "imagen-4", "imagen-4-ultra"):
+        c = _model_variant_cost_kop(v)
+        if c: out[v] = c
+    # Veo variants
+    for v in ("veo-2", "veo-3-fast", "veo-3", "veo-3-1"):
+        c = _model_variant_cost_kop(v)
+        if c: out[v] = c
+    return out
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

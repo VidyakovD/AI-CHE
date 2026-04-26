@@ -183,8 +183,12 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
     input_tokens  = answer.get("input_tokens", 0) if isinstance(answer, dict) else 0
     output_tokens = answer.get("output_tokens", 0) if isinstance(answer, dict) else 0
 
-    # Реальная стоимость по токенам
-    cost = calculate_cost(real_model, input_tokens, output_tokens, db)
+    # Если провайдер вернул реально использованную модель (Imagen variant,
+    # Veo fallback к более дешёвой версии и т.п.) — списываем по ней.
+    # Так юзер платит за то что реально получил, а не за «декларированную» модель.
+    actual_model = answer.get("model") if isinstance(answer, dict) else None
+    cost_model = actual_model or real_model
+    cost = calculate_cost(cost_model, input_tokens, output_tokens, db)
 
     # Атомарное списание (защита от race condition при параллельных запросах)
     if cost > 0:
