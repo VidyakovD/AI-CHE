@@ -63,7 +63,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 /* Модалка превью: native CSS resize (тянем за правый-нижний угол) +
    жирная визуальная подсказка где это место. Кастомные handles на гранях
    убрали — они перекрывали внутренний контент и ломали клики на код/кнопки. */
-.detail-modal-content{position:relative;resize:both;overflow:hidden;min-width:700px;min-height:520px;max-width:98vw;max-height:96vh}
+.detail-modal-content{position:relative;resize:both;overflow:hidden;min-width:700px!important;min-height:520px!important;max-width:98vw!important;max-height:96vh!important}
 .detail-modal-content.fullscreen{width:98vw!important;height:96vh!important;max-width:98vw!important;max-height:96vh!important;resize:none}
 /* Визуальная подсказка в правом-нижнем углу — большая «лесенка» 22x22.
    pointer-events:none — чтобы НЕ блокировать native resize handle браузера. */
@@ -179,7 +179,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <!-- PROJECT DETAIL MODAL — multi-phase interface -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <div id="detailModal" class="modal-bg">
-  <div id="detailModalContent" class="detail-modal-content bg-surface rounded-2xl w-full max-w-6xl border border-outline/25 shadow-2xl overflow-hidden flex flex-col" style="max-height:92vh;height:92vh;width:90vw">
+  <div id="detailModalContent" class="detail-modal-content bg-surface rounded-2xl border border-outline/25 shadow-2xl overflow-hidden flex flex-col" style="height:92vh;width:90vw">
     <!-- Header -->
     <div class="sig px-6 py-4 flex items-center justify-between flex-shrink-0">
       <div class="flex items-center gap-3">
@@ -594,16 +594,31 @@ async function openProject(id){
 // Тут только: запоминание размера между открытиями + кнопка fullscreen.
 
 function _saveModalSize(w, h){
-  try{ localStorage.setItem('aiche_site_modal_size', JSON.stringify({w, h})); }catch{}
+  try{
+    // Sanity: не сохраняем мусорные размеры (меньше нашего min или больше окна)
+    if(w < 700 || h < 520) return;
+    if(w > window.innerWidth * 0.99 || h > window.innerHeight * 0.99) return;
+    localStorage.setItem('aiche_site_modal_size', JSON.stringify({w, h, vw: window.innerWidth}));
+  }catch{}
 }
 function _restoreModalSize(){
   try{
     const s = JSON.parse(localStorage.getItem('aiche_site_modal_size') || 'null');
     if(!s) return;
+    // Если разрешение монитора сменилось (мобайл/desktop) — игнорируем
+    if(s.vw && Math.abs(s.vw - window.innerWidth) > 400){
+      localStorage.removeItem('aiche_site_modal_size');
+      return;
+    }
+    // Защита от битого/устаревшего значения
+    if(!s.w || !s.h || s.w < 700 || s.h < 520) {
+      localStorage.removeItem('aiche_site_modal_size');
+      return;
+    }
     const c = document.getElementById('detailModalContent');
     if(!c || c.classList.contains('fullscreen')) return;
-    if(s.w) c.style.width = s.w + 'px';
-    if(s.h) c.style.height = s.h + 'px';
+    c.style.width = Math.min(s.w, window.innerWidth * 0.98) + 'px';
+    c.style.height = Math.min(s.h, window.innerHeight * 0.96) + 'px';
   }catch{}
 }
 
