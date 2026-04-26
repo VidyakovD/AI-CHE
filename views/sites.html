@@ -60,17 +60,19 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .vp-btn{padding:4px 10px;border-radius:8px;font-size:11px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#a89880;cursor:pointer;transition:all .15s}
 .vp-btn:hover{color:#ffb56b;border-color:rgba(255,140,66,.4)}
 .vp-btn.active{background:rgba(255,140,66,.15);color:#ffb56b;border-color:rgba(255,140,66,.5)}
-/* Модалка с тремя drag-handles: правая граница (ширина), нижняя граница
-   (высота), правый-нижний угол (обе оси). Native CSS resize:both убран —
-   он давал крошечный handle и работал только в правом-нижнем углу. */
-.detail-modal-content{position:relative;overflow:hidden;min-width:600px;min-height:500px;max-width:98vw;max-height:96vh}
-.detail-modal-content.fullscreen{width:98vw!important;height:96vh!important;max-width:98vw!important;max-height:96vh!important}
-.dm-resize-r{position:absolute;top:50px;right:0;bottom:30px;width:6px;cursor:ew-resize;background:transparent;transition:background .15s;z-index:60}
-.dm-resize-r:hover,.dm-resize-r.active{background:rgba(255,140,66,.6)}
-.dm-resize-b{position:absolute;left:30px;right:30px;bottom:0;height:6px;cursor:ns-resize;background:transparent;transition:background .15s;z-index:60}
-.dm-resize-b:hover,.dm-resize-b.active{background:rgba(255,140,66,.6)}
-.dm-resize-corner{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;z-index:61;background:linear-gradient(135deg,transparent 50%,rgba(255,140,66,.55) 50%,rgba(255,140,66,.55) 70%,transparent 70%,transparent 80%,rgba(255,140,66,.55) 80%,rgba(255,140,66,.55))}
-.dm-resize-corner:hover{background:linear-gradient(135deg,transparent 50%,rgba(255,140,66,.85) 50%,rgba(255,140,66,.85) 70%,transparent 70%,transparent 80%,rgba(255,140,66,.85) 80%,rgba(255,140,66,.85))}
+/* Модалка превью: native CSS resize (тянем за правый-нижний угол) +
+   жирная визуальная подсказка где это место. Кастомные handles на гранях
+   убрали — они перекрывали внутренний контент и ломали клики на код/кнопки. */
+.detail-modal-content{position:relative;resize:both;overflow:hidden;min-width:700px;min-height:520px;max-width:98vw;max-height:96vh}
+.detail-modal-content.fullscreen{width:98vw!important;height:96vh!important;max-width:98vw!important;max-height:96vh!important;resize:none}
+/* Визуальная подсказка в правом-нижнем углу — большая «лесенка» 22x22.
+   pointer-events:none — чтобы НЕ блокировать native resize handle браузера. */
+.detail-modal-content::after{
+  content:"";position:absolute;right:2px;bottom:2px;width:22px;height:22px;
+  background:linear-gradient(135deg,transparent 0,transparent 45%,rgba(255,140,66,.7) 45%,rgba(255,140,66,.7) 60%,transparent 60%,transparent 70%,rgba(255,140,66,.7) 70%,rgba(255,140,66,.7) 85%,transparent 85%);
+  pointer-events:none;border-bottom-right-radius:14px;z-index:5;
+}
+.detail-modal-content.fullscreen::after{display:none}
 /* Scrollbar */
 ::-webkit-scrollbar{width:6px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -195,10 +197,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <button onclick="closeDetail()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none">✕</button>
       </div>
     </div>
-    <!-- Drag-handles для resize модалки (видимые подсветкой при ховере) -->
-    <div class="dm-resize-r" id="dmResizeR" title="Тяните чтобы изменить ширину"></div>
-    <div class="dm-resize-b" id="dmResizeB" title="Тяните чтобы изменить высоту"></div>
-    <div class="dm-resize-corner" id="dmResizeCorner" title="Тяните чтобы изменить размер"></div>
+    <!-- Native CSS resize:both — тянем за подсвеченный угол справа-снизу.
+         Кастомные handles на гранях УБРАЛИ: они перекрывали клики по коду
+         и кнопкам внутри модалки. -->
+
 
     <!-- ── PHASE 1: Conversational spec building / Chat ──
          Shown when conversation_phase == "gathering_spec" -->
@@ -587,8 +589,10 @@ async function openProject(id){
   document.getElementById('detailModal').classList.add('show');
 }
 
-// ── Drag-resize модалки превью + fullscreen toggle ──────────────────────
-// Запоминаем размер в localStorage чтобы юзер не подгонял каждый раз.
+// ── Fullscreen toggle для модалки превью + сохранение размера ──────────
+// Resize: native CSS resize:both на правом-нижнем углу (см. sites.html CSS).
+// Тут только: запоминание размера между открытиями + кнопка fullscreen.
+
 function _saveModalSize(w, h){
   try{ localStorage.setItem('aiche_site_modal_size', JSON.stringify({w, h})); }catch{}
 }
@@ -597,7 +601,7 @@ function _restoreModalSize(){
     const s = JSON.parse(localStorage.getItem('aiche_site_modal_size') || 'null');
     if(!s) return;
     const c = document.getElementById('detailModalContent');
-    if(!c) return;
+    if(!c || c.classList.contains('fullscreen')) return;
     if(s.w) c.style.width = s.w + 'px';
     if(s.h) c.style.height = s.h + 'px';
   }catch{}
@@ -606,72 +610,31 @@ function _restoreModalSize(){
 function toggleDetailFullscreen(){
   const c = document.getElementById('detailModalContent');
   if(!c) return;
-  c.classList.toggle('fullscreen');
-  // Reset inline-стили чтобы fullscreen-CSS взял верх
   if(c.classList.contains('fullscreen')){
-    c.dataset.prevW = c.style.width || '';
-    c.dataset.prevH = c.style.height || '';
-    c.style.width = ''; c.style.height = '';
-  } else {
+    c.classList.remove('fullscreen');
     c.style.width = c.dataset.prevW || '90vw';
     c.style.height = c.dataset.prevH || '92vh';
+  } else {
+    c.dataset.prevW = c.style.width || '';
+    c.dataset.prevH = c.style.height || '';
+    c.classList.add('fullscreen');
+    c.style.width = ''; c.style.height = '';
   }
 }
 
-function _initModalResizers(){
+// Native CSS resize не имеет события «закончил тянуть». Слушаем mouseup
+// на всём документе и сохраняем размер модалки если она открыта.
+document.addEventListener('mouseup', () => {
   const c = document.getElementById('detailModalContent');
-  if(!c || c.dataset.resizersInited) return;
-  c.dataset.resizersInited = '1';
-
-  const setupResize = (handleId, axis) => {
-    const handle = document.getElementById(handleId);
-    if(!handle) return;
-    handle.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      handle.classList.add('active');
-      const startX = e.clientX, startY = e.clientY;
-      const rect = c.getBoundingClientRect();
-      const startW = rect.width, startH = rect.height;
-      // Запретить native выделение текста на время drag
-      document.body.style.userSelect = 'none';
-      document.body.style.cursor = handle.style.cursor || 'auto';
-
-      const onMove = (ev) => {
-        if(axis === 'x' || axis === 'both'){
-          const newW = Math.max(600, Math.min(window.innerWidth * 0.98, startW + (ev.clientX - startX)));
-          c.style.width = newW + 'px';
-        }
-        if(axis === 'y' || axis === 'both'){
-          const newH = Math.max(500, Math.min(window.innerHeight * 0.96, startH + (ev.clientY - startY)));
-          c.style.height = newH + 'px';
-        }
-      };
-      const onUp = () => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        handle.classList.remove('active');
-        document.body.style.userSelect = '';
-        document.body.style.cursor = '';
-        // Сохраняем размер
-        const r = c.getBoundingClientRect();
-        _saveModalSize(Math.round(r.width), Math.round(r.height));
-        // Если внутри есть iframe — он может потребовать reflow для нового width
-      };
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    });
-  };
-  setupResize('dmResizeR', 'x');
-  setupResize('dmResizeB', 'y');
-  setupResize('dmResizeCorner', 'both');
-}
-
-// Инициализируем resizer при первом показе модалки + восстанавливаем размер
-const _origOpenDetail = typeof openDetail === 'function' ? openDetail : null;
-document.addEventListener('DOMContentLoaded', () => {
-  _initModalResizers();
-  _restoreModalSize();
+  if(!c || !c.classList.contains('show') && !document.getElementById('detailModal')?.classList.contains('show')) return;
+  if(c.classList.contains('fullscreen')) return;
+  const r = c.getBoundingClientRect();
+  if(r.width > 100 && r.height > 100){
+    _saveModalSize(Math.round(r.width), Math.round(r.height));
+  }
 });
+
+document.addEventListener('DOMContentLoaded', () => { _restoreModalSize(); });
 
 function hideAllPhases(){
   ['phaseChat','phaseSpecReady','phaseImages','phaseDone','phaseLoading'].forEach(id=>{
