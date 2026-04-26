@@ -422,34 +422,97 @@ def _build_site_prompt(spec_text: str, image_paths_json: str | None) -> tuple[st
     return prompt, full_urls
 
 
-def _enhance_spec_with_gpt(spec_text: str) -> str:
-    """Pre-process сырого ТЗ через GPT-4o-mini: расширяем структуру, добавляем
-    дизайн-направление, цвета, секции, чтобы Claude получил более качественный
-    бриф. Стоит ~0.5₽, занимает 5-10 сек, но сильно поднимает качество HTML.
+def _enhance_spec_with_gpt(spec_text: str, premium: bool = False) -> str:
+    """Pre-process сырого ТЗ через GPT-4o (mini для standard, основной для premium).
+
+    Превращает «хочу сайт для барбершопа» → детальный бриф со структурой,
+    цветами, текстами hero, CTA, social proof и техническими требованиями.
+    Claude по такому брифу выдаёт сайт уровня агентства, а не «AI-шаблон».
+
+    Premium tier использует gpt-4o (а не mini) — на 2-3 ₽ дороже но
+    качество ТЗ заметно выше.
 
     Если GPT недоступен / упал — возвращаем исходный текст (не блокируем).
     """
-    enhance_prompt = (
-        "Ты — арт-директор. Тебе передано сырое ТЗ на одностраничный сайт от клиента. "
-        "Твоя задача — расширить ТЗ, добавив:\n"
-        "1. Структуру страницы (Hero / O нас / Услуги / Преимущества / Кейсы / Отзывы / "
-        "FAQ / Контакты — выбери релевантные).\n"
-        "2. Цветовую палитру (3-5 цветов в HEX) подходящую под нишу.\n"
-        "3. Тон и стиль (минимализм / премиум / дружелюбный / и т.п.).\n"
-        "4. Конкретные тексты для Hero (заголовок + подзаголовок + CTA).\n"
-        "5. По 2-4 пункта для каждого раздела — конкретно, не «пример пункта».\n"
-        "6. Призыв к действию на разных секциях.\n\n"
-        "СТРОГО соблюдай тематику и нишу из исходного ТЗ. Не выдумывай новый бизнес.\n"
-        "Длина итогового ТЗ: 800-1500 слов. Только структурированный текст, без преамбулы.\n\n"
-        f"=== ИСХОДНОЕ ТЗ ОТ КЛИЕНТА ===\n{spec_text}\n=== КОНЕЦ ===\n\n"
-        "Выдай развёрнутое ТЗ:"
-    )
+    model = "gpt-4o" if premium else "gpt-4o-mini"
+    enhance_prompt = f"""Ты — арт-директор и UX-копирайтер с 10-летним опытом
+премиум landing-page'ей. Тебе дали СЫРОЕ ТЗ от клиента (часто 1-2 предложения).
+Задача — превратить его в детальный технический бриф для верстальщика-Claude,
+который сделает сайт уровня агентства Awwwards. НЕ верстай сам — это бриф.
+
+Используй формат с разделами в markdown (## Заголовок). Включи ВСЕ блоки ниже:
+
+## Бизнес-контекст
+- Ниша, целевая аудитория (демография + боли + желания)
+- Основной CTA (что клиент должен сделать на сайте)
+- Уникальное торговое предложение в одной фразе
+
+## Тон и стиль
+- Эмоциональный регистр (премиум / дружелюбный / экспертный / молодёжный)
+- 2-3 референса по стилю (например «как Linear.app», «как Apple iPhone page»)
+- Тип шрифтов (sans-serif geometric / humanist / serif / display)
+
+## Цветовая палитра
+- 4-6 HEX-кодов с ролью каждого: primary, secondary, accent, neutral-dark, neutral-light, success/warn опционально
+- Принцип контраста (WCAG AA минимум)
+- Примеры применения: фон героя, акцент кнопок, hover-state
+
+## Структура страницы (по порядку секций)
+Для КАЖДОЙ секции дай:
+- Название секции и её цель
+- Конкретный заголовок (не плейсхолдер!)
+- Подзаголовок / краткое описание
+- 2-5 пунктов / карточек / преимуществ — С РЕАЛЬНЫМ ТЕКСТОМ
+- Тип CTA-кнопки (если есть) с текстом
+
+Обязательные секции (выбери релевантные нише):
+1. Sticky-header с навигацией + основной CTA
+2. Hero (полноэкранный, с конкретным заголовком, подзаголовком и 1-2 CTA)
+3. Доверие/social proof (логотипы клиентов / цифры / отзывы / награды)
+4. Преимущества или «как мы работаем» (3-6 пунктов)
+5. Услуги/продукты (карточки с ценами или диапазоном цен)
+6. Кейсы / результаты клиентов (с цифрами)
+7. Отзывы (с фото, именами, должностями — придумай реалистичные)
+8. FAQ (5-7 вопросов и развёрнутые ответы)
+9. CTA-секция перед footer
+10. Footer с контактами, соц-сетями, мини-навигацией
+
+## UX-фишки
+- Какие микро-анимации использовать (fade-in on scroll, hover-lift cards, smooth-scroll к якорям, parallax mild)
+- Sticky-элементы (header, side-CTA, scroll-progress bar)
+- Mobile UX (hamburger menu, swipeable testimonials, click-to-call)
+
+## Технические требования
+- Mobile-first responsive (320px+, 768px+, 1280px+)
+- Семантический HTML5 (header, nav, main, section, article, footer)
+- Accessibility: alt на картинки, aria-label на icon-buttons, контрастность
+- Производительность: inline critical CSS, lazy-load картинок (loading="lazy")
+- Без внешних JS-фреймворков (только vanilla JS если нужен)
+- Tailwind CDN допустим, кастомный CSS в <style> в head
+
+## Картинки и иконки
+- Если в ТЗ упомянуты загруженные картинки клиента — используй их URL'ы
+- Иначе — для hero/about используй unsplash.com или placehold.co с подписью что менять
+- Иконки — inline SVG (Heroicons / Lucide / Phosphor стиль)
+
+СТРОГО:
+- Не меняй нишу/тематику из исходного ТЗ
+- Все тексты должны быть на русском (если ТЗ на русском)
+- Конкретика, не «пример пункта» — реалистичные тексты
+- Длина итогового брифа: 1500-3500 слов
+- Только сам бриф, без преамбул/комментариев
+
+=== ИСХОДНОЕ ТЗ ОТ КЛИЕНТА ===
+{spec_text}
+=== КОНЕЦ ===
+
+Выдай детальный бриф:"""
     try:
         from server.ai import generate_response as _gen
-        ans = _gen("gpt-4o-mini", [{"role": "user", "content": enhance_prompt}],
-                   extra={"max_tokens": 3000})
+        ans = _gen(model, [{"role": "user", "content": enhance_prompt}],
+                   extra={"max_tokens": 4000})
         text = ans.get("content", "") if isinstance(ans, dict) else ""
-        if text and len(text.strip()) > 200:
+        if text and len(text.strip()) > 400:
             return text.strip()
     except Exception as e:
         log.warning(f"[Sites] enhance_spec failed (non-fatal): {e}")
@@ -537,7 +600,11 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
 
         # 2. Pre-process ТЗ через GPT-4o-mini (отдельный thread — sync вызов)
         loop = asyncio.get_event_loop()
-        enhanced = await loop.run_in_executor(None, _enhance_spec_with_gpt, spec)
+        # Premium tier — enhance через gpt-4o (не mini), бриф детальнее
+        is_premium = quality == "premium"
+        enhanced = await loop.run_in_executor(
+            None, _enhance_spec_with_gpt, spec, is_premium
+        )
 
         with db_session() as db:
             p = db.query(SiteProject).filter_by(id=project_id).first()

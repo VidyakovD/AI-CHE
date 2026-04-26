@@ -179,7 +179,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <!-- PROJECT DETAIL MODAL — multi-phase interface -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <div id="detailModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
-  <div id="detailModalContent" class="detail-modal-content bg-surface rounded-2xl border border-outline/25 shadow-2xl overflow-hidden flex flex-col" style="height:92vh;width:90vw">
+  <div id="detailModalContent" class="detail-modal-content bg-surface rounded-2xl border border-outline/25 shadow-2xl overflow-hidden flex flex-col" style="height:94vh;width:96vw">
     <!-- Header -->
     <div class="sig px-6 py-4 flex items-center justify-between flex-shrink-0">
       <div class="flex items-center gap-3">
@@ -305,8 +305,8 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <button onclick="copyCode()" class="btn-g text-xs">Копировать</button>
         </div>
       </div>
-      <!-- Preview tab -->
-      <div id="dtab-preview" class="tab-pane flex-1 min-h-0 flex flex-col p-4">
+      <!-- Preview tab — минимальный padding, чтобы превью не было узким -->
+      <div id="dtab-preview" class="tab-pane flex-1 min-h-0 flex flex-col p-2">
         <div class="flex items-center gap-2 mb-3">
           <button id="editModeBtn" onclick="toggleEditMode()" class="btn-g text-xs py-1.5 flex items-center gap-1.5">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -620,10 +620,16 @@ function _restoreModalSize(){
       localStorage.removeItem('aiche_site_modal_size');
       return;
     }
+    // Если на широком экране сохранён слишком узкий размер (юзер случайно
+    // ужал и нажал mouseup) — игнорируем дефолт. По UX отзыву: «превью узкое».
+    if(window.innerWidth >= 1280 && s.w < window.innerWidth * 0.7){
+      localStorage.removeItem('aiche_site_modal_size');
+      return;
+    }
     const c = document.getElementById('detailModalContent');
     if(!c || c.classList.contains('fullscreen')) return;
     c.style.width = Math.min(s.w, window.innerWidth * 0.98) + 'px';
-    c.style.height = Math.min(s.h, window.innerHeight * 0.96) + 'px';
+    c.style.height = Math.min(s.h, window.innerHeight * 0.98) + 'px';
   }catch{}
 }
 
@@ -665,7 +671,14 @@ function hideAllPhases(){
   document.getElementById('doneBottomBar').classList.add('hidden');
 }
 
-function closeDetail(){ document.getElementById('detailModal').classList.remove('show'); }
+async function closeDetail(){
+  // Auto-save несохранённых правок перед закрытием — иначе юзер теряет
+  // редактирование которое делал в превью.
+  if(_unsavedChanges && currentProjectId){
+    await saveCode({silent: true});
+  }
+  document.getElementById('detailModal').classList.remove('show');
+}
 
 // ── Phase 1: Chat (conversational spec building) ──────────────────────────
 async function loadChatHistory(){
@@ -1078,23 +1091,83 @@ async function iterateCode(){
   input.focus();
 }
 
-async function saveCode(){
+// Флаг "есть несохранённые правки в превью/textarea". Ставится при любом
+// изменении кода юзером (через postMessage от iframe или ручную правку).
+// Снимается после успешного saveCode. Используется чтобы:
+//  - закрытие модалки → авто-save
+//  - download/zip/publish → авто-save перед скачиванием
+//  - предупреждение "у вас несохранённые изменения"
+let _unsavedChanges = false;
+
+function _markUnsaved(){
+  _unsavedChanges = true;
+  const ind = document.getElementById('unsavedDot');
+  if(ind) ind.classList.remove('hidden');
+}
+
+function _markSaved(){
+  _unsavedChanges = false;
+  const ind = document.getElementById('unsavedDot');
+  if(ind) ind.classList.add('hidden');
+}
+
+async function saveCode(opts){
+  opts = opts || {};
+  if(!currentProjectId) return false;
   const code = document.getElementById('codeEditor').value;
+  if(!code) return false;
   try{
     const r = await fetch(`${API}/sites/projects/${currentProjectId}/save-code`,{
       method:'PUT', headers:authHeaders(), body:JSON.stringify({code_html:code}),
     });
     if(!r.ok) throw new Error('Ошибка сохранения');
     currentProject.code_html = code;
-    const btn = document.querySelector('#dtab-code button');
-    const orig = btn?.textContent;
-    if(btn){ btn.textContent='Сохранено ✓'; setTimeout(()=>btn.textContent=orig,2000); }
+    _markSaved();
+    if(!opts.silent){
+      const btn = document.querySelector('#dtab-code button');
+      const orig = btn?.textContent;
+      if(btn){ btn.textContent='Сохранено ✓'; setTimeout(()=>btn.textContent=orig,2000); }
+    }
+    return true;
   }catch(e){
-    alert('Ошибка: '+e.message);
+    if(!opts.silent) alert('Ошибка: '+e.message);
+    return false;
+  } finally {
+    if(!opts.silent){
+      const activeTab = document.querySelector('#phaseDone .tab-btn.active');
+      if(activeTab && activeTab.textContent.trim()==='Превью') refreshPreview();
+    }
   }
-  const activeTab = document.querySelector('#phaseDone .tab-btn.active');
-  if(activeTab && activeTab.textContent.trim()==='Превью') refreshPreview();
 }
+
+// Auto-save с debounce: если юзер активно редактирует через превью или
+// textarea — сохраняем через 1.5 сек тишины. Так не теряем работу даже
+// если он внезапно закроет вкладку.
+let _autoSaveTimer = null;
+function _scheduleAutoSave(){
+  _markUnsaved();
+  if(_autoSaveTimer) clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(() => {
+    if(currentProjectId && _unsavedChanges){
+      saveCode({silent: true});
+    }
+  }, 1500);
+}
+
+// Watcher на ручное редактирование textarea
+document.addEventListener('DOMContentLoaded', () => {
+  const ta = document.getElementById('codeEditor');
+  if(ta) ta.addEventListener('input', _scheduleAutoSave);
+});
+
+// При попытке закрыть вкладку с несохранёнными правками — alert браузера
+window.addEventListener('beforeunload', e => {
+  if(_unsavedChanges){
+    e.preventDefault();
+    e.returnValue = 'У вас несохранённые изменения сайта. Уйти всё равно?';
+    return e.returnValue;
+  }
+});
 
 function copyCode(){
   navigator.clipboard.writeText(document.getElementById('codeEditor').value);
@@ -1314,6 +1387,7 @@ window.addEventListener('message', e => {
   if(e.data.type === 'site:htmlChange'){
     if(editMode && typeof e.data.html === 'string'){
       document.getElementById('codeEditor').value = e.data.html;
+      _scheduleAutoSave();
     }
   }
   if(e.data.type === 'site:imgClick'){
@@ -1358,6 +1432,9 @@ async function replaceSelectedImage(){
       document.getElementById('codeEditor').value = code;
       refreshPreview();
       selectedImg = null;
+      // Картинка заменена — фиксируем сразу на сервер чтобы не потерять
+      // даже если юзер закроет вкладку (auto-save с debounce может не успеть).
+      await saveCode({silent: true});
     }catch(e){ alert('Ошибка загрузки: '+e.message); }
   };
   input.click();
@@ -1383,6 +1460,11 @@ async function hostSite(){
 
 async function downloadZip(){
   if(!currentProjectId) return;
+  // Перед скачиванием — финальное сохранение, чтобы ZIP содержал
+  // последние правки из превью (а не старую версию из БД).
+  if(_unsavedChanges){
+    await saveCode({silent: true});
+  }
   const tok = localStorage.getItem('obs_token');
   try{
     const r = await fetch(`${API}/sites/projects/${currentProjectId}/zip`, {
@@ -1402,7 +1484,13 @@ async function downloadZip(){
 }
 
 async function downloadSite(){
-  const code = currentProject.code_html;
+  // Перед скачиванием — синхронизируемся с актуальным кодом из textarea
+  // (там лежат правки из превью, ещё не закоммиченные на сервер).
+  if(_unsavedChanges){
+    await saveCode({silent: true});
+  }
+  const editorValue = document.getElementById('codeEditor')?.value;
+  const code = editorValue || currentProject.code_html;
   if(!code){ alert('Сначала сгенерируйте код сайта'); return; }
   const blob = new Blob([code], {type:'text/html;charset=utf-8'});
   const url = URL.createObjectURL(blob);
