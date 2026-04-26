@@ -99,6 +99,35 @@ class PricingConfig(Base):
                         onupdate=datetime.utcnow)
 
 
+class StoredAsset(Base):
+    """
+    Файлы юзеров, хранящиеся на сервере (лидмагниты PDF, картинки, видео).
+
+    Тариф: фикс ₽/месяц за каждые 100 МБ. Биллинг считает суммарный объём
+    активных файлов юзера и списывает в начале месяца. См. server/pricing.py:
+    storage.per_100mb_month — базовая ставка.
+
+    Файлы доступны через /uploads/ если public_token=None или
+    /assets/{public_token}/file.ext — короткий URL для лидмагнита в боте.
+    """
+    __tablename__ = "stored_assets"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                            nullable=False, index=True)
+    bot_id        = Column(Integer, ForeignKey("chatbots.id", ondelete="SET NULL"),
+                            nullable=True, index=True)
+    name          = Column(String, nullable=False)        # человеческое имя файла
+    path          = Column(String, nullable=False)        # /uploads/assets/<uuid>.<ext>
+    mime_type     = Column(String, nullable=True)
+    size_bytes    = Column(Integer, nullable=False, default=0)
+    public_token  = Column(String, unique=True, index=True, nullable=True)
+    purpose       = Column(String, nullable=True)         # "lead_magnet" | "general" | ...
+    is_active     = Column(Boolean, default=True)
+    created_at    = Column(DateTime, default=datetime.utcnow, index=True)
+    last_billed_at = Column(DateTime, nullable=True)      # последняя дата списания за storage
+
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
 

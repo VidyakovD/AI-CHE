@@ -1583,7 +1583,11 @@ MAX_API = "https://botapi.max.ru"
 
 
 async def setup_max_webhook(max_token: str, webhook_url: str) -> dict:
-    """Подписать MAX-бота на webhook. Возвращает {ok, description}."""
+    """Подписать MAX-бота на webhook. Возвращает {ok, description}.
+    Требует HTTPS — иначе MAX откажет."""
+    if not webhook_url.startswith("https://"):
+        log.error(f"[MAX] webhook URL must be HTTPS: {webhook_url[:60]}")
+        return {"ok": False, "description": "Webhook URL должен быть HTTPS"}
     try:
         r = await HTTP.post(
             f"{MAX_API}/subscriptions",
@@ -1649,10 +1653,38 @@ async def send_max(max_token: str, user_id: str | int, text: str,
             data = {"raw": r.text[:200]}
         if r.status_code != 200:
             log.warning(f"[MAX] send failed {r.status_code}: {data}")
+            # 401/403 = токен мёртв (отозван в MAX или удалён бот). Помечаем
+            # max_webhook_set=False чтобы UI показал «требует переподключения»
+            # и фоновые tick'и не молотили API в холостую.
+            if r.status_code in (401, 403):
+                _disable_max_bot_for_token(max_token,
+                                            f"max_send {r.status_code}")
         return {"ok": r.status_code == 200, "data": data, "status_code": r.status_code}
     except Exception as e:
-        log.error(f"[MAX] send error: {e}")
-        return {"ok": False, "description": str(e)}
+        log.error(f"[MAX] send error: {type(e).__name__}")
+        return {"ok": False, "description": type(e).__name__}
+
+
+def _disable_max_bot_for_token(max_token: str, reason: str) -> None:
+    """Помечает все боты с этим max_token как отвалившиеся."""
+    from server.db import db_session
+    try:
+        with db_session() as db:
+            bots = db.query(ChatBot).all()
+            updated = 0
+            for b in bots:
+                if b.max_token == max_token and b.max_webhook_set:
+                    b.max_webhook_set = False
+                    updated += 1
+            if updated:
+                db.commit()
+                log.warning(f"[MAX] disabled {updated} bot(s) by token: {reason}")
+                from server.audit_log import log_action
+                log_action("bot.max_disconnected", target_type="bot",
+                           level="warn", success=False,
+                           details={"reason": reason, "bots_affected": updated})
+    except Exception as e:
+        log.error(f"[MAX] disable_max_bot error: {type(e).__name__}")
 
 
 async def send_max_with_reply_keyboard(max_token: str, user_id: str | int, text: str,

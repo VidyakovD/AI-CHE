@@ -1113,3 +1113,115 @@ def bot_kb_delete(bot_id: int, file_id: int,
     if not f: raise HTTPException(404)
     db.delete(f); db.commit()
     return {"status": "deleted"}
+
+
+# ── Self-hosting export ─────────────────────────────────────────────────────
+# Юзер хочет иметь возможность скачать workflow и развернуть бота на своём
+# сервере. Не делаем полноценный standalone-runtime (это килотонна работы),
+# но даём:
+#   1. JSON workflow + system_prompt + конфиг — для импорта в другую инсталляцию
+#      "AI Студия Че" (или fork самохостеру)
+#   2. README.md с инструкцией как развернуть платформу + куда импортировать
+#   3. ZIP-архив с обоими файлами, скачивается через GET
+
+@router.get("/{bot_id}/export")
+def export_bot(bot_id: int, format: str = "json",
+               db: Session = Depends(get_db),
+               user: User = Depends(current_user)):
+    """
+    Экспорт конфигурации бота для self-hosting / переноса.
+    format: "json" (default) или "zip" (с README).
+    """
+    import json as _json
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
+    if not bot:
+        raise HTTPException(404, "Бот не найден")
+    payload = {
+        "schema_version": 1,
+        "exported_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "exported_from": "https://aiche.ru",
+        "bot": {
+            "name": bot.name,
+            "model": bot.model,
+            "system_prompt": bot.system_prompt,
+            "workflow_json": _json.loads(bot.workflow_json) if bot.workflow_json else None,
+            "widget_allowed_origins": bot.widget_allowed_origins,
+            "daily_limit": bot.daily_limit,
+        },
+        "notes": {
+            "tokens": "TG/VK/MAX/Avito токены НЕ включены в экспорт. Получите свои "
+                      "и пропишите при импорте.",
+            "import": "Загрузите этот JSON в админку другой инсталляции AI Студия Че, "
+                      "или используйте как референс для собственного движка по паттерну "
+                      "server/chatbot_engine.py из репозитория.",
+        },
+    }
+    from server.audit_log import log_action
+    log_action("bot.export", user_id=user.id, target_type="bot",
+               target_id=str(bot.id), details={"format": format})
+
+    if format == "zip":
+        from fastapi.responses import StreamingResponse
+        import io as _io, zipfile as _zip
+        buf = _io.BytesIO()
+        with _zip.ZipFile(buf, "w", _zip.ZIP_DEFLATED) as z:
+            z.writestr("bot.json", _json.dumps(payload, ensure_ascii=False, indent=2))
+            z.writestr("README.md", _build_export_readme(bot.name))
+        buf.seek(0)
+        safe_name = "".join(c if c.isalnum() else "_" for c in (bot.name or "bot"))[:40]
+        return StreamingResponse(
+            iter([buf.read()]),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="bot_{safe_name}.zip"'},
+        )
+    return payload
+
+
+def _build_export_readme(bot_name: str) -> str:
+    return f"""# Экспорт бота «{bot_name}»
+
+Это конфигурация чат-бота, выгруженная из платформы AI Студия Че (https://aiche.ru).
+
+## Что внутри
+
+- `bot.json` — полная конфигурация: workflow-граф, system_prompt, имя модели,
+  лимиты. **Токены TG/VK/MAX/Avito в экспорт НЕ включены** — их нужно получить
+  заново и подставить при импорте (защита от утечки секретов).
+
+## Как использовать
+
+### Вариант 1: импорт в другую инсталляцию AI Студия Че
+Если у вас развёрнута своя копия платформы (например, форк с GitHub):
+
+1. Зайдите в админку → создайте нового бота
+2. Импортируйте `workflow_json` из `bot.json` в поле «Workflow JSON»
+3. Перенесите `system_prompt`, `model`, `daily_limit`
+4. Подключите свои токены TG/MAX
+
+### Вариант 2: запуск на собственном сервере
+Если вы хотите полностью независимый запуск:
+
+1. Склонируйте репозиторий AI Студия Че (или используйте свой engine)
+2. Запустите движок чтения workflow по схеме из `server/chatbot_engine.py`
+3. Главный entry-point: функция `handle_message(bot, chat_id, user_text, ...)`
+   принимает входящее → проходит по нодам графа → возвращает ответ
+4. Поддерживаемые ноды (по `workflow_json.wfc_nodes[].type`):
+   - триггеры: trigger_tg, trigger_max, trigger_vk, trigger_avito, trigger_webhook,
+     trigger_imap, trigger_schedule, trigger_manual
+   - AI: node_gpt, node_claude, node_gemini, node_grok, prompt, orchestrator
+   - логика: condition, switch, delay, http_request, role_switch
+   - storage: storage_get, storage_set, storage_push
+   - RAG: kb_add, kb_search, kb_search_file, kb_rag
+   - output: output_tg, output_tg_buttons, output_max, output_max_buttons,
+     output_photo, edit_message, request_contact, request_location, save_record
+
+## Лицензия workflow
+
+Этот файл с конфигурацией принадлежит вам. Платформа AI Студия Че не претендует
+на сам граф или содержание промптов. Используйте свободно для self-hosting.
+
+## Поддержка
+
+- Вопросы по платформе: https://aiche.ru
+- Telegram: @aiche_support
+"""

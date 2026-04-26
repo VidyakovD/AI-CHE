@@ -27,6 +27,7 @@ from server.routes.public import router as public_router, startup_public
 from server.routes.user_apikeys import router as user_apikeys_router
 from server.routes.oauth import router as oauth_router
 from server.routes.chatbots import router as chatbots_router
+from server.routes.assets import router as assets_router
 from server.routes.webhook import router as webhook_router
 from server.routes.widget import router as widget_router
 
@@ -281,6 +282,7 @@ app.include_router(chatbots_router)
 app.include_router(webhook_router)
 app.include_router(widget_router)
 app.include_router(public_router)
+app.include_router(assets_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")

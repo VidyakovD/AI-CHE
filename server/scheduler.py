@@ -446,6 +446,73 @@ async def conv_cleanup_loop():
         await asyncio.sleep(86400)
 
 
+async def _storage_billing_tick():
+    """
+    Раз в сутки списывает плату за хранение файлов:
+      - считаем total bytes у каждого юзера (только active assets)
+      - округляем вверх до 100 МБ блоков
+      - умножаем на цену storage.per_100mb_month / 30 (дневная ставка)
+      - списываем атомарно
+
+    Если баланса не хватило — НЕ списываем (юзер в минус не уходит). Через
+    несколько дней неуплаты архивируем — soft-delete is_active=False.
+    """
+    from datetime import datetime, timedelta
+    from server.db import db_session
+    from server.models import StoredAsset, User, Transaction
+    from server.billing import deduct_strict
+    from server.pricing import get_price
+    from sqlalchemy import func
+
+    rate_kop_month = get_price("storage.per_100mb_month", default=5000)
+    daily_rate = max(1, rate_kop_month // 30)
+    chunk = 100 * 1024 * 1024
+    try:
+        with db_session() as db:
+            users_with_storage = (
+                db.query(StoredAsset.user_id, func.sum(StoredAsset.size_bytes).label("total"))
+                .filter(StoredAsset.is_active == True)
+                .group_by(StoredAsset.user_id)
+                .all()
+            )
+            charged = skipped = 0
+            for row in users_with_storage:
+                user_id = row[0]
+                total_bytes = int(row[1] or 0)
+                if total_bytes <= 0:
+                    continue
+                units = (total_bytes + chunk - 1) // chunk
+                cost = units * daily_rate
+                if deduct_strict(db, user_id, cost):
+                    db.add(Transaction(
+                        user_id=user_id, type="usage", tokens_delta=-cost,
+                        description=f"Хранилище: {round(total_bytes/1024/1024, 1)} МБ ({cost/100:.2f} ₽/день)",
+                    ))
+                    charged += 1
+                else:
+                    skipped += 1
+                    # TODO: после N дней без оплаты архивировать файлы
+            db.commit()
+            if charged or skipped:
+                log.info(f"[storage-billing] charged={charged} skipped(no balance)={skipped}")
+    except Exception as e:
+        log.error(f"[storage-billing] failed: {e}")
+
+
+async def storage_billing_loop():
+    """Раз в сутки списывает дневную плату за хранение файлов юзеров."""
+    from server.worker_lock import worker_lock
+    await asyncio.sleep(1800)  # 30 мин после старта (после миграций)
+    while True:
+        try:
+            with worker_lock("storage_billing", ttl_sec=3600 * 23) as acquired:
+                if acquired:
+                    await _storage_billing_tick()
+        except Exception as e:
+            log.error(f"[storage-billing] tick error: {e}")
+        await asyncio.sleep(86400)
+
+
 async def db_backup_loop():
     """Раз в 24ч hot-backup БД (с advisory lock — не дублируется)."""
     from server.worker_lock import worker_lock
@@ -468,3 +535,4 @@ def start_scheduler():
     asyncio.create_task(db_backup_loop())
     asyncio.create_task(conv_cleanup_loop())
     asyncio.create_task(audit_cleanup_loop())
+    asyncio.create_task(storage_billing_loop())
