@@ -133,6 +133,7 @@ app.add_middleware(
 )
 
 from server.security import rate_limit_middleware  # noqa: E402
+from fastapi import Request  # noqa: E402  ВАЖНО: до middleware с типом Request
 app.middleware("http")(rate_limit_middleware)
 
 
@@ -153,9 +154,6 @@ async def request_id_middleware(request: Request, call_next):
 
 # ── Body size limit (10 MB для JSON-эндпоинтов) + security headers ─────────────
 _MAX_BODY_BYTES = int(os.getenv("MAX_BODY_BYTES", str(12 * 1024 * 1024)))  # 12MB — upload до 10MB + оверхед
-
-
-from fastapi import Request  # noqa: E402
 
 @app.middleware("http")
 async def body_size_and_headers(request: Request, call_next):
