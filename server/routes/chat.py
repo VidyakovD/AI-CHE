@@ -43,7 +43,8 @@ class MessageRequest(BaseModel):
     chat_id: str
     message: str
     model: str
-    file_url: str | None = None
+    file_url: str | None = None       # legacy single file
+    file_urls: list[str] | None = None  # multi-attach (gpt-image-1 edit)
     extra: dict | None = None
 
 class RenameRequest(BaseModel):
@@ -143,8 +144,15 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
     existing = db.query(Message).filter_by(chat_id=req.chat_id).first()
     title = req.message[:40] if (not existing and req.message) else ("Файл" if not existing else None)
 
-    stored = json.dumps({"text": req.message, "file_url": req.file_url}) \
-             if req.file_url else req.message
+    # Сохраняем JSON если есть файл/файлы. Поддерживаются оба формата:
+    # legacy {text, file_url} и новый {text, file_urls: [...]}.
+    if req.file_urls:
+        stored = json.dumps({"text": req.message, "file_urls": req.file_urls,
+                             "file_url": req.file_urls[0]})
+    elif req.file_url:
+        stored = json.dumps({"text": req.message, "file_url": req.file_url})
+    else:
+        stored = req.message
 
     db.add(Message(chat_id=req.chat_id, role="user", content=stored,
                    model=req.model, title=title,

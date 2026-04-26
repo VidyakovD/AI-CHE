@@ -257,7 +257,7 @@ body.welcome #inputArea{display:none!important}
             class="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-on-surface placeholder:text-on-surface-dim/50 text-sm font-body py-2 px-2 resize-none overflow-y-auto max-h-32 leading-5"
             placeholder="Напишите сообщение…"></textarea>
           <div class="flex items-center gap-1 pb-1">
-            <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf,.txt,.doc,.docx"/>
+            <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf,.txt,.doc,.docx" multiple/>
             <button onclick="document.getElementById('fileInput').click()" class="p-2 text-on-surface-dim hover:text-primary transition rounded-lg">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px"><path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/></svg>
             </button>
@@ -1838,21 +1838,51 @@ async function submitDeleteData(){
 
 
 // ── file ───────────────────────────────────────────────────────────────────
+// pendingAttachments — массив загруженных файлов (можно прикреплять несколько,
+// gpt-image-1 принимает до 10 reference картинок). pendingAttachment — алиас
+// на первый элемент для обратной совместимости.
+let pendingAttachments = [];
+Object.defineProperty(window, "pendingAttachment", {
+  get: () => pendingAttachments[0] || null,
+  set: v => { pendingAttachments = v ? [v] : []; },
+});
+
 async function handleFileSelect(e){
-  const file=e.target.files[0];if(!file)return;
-  clearAttachment();
-  const isImg=file.type.startsWith("image/");
-  const prev=buildPrev(file,isImg,null,true);showStrip(prev);
-  const fd=new FormData();fd.append("file",file);
-  const hdrsU={};if(authToken)hdrsU["Authorization"]="Bearer "+authToken;
-  try{
-    const r=await fetch(`${API}/upload`,{method:"POST",headers:hdrsU,body:fd});
-    if(!r.ok)throw new Error();
-    const d=await r.json();finishPrev(prev,d.url,isImg);
-    pendingAttachment={url:d.url,name:file.name,isImg};
-    document.getElementById("messageInput").focus();updateSendBtn();
-  }catch{clearAttachment();addMsg("Ошибка загрузки файла","ai");}
-  e.target.value="";
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+  const hdrsU = {}; if (authToken) hdrsU["Authorization"] = "Bearer "+authToken;
+  document.getElementById("attachmentPreview").classList.remove("hidden");
+  for (const file of files) {
+    const isImg = file.type.startsWith("image/");
+    const prev = buildPrev(file, isImg, null, true);
+    document.getElementById("attachmentList").appendChild(prev);
+    const fd = new FormData(); fd.append("file", file);
+    try {
+      const r = await fetch(`${API}/upload`, {method:"POST", headers: hdrsU, body: fd});
+      if (!r.ok) throw new Error();
+      const d = await r.json();
+      finishPrev(prev, d.url, isImg);
+      const att = {url: d.url, name: file.name, isImg};
+      pendingAttachments.push(att);
+      // привяжем элемент к attachment, чтобы при удалении удалить и из массива
+      prev.dataset.url = d.url;
+      prev.querySelector(".rm-attach").onclick = (ev) => {
+        ev.stopPropagation();
+        pendingAttachments = pendingAttachments.filter(a => a.url !== d.url);
+        prev.remove();
+        if (!pendingAttachments.length) {
+          document.getElementById("attachmentPreview").classList.add("hidden");
+        }
+        updateSendBtn();
+      };
+    } catch {
+      prev.remove();
+      addMsg("Ошибка загрузки "+file.name, "ai");
+    }
+  }
+  document.getElementById("messageInput").focus();
+  updateSendBtn();
+  e.target.value = "";
 }
 function buildPrev(file,isImg,url,loading){
   const el=document.createElement("div");
@@ -1874,7 +1904,7 @@ function finishPrev(el,url,isImg){
   else{const ext=url.split(".").pop().toUpperCase();t.innerHTML=`<span class="text-[10px] font-bold text-primary">${ext}</span>`;}
 }
 function showStrip(el){document.getElementById("attachmentPreview").classList.remove("hidden");document.getElementById("attachmentList").innerHTML="";document.getElementById("attachmentList").appendChild(el);}
-function clearAttachment(){pendingAttachment=null;document.getElementById("attachmentPreview").classList.add("hidden");document.getElementById("attachmentList").innerHTML="";updateSendBtn();}
+function clearAttachment(){pendingAttachments=[];document.getElementById("attachmentPreview").classList.add("hidden");document.getElementById("attachmentList").innerHTML="";updateSendBtn();}
 
 // ── send ───────────────────────────────────────────────────────────────────
 async function sendMessage(){
@@ -1893,6 +1923,10 @@ async function sendMessage(){
     addTyping();ta.value="";ta.style.height="auto";updateSendBtn();
     const body={chat_id:currentChat,message:text,model:currentModel};
     if(att)body.file_url=att.url;
+    // Все прикреплённые файлы (для gpt-image-1 edit с несколькими reference)
+    if(pendingAttachments && pendingAttachments.length){
+      body.file_urls = pendingAttachments.map(a=>a.url);
+    }
     if(currentModel==="nano")body.extra=collectImageParams(att);
     else if(VIDEO_MODELS.includes(currentModel))body.extra=collectVideoParams();
     else if(currentModel==="gpt-image"||currentModel==="dalle")body.extra={size:currentImageSize};

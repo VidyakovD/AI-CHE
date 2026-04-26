@@ -880,37 +880,42 @@ def openai_image_response(model: str, messages: list, extra: dict = None) -> dic
     extra = extra or {}
     real_model = model or "dall-e-3"
 
-    # Извлекаем prompt и опциональную ссылку на картинку из last user message.
-    # Content может быть строкой ИЛИ dict (chat.py parse() преобразует JSON
-    # с file_url в dict перед передачей в messages — vision-формат).
+    # Извлекаем prompt и список reference-картинок из last user message.
+    # Content может быть строкой ИЛИ dict. Поддерживаем оба формата:
+    # legacy {text, file_url} и новый {text, file_urls: [...]}.
     prompt = ""
-    ref_image_url = None
+    ref_image_urls: list[str] = []
     if messages:
-        # Берём именно последний user-msg, не system/assistant
+        last = None
         for m in reversed(messages):
             if isinstance(m, dict) and m.get("role") == "user":
                 last = m.get("content", "")
                 break
-        else:
+        if last is None:
             last = messages[-1].get("content", "") if isinstance(messages[-1], dict) else ""
+
+        def _extract(p_dict):
+            urls = []
+            if p_dict.get("file_urls"):
+                urls = list(p_dict["file_urls"])
+            elif p_dict.get("file_url"):
+                urls = [p_dict["file_url"]]
+            return urls, (p_dict.get("text", "") or "")
+
         if isinstance(last, dict):
-            ref_image_url = last.get("file_url")
-            prompt = last.get("text", "") or ""
+            ref_image_urls, prompt = _extract(last)
         elif isinstance(last, str):
             try:
                 p = json.loads(last)
-                if isinstance(p, dict) and p.get("file_url"):
-                    ref_image_url = p["file_url"]
-                    prompt = p.get("text", "") or ""
+                if isinstance(p, dict) and (p.get("file_url") or p.get("file_urls")):
+                    ref_image_urls, prompt = _extract(p)
                 else:
                     prompt = last
             except Exception:
                 prompt = last
     if not prompt:
         prompt = extra.get("prompt", "")
-    # Если промпт пустой, но есть reference картинка — даём дефолтный промпт.
-    # OpenAI требует prompt минимум 1 символ.
-    if not prompt and ref_image_url:
+    if not prompt and ref_image_urls:
         prompt = "Сгенерируй похожее изображение в той же стилистике"
     if not prompt:
         return {"type":"text","content":"Опишите что нарисовать (хотя бы пару слов)."}
@@ -941,19 +946,30 @@ def openai_image_response(model: str, messages: list, extra: dict = None) -> dic
         try:
             client = OpenAI(api_key=key)
 
-            # ── Path A: edit mode (gpt-image-1 + reference image) ──
-            if ref_image_url and real_model == "gpt-image-1":
-                ref_local = _os.path.join(project_root, ref_image_url.lstrip("/"))
-                if _os.path.exists(ref_local):
-                    log.info(f"[Image gen] edit mode, ref={ref_image_url} model={real_model}")
-                    with open(ref_local, "rb") as fimg:
+            # ── Path A: edit mode (gpt-image-1 + reference image[s]) ──
+            # gpt-image-1 принимает массив до 10 reference картинок.
+            if ref_image_urls and real_model == "gpt-image-1":
+                refs_local = []
+                for u in ref_image_urls[:10]:
+                    p = _os.path.join(project_root, u.lstrip("/"))
+                    if _os.path.exists(p):
+                        refs_local.append(p)
+                if refs_local:
+                    log.info(f"[Image gen] edit mode, refs={len(refs_local)} size={size} model={real_model}")
+                    open_files = [open(p, "rb") for p in refs_local]
+                    try:
                         edit_params = {
-                            "model": real_model, "image": fimg,
+                            "model": real_model,
+                            "image": open_files if len(open_files) > 1 else open_files[0],
                             "prompt": prompt, "n": 1, "size": size,
                         }
                         if quality:
                             edit_params["quality"] = quality
                         resp = client.images.edit(**edit_params)
+                    finally:
+                        for f in open_files:
+                            try: f.close()
+                            except Exception: pass
                     data = resp.data[0]
                     url = getattr(data, "url", None)
                     if not url and getattr(data, "b64_json", None):
