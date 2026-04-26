@@ -114,8 +114,19 @@ class _SecretFilter(logging.Filter):
         return True
 
 
-# Подключаем фильтр один раз при импорте модуля.
+# Подключаем фильтр на собственный логгер модуля.
 log.addFilter(_SecretFilter())
+
+# ВАЖНО: httpx сам по INFO-уровню логирует полный URL запроса (включая
+# ?key=... для Google AI Studio и Authorization headers — последние
+# обычно не в URL, но Google API key — да). Без фильтра ключ вида
+# AIza... попадает в journalctl и виден любому с доступом к серверу.
+# Навешиваем тот же фильтр на корневой httpx-логгер.
+for _ext_logger in ("httpx", "httpcore", "openai", "anthropic"):
+    try:
+        logging.getLogger(_ext_logger).addFilter(_SecretFilter())
+    except Exception:
+        pass
 
 
 def invalidate_api_key_cache(provider: str = None):
