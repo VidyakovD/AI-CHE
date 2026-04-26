@@ -157,6 +157,8 @@ TOKEN_COST = {
     "claude-haiku-4-5-20251001": 400,
     "claude-sonnet-4-6":       1200,
     "claude-opus-4-6":         3000,
+    "claude-opus-4-20250514":  3000,
+    "claude-opus-4-1-20250805": 3000,
     "sonar-small-chat":         300,
     "sonar-large-chat":         800,
     "grok-3-mini":              300,
@@ -734,6 +736,9 @@ MODEL_REGISTRY = {
     "gpt-4o":          {"provider": "openai",      "real_model": "gpt-4o"},
     "claude":          {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
     "claude-sonnet":   {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
+    # Премиум-tier для генерации сайтов: лучшее качество кода, дороже в 5×
+    # (~$0.30-$0.50 себест за сайт), используется в /sites/...?quality=premium.
+    "claude-opus":     {"provider": "anthropic",   "real_model": "claude-opus-4-1-20250805"},
     "gemini":          {"provider": "gemini",      "real_model": "gemini-1.5-flash"},
     "gemini-pro":      {"provider": "gemini",      "real_model": "gemini-1.5-pro"},
     "perplexity":      {"provider": "perplexity",  "real_model": "sonar-small-chat"},

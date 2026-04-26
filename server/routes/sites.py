@@ -21,9 +21,31 @@ router = APIRouter(tags=["sites"])
 # ---------------------------------------------------------------------------
 # Цены в КОПЕЙКАХ (1 ₽ = 100 коп)
 SPEC_CONVERSATION_CH_COST = 0    # бесплатное обсуждение ТЗ — заложено в фикс цену сайта
-SITE_CREATE_FIX_COST    = 150_000  # 1500 ₽ за создание сайта (фикс)
+SITE_CREATE_FIX_COST    = 150_000  # 1500 ₽ за создание сайта (фикс) — стандарт через Sonnet
 CODE_GEN_CH_COST        = SITE_CREATE_FIX_COST  # legacy alias — первая генерация = фикс
+CODE_GEN_PREMIUM_COST   = 199_000  # 1990 ₽ — премиум через Opus 4 (себест ~540₽, маржа 3.7×)
 CODE_ITER_CH_COST       = 500    # доработки 5 ₽ за итерацию (по факту изменения)
+
+
+# Конфиг tier'ов: какой модельный id, max_tokens, сколько auto-continue попыток.
+# Premium даёт больше «бюджета» на генерацию — Opus умеет делать длинный
+# проработанный HTML, поэтому больше turns + больше max_tokens.
+SITE_QUALITY_TIERS = {
+    "standard": {
+        "model": "claude",            # → claude-sonnet-4-6
+        "max_tokens": 16000,
+        "max_continues": 3,
+        "cost": SITE_CREATE_FIX_COST,
+        "label": "Стандарт (Sonnet)",
+    },
+    "premium": {
+        "model": "claude-opus",        # → claude-opus-4-1
+        "max_tokens": 16000,           # Opus стабильно держит 16k без беты
+        "max_continues": 6,            # 6×16k = 96k токенов на самые длинные сайты
+        "cost": CODE_GEN_PREMIUM_COST,
+        "label": "Премиум (Opus)",
+    },
+}
 
 _sites_host_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "uploads", "sites")
 
@@ -409,11 +431,23 @@ def _strip_markdown_code_fence(content: str) -> str:
     return content
 
 
-async def _run_site_generation(project_id: int):
-    """Фоновая задача — генерит HTML сайта. Все исключения ловим и пишем
-    в БД (gen_status=failed + gen_error), чтобы фронт показал нормальное
-    сообщение, а не виртуальный 500."""
+async def _run_site_generation(project_id: int, quality: str = "standard"):
+    """Фоновая задача — генерит HTML сайта.
+
+    quality: standard | premium — определяет модель (Sonnet vs Opus),
+    кол-во auto-continue turns и max_tokens. Конфиг в SITE_QUALITY_TIERS.
+
+    Все исключения ловим и пишем в БД (gen_status=failed + gen_error),
+    чтобы фронт показал нормальное сообщение, а не виртуальный 500.
+    """
     from server.db import db_session
+    tier = SITE_QUALITY_TIERS.get(quality, SITE_QUALITY_TIERS["standard"])
+    model_id = tier["model"]
+    max_tokens = tier["max_tokens"]
+    max_continues = tier["max_continues"]
+    tier_label = tier["label"]
+    log.info(f"[Sites/bg] project {project_id} starting tier={quality} model={model_id}")
+
     try:
         # 1. Загружаем проект
         with db_session() as db:
@@ -423,7 +457,7 @@ async def _run_site_generation(project_id: int):
                 return
             spec = p.spec_text or ""
             image_paths_json = p.image_paths
-            p.gen_progress = "Улучшаю ТЗ через GPT-4o…"
+            p.gen_progress = f"[{tier_label}] Улучшаю ТЗ через GPT-4o…"
             db.commit()
 
         # 2. Pre-process ТЗ через GPT-4o-mini (отдельный thread — sync вызов)
@@ -434,17 +468,16 @@ async def _run_site_generation(project_id: int):
             p = db.query(SiteProject).filter_by(id=project_id).first()
             if p:
                 p.enhanced_spec = enhanced
-                p.gen_progress = "Claude генерирует HTML (1/3)…"
+                p.gen_progress = f"[{tier_label}] Генерация HTML (1/{max_continues+1})…"
                 db.commit()
 
-        # 3. Основная генерация Claude (timeout=600s в SDK)
+        # 3. Основная генерация Claude (Sonnet или Opus, timeout=600s в SDK)
         prompt, _full_urls = _build_site_prompt(enhanced, image_paths_json)
-        # generate_response — sync; запускаем в executor чтобы не блочить event loop
         ans = await loop.run_in_executor(
             None,
-            lambda: generate_response("claude",
+            lambda: generate_response(model_id,
                                        [{"role": "user", "content": prompt}],
-                                       {"max_tokens": 16000}),
+                                       {"max_tokens": max_tokens}),
         )
         content = (ans.get("content", "") if isinstance(ans, dict) else "").strip()
 
@@ -460,14 +493,19 @@ async def _run_site_generation(project_id: int):
 
         content = _strip_markdown_code_fence(content)
 
-        # 4. Auto-continue до </html> (до 3 попыток вместо 2 — больше шанс закрытия)
-        for attempt in range(3):
+        # 4. Auto-continue до </html>. Premium → больше попыток (Opus умеет
+        # генерить длинно — не будем останавливать его раньше времени).
+        # После каждого turn пишем промежуточный HTML в БД, чтобы юзер видел
+        # «уже сгенерировано 47 KB…» и был уверен что работа идёт.
+        for attempt in range(max_continues):
             if "</html>" in content.lower():
                 break
+            kb = len(content) // 1024
             with db_session() as db:
                 p = db.query(SiteProject).filter_by(id=project_id).first()
                 if p:
-                    p.gen_progress = f"Claude дописывает ({attempt+2}/3)…"
+                    p.code_html = content  # промежуточное сохранение
+                    p.gen_progress = f"[{tier_label}] Готово {kb} KB, дописываю ({attempt+2}/{max_continues+1})…"
                     db.commit()
 
             cont_messages = [
@@ -482,17 +520,18 @@ async def _run_site_generation(project_id: int):
             ]
             cont = await loop.run_in_executor(
                 None,
-                lambda: generate_response("claude", cont_messages, {"max_tokens": 16000}),
+                lambda: generate_response(model_id, cont_messages, {"max_tokens": max_tokens}),
             )
             cont_text = (cont.get("content", "") if isinstance(cont, dict) else "")
             cont_text = _strip_markdown_code_fence(cont_text)
             if not cont_text.strip():
+                log.warning(f"[Sites/bg] project {project_id}: empty continuation, stop")
                 break
             content += cont_text
 
         # 5. Гарантируем закрытие тегов
         if "</html>" not in content.lower():
-            log.warning(f"[Sites/bg] project {project_id}: HTML не закрылся, добавляю теги")
+            log.warning(f"[Sites/bg] project {project_id}: HTML не закрылся за {max_continues} turns, добавляю теги")
             if "</body>" not in content.lower():
                 content += "\n</body>"
             content += "\n</html>"
@@ -505,10 +544,10 @@ async def _run_site_generation(project_id: int):
                 p.conversation_phase = "done"
                 p.status = "done"
                 p.gen_status = "done"
-                p.gen_progress = "Готово!"
+                p.gen_progress = f"Готово! {len(content)//1024} KB"
                 p.gen_error = None
                 db.commit()
-        log.info(f"[Sites/bg] project {project_id} done ({len(content)} symbols)")
+        log.info(f"[Sites/bg] project {project_id} done tier={quality} ({len(content)} symbols)")
 
     except Exception as e:
         log.error(f"[Sites/bg] project {project_id} failed: {e}", exc_info=True)
@@ -530,9 +569,11 @@ async def site_project_generate_code(project_id: int, body: dict | None = None,
                                       user=Depends(optional_user)):
     """Запускает фоновую генерацию HTML сайта.
 
+    Body: { quality: "standard" | "premium" } — выбор модели.
+    standard = Sonnet за 1500 ₽, premium = Opus за 1990 ₽.
+
     Возвращает сразу {status:'running'} — фронт polling'ит /generation-status
-    раз в несколько секунд, пока не получит status=done или failed.
-    Это избавляет от 60-сек client-timeout'а при долгой генерации Claude.
+    раз в несколько секунд. Избавляет от 60-сек client-timeout'а.
     """
     if not user:
         raise HTTPException(401, "Нужна авторизация")
@@ -542,29 +583,46 @@ async def site_project_generate_code(project_id: int, body: dict | None = None,
     if not p.spec_text:
         raise HTTPException(400, "Сначала создайте ТЗ")
     if p.gen_status == "running":
-        # Не запускаем второй раз — фронт пусть polling'ит существующую задачу
         return {"status": "running", "progress": p.gen_progress or "Уже генерируется…"}
 
-    cost = CODE_GEN_CH_COST  # 1500 ₽ фикс
+    # Выбор tier'а: standard (Sonnet 1500₽) или premium (Opus 1990₽)
+    quality = ((body or {}).get("quality") or "standard").strip().lower()
+    if quality not in SITE_QUALITY_TIERS:
+        quality = "standard"
+    tier = SITE_QUALITY_TIERS[quality]
+    cost = tier["cost"]
+
     if not deduct_strict(db, user.id, cost):
         raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
     p.price_tokens = (p.price_tokens or 0) + cost
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
-                       description=f"Создание сайта ({cost/100:.0f} ₽)"))
+                       description=f"Создание сайта — {tier['label']} ({cost/100:.0f} ₽)"))
 
     # Помечаем как «running» сразу, чтобы фронт увидел при первом polling
     from datetime import datetime as _dt
     p.gen_status = "running"
     p.gen_started_at = _dt.utcnow()
-    p.gen_progress = "Запускаю генерацию…"
+    p.gen_progress = f"Запускаю генерацию ({tier['label']})…"
     p.gen_error = None
     p.conversation_phase = "generating_code"
     db.commit()
 
-    # Запускаем фоновую задачу (event loop uvicorn'а будет её крутить)
-    asyncio.create_task(_run_site_generation(project_id))
+    # Запускаем фоновую задачу с выбранным tier'ом
+    asyncio.create_task(_run_site_generation(project_id, quality=quality))
 
-    return {"status": "running", "progress": p.gen_progress}
+    return {"status": "running", "progress": p.gen_progress, "quality": quality, "tier": tier["label"]}
+
+
+@router.get("/sites/quality-tiers")
+def get_site_quality_tiers():
+    """Список tier'ов для UI-селектора. Без авторизации — публичный прайс."""
+    return [{
+        "id": k,
+        "label": v["label"],
+        "cost_kopecks": v["cost"],
+        "cost_rub": v["cost"] / 100,
+        "max_continues": v["max_continues"],
+    } for k, v in SITE_QUALITY_TIERS.items()]
 
 
 @router.get("/sites/projects/{project_id}/generation-status")
