@@ -60,9 +60,17 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .vp-btn{padding:4px 10px;border-radius:8px;font-size:11px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#a89880;cursor:pointer;transition:all .15s}
 .vp-btn:hover{color:#ffb56b;border-color:rgba(255,140,66,.4)}
 .vp-btn.active{background:rgba(255,140,66,.15);color:#ffb56b;border-color:rgba(255,140,66,.5)}
-/* Ресайзер модалки — тянем за правый-низ угол */
-.detail-modal-content{position:relative;resize:both;overflow:hidden;min-width:600px;min-height:500px;max-width:98vw;max-height:96vh}
-.detail-modal-content::after{content:"";position:absolute;right:6px;bottom:6px;width:14px;height:14px;border-right:2px solid rgba(255,140,66,.4);border-bottom:2px solid rgba(255,140,66,.4);pointer-events:none}
+/* Модалка с тремя drag-handles: правая граница (ширина), нижняя граница
+   (высота), правый-нижний угол (обе оси). Native CSS resize:both убран —
+   он давал крошечный handle и работал только в правом-нижнем углу. */
+.detail-modal-content{position:relative;overflow:hidden;min-width:600px;min-height:500px;max-width:98vw;max-height:96vh}
+.detail-modal-content.fullscreen{width:98vw!important;height:96vh!important;max-width:98vw!important;max-height:96vh!important}
+.dm-resize-r{position:absolute;top:50px;right:0;bottom:30px;width:6px;cursor:ew-resize;background:transparent;transition:background .15s;z-index:60}
+.dm-resize-r:hover,.dm-resize-r.active{background:rgba(255,140,66,.6)}
+.dm-resize-b{position:absolute;left:30px;right:30px;bottom:0;height:6px;cursor:ns-resize;background:transparent;transition:background .15s;z-index:60}
+.dm-resize-b:hover,.dm-resize-b.active{background:rgba(255,140,66,.6)}
+.dm-resize-corner{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;z-index:61;background:linear-gradient(135deg,transparent 50%,rgba(255,140,66,.55) 50%,rgba(255,140,66,.55) 70%,transparent 70%,transparent 80%,rgba(255,140,66,.55) 80%,rgba(255,140,66,.55))}
+.dm-resize-corner:hover{background:linear-gradient(135deg,transparent 50%,rgba(255,140,66,.85) 50%,rgba(255,140,66,.85) 70%,transparent 70%,transparent 80%,rgba(255,140,66,.85) 80%,rgba(255,140,66,.85))}
 /* Scrollbar */
 ::-webkit-scrollbar{width:6px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -169,7 +177,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 <!-- PROJECT DETAIL MODAL — multi-phase interface -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <div id="detailModal" class="modal-bg">
-  <div class="detail-modal-content bg-surface rounded-2xl w-full max-w-5xl border border-outline/25 shadow-2xl overflow-hidden flex flex-col" style="max-height:92vh;height:92vh">
+  <div id="detailModalContent" class="detail-modal-content bg-surface rounded-2xl w-full max-w-6xl border border-outline/25 shadow-2xl overflow-hidden flex flex-col" style="max-height:92vh;height:92vh;width:90vw">
     <!-- Header -->
     <div class="sig px-6 py-4 flex items-center justify-between flex-shrink-0">
       <div class="flex items-center gap-3">
@@ -178,12 +186,19 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <div class="cost-badge text-[#1C1C1C]/70 bg-black/10 border-black/10" id="detailCost">0.00 ₽</div>
       </div>
       <div class="flex items-center gap-2">
+        <button id="dmFullscreenBtn" onclick="toggleDetailFullscreen()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C]" title="На весь экран">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
         <button onclick="deleteCurrentProject()" class="btn-d text-xs py-1.5 px-3">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
         </button>
         <button onclick="closeDetail()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none">✕</button>
       </div>
     </div>
+    <!-- Drag-handles для resize модалки (видимые подсветкой при ховере) -->
+    <div class="dm-resize-r" id="dmResizeR" title="Тяните чтобы изменить ширину"></div>
+    <div class="dm-resize-b" id="dmResizeB" title="Тяните чтобы изменить высоту"></div>
+    <div class="dm-resize-corner" id="dmResizeCorner" title="Тяните чтобы изменить размер"></div>
 
     <!-- ── PHASE 1: Conversational spec building / Chat ──
          Shown when conversation_phase == "gathering_spec" -->
@@ -571,6 +586,92 @@ async function openProject(id){
 
   document.getElementById('detailModal').classList.add('show');
 }
+
+// ── Drag-resize модалки превью + fullscreen toggle ──────────────────────
+// Запоминаем размер в localStorage чтобы юзер не подгонял каждый раз.
+function _saveModalSize(w, h){
+  try{ localStorage.setItem('aiche_site_modal_size', JSON.stringify({w, h})); }catch{}
+}
+function _restoreModalSize(){
+  try{
+    const s = JSON.parse(localStorage.getItem('aiche_site_modal_size') || 'null');
+    if(!s) return;
+    const c = document.getElementById('detailModalContent');
+    if(!c) return;
+    if(s.w) c.style.width = s.w + 'px';
+    if(s.h) c.style.height = s.h + 'px';
+  }catch{}
+}
+
+function toggleDetailFullscreen(){
+  const c = document.getElementById('detailModalContent');
+  if(!c) return;
+  c.classList.toggle('fullscreen');
+  // Reset inline-стили чтобы fullscreen-CSS взял верх
+  if(c.classList.contains('fullscreen')){
+    c.dataset.prevW = c.style.width || '';
+    c.dataset.prevH = c.style.height || '';
+    c.style.width = ''; c.style.height = '';
+  } else {
+    c.style.width = c.dataset.prevW || '90vw';
+    c.style.height = c.dataset.prevH || '92vh';
+  }
+}
+
+function _initModalResizers(){
+  const c = document.getElementById('detailModalContent');
+  if(!c || c.dataset.resizersInited) return;
+  c.dataset.resizersInited = '1';
+
+  const setupResize = (handleId, axis) => {
+    const handle = document.getElementById(handleId);
+    if(!handle) return;
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      handle.classList.add('active');
+      const startX = e.clientX, startY = e.clientY;
+      const rect = c.getBoundingClientRect();
+      const startW = rect.width, startH = rect.height;
+      // Запретить native выделение текста на время drag
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = handle.style.cursor || 'auto';
+
+      const onMove = (ev) => {
+        if(axis === 'x' || axis === 'both'){
+          const newW = Math.max(600, Math.min(window.innerWidth * 0.98, startW + (ev.clientX - startX)));
+          c.style.width = newW + 'px';
+        }
+        if(axis === 'y' || axis === 'both'){
+          const newH = Math.max(500, Math.min(window.innerHeight * 0.96, startH + (ev.clientY - startY)));
+          c.style.height = newH + 'px';
+        }
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        handle.classList.remove('active');
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        // Сохраняем размер
+        const r = c.getBoundingClientRect();
+        _saveModalSize(Math.round(r.width), Math.round(r.height));
+        // Если внутри есть iframe — он может потребовать reflow для нового width
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  };
+  setupResize('dmResizeR', 'x');
+  setupResize('dmResizeB', 'y');
+  setupResize('dmResizeCorner', 'both');
+}
+
+// Инициализируем resizer при первом показе модалки + восстанавливаем размер
+const _origOpenDetail = typeof openDetail === 'function' ? openDetail : null;
+document.addEventListener('DOMContentLoaded', () => {
+  _initModalResizers();
+  _restoreModalSize();
+});
 
 function hideAllPhases(){
   ['phaseChat','phaseSpecReady','phaseImages','phaseDone','phaseLoading'].forEach(id=>{
