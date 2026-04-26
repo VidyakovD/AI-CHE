@@ -154,4 +154,36 @@
     });
     _mo.observe(document.documentElement, {childList: true, subtree: true});
   } catch (e) { /* no-op */ }
+
+  // ── Global fetch shim: автоматический CSRF-token на write-методах ─────────
+  // После миграции JWT в httpOnly cookie каждый write-запрос должен нести
+  // X-CSRF-Token равный cookie csrf_token (double-submit pattern).
+  // Cookie csrf_token НЕ httpOnly — JS читает его через document.cookie.
+  // Если cookie нет (старый клиент с токеном в Authorization-header) —
+  // shim ничего не делает, запросы идут как раньше.
+  function _readCookie(name){
+    const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    init = init || {};
+    const method = (init.method || (typeof input === 'object' && input.method) || 'GET').toUpperCase();
+    if (!['GET','HEAD','OPTIONS'].includes(method)){
+      const csrf = _readCookie('csrf_token');
+      if (csrf){
+        // Не перезаписываем если caller уже задал
+        const headers = new Headers(init.headers || (typeof input === 'object' ? input.headers : undefined));
+        if (!headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', csrf);
+        init.headers = headers;
+        // credentials: 'same-origin' нужен чтобы cookie уехало на сервер
+        // (FastAPI default — same-origin, но явно безопаснее)
+        if (!('credentials' in init)) init.credentials = 'same-origin';
+      }
+    } else {
+      // На GET всё равно нужно передавать cookies
+      if (!('credentials' in init)) init.credentials = 'same-origin';
+    }
+    return _origFetch(input, init);
+  };
 })();

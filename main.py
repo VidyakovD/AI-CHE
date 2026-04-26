@@ -146,6 +146,69 @@ from fastapi import Request  # noqa: E402  ВАЖНО: до middleware с тип
 app.middleware("http")(rate_limit_middleware)
 
 
+# ── CSRF middleware (double-submit cookie) ─────────────────────────────────
+# Защита от CSRF после миграции JWT в httpOnly cookie. Браузер автоматически
+# шлёт cookie на каждый запрос — даже с чужого origin → атакующий мог бы
+# выполнить любой POST. Защита: на write-методах требуем заголовок
+# X-CSRF-Token равный cookie csrf_token. Атакующий с другого origin не
+# может прочитать cookie через document.cookie (CORS) → не сможет
+# подделать заголовок.
+#
+# Исключения (write без CSRF check):
+#   - /payment/webhook    — внешний webhook ЮKassa (HMAC проверка)
+#   - /webhook/*          — TG/VK/Avito/MAX webhooks (свои секреты)
+#   - /auth/login,/register,/oauth/*,/exchange — токена ещё нет
+#   - /widget/ws          — WS не имеет body, проверяется Origin
+from server.auth import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, ACCESS_COOKIE_NAME  # noqa: E402
+
+_CSRF_EXEMPT_PREFIXES = (
+    "/payment/webhook",
+    "/webhook/",
+    "/auth/login",
+    "/auth/register",
+    "/auth/verify-email",
+    "/auth/resend-verify",
+    "/auth/reset-password",
+    "/auth/request-reset",
+    "/auth/forgot-password",
+    "/auth/refresh",
+    "/auth/oauth/",
+    "/auth/logout",
+    "/widget/",
+    "/internal/deploy",  # CI deploy hook (свой DEPLOY_TOKEN)
+)
+
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    # Только write-методы. GET/HEAD/OPTIONS — CORS уже защищает от cross-origin.
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return await call_next(request)
+    path = request.url.path or ""
+    for prefix in _CSRF_EXEMPT_PREFIXES:
+        if path.startswith(prefix):
+            return await call_next(request)
+    # CSRF нужен ТОЛЬКО если запрос использует cookie-based auth.
+    # Если есть Authorization header — это API-клиент / legacy frontend,
+    # cross-site атака не может подделать Authorization (CORS блокирует
+    # отправку custom headers без preflight + наш CORS не разрешает).
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        return await call_next(request)
+    # Если нет ни cookie с access_token — пропускаем (anon/public endpoint
+    # сам решит надо ли auth)
+    if not request.cookies.get(ACCESS_COOKIE_NAME):
+        return await call_next(request)
+    # Cookie-based auth → требуем CSRF
+    cookie_csrf = request.cookies.get(CSRF_COOKIE_NAME, "")
+    header_csrf = request.headers.get(CSRF_HEADER_NAME, "")
+    import hmac as _hmac
+    if not cookie_csrf or not _hmac.compare_digest(cookie_csrf, header_csrf):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": "CSRF token missing or invalid"}, status_code=403)
+    return await call_next(request)
+
+
 # ── Request-ID middleware (для трассировки в structured logs) ───────────────
 import uuid as _uuid_mod  # noqa: E402
 

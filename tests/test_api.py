@@ -36,6 +36,17 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _clear_cookies(client):
+    """
+    TestClient persistent держит cookies между тестами. После миграции на
+    JWT-cookie это ломает тесты которые ожидают anon-state (или Bearer-only).
+    Чистим перед каждым тестом — изоляция явнее.
+    """
+    client.cookies.clear()
+    yield
+
+
 @pytest.fixture(scope="module")
 def test_user():
     """Создать тестового пользователя."""
@@ -213,6 +224,83 @@ class TestWebhooks:
     def test_avito_webhook_no_bot(self, client):
         r = client.post("/webhook/avito/999999", json={})
         assert r.status_code == 200
+
+
+# ── JWT cookie + CSRF migration ──────────────────────────────────────────────
+
+class TestCookieAuth:
+    """
+    После миграции:
+      - login возвращает Set-Cookie с access_token (httpOnly), refresh_token,
+        csrf_token (НЕ httpOnly).
+      - GET-запрос работает по cookie без Authorization.
+      - POST без X-CSRF-Token = 403 (если auth идёт через cookie).
+      - POST с правильным X-CSRF-Token = 200/4xx по логике endpoint'а.
+      - POST с Authorization Bearer (legacy) — CSRF не нужен.
+    """
+
+    def _bootstrap_user(self):
+        """Создать verified-юзера в БД для логина."""
+        db = SessionLocal()
+        from server.auth import hash_password
+        try:
+            email = "csrftest@test.com"
+            user = db.query(User).filter_by(email=email).first()
+            if not user:
+                user = User(email=email, password_hash=_FAKE_BCRYPT,
+                            name="CSRFTest", is_verified=True, agreed_to_terms=True)
+                db.add(user); db.commit(); db.refresh(user)
+            return user
+        finally:
+            db.close()
+
+    def test_login_sets_cookies(self, client, monkeypatch):
+        """После login — есть csrf_token cookie."""
+        user = self._bootstrap_user()
+        # Мокаем verify_password чтобы залогиниться без реального хеша
+        from server.routes import auth as auth_mod
+        monkeypatch.setattr(auth_mod, "verify_password", lambda p, h: True)
+        r = client.post("/auth/login", json={"email": user.email, "password": "x"})
+        assert r.status_code == 200
+        assert "csrf_token" in r.json()
+        # Cookie выставлены
+        cookies = dict(r.cookies)
+        assert "csrf_token" in cookies
+        assert "access_token" in cookies
+
+    def test_post_without_csrf_when_cookie_auth(self, client, monkeypatch):
+        """POST без X-CSRF-Token при cookie-auth → 403."""
+        user = self._bootstrap_user()
+        from server.routes import auth as auth_mod
+        monkeypatch.setattr(auth_mod, "verify_password", lambda p, h: True)
+        client.post("/auth/login", json={"email": user.email, "password": "x"})
+        # Cookie уже есть в client.cookies. Делаем POST без X-CSRF-Token
+        r = client.post("/chat/create", json={"model": "gpt"})
+        assert r.status_code == 403
+        assert "CSRF" in r.text
+
+    def test_post_with_valid_csrf(self, client, monkeypatch):
+        """POST с правильным X-CSRF-Token проходит."""
+        user = self._bootstrap_user()
+        from server.routes import auth as auth_mod
+        monkeypatch.setattr(auth_mod, "verify_password", lambda p, h: True)
+        login = client.post("/auth/login", json={"email": user.email, "password": "x"})
+        csrf = login.json()["csrf_token"]
+        r = client.post("/chat/create", json={"model": "gpt"},
+                        headers={"X-CSRF-Token": csrf})
+        assert r.status_code == 200
+
+    def test_logout_clears_cookies(self, client, monkeypatch):
+        user = self._bootstrap_user()
+        from server.routes import auth as auth_mod
+        monkeypatch.setattr(auth_mod, "verify_password", lambda p, h: True)
+        login = client.post("/auth/login", json={"email": user.email, "password": "x"})
+        r = client.post("/auth/logout")
+        assert r.status_code == 200
+        # cookie должны быть стёрты Set-Cookie с max-age=0
+        for name in ("access_token", "refresh_token", "csrf_token"):
+            assert any(name in c for c in r.headers.get_list("set-cookie")), \
+                f"Set-Cookie для {name} не найден"
 
 
 # ── YooKassa webhook signature ───────────────────────────────────────────────

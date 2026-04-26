@@ -1,8 +1,9 @@
-"""JWT auth + verification token helpers."""
+"""JWT auth + verification token helpers + cookie/CSRF helpers."""
 import os, secrets, string
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+from fastapi import Response, Request
 
 def _get_jwt_secret() -> str:
     """Стабильный JWT-секрет: из env или сохранённый файл (генерируется один раз)."""
@@ -81,3 +82,84 @@ def generate_code(length: int = 6) -> str:
     return "".join(secrets.choice(string.digits) for _ in range(length))
 
 VERIFY_TTL_MINUTES = 15
+
+
+# ── Cookie / CSRF helpers ──────────────────────────────────────────────────
+# JWT в localStorage = XSS = угнан токен. Переходим на httpOnly+Secure+SameSite
+# cookie. JS не может читать токен → утечка через XSS блокируется.
+# CSRF защита: double-submit cookie pattern. Сервер выставляет ДВА cookie:
+#   access_token (HttpOnly) — сам JWT
+#   csrf_token  (НЕ HttpOnly) — JS читает и шлёт обратно в X-CSRF-Token
+# Middleware на запись-мутирующие методы проверяет совпадение cookie ↔ header.
+# Атакующий с кросс-домена не может прочитать csrf_token (CORS) → не сможет
+# отправить совпадающий header.
+
+ACCESS_COOKIE_NAME  = "access_token"
+REFRESH_COOKIE_NAME = "refresh_token"
+CSRF_COOKIE_NAME    = "csrf_token"
+CSRF_HEADER_NAME    = "X-CSRF-Token"
+
+# В DEV — Secure=False иначе браузер не сохранит cookie на http://localhost.
+_DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
+_COOKIE_SECURE = not _DEV_MODE
+_COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN") or None  # для поддоменов: ".aiche.ru"
+
+
+def _new_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def set_auth_cookies(response: Response, access: str, refresh: str | None = None,
+                     csrf: str | None = None) -> str:
+    """
+    Выставить httpOnly cookies + CSRF-token cookie. Возвращает CSRF-токен
+    (его же фронт получит в JSON ответа login и сразу сможет использовать).
+    """
+    response.set_cookie(
+        ACCESS_COOKIE_NAME, access,
+        max_age=ACCESS_TTL * 60,
+        httponly=True, secure=_COOKIE_SECURE, samesite="lax",
+        path="/", domain=_COOKIE_DOMAIN,
+    )
+    if refresh:
+        response.set_cookie(
+            REFRESH_COOKIE_NAME, refresh,
+            max_age=REFRESH_TTL * 60,
+            httponly=True, secure=_COOKIE_SECURE, samesite="lax",
+            path="/", domain=_COOKIE_DOMAIN,
+        )
+    csrf_value = csrf or _new_csrf_token()
+    # CSRF cookie НЕ httpOnly — JS должен его прочитать и положить в header.
+    # Atakker с другого origin не сможет (CORS блокирует cross-origin
+    # чтение cookie через document.cookie).
+    response.set_cookie(
+        CSRF_COOKIE_NAME, csrf_value,
+        max_age=ACCESS_TTL * 60,
+        httponly=False, secure=_COOKIE_SECURE, samesite="lax",
+        path="/", domain=_COOKIE_DOMAIN,
+    )
+    return csrf_value
+
+
+def clear_auth_cookies(response: Response) -> None:
+    """На /auth/logout — стираем все три cookie."""
+    for name in (ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME, CSRF_COOKIE_NAME):
+        response.delete_cookie(name, path="/", domain=_COOKIE_DOMAIN)
+
+
+def extract_token(request: Request) -> str | None:
+    """
+    Получить access-токен запроса. Приоритет:
+    1. Cookie `access_token` (новый путь, после миграции).
+    2. Header `Authorization: Bearer ...` (legacy + mobile-clients).
+
+    Так старые залогиненные сессии (token в localStorage у фронта)
+    продолжают работать до истечения JWT, не ломая UX миграции.
+    """
+    cookie_tok = request.cookies.get(ACCESS_COOKIE_NAME)
+    if cookie_tok:
+        return cookie_tok
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:]
+    return None

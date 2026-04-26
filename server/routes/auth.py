@@ -1,14 +1,18 @@
 """Auth router — registration, login, verification, password reset, email change, me."""
 import os
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, Cookie
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from server.routes.deps import get_db, current_user, optional_user, _user_dict, _make_verify_token, _use_verify_token
 from server.models import User, Transaction, VerifyToken
-from server.auth import hash_password, verify_password, create_token, create_refresh_token, decode_token, generate_code, VERIFY_TTL_MINUTES
+from server.auth import (
+    hash_password, verify_password, create_token, create_refresh_token,
+    decode_token, generate_code, VERIFY_TTL_MINUTES,
+    set_auth_cookies, clear_auth_cookies,
+)
 from server.security import validate_email, validate_password
 from server.email_service import send_verification, send_password_reset, send_welcome
 from server.billing import credit_atomic, claim_welcome_bonus, claim_referral_signup_bonus
@@ -123,7 +127,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/verify-email")
-def verify_email(req: VerifyEmailRequest, db: Session = Depends(get_db)):
+def verify_email(req: VerifyEmailRequest, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter_by(id=req.user_id).first()
     if not user:
         raise HTTPException(404, "Пользователь не найден")
@@ -150,8 +154,10 @@ def verify_email(req: VerifyEmailRequest, db: Session = Depends(get_db)):
         send_welcome(user.email, user.name or "")
     except Exception as e:
         log.error(f"Welcome email error: {e}")
-    return {"token": create_token(user.id, user.email),
-            "refresh_token": create_refresh_token(user.id, user.email),
+    access = create_token(user.id, user.email)
+    refresh = create_refresh_token(user.id, user.email)
+    csrf = set_auth_cookies(response, access, refresh)
+    return {"token": access, "refresh_token": refresh, "csrf_token": csrf,
             "user": _user_dict(user)}
 
 
@@ -176,7 +182,7 @@ _DUMMY_BCRYPT = "$2b$12$C6UzMDM.H6dfI/f/IKyt7.Re3vdDe4xD3Z3iVfvjxQ0Pu4sPxc7/e"
 
 
 @router.post("/login")
-def login(req: LoginRequest, db: Session = Depends(get_db)):
+def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
     email = validate_email(req.email)
     user = db.query(User).filter_by(email=email).first()
     # Защита от timing-based account enumeration:
@@ -188,8 +194,10 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     if not user.is_verified:
         return {"status": "pending_verification", "user_id": user.id,
                 "message": "Подтвердите email. Выслать код повторно?"}
-    return {"token": create_token(user.id, user.email),
-            "refresh_token": create_refresh_token(user.id, user.email),
+    access = create_token(user.id, user.email)
+    refresh = create_refresh_token(user.id, user.email)
+    csrf = set_auth_cookies(response, access, refresh)
+    return {"token": access, "refresh_token": refresh, "csrf_token": csrf,
             "user": _user_dict(user)}
 
 
@@ -213,7 +221,8 @@ def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/reset-password")
-def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+def reset_password(req: ResetPasswordRequest, response: Response,
+                   db: Session = Depends(get_db)):
     validate_password(req.new_password)
     user = None
     if req.email:
@@ -230,8 +239,10 @@ def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
         raise HTTPException(400, "Неверный или истёкший код")
     user.password_hash = hash_password(req.new_password)
     db.commit()
-    return {"token": create_token(user.id, user.email),
-            "refresh_token": create_refresh_token(user.id, user.email),
+    access = create_token(user.id, user.email)
+    refresh = create_refresh_token(user.id, user.email)
+    csrf = set_auth_cookies(response, access, refresh)
+    return {"token": access, "refresh_token": refresh, "csrf_token": csrf,
             "user": _user_dict(user)}
 
 
@@ -285,13 +296,19 @@ def me(user: User = Depends(current_user)):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None  # legacy-клиенты шлют в body, новые — через cookie
 
 
 @router.post("/refresh")
-def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
-    """Обновить access токен по refresh токену."""
-    payload = decode_token(req.refresh_token, require_type="refresh")
+def refresh_token(req: RefreshRequest, response: Response,
+                  db: Session = Depends(get_db),
+                  refresh_cookie: str | None = Cookie(None, alias="refresh_token")):
+    """Обновить access токен по refresh токену.
+    Принимает refresh_token из body (legacy) или из cookie (новый flow)."""
+    rt = (req.refresh_token if req and req.refresh_token else None) or refresh_cookie
+    if not rt:
+        raise HTTPException(401, "Refresh токен отсутствует")
+    payload = decode_token(rt, require_type="refresh")
     if not payload:
         raise HTTPException(401, "Недействительный refresh токен")
     user = db.query(User).filter_by(id=int(payload["sub"])).first()
@@ -300,8 +317,21 @@ def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
     if getattr(user, 'is_banned', False):
         raise HTTPException(403, "Аккаунт заблокирован. Обратитесь в поддержку.")
     # Return new access token AND new refresh token (rotation)
+    new_access = create_token(user.id, user.email)
+    new_refresh = create_refresh_token(user.id, user.email)
+    csrf = set_auth_cookies(response, new_access, new_refresh)
     return {
-        "access_token": create_token(user.id, user.email),
-        "refresh_token": create_refresh_token(user.id, user.email),
-        "token_type": "bearer"
+        "access_token": new_access,
+        "refresh_token": new_refresh,
+        "csrf_token": csrf,
+        "token_type": "bearer",
     }
+
+
+@router.post("/logout")
+def logout(response: Response):
+    """Стирает auth cookies. JWT в Authorization-header будет работать
+    до своего exp — ничего нельзя revoke server-side без revocation list,
+    но cookie-based сессия точно завершится."""
+    clear_auth_cookies(response)
+    return {"status": "logged_out"}

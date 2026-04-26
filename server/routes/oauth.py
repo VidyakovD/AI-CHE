@@ -11,7 +11,7 @@ Flow:
 """
 import os, uuid, logging, urllib.parse
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -19,7 +19,7 @@ import httpx
 
 from server.routes.deps import get_db, _user_dict
 from server.models import User, Transaction, VerifyToken, OAuthState
-from server.auth import create_token, create_refresh_token, hash_password
+from server.auth import create_token, create_refresh_token, hash_password, set_auth_cookies
 
 log = logging.getLogger("oauth")
 router = APIRouter(prefix="/auth/oauth", tags=["auth"])
@@ -140,7 +140,8 @@ class OAuthExchangeRequest(BaseModel):
 
 
 @router.post("/exchange")
-def oauth_exchange(req: OAuthExchangeRequest, db: Session = Depends(get_db)):
+def oauth_exchange(req: OAuthExchangeRequest, response: Response,
+                   db: Session = Depends(get_db)):
     """Обмен одноразового OAuth-кода на access/refresh токены."""
     vt = db.query(VerifyToken).filter_by(
         token=req.code, purpose="oauth_exchange", used=False,
@@ -152,9 +153,13 @@ def oauth_exchange(req: OAuthExchangeRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter_by(id=vt.user_id).first()
     if not user:
         raise HTTPException(404, "User not found")
+    access = create_token(user.id, user.email)
+    refresh = create_refresh_token(user.id, user.email)
+    csrf = set_auth_cookies(response, access, refresh)
     return {
-        "access": create_token(user.id, user.email),
-        "refresh": create_refresh_token(user.id, user.email),
+        "access": access,
+        "refresh": refresh,
+        "csrf_token": csrf,
         "user": _user_dict(user),
     }
 

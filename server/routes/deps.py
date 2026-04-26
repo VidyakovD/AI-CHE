@@ -1,11 +1,11 @@
 """Shared dependencies and helpers used across all routers."""
 from datetime import datetime, timedelta
-from fastapi import Header, Depends, HTTPException
+from fastapi import Header, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from server.db import SessionLocal
 from server.models import User, Message, Transaction, VerifyToken
-from server.auth import decode_token
+from server.auth import decode_token, extract_token
 
 
 def kop_to_rub(kop) -> float:
@@ -23,10 +23,16 @@ def get_db():
         db.close()
 
 
-def current_user(authorization: str = Header(None), db: Session = Depends(get_db)) -> User:
-    if not authorization or not authorization.startswith("Bearer "):
+def current_user(request: Request, db: Session = Depends(get_db)) -> User:
+    """
+    Авторизация: токен из cookie `access_token` (новый путь, после миграции
+    на httpOnly cookies) или из заголовка `Authorization: Bearer ...`
+    (legacy / mobile-clients).
+    """
+    token = extract_token(request)
+    if not token:
         raise HTTPException(401, "Not authenticated")
-    payload = decode_token(authorization[7:])
+    payload = decode_token(token)
     if not payload:
         raise HTTPException(401, "Invalid or expired token")
     user = db.query(User).filter_by(id=int(payload["sub"])).first()
@@ -37,10 +43,11 @@ def current_user(authorization: str = Header(None), db: Session = Depends(get_db
     return user
 
 
-def optional_user(authorization: str = Header(None), db: Session = Depends(get_db)):
-    if not authorization or not authorization.startswith("Bearer "):
+def optional_user(request: Request, db: Session = Depends(get_db)):
+    token = extract_token(request)
+    if not token:
         return None
-    payload = decode_token(authorization[7:])
+    payload = decode_token(token)
     if not payload:
         return None
     user = db.query(User).filter_by(id=int(payload["sub"])).first()
