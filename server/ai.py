@@ -484,21 +484,27 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
     except (TypeError, ValueError):
         seed = None
 
-    # Image-to-video: первый кадр — путь к локальному файлу /uploads/img_xxx.png
-    # из загрузки в UI (handleVidImg → POST /upload). Имеет приоритет над text-only.
+    # Image-to-video: первый кадр. С фронта может прийти как абсолютный URL
+    # (https://aiche.ru/uploads/img_xxx.png) — берём только path-часть после
+    # /uploads/ и читаем локальный файл.
     image_url = (extra.get("image_url") or extra.get("file_url") or "").strip()
     image_payload = None
     if image_url:
         try:
-            import base64 as _b64, mimetypes
+            import base64 as _b64, mimetypes, urllib.parse as _up
+            # Извлекаем «/uploads/...» из любого URL
+            parsed = _up.urlparse(image_url)
+            rel_path = parsed.path or image_url
             project_root = os.path.dirname(_BASE_DIR)
-            local_path = os.path.join(project_root, image_url.lstrip("/"))
+            local_path = os.path.join(project_root, rel_path.lstrip("/"))
             if os.path.exists(local_path):
                 with open(local_path, "rb") as f:
                     img_b64 = _b64.b64encode(f.read()).decode("ascii")
                 mime = mimetypes.guess_type(local_path)[0] or "image/png"
                 image_payload = {"bytesBase64Encoded": img_b64, "mimeType": mime}
                 log.info(f"[Veo] image2video mode: {local_path} ({mime})")
+            else:
+                log.warning(f"[Veo] image not found locally: {local_path}")
         except Exception as e:
             log.warning(f"[Veo] failed to load image {image_url}: {e}")
 
