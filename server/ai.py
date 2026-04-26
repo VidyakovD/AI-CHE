@@ -649,8 +649,10 @@ def nanobanana_response(model: str, messages: list, extra: dict = None) -> dict:
     parameters = {"sampleCount": sample_count, "aspectRatio": ar}
     if person_gen in ("allow_all", "allow_adult", "dont_allow"):
         parameters["personGeneration"] = person_gen
+    # ВАЖНО: Imagen 4 убрал поддержку negativePrompt (Google deprecated в 2025).
+    # Если юзер задал негатив — пихаем его в основной промпт текстом.
     if neg:
-        parameters["negativePrompt"] = neg
+        prompt = f"{prompt}\n\nDo NOT include: {neg}"
 
     proxy = _google_proxy()
     last_err: Exception | None = None
