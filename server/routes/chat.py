@@ -207,14 +207,20 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
                    model=req.model, user_id=user.id,
                    tokens_used=cost))
     db.commit()
-    return {
-        "response": {
-            "type": resp_type, "content": content,
-            "ch_charged": cost,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-        }
+    # Пробрасываем url + model из answer (нужны для <video> и <img> тегов
+    # на фронте + лейбла «модель: veo-3.0-fast-generate-001» под видео).
+    resp_dict = {
+        "type": resp_type, "content": content,
+        "ch_charged": cost,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
     }
+    if isinstance(answer, dict):
+        if answer.get("url"):
+            resp_dict["url"] = answer["url"]
+        if answer.get("model"):
+            resp_dict["model"] = answer["model"]
+    return {"response": resp_dict}
 
 
 @router.post("/upload")

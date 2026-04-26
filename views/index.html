@@ -1135,6 +1135,26 @@ function toggleVideoParams(){
   }
 }
 
+// Клик вне панели = свернуть. Игнорируем клики внутри самой панели,
+// её compact-индикатора, селектора моделей и file-input'ов (т.к. диалог выбора
+// файла временно «уводит фокус» из окна — иначе панель закроется до выбора).
+document.addEventListener("click", (e) => {
+  const panel = document.getElementById("videoParamsPanel");
+  if(!panel || panel.classList.contains("hidden")) return;
+  // Игнор кликов внутри самой панели
+  if(panel.contains(e.target)) return;
+  // Игнор кликов по compact-кнопке (она же открывает обратно)
+  const compact = document.getElementById("videoParamsCollapsed");
+  if(compact && compact.contains(e.target)) return;
+  // Игнор клика по селектору модели сверху (там тоже dropdown)
+  const modelMenu = document.getElementById("modelMenuBtn");
+  const modelDrop = document.getElementById("modelDropdown");
+  if((modelMenu && modelMenu.contains(e.target)) || (modelDrop && modelDrop.contains(e.target))) return;
+  // Сворачиваем
+  panel.classList.add("hidden");
+  if(compact && VIDEO_MODELS.includes(currentModel)) compact.classList.remove("hidden");
+});
+
 function onVidParamChange(paramId,value,model){
   if(paramId==="generation_mode") updateKlingZones(value, model);
   // Для Veo: image_mode = "i2v" → показать загрузку стартового кадра
@@ -2278,14 +2298,18 @@ function addUserMsg(text,fileUrl,isImg,ts){
 function addMsg(content,role,type,ts){
   let text=content,fileUrl=null,isImg=false;
   try{const p=JSON.parse(content);if(p&&"file_url" in p){text=p.text||"";fileUrl=p.file_url;isImg=/\.(png|jpg|jpeg|gif|webp)$/i.test(fileUrl);}}catch{}
-  // Авто-детект для AI-ответов: если content — URL картинки (/uploads/img_xxx.png
-  // или https://...png), показываем как image даже без явного type. Иначе после
-  // перезагрузки чата сгенерированные DALL-E/gpt-image-1 ответы становились текстом.
+  // Авто-детект для AI-ответов: если content — URL медиа-файла, показываем
+  // как image / video даже если backend не выставил тип. Это критично для
+  // ответов, где backend вернул type=text но content = "/uploads/vid_xxx.mp4".
   if(role!=="user" && type!=="image" && typeof content==="string"){
     const trimmed = content.trim();
     if (/^(https?:\/\/|\/uploads\/|\/sites\/hosted\/).+\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i.test(trimmed)) {
       type = "image";
       text = trimmed;
+    } else if (/^(https?:\/\/|\/uploads\/).+\.(mp4|webm|mov)(\?.*)?$/i.test(trimmed)) {
+      // Видео-URL пришло как обычный текст — рендерим как видео-плеер
+      addVideoMsg({type:"video", url: trimmed, content: trimmed});
+      return;
     }
   }
   const c=document.getElementById("chatContainer");
