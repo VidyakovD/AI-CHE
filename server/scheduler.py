@@ -329,6 +329,42 @@ async def _db_backup_tick():
         log.info(f"[db-backup] retention: removed {removed} backups older than 14 days")
 
 
+async def _cleanup_old_action_logs_tick():
+    """Удаляет аудит-логи старше 90 дней. info-level — старше 30 дней.
+    Errors / critical храним 90 дней — могут понадобиться для разбора."""
+    from datetime import datetime, timedelta
+    from server.db import db_session
+    from server.models import ActionLog
+    cutoff_info = datetime.utcnow() - timedelta(days=30)
+    cutoff_err = datetime.utcnow() - timedelta(days=90)
+    try:
+        with db_session() as db:
+            n_info = (db.query(ActionLog)
+                      .filter(ActionLog.ts < cutoff_info, ActionLog.level == "info")
+                      .delete(synchronize_session=False))
+            n_err = (db.query(ActionLog)
+                     .filter(ActionLog.ts < cutoff_err)
+                     .delete(synchronize_session=False))
+            db.commit()
+            if n_info or n_err:
+                log.info(f"[audit-cleanup] removed {n_info} info, {n_err} other")
+    except Exception as e:
+        log.error(f"[audit-cleanup] failed: {e}")
+
+
+async def audit_cleanup_loop():
+    from server.worker_lock import worker_lock
+    await asyncio.sleep(1200)  # 20 мин после старта
+    while True:
+        try:
+            with worker_lock("audit_cleanup", ttl_sec=3600 * 23) as acquired:
+                if acquired:
+                    await _cleanup_old_action_logs_tick()
+        except Exception as e:
+            log.error(f"[audit-cleanup] tick: {e}")
+        await asyncio.sleep(86400)
+
+
 async def _cleanup_old_conversations_tick():
     """Удаляет тёрны диалогов старше 30 дней — иначе таблица растёт без границ.
     Каждый бот в день может писать сотни сообщений × 100k клиентов = миллионы строк."""
@@ -377,9 +413,10 @@ async def db_backup_loop():
 
 
 def start_scheduler():
-    """Фоновые задачи: scheduler / API-keys health / PDF cleanup / DB backup / conv cleanup."""
+    """Фоновые задачи: scheduler / health / cleanup PDF / backup / conv / audit."""
     asyncio.create_task(scheduler_loop())
     asyncio.create_task(apikey_check_loop())
     asyncio.create_task(pdf_cleanup_loop())
     asyncio.create_task(db_backup_loop())
     asyncio.create_task(conv_cleanup_loop())
+    asyncio.create_task(audit_cleanup_loop())

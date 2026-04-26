@@ -22,6 +22,127 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+
+# ── Audit log: просмотр и экспорт ───────────────────────────────────────────
+# Используется чтобы скинуть выгрузку AI-ассистенту в новом чате — он сразу
+# увидит что происходило в проде за период (регистрации, AI-вызовы, ошибки).
+
+@router.get("/actions")
+def admin_actions(limit: int = 200, since_hours: int = 24,
+                  action_prefix: str | None = None,
+                  level: str | None = None,
+                  only_errors: bool = False,
+                  user: User = Depends(current_user),
+                  db: Session = Depends(get_db)):
+    """JSON-список действий из action_logs. Фильтры:
+      - since_hours: за последние N часов (по умолчанию сутки)
+      - action_prefix: «ai.», «site.», «payment.» и т.п.
+      - level: info/warn/error/critical
+      - only_errors: только success=False
+      - limit: до 1000
+    """
+    require_admin(user)
+    from server.models import ActionLog
+    from datetime import timedelta
+    q = db.query(ActionLog).filter(
+        ActionLog.ts >= datetime.utcnow() - timedelta(hours=max(1, int(since_hours or 24)))
+    )
+    if action_prefix:
+        q = q.filter(ActionLog.action.like(f"{action_prefix}%"))
+    if level in ("info", "warn", "error", "critical"):
+        q = q.filter(ActionLog.level == level)
+    if only_errors:
+        q = q.filter(ActionLog.success == False)  # noqa: E712
+    rows = q.order_by(ActionLog.id.desc()).limit(min(int(limit or 200), 1000)).all()
+    return [{
+        "id": r.id,
+        "ts": r.ts.isoformat() if r.ts else None,
+        "user_id": r.user_id,
+        "action": r.action,
+        "target": f"{r.target_type}:{r.target_id}" if r.target_type else None,
+        "level": r.level,
+        "success": r.success,
+        "details": json.loads(r.details) if r.details else None,
+        "error": r.error,
+        "ip": r.ip,
+        "request_id": r.request_id,
+    } for r in rows]
+
+
+@router.get("/actions.txt", include_in_schema=False)
+def admin_actions_text(limit: int = 500, since_hours: int = 24,
+                       action_prefix: str | None = None,
+                       only_errors: bool = False,
+                       user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Текстовый дамп логов — удобно скинуть в чат AI-ассистенту.
+
+    Формат: одна строка на событие, plain text для копирования в Claude/GPT.
+    Пример вывода:
+        2026-04-26T16:23 INFO user=42 site.generate_done site_project:7 details={tier:premium,size_kb:47}
+    """
+    from server.models import ActionLog
+    from datetime import timedelta
+    from fastapi.responses import PlainTextResponse
+    require_admin(user)
+    q = db.query(ActionLog).filter(
+        ActionLog.ts >= datetime.utcnow() - timedelta(hours=max(1, int(since_hours or 24)))
+    )
+    if action_prefix:
+        q = q.filter(ActionLog.action.like(f"{action_prefix}%"))
+    if only_errors:
+        q = q.filter(ActionLog.success == False)  # noqa: E712
+    rows = q.order_by(ActionLog.id.desc()).limit(min(int(limit or 500), 2000)).all()
+    rows = list(reversed(rows))  # хронологический порядок для чтения
+
+    lines = [f"# Audit log dump — last {since_hours}h, {len(rows)} events",
+             f"# Generated at {datetime.utcnow().isoformat()}Z",
+             ""]
+    for r in rows:
+        ts = r.ts.strftime("%Y-%m-%d %H:%M:%S") if r.ts else "?"
+        det = ""
+        if r.details:
+            try:
+                d = json.loads(r.details)
+                det = " " + " ".join(f"{k}={v}" for k, v in d.items() if v not in (None, ""))
+            except Exception:
+                det = " " + r.details[:200]
+        target = f" {r.target_type}:{r.target_id}" if r.target_type else ""
+        err = f" ERROR={r.error[:160]}" if r.error else ""
+        ok = "OK" if r.success else "FAIL"
+        usr = f" user={r.user_id}" if r.user_id else ""
+        lines.append(f"{ts} [{r.level.upper()}/{ok}]{usr} {r.action}{target}{det}{err}")
+    return PlainTextResponse("\n".join(lines), media_type="text/plain; charset=utf-8")
+
+
+@router.get("/actions.jsonl", include_in_schema=False)
+def admin_actions_jsonl(since_hours: int = 24, limit: int = 5000,
+                        user: User = Depends(current_user),
+                        db: Session = Depends(get_db)):
+    """JSONL для машинной обработки (по 1 события на строку)."""
+    from server.models import ActionLog
+    from datetime import timedelta
+    from fastapi.responses import PlainTextResponse
+    require_admin(user)
+    rows = db.query(ActionLog).filter(
+        ActionLog.ts >= datetime.utcnow() - timedelta(hours=max(1, int(since_hours or 24)))
+    ).order_by(ActionLog.id.desc()).limit(min(int(limit or 5000), 50000)).all()
+    rows = list(reversed(rows))
+    out = []
+    for r in rows:
+        out.append(json.dumps({
+            "ts": r.ts.isoformat() if r.ts else None,
+            "user_id": r.user_id,
+            "action": r.action,
+            "target_type": r.target_type, "target_id": r.target_id,
+            "level": r.level, "success": r.success,
+            "details": json.loads(r.details) if r.details else None,
+            "error": r.error, "ip": r.ip, "request_id": r.request_id,
+        }, ensure_ascii=False))
+    return PlainTextResponse("\n".join(out),
+                              media_type="application/x-ndjson; charset=utf-8")
+
+
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def _sol_dict(s: Solution) -> dict:

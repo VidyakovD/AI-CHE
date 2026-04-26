@@ -188,6 +188,35 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
     # Так юзер платит за то что реально получил, а не за «декларированную» модель.
     actual_model = answer.get("model") if isinstance(answer, dict) else None
     cost_model = actual_model or real_model
+
+    # Auto-refund: если запрашивали видео/картинку, а вернулся text с ошибкой
+    # («Видео не сгенерировано», «Сервис временно недоступен», 429 quota и т.п.)
+    # — НЕ списываем деньги. Юзер не получил товар.
+    is_media_request = req.model in ("veo", "nano", "gpt-image", "dalle", "kling", "kling-pro")
+    looks_like_error = (
+        resp_type == "text"
+        and isinstance(content, str)
+        and any(marker in content for marker in (
+            "не сгенерировано", "временно недоступен", "не удалось", "ошибк", "RESOURCE_EXHAUSTED"
+        ))
+    )
+    if is_media_request and looks_like_error:
+        log.warning(f"[chat] auto-refund: {req.model} вернула ошибку, не списываем. content={content[:100]}")
+        try:
+            from server.audit_log import log_action
+            log_action("ai.media_error", user_id=user.id, target_type="chat",
+                       target_id=req.chat_id, level="warn", success=False,
+                       details={"model": req.model, "error_text": content[:300]},
+                       error=content[:500])
+        except Exception:
+            pass
+        # Сохраняем ответ-сообщение чтобы юзер увидел что произошло, но без списания
+        db.add(Message(chat_id=req.chat_id, role="assistant", content=content,
+                       model=req.model, user_id=user.id, tokens_used=0))
+        db.commit()
+        return {"response": {"type": "text", "content": content, "ch_charged": 0,
+                              "input_tokens": 0, "output_tokens": 0, "refunded": True}}
+
     cost = calculate_cost(cost_model, input_tokens, output_tokens, db)
 
     # Атомарное списание (защита от race condition при параллельных запросах)
@@ -207,6 +236,23 @@ def send_message(req: MessageRequest, db: Session = Depends(get_db), user=Depend
                    model=req.model, user_id=user.id,
                    tokens_used=cost))
     db.commit()
+    # Audit-лог AI-вызова: модель, токены, цена, тип результата
+    try:
+        from server.audit_log import log_action
+        log_action(
+            "ai.chat" if resp_type == "text" else f"ai.{resp_type}",
+            user_id=user.id, target_type="chat", target_id=req.chat_id,
+            details={
+                "model": req.model,
+                "real_model": cost_model,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost_kop": cost,
+                "type": resp_type,
+            },
+        )
+    except Exception:
+        pass
     # Пробрасываем url + model из answer (нужны для <video> и <img> тегов
     # на фронте + лейбла «модель: veo-3.0-fast-generate-001» под видео).
     resp_dict = {

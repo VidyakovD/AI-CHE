@@ -1,97 +1,232 @@
 # AI Студия Че — CLAUDE.md
 
-Этот файл задаёт контекст для сессий. Редактируй его по мере развития проекта.
+Этот файл — first-class контекст для AI-ассистента. Если зашёл в проект **в новом чате** — читай целиком, потом смотри `HANDOVER.md` (свежие изменения за последние сессии) и `TODO_NEXT.md` (что в работе).
 
 ## Что делать при каждом новом запуске
-- Прочитай этот файл, чтобы вспомнить проект
-- Прочитай файлы из `memory/` (особенно `project_state.md`, `feedback_business_focus.md`)
-- Проверь `git log --oneline -15` для понимания последних изменений
-- Прочитай `TODO_NEXT.md` в корне — что в работе
+1. **Прочитай этот файл целиком** — здесь актуальное состояние (не из памяти).
+2. Прочитай `HANDOVER.md` в корне — там история последних 5-10 сессий с диффом.
+3. Прочитай `TODO_NEXT.md` — что в очереди.
+4. Если нужны live-логи событий с прода — запроси у юзера выгрузку:
+   ```
+   GET https://aiche.ru/admin/actions.txt?since_hours=72&limit=2000
+   Authorization: Bearer <admin token>
+   ```
+   (см. секцию «Audit log» ниже)
+5. `git log --oneline -15` — последние коммиты.
 
-## Общее описание
+## Краткое описание
 **B2B AI-платформа для бизнеса.** Веб-приложение FastAPI + HTML SPA.
 Главные инструменты:
-- **Чат** с моделями: GPT-4o / Claude Sonnet / Perplexity / Grok / GPT-image (картинки)
-- **Бизнес-решения** (Solutions) — 30 экспертных промптов с фикс-ценой
-  50/100 ₽, выдача в виде PDF-отчёта
-- **Чат-боты** для TG / VK / Avito / **MAX** с конструктором workflow
-  (триггеры → AI-блоки → outputs)
-- **AI-агенты** с очередью задач + AI-сборка графа по описанию
-- **Сайты** под бизнес — фикс 1500 ₽, чат по ТЗ через GPT, генерация HTML
-  через Claude, картинки upload, привязка чат-бота как виджета
-- **КП и Презентации** — фикс 50/100 ₽, картинки, привязка чат-бота
-- **Платежи** через ЮKassa (только пополнение баланса, без подписок)
-- **Админка**: пользователи, API-ключи, цены, контент, фичи, промокоды
-- **Рефералка**: 10% от пополнения друга на свой баланс
+- **Чат** с моделями: GPT-4o / Claude Sonnet+Opus / Perplexity / Grok / GPT-image / **Imagen 4** / **Veo 3** (видео)
+- **Бизнес-решения** (Solutions) — 30 экспертных промптов с фикс-ценой 50/100 ₽, выдача PDF
+- **Чат-боты** TG / VK / Avito / **MAX** с конструктором workflow + **6 готовых шаблонов**
+- **AI-агенты** с очередью + AI-сборка графа по описанию
+- **Сайты** — фикс **1500 ₽ (Sonnet)** или **1990 ₽ (Opus премиум)**, фоновая генерация с polling
+- **КП и Презентации** — фикс 50/100 ₽
+- **Платежи** ЮKassa (только пополнение баланса, без подписок)
+- **Админка**: пользователи, ключи, цены, контент, фичи, промокоды, **аудит-лог**
+- **Рефералка**: 10% от пополнения
 
 ## Стек
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy, SQLite (`chat.db`)
 - **Frontend:** HTML / Tailwind CDN / vanilla JS (SPA без фреймворка)
-- **AI провайдеры:** OpenAI, Anthropic, Perplexity, Grok (Gemini/Kling/Veo/Nano скрыты)
-- **Платежи:** ЮKassa (yookassa SDK)
+- **AI провайдеры:**
+  - OpenAI (gpt-4o, gpt-4o-mini, gpt-image-1, dall-e-3)
+  - Anthropic (claude-sonnet-4-6, claude-opus-4-1-20250805) — прямой ключ, прокси awstore УБРАН
+  - Grok (xai)
+  - Perplexity (sonar)
+  - **Google AI Studio через прокси** — Imagen 4 fast/std/ultra, Veo 2/3/3.1
+- **Платежи:** ЮKassa
 - **PDF:** xhtml2pdf (markdown → HTML → PDF) с фирменным CSS
 - **Авторизация:** JWT через python-jose, bcrypt через passlib
 
 ## Структура файлов
 | Файл | Что делает |
 |---|---|
-| `main.py` | Точка входа — FastAPI, подключение роутеров, CSP |
-| `server/routes/*.py` | HTTP-эндпоинты (auth, chat, payments, admin, oauth, sites, presentations, chatbots, agent, solutions, webhook, widget, public, user) |
-| `server/ai.py` | Логика вызова AI-провайдеров, MODEL_REGISTRY, openai_image_response с edit-by-reference |
-| `server/auth.py` | JWT-токены (с iss/aud), хэширование паролей |
-| `server/db.py` | SQLAlchemy engine, SessionLocal, db_session, **LIGHTWEIGHT_MIGRATIONS** |
-| `server/billing.py` | **Атомарные** списания/начисления (deduct_atomic, deduct_strict, credit_atomic). Все суммы — в КОПЕЙКАХ |
-| `server/secrets_crypto.py` | Шифрование секретов в БД (Fernet от JWT_SECRET) + EncryptedString TypeDecorator |
-| `server/models.py` | ORM-модели. Токены ботов (TG/VK/Avito/MAX/widget) — EncryptedString |
-| `server/payments.py` | YooKassa init + credit_referral_bonus (без PLANS — подписки убраны) |
-| `server/security.py` | Rate limiting, валидация, tg_webhook_secret, require_admin |
-| `server/agent_runner.py` | AI-агенты с приоритетной очередью |
-| `server/chatbot_engine.py` | Движок чат-ботов (исполнение workflow), MAX/TG/VK/Avito helpers |
-| `server/workflow_builder.py` | AI-сборка графа воркфлоу по описанию задачи |
-| `server/pdf_builder.py` | Markdown → PDF для бизнес-решений (xhtml2pdf + фирменный CSS) |
-| `server/email_service.py` | Отправка email |
-| `server/email_imap.py` | IMAP-trigger для воркфлоу |
-| `views/index.html` | Главная страница (чат + бизнес-решения + lightbox + viewport) |
+| `main.py` | Entry point, роутеры, CSP, middleware (rate-limit, request-id, CORS, body-size) |
+| `server/routes/auth.py` | Регистрация, верификация, password reset, OAuth-exchange |
+| `server/routes/oauth.py` | Google/VK OAuth (ключей в env пока нет — см. TODO_NEXT) |
+| `server/routes/chat.py` | `/message`, `/upload`. **Auto-refund** если AI-видео/картинка вернулись с ошибкой |
+| `server/routes/payments.py` | YooKassa init + webhook + confirm-tokens (UNIQUE на yookassa_payment_id) |
+| `server/routes/sites.py` | **Фоновая генерация** с polling, `/quality-tiers` (Sonnet/Opus), edit-block AI-правка |
+| `server/routes/chatbots.py` | CRUD ботов + 6 шаблонов + AI-improve + превью + аналитика + records |
+| `server/routes/webhook.py` | TG / VK / Avito / MAX webhooks (TG требует X-Telegram-Bot-Api-Secret-Token) |
+| `server/routes/widget.py` | JS-виджет на сайт + WebSocket с Origin-whitelist |
+| `server/routes/solutions.py` | Бизнес-решения: запуск + PDF |
+| `server/routes/agent.py` | AI-агенты с очередью |
+| `server/routes/admin.py` | Админка + **`/admin/actions.txt`** (audit-log в plain text для копирования в чат) |
+| `server/routes/public.py` | FAQ, плата по моделям, промокоды |
+| `server/routes/user.py` | Личный кабинет, статистика, поддержка |
+| `server/routes/presentations.py` | КП + презентации |
+| `server/ai.py` | MODEL_REGISTRY, generate_response, **try_with_keys helper**, image/video через прокси |
+| `server/auth.py` | JWT (с iss/aud), хэширование |
+| `server/db.py` | SQLAlchemy + LIGHTWEIGHT_MIGRATIONS + WAL + foreign_keys + busy_timeout 30s |
+| `server/billing.py` | **Атомарные** списания + `claim_welcome_bonus` + `claim_referral_signup_bonus` |
+| `server/secrets_crypto.py` | Шифрование секретов БД через **HKDF**(JWT_SECRET) + sha256 fallback для legacy |
+| `server/models.py` | ORM. Bot tokens — EncryptedString. Новое: ActionLog, BotRecord, BotConversationTurn |
+| `server/payments.py` | YooKassa + `credit_referral_bonus(payment_id=...)` идемпотентный |
+| `server/security.py` | Rate-limit per-IP, validation, `tg_webhook_secret`, `require_admin` |
+| `server/agent_runner.py` | Очередь AI-агентов |
+| `server/chatbot_engine.py` | Движок чат-ботов: workflow + новые ноды (request_contact, output_photo, edit_message, save_record) + persistent conv-память в SQLite |
+| `server/workflow_builder.py` | AI-сборка графа из описания через Claude |
+| `server/pdf_builder.py` | Markdown→PDF (xhtml2pdf), em→pt, page-break |
+| `server/email_service.py` | SMTP отправка |
+| `server/email_imap.py` | IMAP-trigger воркфлоу |
+| `server/scheduler.py` | Cron-воркеры: schedule, apikey-check, PDF cleanup, DB backup, conv cleanup, **audit cleanup** |
+| `server/worker_lock.py` | Advisory-локи через SQLite, **fail-CLOSED** |
+| `server/audit_log.py` | **Helper `log_action()` для записи в action_logs** |
+| `server/bot_templates.py` | **6 готовых шаблонов**: lead/sales/faq/booking/quiz/content |
+| `server/bot_constructor_template.py` | Workflow для бота-конструктора в TG/MAX |
+| `views/index.html` | Главная: чат + бизнес-решения + lightbox |
 | `views/admin.html` | Админ-панель |
-| `views/agents.html` | AI-агенты + Canvas-воркфлоу + AI-сборка |
-| `views/chatbots.html` | Чат-боты CRUD (TG/VK/Avito/MAX/виджет) |
-| `views/workflows.html`, `workflow.html` | Воркфлоу-модуль (СКРЫТ из навигации) |
-| `views/sites.html` | Конструктор сайтов с превью + viewport-resize + ботом |
-| `views/presentations.html` | Презентации/КП с картинками + ботом |
+| `views/agents.html` | AI-агенты + Canvas |
+| `views/chatbots.html` | Чат-боты: chooser (шаблон/AI/с-нуля) + галерея + превью + аналитика + records + AI-improve |
+| `views/sites.html` | Сайты: chooser tier (Sonnet/Opus) + polling-генерация + edit-block AI-правка |
+| `views/presentations.html` | КП и презентации |
+| `views/icons.js` | **Единый набор 66 SVG-иконок** (заменяет эмодзи в UI) |
 
-## Запуск
+## Запуск (local dev)
+```bash
+DEV_MODE=true JWT_SECRET=dev-secret python -m uvicorn main:app --reload --port 8001
 ```
-uvicorn main:app --reload
+
+## Запуск (prod)
+```
+ssh -i 'C:\Users\Денис\.ssh\id_ed25519' root@194.104.9.219
+cd /root/AI-CHE && git pull origin main && systemctl restart ai-che
 ```
 
 ## Деньги — РУБЛИ + КОПЕЙКИ (после рефакторинга 2026-04-25)
 - Баланс юзера = `User.tokens_balance` в **копейках** (1 ₽ = 100 коп)
-- Токены CH полностью **убраны** из UX. В коде имена колонок остались
-  (`tokens_balance`, `tokens_delta`, `ch_per_1k_*`) для совместимости
-  с существующей БД, но семантика — копейки.
-- UI: `window.fmtRub(kop)` → "X.XX ₽" (определён в каждом view).
-- Подписки **отключены**: убраны PLANS, /payment/create, /payment/confirm,
-  cancel_subscription, _sub_dict, вкладка «Подписки» в кабинете.
-- Только пополнение баланса через `/payment/buy-tokens` (название
-  legacy, по факту это «buy-rubles»).
+- Поля называются `tokens_balance`, `tokens_delta`, `ch_per_1k_*` — это legacy имена, **значение = копейки**
+- UI: `window.fmtRub(kop)` → "X.XX ₽"
+- **Подписки убраны.** Только пополнение баланса через `/payment/buy-tokens`
+- Бонусы:
+  - Welcome **50 ₽** (env `WELCOME_BONUS_RUB`) — атомарный gate `User.welcome_bonus_claimed_at`
+  - Реферал **10% от каждого пополнения** друга — идемпотентность через `Transaction.yookassa_payment_id` UNIQUE
 
-## AI-провайдеры и цены
-- OpenAI / Anthropic / Grok — прямые ключи, без прокси.
-- Gemini / Kling / Veo / Nano — модели УБРАНЫ из главного экрана.
-- Картинки — gpt-image-1 (новая) + DALL-E 3 (legacy). 15 ₽ / шт.
+## AI провайдеры
+
+### OpenAI/Anthropic/Grok
+Прямые ключи в БД `api_keys` (provider=`openai`/`anthropic`/`grok`). Подгружаются в env при старте через `_load_all_apikeys_from_db`.
+
+### Google (Imagen + Veo) — ВАЖНО
+- Хостинг прода в NL (Dronten, ASN AS41745) — **Google AI Studio блочит этот ASN**, FAILED_PRECONDITION
+- Решение: **прокси** в env `GOOGLE_HTTPS_PROXY=http://USER:PASS@HOST:PORT` (сейчас Clouvider Amsterdam)
+- Используется ТОЛЬКО для Google-вызовов (Imagen, Veo) — остальное идёт напрямую
+- Имена моделей актуальны на 2026-04:
+  - **Imagen**: `imagen-4.0-fast-generate-001` (10₽), `imagen-4.0-generate-001` (15₽), `imagen-4.0-ultra-generate-001` (25₽)
+    - Imagen 3 устарел, `negativePrompt` deprecated → пихаем в основной prompt текстом
+  - **Veo**: `veo-3.0-fast-generate-001` (300₽), `veo-3.0-generate-001` + audio (500₽), `veo-3.1-fast-generate-preview` (400₽), `veo-2.0-generate-001` (200₽)
+  - Per-model capabilities (важно):
+    - `generateAudio` — только Veo 3.0/3.1 не-fast
+    - `image` (i2v) — только Veo 3.x (не Veo 2)
+    - `negativePrompt` — только Veo 2
+
+### Видео-генерация Veo
+- Асинхронная: `predictLongRunning` → operation → polling до 5 мин (внутри `veo_response`)
+- Сохранение mp4 в `/uploads/vid_*.mp4`
+- Fallback chain: если Veo 3.0 fast вернул 429/503 — пробуем 3.1 → 3.0 → 2.0
+- **Если 429 «prepayment depleted» — auto-refund в `/message`** (юзер не платит за неудачу)
+
+## Шаблоны ботов (6)
+- `lead_capture` — лидогенерация: AI квалифицирует → request_contact → save_record + TG-уведомление
+- `sales_warmup` — продажи / прогрев + ссылка на оплату
+- `faq_support` — kb_rag + эскалация при низкой уверенности
+- `booking` — запись на услугу: меню → дата → телефон → бронь
+- `quiz_funnel` — серия вопросов → сегмент → персональная рекомендация
+- `content_broadcast` — лид-магнит при подписке + рассылки
+
+`server/bot_templates.py` — TEMPLATES list. Endpoint `POST /chatbots/from-template/{slug}`.
+
+## Ноды workflow (chatbot_engine.py)
+**Триггеры:** trigger_tg, trigger_vk, trigger_avito, trigger_max, trigger_webhook, trigger_imap, trigger_schedule, trigger_manual
+
+**AI:** node_gpt, node_claude, node_gemini, node_grok, prompt, orchestrator
+
+**Логика:** condition, switch, role_switch, delay, http_request, code_python (sandbox, off by default)
+
+**Storage:** storage_get, storage_set, storage_push
+
+**KB (RAG):** kb_add, kb_search_file, kb_search, kb_rag
+
+**Output:** output_tg, output_tg_buttons, output_tg_file, output_tg_audio, output_vk, output_max, **output_max_buttons**, output_save, output_hook
+
+**Богатый UX (новые):** **request_contact**, **request_location**, **output_photo**, **edit_message**, **chat_action_typing**
+
+**Универсальный:** **save_record** (lead/booking/order/quiz/ticket/subscriber)
+
+**Мета:** **bot_constructor** (создаёт дочерний бот по диалогу)
+
+## Audit log (новое!)
+Таблица `action_logs` — все значимые действия пишутся через `server.audit_log.log_action()`.
+
+**Что логируется:**
+- `auth.register` / `auth.verify_email` / `auth.oauth`
+- `payment.webhook` / `payment.confirm` / `payment.referral_bonus`
+- `ai.chat` / `ai.image` / `ai.video` — каждый AI-вызов с моделью + токены + цена
+- `ai.media_error` — когда видео/картинка упали (с auto-refund)
+- `site.generate_start` / `site.generate_done` / `site.generate_failed`
+- `bot.create` / `bot.from_template` / `bot.ai_create` / `bot.ai_improve` / `bot.delete`
+- `record.created` — новая заявка от чат-бота
+
+**Эндпоинты для ассистента в новом чате:**
+- `GET /admin/actions?since_hours=72&limit=500` — JSON
+- `GET /admin/actions.txt?since_hours=72&limit=2000` — **plain text для копирования в чат**
+- `GET /admin/actions.jsonl?since_hours=72&limit=5000` — JSONL для машинной обработки
+- Фильтры: `action_prefix=ai.`, `level=error`, `only_errors=true`
+
+**Cleanup:** info-level старше 30 дней, error/critical — старше 90 дней (`audit_cleanup_loop` в scheduler).
+
+## Безопасность (после аудитов)
+- Чат-ownership: `_assert_chat_owner` без `or_(user_id IS NULL)` — анон-чаты не утекают
+- Токены ботов (TG/VK/Avito/widget/MAX) — `EncryptedString` через `secrets_crypto.encrypt/decrypt`
+- YooKassa webhook: HMAC обязателен при secret, raw_body читается до json
+- TG webhook требует `X-Telegram-Bot-Api-Secret-Token` (без — 401)
+- Виджет WS: Origin-whitelist через `ChatBot.widget_allowed_origins`
+- `/message` требует current_user (анонимы запрещены)
+- CSP заголовок выставлен (allow blob: для превью сайтов и виджет sandbox iframe)
+- nginx proxy_read_timeout=600s
+- HKDF для Fernet-ключа в `secrets_crypto` (legacy sha256 поддержан для расшифровки старых)
+- Welcome / referral бонусы — atomic gates на `User.*_at` (нельзя получить дважды даже на гонке)
+- UNIQUE-индекс `uq_transactions_yookassa_id` — webhook идемпотентен
+- Worker_lock fail-CLOSED — лучше пропустить tick чем выполнить дважды
+- SVG sanitization — блокируем `<script>`/`onload=` в SVG-аплоадах
+
+## Production-readiness
+- **Sentry**: guarded `SENTRY_DSN` env. `pip install sentry-sdk[fastapi]`
+- **Structured logs**: `STRUCTURED_LOGS=1` → JSON формат
+- **X-Request-ID**: middleware, прокидывается в response header
+- **Auto-backup chat.db**: ежесуточно через sqlite native backup, retention 14 дней в `/backups/`
+- **Audit log**: всё пишется в `action_logs` (см. выше)
+
+## Инфра
+- Прод: `root@194.104.9.219` (Дронтен, NL, Clouvider), путь `/root/AI-CHE`, systemd `ai-che`
+- venv: `/root/AI-CHE/venv/bin/python`
+- env: `/root/AI-CHE/.env` — `OPENAI_API_KEYS`, `ANTHROPIC_API_KEYS`, `GROK_API_KEYS`, `GOOGLE_API_KEYS`, **`GOOGLE_HTTPS_PROXY`**, `JWT_SECRET`, `YOOKASSA_*`, `APP_URL=https://aiche.ru`
+- Деплой: `git pull origin main && systemctl restart ai-che`
+- БД: SQLite `chat.db` + WAL. Бэкапы автоматом в `/root/AI-CHE/backups/chat.db.YYYY-MM-DD`
 
 ## Правила разработки
-- Ответы на русском языке
-- Комментарии в коде — минимальные, только где неочевидно
-- API-ключи хранятся в БД (`api_keys`) и восстанавливаются в env при старте
-  через `_load_all_apikeys_from_db`. Фильтр `status != "disabled"`
-- `loadChats()` вызывать без `await` чтобы не блокировать UI
-- **Биллинг:** любые изменения баланса — только через `server.billing.deduct_strict/deduct_atomic/credit_atomic`. Прямой `user.tokens_balance += …` запрещён (race condition). Все суммы — копейки
+- Ответы на русском
+- Комментарии — минимальные, только где неочевидно
+- API-ключи в БД `api_keys`, в env не хардкодим. `_load_all_apikeys_from_db` подгружает на старте
+- **Биллинг:** только через `server.billing.deduct_strict/deduct_atomic/credit_atomic`. Прямой `user.tokens_balance += …` запрещён. Все суммы — копейки
 - **Сессии БД вне FastAPI Depends:** только через `with db_session() as db:` (rollback при ошибке)
-- **Секреты в БД** (IMAP-пароли, токены чат-ботов): через `EncryptedString` TypeDecorator или вручную `secrets_crypto.encrypt/decrypt`
+- **Секреты в БД** (IMAP-пароли, токены ботов): через `EncryptedString` TypeDecorator
 - **Миграции схемы:** добавлять колонки через `LIGHTWEIGHT_MIGRATIONS` в `server/db.py` (идемпотентный ALTER TABLE IF NOT EXISTS)
-- **Webhooks:** TG проверяется `X-Telegram-Bot-Api-Secret-Token`; ЮKassa — HMAC обязателен (raw_body читается ДО json) + двойная верификация через `Payment.find_one`
-- **Чат-доступ:** `_assert_chat_owner` без `or_(user_id IS NULL)` — анон-чаты не утекают
-- **Картинки** сохраняются в `/uploads/` (КОРЕНЬ проекта), не в `server/uploads`. Используй `os.path.dirname(_BASE_DIR)` для перехода на parent
-- **Цены AI** — в копейках в `model_pricing` БД и `TOKEN_COST` (server/ai.py) как fallback
+- **Webhooks:** TG проверяется secret-token; ЮKassa — HMAC + двойная верификация через `Payment.find_one`
+- **Картинки** в `/uploads/` (КОРЕНЬ проекта). Используй `os.path.dirname(_BASE_DIR)` для перехода на parent
+- **Цены AI** — копейки в `model_pricing` БД и `TOKEN_COST` (server/ai.py) как fallback
+- **Логи действий** — добавляй `log_action(...)` в новые endpoint'ы где есть бизнес-логика
 - **Деплой:** `git pull origin main && systemctl restart ai-che`. NEVER `db.drop_all()`, NEVER reset api_keys/users/transactions
+
+## Тесты
+`pytest tests/` — 72 проходят. Файлы:
+- `tests/test_api.py` — auth, chat, chatbots CRUD, security, webhooks
+- `tests/test_billing.py` — atomic gates, race conditions, widget Origin/escape, injection
+- `tests/test_critical_paths.py` — promo, conversation persistence, try_with_keys, secrets HKDF, edit-block refund
+- `tests/conftest.py` — DEV_MODE=true + JWT_SECRET + apply migrations
+
+## Свежие коммиты
+Смотри `git log --oneline -20` или `HANDOVER.md` для разбора последних сессий.

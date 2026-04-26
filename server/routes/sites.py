@@ -610,6 +610,10 @@ async def site_project_generate_code(project_id: int, body: dict | None = None,
     # Запускаем фоновую задачу с выбранным tier'ом
     asyncio.create_task(_run_site_generation(project_id, quality=quality))
 
+    from server.audit_log import log_action
+    log_action("site.generate_start", user_id=user.id, target_type="site_project",
+               target_id=project_id, details={"quality": quality, "cost_kop": cost})
+
     return {"status": "running", "progress": p.gen_progress, "quality": quality, "tier": tier["label"]}
 
 

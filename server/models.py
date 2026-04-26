@@ -516,6 +516,43 @@ class ImapCredential(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class ActionLog(Base):
+    """Аудит-лог всех значимых действий пользователя/системы.
+
+    Назначение: дать AI-ассистенту в новом чате контекст «что вообще
+    происходило в проде» через выгрузку GET /admin/actions.txt. Также
+    полезно для разбора бажных кейсов («у юзера X не списались деньги»).
+
+    Что логируется (action):
+      - auth.register / auth.login / auth.verify / auth.oauth
+      - payment.webhook / payment.confirm / payment.referral_bonus
+      - ai.chat / ai.image / ai.video — каждый AI-вызов с моделью+стоимостью
+      - site.generate_start / site.generate_done / site.generate_failed
+      - bot.create / bot.delete / bot.from_template / bot.ai_create / bot.ai_improve
+      - record.created — новая заявка/бронь от чат-бота
+      - admin.* — действия в админке
+      - error.* — необработанные исключения
+
+    level: info / warn / error / critical
+    success: True/False (для быстрых SQL-фильтров «покажи все ошибки»)
+    details: JSON с произвольными метаданными (цена, модель, токены, msg)
+    """
+    __tablename__ = "action_logs"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    ts          = Column(DateTime, default=datetime.utcnow, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
+    action      = Column(String, index=True, nullable=False)         # «site.generate_done»
+    target_type = Column(String, nullable=True, index=True)           # «site_project» / «bot» / «payment»
+    target_id   = Column(String, nullable=True)                       # str чтобы поддержать любые
+    level       = Column(String, default="info", index=True)          # info / warn / error / critical
+    success     = Column(Boolean, default=True, index=True)
+    details     = Column(Text, nullable=True)                         # JSON
+    ip          = Column(String, nullable=True)
+    request_id  = Column(String, nullable=True, index=True)           # X-Request-ID для связи с другими логами
+    error       = Column(Text, nullable=True)                         # текст исключения если success=False
+
+
 class BotRecord(Base):
     """Универсальная таблица заявок/броней/заказов/опросов из чат-бота.
 

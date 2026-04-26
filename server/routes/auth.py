@@ -96,6 +96,10 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
                 referral_code=ref_code, referred_by=referred_by)
     db.add(user); db.commit(); db.refresh(user)
 
+    from server.audit_log import log_action
+    log_action("auth.register", user_id=user.id, target_type="user", target_id=user.id,
+               details={"email_domain": email.split("@")[-1], "ref": bool(referrer_id)})
+
     # Реферальный бонус — atomic gate на User.referral_signup_bonus_paid_at:
     # даже при гонке двух concurrent /register с одним email (что невозможно
     # из-за UNIQUE на email, но защищаемся в depth) — бонус начислится 1 раз.
@@ -139,6 +143,9 @@ def verify_email(req: VerifyEmailRequest, db: Session = Depends(get_db)):
                            description=f"Приветственный бонус: {_welcome_rub:.0f} ₽"))
         db.commit()
     db.refresh(user)
+    from server.audit_log import log_action
+    log_action("auth.verify_email", user_id=user.id, target_type="user", target_id=user.id,
+               details={"welcome_bonus_kop": _welcome_kop})
     try:
         send_welcome(user.email, user.name or "")
     except Exception as e:

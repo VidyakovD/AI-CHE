@@ -109,6 +109,9 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
         log.warning(f"Webhook: race for payment {payment_id}: {e}")
         return {"status": "already_credited"}
     log.info(f"Webhook: credited {amount_kop} kop ({amount_rub} ₽) for user {user_id}")
+    from server.audit_log import log_action
+    log_action("payment.webhook", user_id=int(user_id), target_type="payment", target_id=payment_id,
+               details={"amount_kop": amount_kop, "amount_rub": amount_rub, "pkg": pkg_name})
     return {"status": "ok"}
 
 
@@ -199,5 +202,8 @@ def confirm_tokens(payment_id: str, user: User = Depends(current_user),
         db.rollback()
         log.warning(f"Confirm-tokens: race for payment {payment_id}: {e}")
         return {"status": "already_credited"}
+    from server.audit_log import log_action
+    log_action("payment.confirm", user_id=user.id, target_type="payment", target_id=payment_id,
+               details={"amount_kop": amount_kop, "pkg": pkg.name})
     return {"status": "credited", "kopecks_added": amount_kop,
             "rub_added": amount_kop / 100}
