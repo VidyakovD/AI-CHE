@@ -78,6 +78,10 @@ _SECRET_PATTERNS = [
     (_re.compile(r"(AIza[A-Za-z0-9_\-]{30,})"),              r"AIza***"),
     # query-параметр key=...&
     (_re.compile(r"([?&]key=)[^&\s]+"),                     r"\1***"),
+    # query-параметр access_token=... (MAX API legacy, попадал в logs)
+    (_re.compile(r"([?&]access_token=)[^&\s]+"),            r"\1***"),
+    # query-параметр token=... (общий случай)
+    (_re.compile(r"([?&]token=)[^&\s]+"),                   r"\1***"),
 ]
 
 

@@ -1615,10 +1615,18 @@ async def send_telegram_document(token: str, chat_id: str, file_path: str,
 
 
 # ── MAX (https://max.ru) ─────────────────────────────────────────────────────
-# API: https://botapi.max.ru. Auth: ?access_token=<token>. Docs: https://dev.max.ru/docs-api
+# API: https://botapi.max.ru. Auth: Authorization: Bearer <token> (header).
+# Раньше было ?access_token=<token> но MAX deprecated этот способ —
+# возвращает 401 с code='verify.token'. Docs: https://dev.max.ru/docs-api
 # Webhook: POST /subscriptions с {url}. Send: POST /messages?user_id=<>&text=...
 
 MAX_API = "https://botapi.max.ru"
+
+
+def _max_headers(max_token: str) -> dict:
+    """Auth-header для MAX API. Заменил query ?access_token=... после
+    deprecation в апреле 2026."""
+    return {"Authorization": f"Bearer {max_token}"}
 
 
 async def setup_max_webhook(max_token: str, webhook_url: str) -> dict:
@@ -1630,7 +1638,7 @@ async def setup_max_webhook(max_token: str, webhook_url: str) -> dict:
     try:
         r = await HTTP.post(
             f"{MAX_API}/subscriptions",
-            params={"access_token": max_token},
+            headers=_max_headers(max_token),
             json={"url": webhook_url, "update_types": ["message_created", "message_callback"]},
         )
         try:
@@ -1642,20 +1650,21 @@ async def setup_max_webhook(max_token: str, webhook_url: str) -> dict:
         return {"ok": ok, "description": data.get("message", "") if isinstance(data, dict) else "",
                 "status_code": r.status_code}
     except Exception as e:
-        log.error(f"[MAX] subscribe error: {e}")
-        return {"ok": False, "description": str(e)}
+        log.error(f"[MAX] subscribe error: {type(e).__name__}")
+        return {"ok": False, "description": type(e).__name__}
 
 
 async def delete_max_webhook(max_token: str, webhook_url: str | None = None) -> dict:
     """Отписать webhook. Если webhook_url не задан — снимает все подписки бота."""
     try:
-        params = {"access_token": max_token}
+        params = {}
         if webhook_url:
             params["url"] = webhook_url
-        r = await HTTP.delete(f"{MAX_API}/subscriptions", params=params)
+        r = await HTTP.delete(f"{MAX_API}/subscriptions",
+                               headers=_max_headers(max_token), params=params)
         return {"ok": r.status_code == 200, "status_code": r.status_code}
     except Exception as e:
-        return {"ok": False, "description": str(e)}
+        return {"ok": False, "description": type(e).__name__}
 
 
 async def send_max(max_token: str, user_id: str | int, text: str,
@@ -1667,7 +1676,7 @@ async def send_max(max_token: str, user_id: str | int, text: str,
     inline keyboard (attachment type=inline_keyboard, по докам MAX).
     """
     try:
-        params = {"access_token": max_token, "user_id": str(user_id)}
+        params = {"user_id": str(user_id)}
         body = {"text": text[:4000]}
         if format_:
             body["format"] = format_
@@ -1685,7 +1694,9 @@ async def send_max(max_token: str, user_id: str | int, text: str,
                     }] for b in buttons[:10]]
                 }
             }]
-        r = await HTTP.post(f"{MAX_API}/messages", params=params, json=body)
+        r = await HTTP.post(f"{MAX_API}/messages",
+                            headers=_max_headers(max_token),
+                            params=params, json=body)
         try:
             data = r.json() if r.content else {}
         except Exception:
@@ -1737,7 +1748,7 @@ async def send_max_with_reply_keyboard(max_token: str, user_id: str | int, text:
     MAX-API использует attachments: type=request_keyboard.
     """
     try:
-        params = {"access_token": max_token, "user_id": str(user_id)}
+        params = {"user_id": str(user_id)}
         # Конвертируем в MAX-формат buttons (по 1 в ряд)
         mx_buttons = []
         for b in buttons[:10]:
@@ -1754,10 +1765,12 @@ async def send_max_with_reply_keyboard(max_token: str, user_id: str | int, text:
                 "payload": {"buttons": mx_buttons},
             }],
         }
-        r = await HTTP.post(f"{MAX_API}/messages", params=params, json=body)
+        r = await HTTP.post(f"{MAX_API}/messages",
+                            headers=_max_headers(max_token),
+                            params=params, json=body)
         return {"ok": r.status_code == 200, "status_code": r.status_code}
     except Exception as e:
-        log.error(f"[MAX reply-kb] {e}")
+        log.error(f"[MAX reply-kb] {type(e).__name__}")
         return {"ok": False}
 
 
@@ -1774,26 +1787,28 @@ async def send_max_photo(max_token: str, user_id: str | int, photo: str,
             # публичную раздачу /uploads — APP_URL должен быть настроен.
             app_url = _os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
             photo_url = f"{app_url}{photo if photo.startswith('/') else '/' + photo}"
-        params = {"access_token": max_token, "user_id": str(user_id)}
+        params = {"user_id": str(user_id)}
         body = {
             "text": (caption or "")[:1000],
             "attachments": [{"type": "image", "payload": {"url": photo_url}}],
         }
-        r = await HTTP.post(f"{MAX_API}/messages", params=params, json=body)
+        r = await HTTP.post(f"{MAX_API}/messages",
+                            headers=_max_headers(max_token),
+                            params=params, json=body)
         return {"ok": r.status_code == 200, "status_code": r.status_code}
     except Exception as e:
-        log.error(f"[MAX photo] {e}")
+        log.error(f"[MAX photo] {type(e).__name__}")
         return {"ok": False}
 
 
 async def get_max_me(max_token: str) -> dict:
     """Возвращает {user_id, name, username, ...} бота. Используем для валидации токена."""
     try:
-        r = await HTTP.get(f"{MAX_API}/me", params={"access_token": max_token})
+        r = await HTTP.get(f"{MAX_API}/me", headers=_max_headers(max_token))
         if r.status_code == 200:
             return r.json()
     except Exception as e:
-        log.error(f"[MAX] me error: {e}")
+        log.error(f"[MAX] me error: {type(e).__name__}")
     return {}
 
 
