@@ -81,7 +81,7 @@ function getSvgIcon(name, size=20, color='currentColor') {
   }
 })();
 </script>
-<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.tailwindcss.com/3.4.0"></script>
 <script>
 tailwind.config={darkMode:"class",theme:{extend:{colors:{
   "primary":"#ff8c42","primary-dim":"#ff6b00","primary-soft":"#ff8c42",
@@ -1570,7 +1570,7 @@ async function renderFilesTab(el){
     return `
       <div class="flex items-center gap-3 p-3 bg-surface2 rounded-xl border border-outline/15">
         <div class="w-10 h-10 rounded-lg sig flex items-center justify-center text-[#1e1a14] flex-shrink-0">
-          <span data-i="file" aria-hidden="true"></span>
+          <span data-i="image" aria-hidden="true"></span>
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium truncate">${esc(f.name)}</p>

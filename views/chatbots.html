@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>AI Студия Че — Чат-боты</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.tailwindcss.com/3.4.0"></script>
 <script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#141210","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
 <style>
 body{background:#141210;color:#f0e6d8;font-family:Inter,sans-serif;min-height:100vh}
@@ -471,6 +471,51 @@ select.inp option{background:#272018;color:#f0e6d8}
 </div>
 
 <!-- ── Записи бота: заявки, брони, заказы, опросы ── -->
+<!-- ── Asset / Лидмагниты конкретного бота ── -->
+<div id="botAssetsModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="botAssetsModalTitle">
+  <div class="bg-surface rounded-2xl w-full max-w-3xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
+    <div class="sig px-6 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="botAssetsModalTitle">
+          <span data-i="image" aria-hidden="true"></span> Лидмагниты бота
+        </h2>
+        <p class="text-[11px] text-[#1e1a14]/70 mt-0.5" id="botAssetsBotName">—</p>
+      </div>
+      <button onclick="closeBotAssets()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="p-5 max-h-[80vh] overflow-y-auto">
+      <p class="text-xs text-on-dim mb-4 leading-relaxed">
+        Загрузите PDF / картинку / видео — бот будет отправлять их как лидмагнит.
+        Стоимость хранения: <b id="baStorageRate">…</b> ₽/мес за 100 МБ.
+      </p>
+
+      <!-- Drag-drop -->
+      <div id="baDropZone" class="border-2 border-dashed border-outline/30 rounded-xl p-5 text-center mb-4 hover:border-primary/50 transition cursor-pointer">
+        <div class="w-10 h-10 mx-auto mb-2 rounded-xl sig flex items-center justify-center text-[#1e1a14]">
+          <span data-i="upload" aria-hidden="true"></span>
+        </div>
+        <p class="text-sm font-medium mb-0.5">Загрузить файл бота (до 50 МБ)</p>
+        <p class="text-xs text-on-dim">PDF / DOC / картинка / видео</p>
+        <input id="baUploadInput" type="file" class="hidden" />
+        <div id="baUploadStatus" class="text-xs mt-2 hidden"></div>
+      </div>
+
+      <!-- Список -->
+      <p class="text-[10px] uppercase text-on-dim tracking-wider font-bold mb-2">Файлы этого бота (<span id="baCount">0</span>)</p>
+      <div id="baList" class="space-y-2">Загрузка…</div>
+
+      <p class="text-[10px] text-on-dim/60 mt-5 leading-relaxed">
+        💡 <b>Как использовать в воркфлоу:</b><br>
+        Скопируйте public-ссылку → откройте конструктор бота → ноду
+        <code class="bg-surface2 px-1 rounded">output_tg_file</code> или
+        <code class="bg-surface2 px-1 rounded">output_photo</code>
+        → вставьте ссылку в поле <code class="bg-surface2 px-1 rounded">file_path</code> или
+        <code class="bg-surface2 px-1 rounded">photo_url</code>.
+      </p>
+    </div>
+  </div>
+</div>
+
 <div id="recordsModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="recordsModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-4xl border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-6 py-4 flex items-center justify-between">
@@ -574,6 +619,7 @@ function render(){
             <button onclick="openAnalytics(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Аналитика" aria-label="Аналитика">${_i('chart')}</button>
             <button onclick="openAiImprove(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Доработать через AI" aria-label="AI-доработка">${_i('sparkle')}</button>
             <button onclick="openRecords(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Заявки и записи" aria-label="Записи">${_i('clipboard')}</button>
+            <button onclick="openBotAssets(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Лидмагниты и файлы бота" aria-label="Файлы">${_i('image')}</button>
             <button onclick="showSummary(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Пересказ диалогов" aria-label="Пересказ">${_i('chat')}</button>
             <button onclick="deleteBot(${b.id})" class="btn-d text-[10px] py-1 px-2 inline-flex items-center" title="Удалить" aria-label="Удалить">${_i('close')}</button>
           </div>
@@ -1250,6 +1296,155 @@ document.getElementById('previewModal').addEventListener('click', e => {
 
 
 // ── Записи бота (заявки/брони/заказы) ─────────────────────────────────────
+// ── Лидмагниты бота: загрузка/список/удаление файлов привязанных к bot_id ──
+let _currentAssetsBot = null;
+
+async function openBotAssets(botId, botName){
+  _currentAssetsBot = botId;
+  document.getElementById('botAssetsBotName').textContent = botName ? `«${botName}»` : '';
+  document.getElementById('botAssetsModal').classList.add('show');
+  document.getElementById('baList').textContent = 'Загрузка…';
+  document.getElementById('baCount').textContent = '0';
+  document.getElementById('baStorageRate').textContent = '50';
+  // Подгружаем тариф + список
+  try{
+    const r = await fetch(API+'/assets/usage', {headers:hdrs(), credentials:'same-origin'});
+    if(r.ok){
+      const usage = await r.json();
+      if(usage?.rate_per_100mb_rub) document.getElementById('baStorageRate').textContent = usage.rate_per_100mb_rub;
+    }
+  }catch(e){}
+  await _loadBotAssets();
+  // Wire upload button + drag-drop
+  const inp = document.getElementById('baUploadInput');
+  inp.value = '';
+  inp.onchange = async ev => {
+    const f = ev.target.files?.[0];
+    if(f) await _uploadBotAsset(f);
+    ev.target.value = '';
+  };
+  const dz = document.getElementById('baDropZone');
+  dz.onclick = () => inp.click();
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev, e=>{
+    e.preventDefault(); dz.classList.add('border-primary');
+  }));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev, e=>{
+    e.preventDefault(); dz.classList.remove('border-primary');
+  }));
+  dz.addEventListener('drop', e=>{
+    const f = e.dataTransfer.files?.[0];
+    if(f) _uploadBotAsset(f);
+  });
+}
+
+function closeBotAssets(){
+  document.getElementById('botAssetsModal').classList.remove('show');
+  _currentAssetsBot = null;
+}
+document.getElementById('botAssetsModal').addEventListener('click', e=>{
+  if(e.target===e.currentTarget) closeBotAssets();
+});
+
+async function _loadBotAssets(){
+  if(!_currentAssetsBot) return;
+  const list = document.getElementById('baList');
+  try{
+    const r = await fetch(API+'/assets', {headers:hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error('Не удалось загрузить файлы');
+    const all = await r.json();
+    // Фильтруем только asset'ы привязанные к этому боту
+    const mine = (all || []).filter(a => a.bot_id === _currentAssetsBot);
+    document.getElementById('baCount').textContent = String(mine.length);
+    if(!mine.length){
+      list.innerHTML = '<p class="text-sm text-on-dim text-center py-4">Файлов для этого бота ещё нет. Загрузите первый — лидмагнит для подписки/записи.</p>';
+      return;
+    }
+    list.innerHTML = mine.map(f => {
+      const url = location.origin + (f.public_url || '');
+      const icon = (f.mime_type||'').startsWith('image/') ? 'image' : 'clipboard';
+      return `
+        <div class="flex items-center gap-3 p-3 bg-surface2 rounded-xl border border-outline/15">
+          <div class="w-10 h-10 rounded-lg sig flex items-center justify-center text-[#1e1a14] flex-shrink-0">
+            <span data-i="${icon}" aria-hidden="true"></span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium truncate">${escHtml(f.name)}</p>
+            <p class="text-[11px] text-on-dim">${f.size_mb} МБ · ${escHtml(f.mime_type||'')} · ${escHtml(f.purpose||'')}</p>
+            <input readonly value="${escHtml(url)}" class="w-full text-[10px] mt-1 px-2 py-1 rounded bg-surface3 border border-outline/15 text-on-dim font-mono" onclick="this.select()" aria-label="Public URL"/>
+          </div>
+          <div class="flex flex-col gap-1.5 items-end flex-shrink-0">
+            <button onclick="_copyBaUrl('${escAttr(url)}', this)" class="text-xs px-2 py-1 rounded-full bg-primary/15 text-primary hover:bg-primary/25 transition" title="Скопировать ссылку для воркфлоу">
+              <span data-i="copy" aria-hidden="true"></span> Копировать
+            </button>
+            <button onclick="_deleteBotAsset(${f.id})" class="text-xs px-2 py-1 rounded-full bg-error/15 text-error hover:bg-error/25 transition" aria-label="Удалить">
+              <span data-i="trash" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>`;
+    }).join('');
+    if(window.renderIcons) window.renderIcons(list);
+  }catch(e){
+    list.innerHTML = `<p class="text-error text-sm">Ошибка: ${escHtml(e.message)}</p>`;
+  }
+}
+
+async function _uploadBotAsset(file){
+  if(!_currentAssetsBot) return;
+  const status = document.getElementById('baUploadStatus');
+  status.classList.remove('hidden');
+  status.textContent = `Загрузка ${file.name}…`;
+  status.className = 'text-xs mt-2 text-on-dim';
+  try{
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('purpose', 'lead_magnet');
+    fd.append('bot_id', String(_currentAssetsBot));
+    const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+    const headers = {};
+    if(csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
+    const tok = localStorage.getItem('obs_token');
+    if(tok && !csrf) headers['Authorization'] = 'Bearer ' + tok;
+    const r = await fetch(`${API}/assets/upload`, {
+      method:'POST', headers, credentials:'same-origin', body: fd,
+    });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || 'Ошибка загрузки');
+    status.textContent = `✓ ${file.name} загружен`;
+    status.className = 'text-xs mt-2 text-green-500';
+    await _loadBotAssets();
+  }catch(e){
+    status.textContent = 'Ошибка: ' + e.message;
+    status.className = 'text-xs mt-2 text-error';
+  }
+}
+
+async function _deleteBotAsset(id){
+  if(!confirm('Удалить этот файл бота?')) return;
+  try{
+    const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+    const headers = {};
+    if(csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
+    const tok = localStorage.getItem('obs_token');
+    if(tok && !csrf) headers['Authorization'] = 'Bearer ' + tok;
+    const r = await fetch(`${API}/assets/${id}`, {method:'DELETE', headers, credentials:'same-origin'});
+    if(!r.ok) throw new Error('Ошибка удаления');
+    await _loadBotAssets();
+  }catch(e){ alert(e.message); }
+}
+
+function _copyBaUrl(url, btn){
+  navigator.clipboard.writeText(url).then(()=>{
+    const orig = btn.innerHTML;
+    btn.textContent = '✓ Скопировано';
+    setTimeout(()=>{ btn.innerHTML = orig; if(window.renderIcons) window.renderIcons(btn); }, 1500);
+  });
+}
+
+// Helpers (если ещё не определены)
+window.escHtml = window.escHtml || (s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
+window.escAttr = window.escAttr || (s => String(s||'').replace(/'/g, '&#39;').replace(/"/g, '&quot;'));
+
+
 let _currentRecordsBot = null;
 
 function openRecords(botId, botName){
