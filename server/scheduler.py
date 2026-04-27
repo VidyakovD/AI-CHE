@@ -454,19 +454,24 @@ async def _storage_billing_tick():
       - умножаем на цену storage.per_100mb_month / 30 (дневная ставка)
       - списываем атомарно
 
-    Если баланса не хватило — НЕ списываем (юзер в минус не уходит). Через
-    несколько дней неуплаты архивируем — soft-delete is_active=False.
+    Логика просроченных оплат:
+      - При успешном списании ставим last_billed_at=now на ВСЕ active asset'ы юзера
+      - Если баланса нет 7+ дней (last_billed_at < now-7d) → archive (is_active=False)
+      - Если archived 30+ дней (last_billed_at < now-37d) → физическое удаление файла
+
+    Юзер видит "архивирован" в UI и может пополнить + восстановить (если ещё не удалили).
     """
     from datetime import datetime, timedelta
     from server.db import db_session
     from server.models import StoredAsset, User, Transaction
     from server.billing import deduct_strict
     from server.pricing import get_price
-    from sqlalchemy import func
+    from sqlalchemy import func, update as sa_update
 
     rate_kop_month = get_price("storage.per_100mb_month", default=5000)
     daily_rate = max(1, rate_kop_month // 30)
     chunk = 100 * 1024 * 1024
+    now = datetime.utcnow()
     try:
         with db_session() as db:
             users_with_storage = (
@@ -488,13 +493,70 @@ async def _storage_billing_tick():
                         user_id=user_id, type="usage", tokens_delta=-cost,
                         description=f"Хранилище: {round(total_bytes/1024/1024, 1)} МБ ({cost/100:.2f} ₽/день)",
                     ))
+                    # Помечаем все активные asset'ы юзера как «оплачено сегодня».
+                    db.execute(
+                        sa_update(StoredAsset)
+                        .where(StoredAsset.user_id == user_id,
+                               StoredAsset.is_active == True)
+                        .values(last_billed_at=now)
+                    )
                     charged += 1
                 else:
                     skipped += 1
-                    # TODO: после N дней без оплаты архивировать файлы
             db.commit()
             if charged or skipped:
                 log.info(f"[storage-billing] charged={charged} skipped(no balance)={skipped}")
+
+            # ── Архивация просроченных (>7 дней без оплаты) ──────────────
+            cutoff_archive = now - timedelta(days=7)
+            archived = (
+                db.query(StoredAsset)
+                .filter(StoredAsset.is_active == True)
+                .filter(StoredAsset.last_billed_at != None)
+                .filter(StoredAsset.last_billed_at < cutoff_archive)
+                .all()
+            )
+            archived_ids: list[int] = []
+            for a in archived:
+                a.is_active = False
+                archived_ids.append(a.id)
+            if archived_ids:
+                db.commit()
+                log.warning(f"[storage-billing] archived {len(archived_ids)} asset(s) — просрочка оплаты >7д")
+                from server.audit_log import log_action
+                # Группируем по user_id для отдельных audit-записей
+                by_user: dict[int, list[int]] = {}
+                for a in archived:
+                    by_user.setdefault(a.user_id, []).append(a.id)
+                for uid, ids in by_user.items():
+                    log_action("asset.archived", user_id=uid, target_type="asset",
+                               level="warn", success=False,
+                               details={"reason": "no_balance_7d", "asset_ids": ids[:50]})
+
+            # ── Физическое удаление (>37 дней с last_billed_at, is_active=False) ──
+            cutoff_delete = now - timedelta(days=37)
+            stale = (
+                db.query(StoredAsset)
+                .filter(StoredAsset.is_active == False)
+                .filter(StoredAsset.last_billed_at != None)
+                .filter(StoredAsset.last_billed_at < cutoff_delete)
+                .all()
+            )
+            deleted = 0
+            for a in stale:
+                from pathlib import Path as _P
+                try:
+                    p = _P(a.path.lstrip("/"))
+                    if p.exists():
+                        p.unlink()
+                except Exception as ex:
+                    log.warning(f"[storage-billing] cannot delete file {a.path}: {ex}")
+                # Удаляем запись из БД (можно оставить для истории, но тогда orphan)
+                db.delete(a)
+                deleted += 1
+            if deleted:
+                db.commit()
+                log.warning(f"[storage-billing] hard-deleted {deleted} asset(s) — просрочка >37д")
     except Exception as e:
         log.error(f"[storage-billing] failed: {e}")
 

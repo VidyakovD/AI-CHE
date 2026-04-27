@@ -81,7 +81,7 @@ def list_assets(db: Session = Depends(get_db),
         "size_bytes": a.size_bytes,
         "size_mb": round(a.size_bytes / 1024 / 1024, 2),
         "purpose": a.purpose,
-        "public_url": f"/assets/{a.public_token}" if a.public_token else None,
+        "public_url": f"/assets/public/{a.public_token}" if a.public_token else None,
         "private_url": a.path,
         "bot_id": a.bot_id,
         "created_at": a.created_at.isoformat() if a.created_at else None,
@@ -151,9 +151,69 @@ async def upload_asset(file: UploadFile = File(...),
     return {
         "id": asset.id, "name": asset.name,
         "size_bytes": asset.size_bytes,
-        "public_url": f"/assets/{asset.public_token}",
+        "public_url": f"/assets/public/{asset.public_token}",
         "private_url": asset.path,
     }
+
+
+@router.get("/assets/archived")
+def list_archived(db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    """Архивированные файлы (is_active=False) — юзер может восстановить
+    пока scheduler их физически не удалил (>37 дней с last_billed_at).
+    """
+    rows = (db.query(StoredAsset)
+              .filter_by(user_id=user.id, is_active=False)
+              .order_by(StoredAsset.created_at.desc())
+              .all())
+    from pathlib import Path as _P
+    out = []
+    for a in rows:
+        # Проверяем что файл ещё физически существует
+        p = _P(a.path.lstrip("/"))
+        if not p.exists():
+            continue
+        out.append({
+            "id": a.id, "name": a.name, "size_bytes": a.size_bytes,
+            "size_mb": round(a.size_bytes / 1024 / 1024, 2),
+            "purpose": a.purpose,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "last_billed_at": a.last_billed_at.isoformat() if a.last_billed_at else None,
+        })
+    return out
+
+
+@router.post("/assets/{asset_id}/restore")
+def restore_asset(asset_id: int,
+                  db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    """Восстановить архивированный asset (если файл ещё на диске).
+    Списываемся с баланса за один день storage'а сразу — иначе ночью архивирует
+    обратно. Юзер должен пополнить баланс до восстановления.
+    """
+    from pathlib import Path as _P
+    a = db.query(StoredAsset).filter_by(
+        id=asset_id, user_id=user.id, is_active=False).first()
+    if not a:
+        raise HTTPException(404, "Архивный файл не найден")
+    p = _P(a.path.lstrip("/"))
+    if not p.exists():
+        raise HTTPException(410, "Файл уже удалён физически")
+    # Сразу списываем дневную ставку (~цена одного блока за день)
+    rate_kop_month = get_price("storage.per_100mb_month", default=5000)
+    daily_rate = max(1, rate_kop_month // 30)
+    chunk = 100 * 1024 * 1024
+    units = (a.size_bytes + chunk - 1) // chunk
+    cost = units * daily_rate
+    from server.billing import deduct_strict
+    if not deduct_strict(db, user.id, cost):
+        raise HTTPException(402, f"Нужно минимум {cost/100:.2f} ₽ для восстановления")
+    a.is_active = True
+    a.last_billed_at = datetime.utcnow()
+    db.commit()
+    log_action("asset.restored", user_id=user.id, target_type="asset",
+               target_id=str(asset_id), details={"cost_kop": cost})
+    return {"status": "restored", "id": asset_id, "cost_kop": cost}
 
 
 @router.delete("/assets/{asset_id}")

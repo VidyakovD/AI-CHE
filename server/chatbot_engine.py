@@ -158,6 +158,39 @@ def _ssrf_validate(url: str) -> str | None:
     return None
 
 
+# ── Резолв public-asset URL в локальный путь ────────────────────────────────
+# В воркфлоу юзер задаёт public-link на свой загруженный лидмагнит:
+#   https://aiche.ru/assets/public/<token>  ИЛИ  /assets/public/<token>
+# Эта функция превращает такой URL в локальный путь /uploads/assets/<uuid>.<ext>
+# который понимает send_telegram_document/send_max_photo.
+import re as _re_assets
+_ASSETS_PUBLIC_RE = _re_assets.compile(
+    r'(?:https?://[^/\s]+)?/assets/public/([A-Za-z0-9_\-]{16,})'
+)
+
+
+def _resolve_asset_url_to_path(url_or_path: str) -> str:
+    """Если url ведёт на /assets/public/<token> — возвращает StoredAsset.path,
+    иначе возвращает вход как есть (legacy file_path)."""
+    if not url_or_path:
+        return url_or_path
+    m = _ASSETS_PUBLIC_RE.search(url_or_path)
+    if not m:
+        return url_or_path
+    token = m.group(1)
+    try:
+        from server.db import db_session
+        from server.models import StoredAsset
+        with db_session() as db:
+            a = db.query(StoredAsset).filter_by(
+                public_token=token, is_active=True).first()
+            if a:
+                return a.path  # /uploads/assets/<uuid>.<ext>
+    except Exception as e:
+        log.warning(f"[asset-resolve] {token}: {e}")
+    return url_or_path
+
+
 # ── Маппинг типов нод конструктора на модели AI ──────────────────────────────
 NODE_MODEL_MAP = {
     "node_gpt":     "gpt-4o",
@@ -860,6 +893,10 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         tg_chat = cfg.get("tg_chat_id") or ctx.get("chat_id")
         path = (cfg.get("file_path") or "").replace("{{input}}", input_text)
         caption = (cfg.get("caption") or "").replace("{{input}}", input_text)
+        # Резолв public-asset URL в локальный путь.
+        # Юзер задаёт в воркфлоу: https://aiche.ru/assets/public/<token> или /assets/public/<token>
+        # → ищем StoredAsset по public_token и подставляем .path
+        path = _resolve_asset_url_to_path(path)
         # Если path пуст и есть found_files в ctx — отправить их
         if not path and ctx.get("found_files"):
             for f in ctx["found_files"][:3]:
@@ -962,10 +999,12 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         return prompt_text
 
     if ntype == "output_photo":
-        # Отправить картинку с подписью. URL или путь /uploads/...
+        # Отправить картинку с подписью. URL или путь /uploads/... ИЛИ asset-public-URL.
         # Работает в TG и MAX, в widget — отправляем как обычное сообщение со ссылкой.
         ctx["final_output"] = input_text
         photo_url = (cfg.get("photo_url") or cfg.get("url") or "").strip()
+        # Если это public-asset URL — резолвим в локальный путь
+        photo_url = _resolve_asset_url_to_path(photo_url)
         caption = (cfg.get("caption") or input_text or "")
         if not photo_url:
             return input_text

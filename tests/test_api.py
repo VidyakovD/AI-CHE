@@ -238,6 +238,46 @@ class TestWebhooks:
         assert r.status_code == 200
 
 
+# ── Storage assets ───────────────────────────────────────────────────────────
+
+class TestAssets:
+    """Smoke-тесты storage API: список без файлов, usage пустой, upload требует auth."""
+
+    def test_list_requires_auth(self, client):
+        r = client.get("/assets")
+        assert r.status_code == 401
+
+    def test_usage_zero_for_new_user(self, client, monkeypatch):
+        """Новый юзер → total=0, monthly_cost=0."""
+        # Создаём юзера + логинимся
+        from server.auth import hash_password
+        db = SessionLocal()
+        try:
+            email = "asset_test@test.com"
+            u = db.query(User).filter_by(email=email).first()
+            if not u:
+                u = User(email=email, password_hash=_FAKE_BCRYPT, name="A",
+                         is_verified=True, agreed_to_terms=True)
+                db.add(u); db.commit()
+        finally:
+            db.close()
+        from server.routes import auth as auth_mod
+        monkeypatch.setattr(auth_mod, "verify_password", lambda p, h: True)
+        login = client.post("/auth/login", json={"email": email, "password": "x"})
+        assert login.status_code == 200
+        csrf = login.json().get("csrf_token")
+        r = client.get("/assets/usage")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["total_bytes"] == 0
+        assert d["monthly_cost_rub"] == 0
+
+    def test_unknown_asset_token_404(self, client):
+        """Public ссылка с несуществующим токеном → 404."""
+        r = client.get("/assets/public/nonexistent_token_xyz")
+        assert r.status_code == 404
+
+
 # ── JWT cookie + CSRF migration ──────────────────────────────────────────────
 
 class TestCookieAuth:

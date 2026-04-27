@@ -514,6 +514,7 @@ body.welcome #inputArea{display:none!important}
       <button onclick="cabTab('tokens')"   class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="tokens">Пополнить</button>
       <button onclick="cabTab('history')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="history">История</button>
       <button onclick="cabTab('usage')"    class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="usage">Расход</button>
+      <button onclick="cabTab('files')"    class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="files">Файлы</button>
       <button onclick="cabTab('referral')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="referral">Реферал</button>
       <button onclick="cabTab('settings')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="settings">Настройки</button>
       <button onclick="cabTab('support')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="support">Поддержка</button>
@@ -1541,9 +1542,186 @@ function cabTab(tab){
   if(tab==="tokens")   renderBuyTokensTab(el);
   if(tab==="history")  renderHistoryTab(el);
   if(tab==="usage")    renderUsageTab(el);
+  if(tab==="files")    renderFilesTab(el);
   if(tab==="referral") renderReferralTab(el);
   if(tab==="settings") renderSettingsTab(el);
   if(tab==="support")  renderSupportTab(el);
+}
+
+// ── Files tab: загруженные файлы / лидмагниты ──────────────────────────────
+async function renderFilesTab(el){
+  el.innerHTML = '<div class="text-center text-on-surface-dim text-sm py-8">Загрузка…</div>';
+  let usage = null, files = [], archived = [];
+  try{
+    [usage, files, archived] = await Promise.all([
+      api('/assets/usage'),
+      api('/assets'),
+      api('/assets/archived'),
+    ]);
+  } catch(e){
+    el.innerHTML = `<p class="text-error text-sm">Не удалось загрузить файлы: ${esc(e.message)}</p>`;
+    return;
+  }
+  const totalMb = usage?.total_mb || 0;
+  const monthly = usage?.monthly_cost_rub || 0;
+  const rate = usage?.rate_per_100mb_rub || 50;
+  const filesHtml = files.length ? files.map(f => {
+    const publicUrl = f.public_url ? (location.origin + f.public_url) : '';
+    return `
+      <div class="flex items-center gap-3 p-3 bg-surface2 rounded-xl border border-outline/15">
+        <div class="w-10 h-10 rounded-lg sig flex items-center justify-center text-[#1e1a14] flex-shrink-0">
+          <span data-i="file" aria-hidden="true"></span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium truncate">${esc(f.name)}</p>
+          <p class="text-[11px] text-on-surface-dim">${f.size_mb} МБ · ${esc(f.mime_type||'-')} · ${esc(f.purpose||'general')}</p>
+        </div>
+        <div class="flex flex-col gap-1.5 items-end">
+          <button onclick="copyAssetUrl('${publicUrl}', this)" class="text-xs px-2 py-1 rounded-full bg-primary/15 text-primary hover:bg-primary/25 transition" title="Скопировать ссылку для бота">
+            <span data-i="copy" aria-hidden="true"></span> Ссылка
+          </button>
+          <button onclick="deleteAsset(${f.id})" class="text-xs px-2 py-1 rounded-full bg-error/15 text-error hover:bg-error/25 transition" aria-label="Удалить файл">
+            <span data-i="trash" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>`;
+  }).join('') : '<p class="text-sm text-on-surface-dim text-center py-6">Файлов пока нет. Загрузите PDF/картинку для лидмагнита бота.</p>';
+
+  const archivedHtml = archived.length ? `
+    <div class="mt-6 pt-5 border-t border-outline/15">
+      <p class="text-[10px] uppercase text-on-surface-dim tracking-wider font-bold mb-2">Архивные (${archived.length})</p>
+      <p class="text-xs text-on-surface-dim mb-3">Архивированы из-за просрочки оплаты. Восстановите пока физически не удалили (через ${37} дней).</p>
+      <div class="space-y-2">
+        ${archived.map(a => `
+          <div class="flex items-center gap-3 p-2 bg-surface2/40 rounded-lg border border-outline/10">
+            <span class="opacity-50">📦</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-xs truncate">${esc(a.name)}</p>
+              <p class="text-[10px] text-on-surface-dim">${a.size_mb} МБ</p>
+            </div>
+            <button onclick="restoreAsset(${a.id})" class="text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-500 hover:bg-green-500/25">
+              Восстановить
+            </button>
+          </div>
+        `).join('')}
+      </div>
+    </div>` : '';
+
+  el.innerHTML = `
+    <!-- Сводка по объёму и стоимости -->
+    <div class="bg-surface2 rounded-xl p-4 mb-4 border border-outline/15">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-xs text-on-surface-dim">Объём хранения</p>
+        <p class="text-lg font-bold">${totalMb.toFixed(2)} <span class="text-xs text-on-surface-dim">МБ</span></p>
+      </div>
+      <div class="flex items-center justify-between text-xs text-on-surface-dim">
+        <span>Стоимость: ${rate} ₽/мес за 100 МБ</span>
+        <span class="text-primary font-medium">${monthly.toFixed(2)} ₽/мес</span>
+      </div>
+    </div>
+
+    <!-- Drag-drop загрузка -->
+    <div id="assetDropZone" class="border-2 border-dashed border-outline/30 rounded-xl p-6 text-center mb-4 hover:border-primary/50 transition cursor-pointer" onclick="document.getElementById('assetUploadInput').click()">
+      <div class="w-12 h-12 mx-auto mb-2 rounded-xl sig flex items-center justify-center text-[#1e1a14]">
+        <span data-i="upload" aria-hidden="true"></span>
+      </div>
+      <p class="text-sm font-medium mb-1">Загрузить файл (до 50 МБ)</p>
+      <p class="text-xs text-on-surface-dim">PDF, картинки, видео, документы. Получите ссылку для отправки из бота.</p>
+      <input id="assetUploadInput" type="file" class="hidden" onchange="uploadAsset(event)" />
+      <div id="assetUploadStatus" class="text-xs mt-2 hidden"></div>
+    </div>
+
+    <p class="text-[10px] uppercase text-on-surface-dim tracking-wider font-bold mb-2">Активные файлы (${files.length})</p>
+    <div class="space-y-2">${filesHtml}</div>
+    ${archivedHtml}
+    <p class="text-[10px] text-on-surface-dim/60 mt-4 leading-relaxed">
+      💡 Используйте public-ссылку в воркфлоу бота:
+      <code class="bg-surface2 px-1 rounded">output_tg_file</code> или <code class="bg-surface2 px-1 rounded">output_photo</code>
+      — вставьте ссылку в поле <code class="bg-surface2 px-1 rounded">file_path</code> или <code class="bg-surface2 px-1 rounded">photo_url</code>.
+    </p>
+  `;
+  if(window.renderIcons) window.renderIcons(el);
+
+  // Drag-drop
+  const dz = document.getElementById('assetDropZone');
+  if(dz){
+    ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev, e=>{
+      e.preventDefault(); dz.classList.add('border-primary');
+    }));
+    ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev, e=>{
+      e.preventDefault(); dz.classList.remove('border-primary');
+    }));
+    dz.addEventListener('drop', e=>{
+      const f = e.dataTransfer.files?.[0];
+      if(f) uploadAssetFile(f);
+    });
+  }
+}
+
+async function uploadAsset(ev){
+  const f = ev.target.files?.[0];
+  if(!f) return;
+  await uploadAssetFile(f);
+  ev.target.value = '';
+}
+
+async function uploadAssetFile(file){
+  const status = document.getElementById('assetUploadStatus');
+  if(status){ status.classList.remove('hidden'); status.textContent = `Загрузка ${file.name}...`; status.className = 'text-xs mt-2 text-on-surface-dim'; }
+  try{
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('purpose', 'lead_magnet');
+    const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+    const r = await fetch(`${API}/assets/upload`, {
+      method:'POST',
+      headers: csrf ? {'X-CSRF-Token': decodeURIComponent(csrf)} : (authToken ? {'Authorization':'Bearer '+authToken} : {}),
+      credentials: 'same-origin',
+      body: fd,
+    });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || 'Ошибка загрузки');
+    if(status){ status.textContent = `✓ ${file.name} загружен`; status.className = 'text-xs mt-2 text-green-500'; }
+    renderFilesTab(document.getElementById('cabContent'));
+  } catch(e){
+    if(status){ status.textContent = 'Ошибка: ' + e.message; status.className = 'text-xs mt-2 text-error'; }
+  }
+}
+
+async function deleteAsset(id){
+  if(!confirm('Удалить этот файл?')) return;
+  try{
+    const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+    const r = await fetch(`${API}/assets/${id}`, {
+      method:'DELETE',
+      headers: csrf ? {'X-CSRF-Token': decodeURIComponent(csrf)} : (authToken ? {'Authorization':'Bearer '+authToken} : {}),
+      credentials: 'same-origin',
+    });
+    if(!r.ok) throw new Error('Ошибка удаления');
+    renderFilesTab(document.getElementById('cabContent'));
+  } catch(e){ alert(e.message); }
+}
+
+async function restoreAsset(id){
+  try{
+    const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+    const r = await fetch(`${API}/assets/${id}/restore`, {
+      method:'POST',
+      headers: csrf ? {'X-CSRF-Token': decodeURIComponent(csrf)} : (authToken ? {'Authorization':'Bearer '+authToken} : {}),
+      credentials: 'same-origin',
+    });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || 'Не удалось восстановить');
+    renderFilesTab(document.getElementById('cabContent'));
+  } catch(e){ alert(e.message); }
+}
+
+function copyAssetUrl(url, btn){
+  navigator.clipboard.writeText(url).then(()=>{
+    const orig = btn.textContent;
+    btn.textContent = '✓ Скопировано';
+    setTimeout(()=>btn.textContent = orig, 1500);
+  });
 }
 
 function renderHistoryTab(el){
