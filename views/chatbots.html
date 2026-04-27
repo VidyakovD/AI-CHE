@@ -624,8 +624,10 @@ function render(){
           <!-- Кнопки действий: flex-wrap чтобы переносились на узких карточках,
                не вытесняя название и не отрывая от карточки. -->
           <div class="flex flex-wrap gap-1.5" onclick="event.stopPropagation()">
-            ${b.status==='active'?`<button onclick="pauseBot(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1">${_i('pause')}<span>Пауза</span></button>`
-              :`<button onclick="deployBot(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1">${_i('play')}<span>Запуск</span></button>`}
+            ${b.status==='active'
+              ? `<button onclick="pauseBot(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1">${_i('pause')}<span>Пауза</span></button>`
+                + `<button onclick="redeployBot(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1" title="Применить свежие настройки (промпт, токены, workflow) без рестарта">${_i('refresh')}<span>Обновить</span></button>`
+              : `<button onclick="deployBot(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1">${_i('play')}<span>Запуск</span></button>`}
             <button onclick="openPreview(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Превью диалога (песочница)" aria-label="Превью">${_i('eye')}</button>
             <button onclick="openAnalytics(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Аналитика" aria-label="Аналитика">${_i('chart')}</button>
             <button onclick="openAiImprove(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Доработать через AI" aria-label="AI-доработка">${_i('sparkle')}</button>
@@ -1019,6 +1021,25 @@ async function deployBot(id){
     if(d.channels?.widget) parts.push('Виджет');
     toast(parts.length ? `✅ Запущен: ${parts.join(', ')}` : '✅ Бот запущен', 'success');
     await loadBots();
+  }catch(e){ toast(_friendlyErr(e, e.status), 'error'); }
+  finally { if(btn){ btn.disabled=false; btn.innerHTML=oldHTML; } }
+}
+
+// Redeploy: применить свежие настройки бота (промпт, токены, workflow,
+// каналы) без полной остановки. Дёргает тот же /deploy endpoint —
+// он идемпотентен: TG webhook перезаписывается через setWebhook,
+// MAX subscriptions /subscriptions сам обновляет URL.
+async function redeployBot(id){
+  const btnQuery = `button[onclick*="redeployBot(${id})"]`;
+  const btn = document.querySelector(btnQuery);
+  let oldHTML = '';
+  if(btn){ oldHTML = btn.innerHTML; btn.disabled = true;
+    btn.innerHTML = '<span class="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin align-middle"></span>'; }
+  try{
+    const r=await fetch(`${API}/chatbots/${id}/deploy`,{method:'POST',headers:hdrs()});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw Object.assign(new Error(e.detail||'Ошибка'), {status:r.status});}
+    await loadBots();
+    toast('🔄 Настройки применены', 'success');
   }catch(e){ toast(_friendlyErr(e, e.status), 'error'); }
   finally { if(btn){ btn.disabled=false; btn.innerHTML=oldHTML; } }
 }
