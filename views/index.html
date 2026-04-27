@@ -516,6 +516,7 @@ body.welcome #inputArea{display:none!important}
       <button onclick="cabTab('history')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="history">История</button>
       <button onclick="cabTab('usage')"    class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="usage">Расход</button>
       <button onclick="cabTab('files')"    class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="files">Файлы</button>
+      <button onclick="cabTab('apikeys')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="apikeys">Свои API</button>
       <button onclick="cabTab('referral')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="referral">Реферал</button>
       <button onclick="cabTab('settings')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="settings">Настройки</button>
       <button onclick="cabTab('support')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="support">Поддержка</button>
@@ -1552,9 +1553,104 @@ function cabTab(tab){
   if(tab==="history")  renderHistoryTab(el);
   if(tab==="usage")    renderUsageTab(el);
   if(tab==="files")    renderFilesTab(el);
+  if(tab==="apikeys")  renderApiKeysTab(el);
   if(tab==="referral") renderReferralTab(el);
   if(tab==="settings") renderSettingsTab(el);
   if(tab==="support")  renderSupportTab(el);
+}
+
+// Helper для openMyApiKeys() — вызывается из chatbots.html модалки.
+window.openMyApiKeys = function(){
+  if(typeof openCabinet === 'function') {
+    openCabinet().then(()=>cabTab('apikeys'));
+  }
+};
+
+// ── Свои API-ключи: подключение OpenAI/Claude/Gemini/Grok ────────────────
+const _PROVIDERS = [
+  {id:'openai',    name:'OpenAI',     icon:'brand_openai',    hint:'sk-... — для GPT-4o, GPT-Image, DALL-E'},
+  {id:'anthropic', name:'Claude',     icon:'brand_claude',    hint:'sk-ant-... — для Claude Haiku/Sonnet/Opus'},
+  {id:'gemini',    name:'Gemini',     icon:'brand_gemini',    hint:'AIza... — Google AI Studio'},
+  {id:'grok',      name:'Grok',       icon:'brand_grok',      hint:'xai-... — для Grok 3 / Grok 4'},
+];
+
+async function renderApiKeysTab(el){
+  el.innerHTML = '<div class="text-center text-on-surface-dim text-sm py-8">Загрузка…</div>';
+  let keys = [];
+  try{
+    keys = await api('/user/api-keys') || [];
+  } catch(e){
+    el.innerHTML = `<p class="text-error text-sm">Ошибка: ${esc(e.message)}</p>`;
+    return;
+  }
+  const byProvider = {};
+  keys.forEach(k => byProvider[k.provider] = k);
+  const _i = (n) => (window.ICONS && window.ICONS[n]) || '';
+
+  el.innerHTML = `
+    <div class="bg-surface2/60 border border-outline/15 rounded-xl px-4 py-3 mb-4">
+      <p class="text-sm font-semibold mb-1">💡 Скидка 80% при использовании своих ключей</p>
+      <p class="text-xs text-on-surface-dim leading-relaxed">
+        Подключите свой OpenAI / Claude / Gemini / Grok ключ — мы будем использовать его
+        для AI-вызовов вашего бота. С вашего баланса спишется только 20% от обычной
+        цены (за инфраструктуру: webhooks, БД, scheduler). Ключи зашифрованы (HKDF).
+      </p>
+    </div>
+    <div class="space-y-3">
+      ${_PROVIDERS.map(p => {
+        const k = byProvider[p.id];
+        const has = !!k;
+        return `
+          <div class="bg-surface2 border border-outline/15 rounded-xl p-4">
+            <div class="flex items-center gap-3 mb-2">
+              <span style="display:inline-flex;width:24px;height:24px">${_i(p.icon)}</span>
+              <div class="flex-1 min-w-0">
+                <p class="font-semibold text-sm">${esc(p.name)}</p>
+                <p class="text-[11px] text-on-surface-dim">${esc(p.hint)}</p>
+              </div>
+              ${has
+                ? `<span class="text-[10px] bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">✓ Подключён</span>`
+                : ``}
+            </div>
+            ${has
+              ? `<div class="flex items-center gap-2">
+                   <code class="flex-1 text-[11px] bg-surface3 px-3 py-2 rounded text-on-surface-dim font-mono">${esc(k.key_preview)}</code>
+                   <button onclick="deleteApiKey(${k.id})" class="text-xs px-3 py-2 rounded-lg bg-error/15 text-error hover:bg-error/25 transition">Удалить</button>
+                 </div>`
+              : `<div class="flex items-center gap-2">
+                   <input type="password" id="apk_${p.id}" placeholder="${esc(p.hint.split(' — ')[0])}" class="inp text-xs flex-1 font-mono"/>
+                   <button onclick="addApiKey('${p.id}')" class="text-xs px-3 py-2 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition font-medium">Подключить</button>
+                 </div>`}
+          </div>`;
+      }).join('')}
+    </div>
+    <p class="text-[11px] text-on-surface-dim/60 mt-4 leading-relaxed">
+      Ключи никогда не отправляются в чат — только в HTTP-запросы к провайдеру.
+      Хранятся в зашифрованном виде (Fernet с HKDF от JWT_SECRET).
+      Удалить можно в любой момент — бот сразу перейдёт на наши ключи (но цена
+      вернётся к обычной).
+    </p>`;
+  if(window.renderIcons) window.renderIcons(el);
+}
+
+async function addApiKey(provider){
+  const inp = document.getElementById('apk_' + provider);
+  const key = (inp?.value || '').trim();
+  if(!key){ alert('Введите API-ключ'); return; }
+  try{
+    await apiPost('/user/api-keys', {provider, api_key: key});
+    cabTab('apikeys');
+  }catch(e){ alert('Ошибка: ' + e.message); }
+}
+
+async function deleteApiKey(id){
+  if(!confirm('Удалить ключ? Бот вернётся на наши ключи (по обычной цене).')) return;
+  try{
+    const h={};if(authToken)h["Authorization"]="Bearer "+authToken;
+    const r = await fetch(API+'/user/api-keys/' + id, {method:'DELETE', headers:h, credentials:'same-origin'});
+    if(!r.ok) throw new Error('Ошибка ' + r.status);
+    cabTab('apikeys');
+  }catch(e){ alert('Ошибка: ' + e.message); }
 }
 
 // ── Files tab: загруженные файлы / лидмагниты ──────────────────────────────

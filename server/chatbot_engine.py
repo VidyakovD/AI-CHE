@@ -1323,30 +1323,52 @@ def _increment_replies(bot):
 
 
 def _deduct_bot_usage(bot, usage: dict):
-    """Списать стоимость ответа бота по реальным токенам модели (атомарно)."""
-    from server.models import ModelPricing, UsageLog
+    """Списать стоимость ответа бота по реальным токенам модели (атомарно).
+
+    Применяется маржа ×3 (pricing.ai.reply_margin_pct) — это B2B-наценка
+    на API-провайдера. Если у юзера привязан свой API-ключ
+    (UserApiKey для нужного провайдера) — берётся скидка
+    (pricing.ai.user_key_discount_pct, по умолчанию 20% от обычной цены).
+    """
+    from server.models import ModelPricing, UsageLog, UserApiKey
     from server.db import db_session
     from server.billing import deduct_atomic
+    from server.pricing import get_price
     input_tokens = usage.get("input", 0)
     output_tokens = usage.get("output", 0)
     cached_tokens = usage.get("cached", 0)
     model = usage.get("model", bot.model or "gpt")
 
     with db_session() as db:
-        # Расчёт по per-token цене (как в chat.py calculate_cost)
+        # Базовая цена (как в chat.py calculate_cost)
         pricing = db.query(ModelPricing).filter_by(model_id=model).first()
         if pricing and (pricing.ch_per_1k_input > 0 or pricing.ch_per_1k_output > 0):
-            cost = (input_tokens / 1000.0) * pricing.ch_per_1k_input + \
-                   (output_tokens / 1000.0) * pricing.ch_per_1k_output
-            cost = max(int(round(cost)), pricing.min_ch_per_req or 1)
+            base_cost = (input_tokens / 1000.0) * pricing.ch_per_1k_input + \
+                        (output_tokens / 1000.0) * pricing.ch_per_1k_output
+            base_cost = max(int(round(base_cost)), pricing.min_ch_per_req or 1)
         elif pricing and pricing.cost_per_req:
-            cost = pricing.cost_per_req
+            base_cost = pricing.cost_per_req
         else:
-            cost = 1  # fallback
+            base_cost = 1  # fallback
+
+        # Маржа: ×3 от базовой цены (или сколько админ задал в pricing).
+        margin_pct = int(get_price("ai.reply_margin_pct", default=300))
+        cost = max(1, int(base_cost * margin_pct / 100))
+
+        # Скидка если юзер привязал свой API-ключ для этого провайдера
+        provider = _model_to_provider(model)
+        has_user_key = False
+        if provider:
+            has_user_key = db.query(UserApiKey).filter_by(
+                user_id=bot.user_id, provider=provider).first() is not None
+        if has_user_key:
+            discount_pct = int(get_price("ai.user_key_discount_pct", default=20))
+            cost = max(1, int(cost * discount_pct / 100))
 
         charged = deduct_atomic(db, bot.user_id, cost)
 
-        desc = f"Бот «{bot.name}» [{model}]: {input_tokens}→{output_tokens} ток. ({charged/100:.2f} ₽)"
+        own_marker = " [свой ключ]" if has_user_key else ""
+        desc = f"Бот «{bot.name}» [{model}]{own_marker}: {input_tokens}→{output_tokens} ток. ({charged/100:.2f} ₽)"
         if charged < cost:
             desc += f" (списано {charged/100:.2f}/{cost/100:.2f} ₽)"
 
@@ -1361,6 +1383,17 @@ def _deduct_bot_usage(bot, usage: dict):
             cached_tokens=cached_tokens, ch_charged=charged,
         ))
         db.commit()
+
+
+def _model_to_provider(model_id: str) -> str | None:
+    """Маппинг model_id → имя провайдера (для лукапа UserApiKey)."""
+    m = (model_id or "").lower()
+    if "claude" in m: return "anthropic"
+    if "gemini" in m or "imagen" in m or "veo" in m or "nano" in m: return "gemini"
+    if "grok" in m: return "grok"
+    if "perplex" in m: return "perplexity"
+    if m.startswith(("gpt", "dalle")) or "dall-e" in m or m == "openai": return "openai"
+    return None
 
 
 def _save_for_summary(bot_id, chat_id, user_text, answer, user_name, platform):

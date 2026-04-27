@@ -717,14 +717,19 @@ class ChatBot(Base):
 
 
 class UserApiKey(Base):
-    """Собственные API-ключи пользователя для AI-провайдеров."""
+    """Собственные API-ключи пользователя для AI-провайдеров.
+
+    Ключ хранится зашифрованным (Fernet с HKDF от JWT_SECRET).
+    Используется в server.chatbot_engine._deduct_bot_usage для определения
+    скидки + в server.ai.generate_response чтобы передать ключ юзера в
+    провайдера вместо нашего."""
     __tablename__ = "user_api_keys"
 
     id         = Column(Integer, primary_key=True, index=True)
     user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     provider   = Column(String, nullable=False)   # openai | anthropic | gemini | grok
-    api_key    = Column(String, nullable=False)   # ключ пользователя
-    label      = Column(String, nullable=True)    # название (необязательно)
+    api_key    = Column(EncryptedString, nullable=False)
+    label      = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", backref="api_keys_own")

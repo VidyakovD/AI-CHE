@@ -216,6 +216,19 @@ def list_bots(db: Session = Depends(get_db), user: User = Depends(current_user))
 @router.post("")
 async def create_bot(req: BotCreate, db: Session = Depends(get_db),
                      user: User = Depends(current_user)):
+    """
+    Создание бота «с нуля» через Canvas-конструктор.
+    БЕСПЛАТНО — юзер сам собрал workflow, мы зарабатываем на:
+      - реальных диалогах (×3 от стоимости AI-провайдера)
+      - доработке через AI (минимум 100 ₽)
+      - хранилище файлов (50 ₽/мес за 100 МБ)
+
+    Шаблоны и AI-сборка — отдельные endpoint'ы:
+      - POST /chatbots/from-template/{slug} — бесплатно
+      - POST /chatbots/ai-create — минимум 1000 ₽ (AI собирает за юзера)
+    """
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
     bot = ChatBot(
         user_id=user.id,
         name=req.name,
@@ -245,6 +258,9 @@ async def create_bot(req: BotCreate, db: Session = Depends(get_db),
         bot.status = "active"
         db.commit()
         db.refresh(bot)
+    from server.audit_log import log_action
+    log_action("bot.create", user_id=user.id, target_type="bot", target_id=str(bot.id),
+               details={"name": req.name, "source": "scratch", "cost_kop": 0})
     out = _bot_dict(bot)
     out["setup"] = setup
     return out
@@ -322,16 +338,18 @@ async def ai_build_workflow(req: WorkflowAiRequest, db: Session = Depends(get_db
                             user: User = Depends(current_user)):
     """
     AI-помощник: по описанию задачи собирает граф воркфлоу.
-    Списывает реальные копейки за токены Claude — обычно 5-10 ₽ за вызов.
+    Минимум 1000 ₽ (тот же ai.ai_create_min) — это AI делает за юзера сборку.
     """
     if not user.is_verified:
         raise HTTPException(403, "Подтвердите email")
     from server.billing import get_balance, deduct_atomic
     from server.workflow_builder import build_from_task
     from server.models import Transaction
-    # Минимальная блокировка — 5 ₽ (500 копеек)
-    if get_balance(db, user.id) < 500:
-        raise HTTPException(402, "Недостаточно средств (минимум 5 ₽)")
+    from server.pricing import get_price
+
+    ai_create_min = int(get_price("bot.ai_create_min", default=100_000))
+    if get_balance(db, user.id) < ai_create_min:
+        raise HTTPException(402, f"Недостаточно средств (минимум {ai_create_min/100:.0f} ₽)")
     try:
         result = build_from_task(req.task)
     except ValueError as e:
@@ -342,14 +360,15 @@ async def ai_build_workflow(req: WorkflowAiRequest, db: Session = Depends(get_db
     except Exception as e:
         log.error(f"ai-build-workflow error: {e}")
         raise HTTPException(500, "Не удалось собрать воркфлоу. Попробуйте переформулировать задачу.")
-    # Списываем по реальным токенам Claude:
-    # Sonnet тариф ~80 коп/1k input + 300 коп/1k output (= 8/30 CH × 10)
+    # max(минимум, реальные токены × маржа). Маржа из pricing.ai.reply_margin_pct.
     usage = result.get("usage") or {}
-    cost_kop = max(50, int(usage.get("input_tokens", 0) / 1000 * 80
-                        + usage.get("output_tokens", 0) / 1000 * 300))
+    real_kop = int(usage.get("input_tokens", 0) / 1000 * 80
+                 + usage.get("output_tokens", 0) / 1000 * 300)
+    margin_pct = int(get_price("ai.reply_margin_pct", default=300))
+    cost_kop = max(ai_create_min, int(real_kop * margin_pct / 100))
     charged = deduct_atomic(db, user.id, cost_kop)
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
-                       description=f"AI-сборка воркфлоу ({charged/100:.2f} ₽)",
+                       description=f"AI-сборка воркфлоу ({charged/100:.0f} ₽)",
                        model="claude"))
     db.commit()
     result["charged_kopecks"] = charged
@@ -388,15 +407,22 @@ async def ai_create_bot(req: AiCreateBotRequest, db: Session = Depends(get_db),
     from server.billing import get_balance, deduct_atomic
     from server.workflow_builder import build_from_task
     from server.models import Transaction
+    from server.pricing import get_price
 
     desc = (req.description or "").strip()
     if len(desc) < 10:
         raise HTTPException(400, "Опишите задачу подробнее (минимум 10 символов)")
 
-    # Минимальная блокировка по балансу — нужно минимум на сборку workflow (~5 ₽)
-    # + первая работа бота. Не списываем заранее — спишется по факту build_from_task.
-    if get_balance(db, user.id) < 500:
-        raise HTTPException(402, "Недостаточно средств (минимум 5 ₽ на сборку)")
+    # Минимум на AI-сборку (по умолчанию 1000 ₽). AI делает работу за юзера —
+    # собирает архитектуру workflow, подбирает ноды, тестирует — это ценность.
+    # Юзер мог бы сделать сам бесплатно, но тогда тратит свой час времени.
+    ai_create_min = int(get_price("bot.ai_create_min", default=100_000))
+    if get_balance(db, user.id) < ai_create_min:
+        raise HTTPException(
+            402,
+            f"Недостаточно средств (минимум {ai_create_min/100:.0f} ₽ за AI-сборку). "
+            f"Можно создать с нуля бесплатно или из шаблона.",
+        )
 
     # Лимит автогенеренных ботов — защита от runaway (бот-конструктор в TG/MAX
     # мог бы зациклиться и наплодить 1000 ботов).
@@ -424,13 +450,18 @@ async def ai_create_bot(req: AiCreateBotRequest, db: Session = Depends(get_db),
         log.error(f"ai-create-bot build_from_task error: {e}")
         raise HTTPException(500, "Не удалось собрать воркфлоу. Попробуйте переформулировать.")
 
-    # Списываем за сборку workflow (по реальным токенам)
+    # Списание: max(минимум, реальные токены × маржа). Минимум 1000 ₽
+    # компенсирует full-stack ценность (анализ задачи, выбор паттернов,
+    # сборка нод, валидация графа). Раньше было max(50, по_токенам) —
+    # давало 5-30 ₽, что не покрывало даже инфраструктуру.
     usage = wf.get("usage") or {}
-    cost_kop = max(50, int(usage.get("input_tokens", 0) / 1000 * 80
-                        + usage.get("output_tokens", 0) / 1000 * 300))
+    real_kop = int(usage.get("input_tokens", 0) / 1000 * 80
+                 + usage.get("output_tokens", 0) / 1000 * 300)
+    margin_pct = int(get_price("ai.reply_margin_pct", default=300))
+    cost_kop = max(ai_create_min, int(real_kop * margin_pct / 100))
     charged = deduct_atomic(db, user.id, cost_kop)
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
-                       description=f"AI-конструктор бота ({charged/100:.2f} ₽)",
+                       description=f"AI-конструктор бота ({charged/100:.0f} ₽)",
                        model="claude"))
 
     # 2. Подменяем токены каналов в нодах workflow на токены, переданные юзером.
@@ -505,8 +536,10 @@ async def bot_ai_improve(bot_id: int, req: AiImproveRequest,
     from server.billing import get_balance, deduct_atomic
     from server.workflow_builder import build_from_task
     from server.models import Transaction
-    if get_balance(db, user.id) < 500:
-        raise HTTPException(402, "Недостаточно средств (минимум 5 ₽)")
+    from server.pricing import get_price
+    improve_min = int(get_price("bot.ai_improve_min", default=10_000))
+    if get_balance(db, user.id) < improve_min:
+        raise HTTPException(402, f"Недостаточно средств (минимум {improve_min/100:.0f} ₽)")
 
     # Кормим workflow_builder и текущим графом, и инструкцией.
     # Так LLM видит контекст и не собирает с нуля, а правит.
@@ -529,11 +562,13 @@ async def bot_ai_improve(bot_id: int, req: AiImproveRequest,
         raise HTTPException(500, "Не удалось обновить workflow. Переформулируйте инструкцию.")
 
     usage = result.get("usage") or {}
-    cost_kop = max(50, int(usage.get("input_tokens", 0) / 1000 * 80
-                        + usage.get("output_tokens", 0) / 1000 * 300))
+    real_kop = int(usage.get("input_tokens", 0) / 1000 * 80
+                 + usage.get("output_tokens", 0) / 1000 * 300)
+    margin_pct = int(get_price("ai.reply_margin_pct", default=300))
+    cost_kop = max(improve_min, int(real_kop * margin_pct / 100))
     charged = deduct_atomic(db, user.id, cost_kop)
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
-                       description=f"AI-доработка бота «{bot.name}» ({charged/100:.2f} ₽)",
+                       description=f"AI-доработка бота «{bot.name}» ({charged/100:.0f} ₽)",
                        model="claude"))
 
     import json as _json

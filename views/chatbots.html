@@ -80,13 +80,13 @@ select.inp option{background:#272018;color:#f0e6d8}
           <div class="w-10 h-10 rounded-xl sig flex items-center justify-center mb-3 text-[#1e1a14]"><span data-i="wand"></span></div>
           <p class="font-bold mb-1.5">AI-конструктор</p>
           <p class="text-xs text-on-dim leading-relaxed">Опишите задачу — AI сам соберёт workflow под вашу нестандартную задачу.</p>
-          <p class="text-[10px] text-on-dim/60 mt-3">5–30 ₽ за сборку</p>
+          <p class="text-[10px] text-on-dim/60 mt-3">от 1 000 ₽ за сборку</p>
         </button>
         <button onclick="closeCreateChooser();openCreate()" class="text-left bg-surface2 hover:bg-surface3 rounded-2xl p-5 border border-outline/20 hover:border-primary/40 transition group">
           <div class="w-10 h-10 rounded-xl sig flex items-center justify-center mb-3 text-[#1e1a14]"><span data-i="settings"></span></div>
           <p class="font-bold mb-1.5">С нуля</p>
           <p class="text-xs text-on-dim leading-relaxed">Свой системный промпт + Canvas-конструктор сценария. Для технических.</p>
-          <p class="text-[10px] text-on-dim/60 mt-3">Полная свобода</p>
+          <p class="text-[10px] text-on-dim/60 mt-3">Бесплатно</p>
         </button>
       </div>
     </div>
@@ -150,7 +150,7 @@ select.inp option{background:#272018;color:#f0e6d8}
       </div>
       <div class="p-6 space-y-4">
         <p class="text-sm text-on-dim leading-relaxed">
-          Опишите задачу — AI соберёт workflow и создаст готового бота. Подключите токены TG/MAX, и бот сразу начнёт работать. Сборка ≈ 5-30 ₽ по реальным токенам Claude.
+          Опишите задачу — AI соберёт workflow и создаст готового бота. Подключите токены TG/MAX, и бот сразу начнёт работать. Сборка от 1 000 ₽ (фикс минимум; полная архитектура workflow, выбор паттернов, валидация графа). Альтернативы: <a href="#" onclick="closeAiCreate();openCreate();return false" class="text-primary underline">с нуля бесплатно</a> или <a href="#" onclick="closeAiCreate();openTemplates();return false" class="text-primary underline">шаблон бесплатно</a>.
         </p>
         <div>
           <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Задача</label>
@@ -223,7 +223,7 @@ select.inp option{background:#272018;color:#f0e6d8}
         </div>
         <p class="font-bold text-base mb-1.5">AI-конструктор</p>
         <p class="text-xs text-on-dim leading-relaxed mb-3">Опишите своими словами что нужно — нейросеть сама соберёт сценарий. Любая нестандартная задача.</p>
-        <p class="text-[11px] text-on-dim/70">5–30 ₽ за сборку →</p>
+        <p class="text-[11px] text-on-dim/70">от 1 000 ₽ за сборку →</p>
       </button>
       <button onclick="openCreate()" class="text-left bg-surface2 hover:bg-surface3 rounded-2xl p-6 border border-outline/20 hover:border-primary/40 transition group">
         <div class="flex items-center justify-between mb-3">
@@ -261,6 +261,21 @@ select.inp option{background:#272018;color:#f0e6d8}
       <button onclick="closeCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
     </div>
     <div class="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+      <!-- Инфо-баннер: создание бесплатно, оплата только за реальные диалоги -->
+      <div id="bot_create_price_hint" class="bg-surface2/60 border border-outline/15 rounded-xl px-4 py-3 text-sm">
+        <div class="flex items-start gap-3">
+          <span class="text-primary text-lg flex-shrink-0">💡</span>
+          <div class="flex-1">
+            <p class="font-semibold mb-0.5">Создание — бесплатно</p>
+            <p class="text-xs text-on-dim leading-relaxed">
+              Платите только за реальные диалоги бота с клиентами по факту использования AI
+              (×3 от стоимости провайдера). Хранилище файлов: 50 ₽/мес за 100 МБ.
+              <a href="#" onclick="openMyApiKeys();return false" class="text-primary underline">Подключите свой OpenAI/Claude ключ</a>
+              — будете платить только 20% за инфраструктуру.
+            </p>
+          </div>
+        </div>
+      </div>
       <div>
         <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Название бота</label>
         <input id="bot_name" type="text" placeholder="Например: Поддержка магазина" class="inp"/>
@@ -662,11 +677,18 @@ function openCreate(){
   document.getElementById('widget_enabled').checked=false;
   document.getElementById('widgetCodeWrap').classList.add('hidden');
   document.getElementById('bot_err').classList.add('hidden');
+  // Показываем price-баннер только при СОЗДАНИИ, не при редактировании
+  const ph = document.getElementById('bot_create_price_hint');
+  if(ph) ph.classList.remove('hidden');
   document.getElementById('createModal').classList.add('show');
 }
 
 async function editBot(id){
   editingId=id;
+  // При редактировании — скрываем price-баннер (бот уже создан, повторно
+  // не списываем даже если юзер меняет workflow / промпт).
+  const ph = document.getElementById('bot_create_price_hint');
+  if(ph) ph.classList.add('hidden');
   // Подгружаем полные данные (tg_token скрыт в списке)
   try{
     const r=await fetch(API+'/chatbots',{headers:hdrs()});
