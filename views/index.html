@@ -772,7 +772,7 @@ function featureEnabled(key){
   if(!key) return true;
   return FEATURES[key]!==false;
 }
-function applyFeatureFlags(){
+async function applyFeatureFlags(){
   document.querySelectorAll("[data-feature]").forEach(el=>{
     const key=el.dataset.feature;
     el.style.display=featureEnabled(key)?"":"none";
@@ -2064,7 +2064,7 @@ function copyRef(code){
   btn.textContent="Скопировано!";btn.style.color="#6bff9e";
   setTimeout(()=>{btn.textContent="Копировать";btn.style.color="";},2000);
 }
-function renderSettingsTab(el){
+async function renderSettingsTab(el){
   const thr = cabinetData?.user?.low_balance_threshold_rub ?? 10;
   el.innerHTML=`<div class="space-y-6">
     <div>

@@ -590,7 +590,7 @@ function _wfTplLoad() {
 }
 function _wfTplSave(list) { localStorage.setItem(WF_TEMPLATES_KEY, JSON.stringify(list)); }
 
-function wfSaveAsTemplate() {
+async function wfSaveAsTemplate() {
   const def = document.getElementById('wf-name')?.value?.trim() || 'Мой шаблон';
   const name = await aiPrompt('Название шаблона:', def, {title: 'Сохранить шаблон'}); if (!name) return;
   const list = _wfTplLoad();
@@ -631,13 +631,13 @@ function wfRenderTemplates() {
     </div>`;
   }).join('');
 }
-function wfApplyTemplate(id) {
+async function wfApplyTemplate(id) {
   const t = _wfTplLoad().find(x => x.id === id); if (!t) return;
   if (nodes.length && !await aiConfirm(`Текущий граф будет заменён на «${t.name}».`, {okLabel: 'Заменить', title: 'Применить шаблон'})) return;
   _wfApplyGraph({ name: t.name, nodes: t.nodes, conns: t.conns });
   wfCloseTemplates();
 }
-function wfDeleteTemplate(id) {
+async function wfDeleteTemplate(id) {
   if (!await aiConfirm('Удалить этот шаблон?', {danger: true, okLabel: 'Удалить'})) return;
   _wfTplSave(_wfTplLoad().filter(x => x.id !== id));
   wfRenderTemplates();
@@ -1099,7 +1099,7 @@ function updateNodeBody(node){
 }
 
 // ── File upload for nodes ──────────────────────────────────────────────────
-function triggerUpload(nodeId,accept){
+async function triggerUpload(nodeId,accept){
   const inp=document.createElement('input');inp.type='file';inp.accept=accept;
   inp.onchange=async e=>{
     const file=e.target.files[0];if(!file)return;
@@ -1364,7 +1364,7 @@ function logRun(msg,type){
 let savedWfs=JSON.parse(localStorage.getItem('obs_wf_v3')||'[]');
 let curWfId=null;
 
-function saveWorkflow(){
+async function saveWorkflow(){
   const name=document.getElementById('wf-name').value.trim()||'Без названия';
   const wf={id:curWfId||Date.now(),name,
     nodes:nodes.map(n=>({id:n.id,type:n.type,x:n.x,y:n.y,props:{...n.props},uploadedUrl:n.uploadedUrl||null})),
@@ -1397,7 +1397,7 @@ function loadWorkflow(wf){
   setTimeout(()=>{redrawSvg();selectNode(null);},100);
 }
 
-function clearCanvas(){
+async function clearCanvas(){
   if(nodes.length && !await aiConfirm('Все блоки и связи будут удалены.', {danger: true, okLabel: 'Очистить', title: 'Очистить холст?'})) return;
   nodes=[];conns=[];nodeIdCtr=1;curWfId=null;
   document.getElementById('nodes-layer').innerHTML='';

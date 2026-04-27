@@ -1857,7 +1857,7 @@ function _renderResult(text, isError, cost){
   }
 }
 
-function pollStatus() {
+async function pollStatus() {
   if (pollInterval) clearInterval(pollInterval);
   _startStatusTimer();
   pollInterval = setInterval(async () => {
@@ -2605,7 +2605,7 @@ function _wfcLoadTemplates() {
 function _wfcSaveTemplates(list) {
   localStorage.setItem(WFC_TEMPLATES_KEY, JSON.stringify(list));
 }
-function wfcSaveAsTemplate() {
+async function wfcSaveAsTemplate() {
   const defaultName = document.getElementById('wfcName')?.value?.trim() || 'Мой шаблон';
   const name = await aiPrompt('Название шаблона:', defaultName, {title: 'Сохранить как шаблон'});
   if (!name) return;
@@ -2653,7 +2653,7 @@ function wfcRenderTemplates() {
     </div>`;
   }).join('');
 }
-function wfcApplyTemplate(id) {
+async function wfcApplyTemplate(id) {
   const t = _wfcLoadTemplates().find(x => x.id === id);
   if (!t) return;
   if (wfc.nodes.length && !await aiConfirm(`Текущий воркфлоу будет заменён на «${t.name}».`, {okLabel: 'Заменить', title: 'Применить шаблон'})) return;
@@ -2674,7 +2674,7 @@ function wfcApplyTemplate(id) {
   wfcRender();
   wfcPushHistory();
 }
-function wfcDeleteTemplate(id) {
+async function wfcDeleteTemplate(id) {
   if (!await aiConfirm('Удалить этот шаблон?', {danger: true, okLabel: 'Удалить'})) return;
   _wfcSaveTemplates(_wfcLoadTemplates().filter(x => x.id !== id));
   wfcRenderTemplates();
@@ -3253,7 +3253,7 @@ function wfcAddAt(type, x, y) {
 }
 
 // ── Save / Run / Clear ────────────────────────────────────────────────────────
-function wfcClear() {
+async function wfcClear() {
   if(!await aiConfirm('Все блоки и связи будут удалены.', {danger: true, okLabel: 'Очистить', title: 'Очистить воркфлоу?'})) return;
   wfc.nodes=[]; wfc.edges=[]; wfc.sel=null;
   document.getElementById('wfcPanel')?.classList.add('hidden'); wfcRender();

@@ -179,18 +179,15 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <div id="pResultIframeWrap" class="rounded-lg overflow-hidden bg-white" style="height:60vh">
         <iframe id="pResultIframe" sandbox="allow-same-origin" class="w-full h-full border-0"></iframe>
       </div>
-      <!-- Режим правки: textarea + кнопки save/cancel/preview -->
-      <div id="pEditWrap" class="hidden">
-        <div class="flex items-center gap-2 mb-2 flex-wrap">
-          <span class="text-xs text-on-dim">Правь HTML напрямую — после сохранения PDF пересобирается автоматически.</span>
-          <span class="text-xs text-on-dim/70">(Используй классы <code class="text-primary">.kp-section</code>, <code class="text-primary">.kp-hero</code>, <code class="text-primary">.kp-cta</code>)</span>
-        </div>
-        <textarea id="pEditHtml" class="inp font-mono text-xs" rows="20" style="height:50vh;resize:vertical" spellcheck="false"></textarea>
-        <div class="flex items-center gap-2 mt-3 flex-wrap">
-          <button onclick="saveEditedHtml()" class="btn-p text-sm py-2 px-4" id="pSaveHtmlBtn">💾 Сохранить + пересобрать PDF</button>
-          <button onclick="previewEdited()" class="btn-g text-sm">👁 Предпросмотр</button>
-          <button onclick="cancelEditHtml()" class="btn-g text-sm">Отмена</button>
-        </div>
+      <!-- Режим визуальной правки: панель с инструкцией + кнопки save/cancel.
+           Сама правка происходит в iframe (contenteditable=true на текстах). -->
+      <div id="pEditBar" class="hidden mb-3 p-3 bg-primary/10 border border-primary/30 rounded-lg flex items-center gap-3 flex-wrap">
+        <span class="text-xs text-on-surface flex-1">
+          <strong style="color:#ff8c42">Режим правки:</strong> кликни любой текст в превью и печатай.
+          Esc — выйти без сохранения.
+        </span>
+        <button onclick="saveEditedHtml()" class="btn-p text-sm py-1.5 px-3" id="pSaveHtmlBtn">💾 Сохранить</button>
+        <button onclick="cancelEditHtml()" class="btn-g text-sm">Отмена</button>
       </div>
     </div>
 
@@ -621,6 +618,9 @@ function updateGenButton(p){
 
 // Текущий HTML (актуальный — обновляется при правке/перегенерации)
 let _currentHtml = '';
+// Буфер изменений в WYSIWYG-режиме (приходит из iframe через postMessage)
+let _editedHtml = '';
+let _wysiwygMode = false;
 
 // Режим AI-правки секций: при включении в iframe инжектим скрипт,
 // помечающий <section> overlay'ями + кликом, который шлёт parent-у
@@ -629,21 +629,78 @@ let _aiSectionMode = false;
 
 function showResult(html){
   _currentHtml = html || '';
+  _editedHtml = '';
   const wrap = document.getElementById('pResult');
   const iframe = document.getElementById('pResultIframe');
-  // Если включён режим AI-правки — инжектим overlay-скрипт.
-  // sandbox="allow-same-origin allow-scripts" в этом режиме (XSS-риска нет:
-  // HTML наш собственный, проходил через _wrap_html, без user-input <script>).
+  // Три режима iframe:
+  //   1) Чистое превью (sandbox=allow-same-origin без allow-scripts)
+  //   2) AI-правка блока — overlay со ссылками на секции (allow-scripts)
+  //   3) WYSIWYG-правка — contenteditable на текстах (allow-scripts).
+  // XSS-риска в (2)/(3) нет: HTML наш собственный (через _wrap_html),
+  // без user-input <script> от внешних источников.
   if(_aiSectionMode){
     iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
     iframe.srcdoc = _injectSectionOverlay(_currentHtml);
+  } else if(_wysiwygMode){
+    iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
+    iframe.srcdoc = _injectWysiwyg(_currentHtml);
   } else {
     iframe.setAttribute('sandbox', 'allow-same-origin');
     iframe.srcdoc = _currentHtml;
   }
   wrap.classList.remove('hidden');
-  // При повторном открытии возвращаемся в режим превью
-  exitEditMode();
+  // Если не в edit-режиме — выходим из edit-bar; иначе оставляем
+  if(!_wysiwygMode) exitEditMode();
+}
+
+// WYSIWYG-инжект: делает текстовые элементы contenteditable + пушит
+// обновлённый HTML в parent через postMessage при каждом input/blur.
+function _injectWysiwyg(html){
+  const parentOrigin = window.location.origin;
+  const inj = `
+<style>
+  [contenteditable="true"]:hover { outline: 2px dashed rgba(255,140,66,0.5); outline-offset: 2px; cursor: text; }
+  [contenteditable="true"]:focus { outline: 2px solid #ff8c42; outline-offset: 2px; cursor: text; }
+</style>
+<script>
+(function(){
+  var origin = ${JSON.stringify(parentOrigin)};
+  var EDITABLE_TAGS = ['H1','H2','H3','H4','H5','H6','P','LI','TD','TH','BLOCKQUOTE','SPAN','STRONG','EM','SMALL','FIGCAPTION','DT','DD'];
+  document.querySelectorAll('*').forEach(function(el){
+    if(!EDITABLE_TAGS.includes(el.tagName)) return;
+    if(!el.textContent || !el.textContent.trim()) return;
+    // Не делаем contenteditable=true на вложенных, если родитель уже редактируется
+    var p = el.parentElement;
+    while(p){
+      if(p.getAttribute && p.getAttribute('contenteditable') === 'true') return;
+      p = p.parentElement;
+    }
+    el.setAttribute('contenteditable', 'true');
+    el.spellcheck = true;
+  });
+  function pushUpdate(){
+    try {
+      window.parent.postMessage({
+        type: 'kp:wysiwygUpdate',
+        html: '<!DOCTYPE html>' + document.documentElement.outerHTML
+      }, origin);
+    } catch(e){}
+  }
+  var _t = null;
+  document.addEventListener('input', function(){
+    if(_t) clearTimeout(_t);
+    _t = setTimeout(pushUpdate, 250);
+  });
+  document.addEventListener('blur', pushUpdate, true);
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){
+      window.parent.postMessage({type: 'kp:wysiwygCancel'}, origin);
+    }
+  });
+})();
+<\/script>`;
+  if(html.indexOf('</body>') !== -1) return html.replace('</body>', inj + '</body>');
+  return html + inj;
 }
 
 function _injectSectionOverlay(html){
@@ -670,7 +727,7 @@ function _injectSectionOverlay(html){
   return html + inj;
 }
 
-function toggleAiSectionMode(){
+async function toggleAiSectionMode(){
   _aiSectionMode = !_aiSectionMode;
   const btn = document.getElementById('pAiEditBtn');
   if(btn) btn.textContent = _aiSectionMode ? '✕ Готово' : '✨ AI-правка блока';
@@ -694,6 +751,13 @@ window.addEventListener('message', async function(e){
   if(!e.data || typeof e.data !== 'object') return;
   if(e.data.type === 'kp:sectionClick' && typeof e.data.html === 'string'){
     await aiEditSection(e.data.html);
+  } else if(e.data.type === 'kp:wysiwygUpdate' && typeof e.data.html === 'string'){
+    // Юзер печатает в превью — копим обновлённый HTML в буфере.
+    // Не сохраняем сразу — только при клике «Сохранить».
+    _editedHtml = e.data.html;
+  } else if(e.data.type === 'kp:wysiwygCancel'){
+    // Esc внутри iframe — отменяем правку
+    await cancelEditHtml();
   }
 });
 
@@ -745,50 +809,66 @@ function hideResult(){
 }
 
 function exitEditMode(){
-  document.getElementById('pResultIframeWrap').classList.remove('hidden');
-  document.getElementById('pEditWrap').classList.add('hidden');
+  _wysiwygMode = false;
+  _editedHtml = '';
+  const bar = document.getElementById('pEditBar');
+  if(bar) bar.classList.add('hidden');
   const btn = document.getElementById('pEditBtn');
   if(btn) btn.textContent = '✏️ Редактировать';
 }
 
-function toggleEditHtml(){
-  const editWrap = document.getElementById('pEditWrap');
-  const isEditing = !editWrap.classList.contains('hidden');
-  if(isEditing){
-    exitEditMode();
+// Включает WYSIWYG-правку: тексты в превью становятся редактируемыми
+async function toggleEditHtml(){
+  if(_wysiwygMode){
+    // Уже в режиме правки → отмена
+    cancelEditHtml();
     return;
   }
-  document.getElementById('pEditHtml').value = _currentHtml;
-  document.getElementById('pResultIframeWrap').classList.add('hidden');
-  editWrap.classList.remove('hidden');
-  document.getElementById('pEditBtn').textContent = '👁 Превью';
+  // AI-mode и WYSIWYG взаимоисключающие
+  if(_aiSectionMode){
+    _aiSectionMode = false;
+    const aiBtn = document.getElementById('pAiEditBtn');
+    if(aiBtn) aiBtn.textContent = '✨ AI-правка блока';
+  }
+  _wysiwygMode = true;
+  document.getElementById('pEditBar').classList.remove('hidden');
+  const btn = document.getElementById('pEditBtn');
+  if(btn) btn.textContent = '✕ Закрыть правку';
+  // Перерендерим iframe с contenteditable инжектом
+  const iframe = document.getElementById('pResultIframe');
+  iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
+  iframe.srcdoc = _injectWysiwyg(_currentHtml);
 }
 
-function previewEdited(){
-  const html = document.getElementById('pEditHtml').value;
-  if(!html.trim()){ aiAlert('HTML пустой', 'warn'); return; }
-  document.getElementById('pResultIframe').srcdoc = html;
-  document.getElementById('pResultIframeWrap').classList.remove('hidden');
-  document.getElementById('pEditWrap').classList.add('hidden');
-  document.getElementById('pEditBtn').textContent = '✏️ Редактировать';
-}
-
-function cancelEditHtml(){
+async function cancelEditHtml(){
+  if(_editedHtml && _editedHtml !== _currentHtml){
+    if(!await aiConfirm('Изменения не сохранены — отменить правку?', {okLabel: 'Отменить', cancelLabel: 'Продолжить править'})){
+      return;
+    }
+  }
   exitEditMode();
+  // Возвращаемся к чистому превью
+  const iframe = document.getElementById('pResultIframe');
+  iframe.setAttribute('sandbox', 'allow-same-origin');
+  iframe.srcdoc = _currentHtml;
 }
 
 async function saveEditedHtml(){
   if(!currentProjectId) return;
-  const html = document.getElementById('pEditHtml').value;
-  if(!html.trim()){ await aiAlert('HTML пустой', 'warn'); return; }
+  const html = (_editedHtml || _currentHtml).trim();
+  if(!html){ await aiAlert('Нечего сохранять — правок не было', 'info'); return; }
+  if(_editedHtml === '' || _editedHtml === _currentHtml){
+    await aiAlert('Изменений не было — нечего сохранять', 'info');
+    return;
+  }
   if(html.length > 500000){
-    await aiAlert('HTML слишком большой (макс 500 КБ). Сократи или обратись в поддержку.', 'warn');
+    await aiAlert('Документ слишком большой (макс 500 КБ).', 'warn');
     return;
   }
   const btn = document.getElementById('pSaveHtmlBtn');
   btn.disabled = true;
   const oldLabel = btn.textContent;
-  btn.textContent = 'Сохраняю + пересобираю PDF…';
+  btn.textContent = 'Сохраняю…';
   try{
     const r = await fetch(`${API}/proposals/projects/${currentProjectId}/save-html`, {
       method: 'POST', headers: hdrs(), credentials: 'same-origin',
@@ -796,8 +876,9 @@ async function saveEditedHtml(){
     });
     const data = await r.json();
     if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
+    exitEditMode();
     showResult(data.generated_html || html);
-    await aiAlert('HTML сохранён и PDF пересобран. Можно скачивать или отправлять.', 'success');
+    await aiAlert('Сохранено. PDF пересобран.', 'success');
     await loadProjects();
   }catch(e){
     await aiAlert(e.message, 'error');
