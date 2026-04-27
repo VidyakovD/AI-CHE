@@ -1335,8 +1335,13 @@ def add_price_item(bot_id: int, body: PriceItemBody,
         description=(body.description or "").strip()[:500] or None,
         sort_order=int(body.sort_order or 0),
     )
+    # Считаем embedding (через OpenAI text-embedding-3-small) — для vector
+    # search в _price_context_for_question. ~$0.0001 за позицию.
+    from server.chatbot_engine import update_price_item_embedding
+    update_price_item_embedding(item)
     db.add(item); db.commit(); db.refresh(item)
-    return {"id": item.id, "status": "ok"}
+    return {"id": item.id, "status": "ok",
+            "has_embedding": bool(item.embedding_json)}
 
 
 @router.patch("/{bot_id}/price/{item_id}")
@@ -1356,8 +1361,11 @@ def update_price_item(bot_id: int, item_id: int, body: PriceItemBody,
     item.category = (body.category or "").strip()[:60] or None
     item.description = (body.description or "").strip()[:500] or None
     item.sort_order = int(body.sort_order or 0)
+    # Пересчитываем embedding — текст изменился, vector тоже должен.
+    from server.chatbot_engine import update_price_item_embedding
+    update_price_item_embedding(item)
     db.commit()
-    return {"status": "ok"}
+    return {"status": "ok", "has_embedding": bool(item.embedding_json)}
 
 
 @router.delete("/{bot_id}/price/{item_id}")
@@ -1428,7 +1436,7 @@ async def import_price_csv(bot_id: int,
     # Деактивируем текущий прайс (мягкое удаление)
     db.query(BotPriceItem).filter_by(bot_id=bot_id).update({"is_active": False})
 
-    added = 0
+    new_items = []
     for i, row in enumerate(reader):
         name = (row.get(col_name) or "").strip()
         if not name:
@@ -1454,6 +1462,38 @@ async def import_price_csv(bot_id: int,
             is_active=True,
         )
         db.add(item)
-        added += 1
+        new_items.append(item)
+
+    # Batch-вычисление embeddings (1 API-call вместо N) — дешевле в 10× и
+    # быстрее. На 200 позиций ~$0.0002 (≈ 0.02 ₽).
+    embedded = 0
+    if new_items:
+        try:
+            from server.chatbot_engine import batch_update_price_embeddings
+            embedded = batch_update_price_embeddings(new_items)
+        except Exception as e:
+            log.warning(f"[CSV-import] batch embeddings failed: {type(e).__name__}")
     db.commit()
-    return {"status": "ok", "added": added}
+    return {"status": "ok", "added": len(new_items), "embedded": embedded}
+
+
+@router.post("/{bot_id}/price/reembed")
+def reembed_price(bot_id: int,
+                   db: Session = Depends(get_db),
+                   user: User = Depends(current_user)):
+    """
+    Пересчитать embedding'и всего прайса (если OpenAI был недоступен на
+    момент импорта или юзер хочет обновить векторы после правок).
+    Batch — 1 API-call на ≤1000 позиций.
+    """
+    from server.models import BotPriceItem
+    from server.chatbot_engine import batch_update_price_embeddings
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
+    if not bot:
+        raise HTTPException(404, "Бот не найден")
+    items = db.query(BotPriceItem).filter_by(bot_id=bot_id, is_active=True).all()
+    if not items:
+        return {"status": "ok", "embedded": 0}
+    embedded = batch_update_price_embeddings(items)
+    db.commit()
+    return {"status": "ok", "total": len(items), "embedded": embedded}

@@ -88,6 +88,8 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("chatbots", "widget_allowed_origins", "TEXT"),
     # Лимит дочерних ботов через AI-конструктор — защита от runaway-creation.
     ("users", "max_auto_bots", "INTEGER DEFAULT 5"),
+    # Прайс-лист бота: vector embedding для semantic search
+    ("bot_price_items", "embedding_json", "TEXT"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

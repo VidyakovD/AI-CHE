@@ -743,6 +743,10 @@ class BotPriceItem(Base):
     sort_order  = Column(Integer, default=0)
     is_active   = Column(Boolean, default=True)
     created_at  = Column(DateTime, default=datetime.utcnow)
+    # Vector embedding (text-embedding-3-small, 1536 dim) — JSON-encoded
+    # list of floats. Используется в vector search при ответе на «сколько стоит».
+    # null = ещё не посчитан, fallback на substring search.
+    embedding_json = Column(Text, nullable=True)
 
 
 class UserApiKey(Base):

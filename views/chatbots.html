@@ -502,9 +502,10 @@ select.inp option{background:#272018;color:#f0e6d8}
     <div class="p-5 max-h-[80vh] overflow-y-auto">
       <p class="text-xs text-on-dim mb-4 leading-relaxed">
         Бот <b>не</b> добавляет прайс к каждому сообщению (это было бы дорого).
-        Прайс инжектится в AI-ответ только когда клиент пишет «сколько стоит»,
-        «цена», «прайс» и подобное — и только релевантные позиции (по поиску слов
-        из вопроса). Лимит: 15 позиций за раз.
+        Подключается только когда клиент спрашивает цену — semantic-поиск
+        через AI embeddings (text-embedding-3-small) находит ровно те позиции,
+        которые относятся к вопросу. Понимает синонимы и опечатки.
+        Топ-15 позиций за раз, кэш на повторные вопросы 10 мин.
       </p>
       <div class="flex items-center gap-2 mb-4 flex-wrap">
         <button onclick="bp_addRow()" class="btn-p text-xs py-1.5 inline-flex items-center gap-1">
@@ -513,6 +514,9 @@ select.inp option{background:#272018;color:#f0e6d8}
         <input id="bpCsvInput" type="file" accept=".csv,text/csv" class="hidden"/>
         <button onclick="document.getElementById('bpCsvInput').click()" class="btn-g text-xs py-1.5 inline-flex items-center gap-1">
           <span data-i="upload"></span> Импорт CSV
+        </button>
+        <button onclick="bp_reembed()" class="btn-g text-xs py-1.5 inline-flex items-center gap-1" title="Пересчитать векторы (нужно если импорт был без ключа OpenAI)">
+          <span data-i="refresh"></span> Векторы
         </button>
         <span id="bpCsvStatus" class="text-[11px] text-on-dim"></span>
         <span class="text-[11px] text-on-dim/50 ml-auto" id="bpCount">0 позиций</span>
@@ -1545,6 +1549,29 @@ async function bp_delete(idx){
   }
   _bpItems.splice(idx, 1);
   _bp_render();
+}
+
+async function bp_reembed(){
+  if(!_currentPriceBot) return;
+  const status = document.getElementById('bpCsvStatus');
+  status.textContent = 'Пересчёт векторов…';
+  status.className = 'text-[11px] text-on-dim';
+  try{
+    const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+    const headers = {};
+    if(csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
+    const tok = localStorage.getItem('obs_token');
+    if(tok && !csrf) headers['Authorization'] = 'Bearer ' + tok;
+    const r = await fetch(`${API}/chatbots/${_currentPriceBot}/price/reembed`,
+                          {method:'POST', headers, credentials:'same-origin'});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || 'Ошибка');
+    status.textContent = `✓ Векторы обновлены: ${d.embedded}/${d.total}`;
+    status.className = 'text-[11px] text-green-500';
+  }catch(e){
+    status.textContent = 'Ошибка: ' + e.message;
+    status.className = 'text-[11px] text-error';
+  }
 }
 
 async function _bp_importCsv(file){

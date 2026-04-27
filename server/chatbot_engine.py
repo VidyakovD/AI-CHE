@@ -334,14 +334,164 @@ def _price_keyword_in_text(text: str) -> bool:
     return any(kw in t for kw in _PRICE_KEYWORDS)
 
 
+# ── Vector search для прайса (OpenAI text-embedding-3-small) ───────────────
+# Cosine similarity между embedding'ом запроса и embedding'ами позиций прайса.
+# Возвращает топ-K релевантных. Цена: ~$0.02 за 1M токенов = ~0.0001₽ за запрос.
+
+import json as _json_emb
+import math as _math
+import time as _time
+
+_EMBED_MODEL = "text-embedding-3-small"   # 1536 dim, $0.02/1M токенов
+_EMBED_QUERY_CACHE: dict[str, tuple[float, list]] = {}
+_EMBED_QUERY_TTL = 600   # 10 минут — частые запросы «сколько стоит» дешёвые
+
+
+def _compute_embedding(text: str) -> list[float] | None:
+    """
+    Возвращает 1536-мерный вектор для text через OpenAI embedding API.
+    None при ошибке (недоступность / нет ключа). Caller использует fallback.
+    """
+    if not text or not text.strip():
+        return None
+    try:
+        from openai import OpenAI
+        from server.ai import _get_api_keys
+        keys = _get_api_keys("openai")
+        if not keys:
+            return None
+        client = OpenAI(api_key=keys[0])
+        resp = client.embeddings.create(
+            model=_EMBED_MODEL,
+            input=text[:8000],   # 8000 chars = ~2000 токенов с запасом до лимита
+            encoding_format="float",
+        )
+        return list(resp.data[0].embedding)
+    except Exception as e:
+        log.warning(f"[embedding] failed: {type(e).__name__}")
+        return None
+
+
+def _cached_query_embedding(query: str) -> list[float] | None:
+    """Кэш на 10 мин — частые «сколько стоит» не плодят повторные API-вызовы."""
+    key = (query or "").strip().lower()[:200]
+    if not key:
+        return None
+    now = _time.time()
+    cached = _EMBED_QUERY_CACHE.get(key)
+    if cached and (now - cached[0]) < _EMBED_QUERY_TTL:
+        return cached[1]
+    vec = _compute_embedding(key)
+    if vec is not None:
+        # Чистим кэш если разросся
+        if len(_EMBED_QUERY_CACHE) > 500:
+            _EMBED_QUERY_CACHE.clear()
+        _EMBED_QUERY_CACHE[key] = (now, vec)
+    return vec
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Cosine sim двух одинаковых-размерности векторов. Без numpy."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = 0.0; na = 0.0; nb = 0.0
+    for x, y in zip(a, b):
+        dot += x * y
+        na += x * x
+        nb += y * y
+    if na == 0 or nb == 0:
+        return 0.0
+    return dot / (_math.sqrt(na) * _math.sqrt(nb))
+
+
+def _item_to_embedding_text(item) -> str:
+    """Формирует текст для embedding из полей позиции прайса."""
+    parts = [item.name or ""]
+    if item.category:
+        parts.append(f"({item.category})")
+    if item.description:
+        parts.append(item.description)
+    if item.price_text:
+        parts.append(item.price_text)
+    return " ".join(parts).strip()
+
+
+def update_price_item_embedding(item) -> None:
+    """
+    Обновить embedding одной позиции прайса. Зовётся при POST/PATCH.
+    Не raise'ит — fallback на substring если OpenAI недоступен.
+    """
+    text = _item_to_embedding_text(item)
+    vec = _compute_embedding(text)
+    if vec is not None:
+        item.embedding_json = _json_emb.dumps(vec, separators=(",", ":"))
+
+
+def batch_update_price_embeddings(items: list) -> int:
+    """
+    Batch вычисление embeddings для нескольких позиций прайса в один
+    API-call (OpenAI принимает массив input). Дешевле и быстрее чем по одной
+    при импорте CSV.
+
+    Returns: количество успешно обновлённых.
+    """
+    if not items:
+        return 0
+    texts = [_item_to_embedding_text(it) for it in items]
+    if not any(texts):
+        return 0
+    try:
+        from openai import OpenAI
+        from server.ai import _get_api_keys
+        keys = _get_api_keys("openai")
+        if not keys:
+            return 0
+        client = OpenAI(api_key=keys[0])
+        # OpenAI batch limit — 2048 текстов или 300k токенов. Дробим если больше.
+        BATCH = 1000
+        updated = 0
+        for start in range(0, len(items), BATCH):
+            chunk_items = items[start:start + BATCH]
+            chunk_texts = [t[:8000] for t in texts[start:start + BATCH]]
+            resp = client.embeddings.create(
+                model=_EMBED_MODEL,
+                input=chunk_texts,
+                encoding_format="float",
+            )
+            for it, emb in zip(chunk_items, resp.data):
+                it.embedding_json = _json_emb.dumps(list(emb.embedding),
+                                                     separators=(",", ":"))
+                updated += 1
+        return updated
+    except Exception as e:
+        log.warning(f"[embedding-batch] failed: {type(e).__name__}")
+        return 0
+
+
+def _substring_score(item, words: list[str]) -> int:
+    """Fallback search когда embeddings недоступны."""
+    hay = " ".join(filter(None, [
+        (item.name or "").lower(),
+        (item.category or "").lower(),
+        (item.description or "").lower(),
+    ]))
+    return sum(1 for w in words if w in hay)
+
+
 def _price_context_for_question(bot, user_text: str, max_items: int = 15) -> str:
     """
     Возвращает компактный prompt-фрагмент с релевантными позициями прайса
     либо пустую строку (когда вопрос не про цены ИЛИ прайса нет).
 
-    Релевантность: substring match по name/category/description против слов
-    из вопроса (длина >= 3). Если совпадений нет — возвращаем top-N всех
-    позиций (юзер мог спросить «прайс» без конкретики).
+    Алгоритм:
+    1. Detect price-keywords — иначе сразу пусто.
+    2. Vector search через cosine similarity между embedding'ом вопроса
+       и embedding'ами позиций. Top-K по similarity, threshold 0.30
+       (отсекаем совсем нерелевантное).
+    3. Fallback на substring matching если embeddings недоступны.
+
+    Стоимость: ~$0.000002 за вопрос (text-embedding-3-small, 50 токенов).
+    Кэш на 10 мин для частых запросов «сколько стоит».
     """
     if not _price_keyword_in_text(user_text):
         return ""
@@ -355,26 +505,50 @@ def _price_context_for_question(bot, user_text: str, max_items: int = 15) -> str
                       .all())
             if not rows:
                 return ""
-            # Слова из вопроса для substring match (минимум 3 символа)
-            words = [w for w in user_text.lower().split() if len(w) >= 3]
-            scored = []
-            for item in rows:
-                hay = " ".join(filter(None, [
-                    (item.name or "").lower(),
-                    (item.category or "").lower(),
-                    (item.description or "").lower(),
-                ]))
-                score = sum(1 for w in words if w in hay)
-                scored.append((score, item))
-            # Если никаких совпадений — берём top-N всех (юзер просит общий прайс)
-            scored.sort(key=lambda x: (-x[0], x[1].sort_order or 0, x[1].id))
-            if scored and scored[0][0] == 0:
-                # Совпадений нет — берём первые N
-                items = [s[1] for s in scored[:max_items]]
+
+            # Vector search (если у позиций есть embedding'и И мы можем
+            # посчитать embedding запроса)
+            scored: list[tuple[float, object, str]] = []
+            with_emb = [r for r in rows if r.embedding_json]
+            use_vector = bool(with_emb)
+            query_vec = None
+            if use_vector:
+                query_vec = _cached_query_embedding(user_text)
+                if query_vec is None:
+                    use_vector = False
+
+            if use_vector:
+                # cosine sim каждой позиции с embedding'ом запроса
+                for r in rows:
+                    if not r.embedding_json:
+                        continue
+                    try:
+                        v = _json_emb.loads(r.embedding_json)
+                    except Exception:
+                        continue
+                    sim = _cosine_similarity(query_vec, v)
+                    if sim >= 0.30:   # threshold — ниже скорее шум
+                        scored.append((sim, r, "vec"))
+                # Если ни одна позиция не прошла threshold — это «общий» вопрос
+                # типа «покажи прайс» → берём top-N по sort_order
+                if not scored:
+                    items = rows[:max_items]
+                else:
+                    scored.sort(key=lambda x: -x[0])
+                    items = [s[1] for s in scored[:max_items]]
             else:
-                items = [s[1] for s in scored if s[0] > 0][:max_items]
+                # Fallback: substring matching по словам из вопроса
+                words = [w for w in user_text.lower().split() if len(w) >= 3]
+                ssub = [(_substring_score(r, words), r) for r in rows]
+                ssub.sort(key=lambda x: (-x[0], x[1].sort_order or 0, x[1].id))
+                if ssub and ssub[0][0] == 0:
+                    items = [s[1] for s in ssub[:max_items]]
+                else:
+                    items = [s[1] for s in ssub if s[0] > 0][:max_items]
+
             if not items:
                 return ""
+
             lines = ["", "ПРАЙС-ЛИСТ (только релевантные позиции):"]
             current_cat = None
             for it in items:
