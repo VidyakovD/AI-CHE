@@ -560,14 +560,22 @@ async def _storage_billing_tick():
                 .all()
             )
             deleted = 0
+            from pathlib import Path as _P
+            # Корень проекта (parent для server/) — для абсолютного резолва путей.
+            # uploads_root защищает от path-traversal: даже если в БД попал
+            # path="../../etc/passwd", relative_to() кинет ValueError и пропустит.
+            _proj_root = _P(__file__).resolve().parent.parent
+            _uploads_root = (_proj_root / "uploads").resolve()
             for a in stale:
-                from pathlib import Path as _P
                 try:
-                    p = _P(a.path.lstrip("/"))
-                    if p.exists():
+                    p = (_proj_root / a.path.lstrip("/")).resolve()
+                    p.relative_to(_uploads_root)  # ValueError если вне uploads/
+                    if p.exists() and p.is_file():
                         p.unlink()
+                except (ValueError, OSError) as ex:
+                    log.warning(f"[storage-billing] skip delete {a.path}: {type(ex).__name__}")
                 except Exception as ex:
-                    log.warning(f"[storage-billing] cannot delete file {a.path}: {ex}")
+                    log.warning(f"[storage-billing] cannot delete file {a.path}: {type(ex).__name__}")
                 # Удаляем запись из БД (можно оставить для истории, но тогда orphan)
                 db.delete(a)
                 deleted += 1
