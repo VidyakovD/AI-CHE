@@ -916,7 +916,7 @@ async function editBot(id){
     }
     document.getElementById('bot_err').classList.add('hidden');
     document.getElementById('createModal').classList.add('show');
-  }catch(e){alert('Ошибка: '+e.message);}
+  }catch(e){await aiAlert(e.message,'error');}
 }
 
 function closeCreate(){document.getElementById('createModal').classList.remove('show');}
@@ -1132,7 +1132,7 @@ async function submitAiCreate(){
     toast(`✅ Бот «${data.name}» создан (списано ${(data.build_charged_rub||0).toFixed(2)} ₽)`, 'success');
     if(data.workflow_explanation){
       // короткое объяснение от AI — выведем в alert чтобы юзер прочитал
-      setTimeout(()=> alert('Что собрал AI:\n\n' + data.workflow_explanation), 400);
+      setTimeout(()=> aiAlert(data.workflow_explanation, 'success'), 400);
     }
     if(typeof loadBots === 'function') await loadBots();
   }catch(e){
@@ -1275,7 +1275,7 @@ async function pauseBot(id){
 async function deleteBot(id){
   const bot = bots.find(b=>b.id===id);
   const name = bot?.name || 'бота';
-  if(!confirm(`Удалить «${name}»? Все webhooks будут отключены, диалоги сохранятся.`)) return;
+  if(!await aiConfirm(`Все webhooks будут отключены, диалоги сохранятся.`, {danger: true, okLabel: 'Удалить', title: `Удалить «${name}»?`})) return;
   try{
     const r = await fetch(`${API}/chatbots/${id}`,{method:'DELETE',headers:hdrs()});
     if(!r.ok) throw Object.assign(new Error('Ошибка'), {status:r.status});
@@ -1332,7 +1332,7 @@ async function submitAiImprove(){
     closeAiImprove();
     toast(`✓ Бот обновлён (списано ${(data.charged_rub||0).toFixed(2)} ₽)`, 'success');
     if(data.explanation){
-      setTimeout(() => alert('Что AI поменял:\n\n' + data.explanation), 300);
+      setTimeout(() => aiAlert(data.explanation, 'success'), 300);
     }
     if(typeof loadBots === 'function') await loadBots();
   }catch(e){
@@ -1652,7 +1652,7 @@ function bp_addRow(){
 
 async function bp_save(idx){
   const data = _bp_collectRow(idx);
-  if(!data || !data.name){ alert('Название обязательно'); return; }
+  if(!data || !data.name){ await aiAlert('Название обязательно', 'warn'); return; }
   const item = _bpItems[idx];
   const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
   const headers = {'Content-Type':'application/json'};
@@ -1673,13 +1673,13 @@ async function bp_save(idx){
     }
     Object.assign(_bpItems[idx], data);
     toast('✓ Позиция сохранена', 'success');
-  }catch(e){ alert('Ошибка: ' + e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 async function bp_delete(idx){
   const item = _bpItems[idx];
   if(item?.id){
-    if(!confirm('Удалить позицию «' + (item.name || '') + '»?')) return;
+    if(!await aiConfirm('Удалить позицию «' + (item.name || '') + '» из прайс-листа?', {danger: true, okLabel: 'Удалить'})) return;
     const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
     const headers = {};
     if(csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
@@ -1867,7 +1867,7 @@ async function _uploadBotAsset(file){
 }
 
 async function _deleteBotAsset(id){
-  if(!confirm('Удалить этот файл бота?')) return;
+  if(!await aiConfirm('Удалить этот файл бота?', {danger: true, okLabel: 'Удалить'})) return;
   try{
     const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
     const headers = {};
@@ -1877,7 +1877,7 @@ async function _deleteBotAsset(id){
     const r = await fetch(`${API}/assets/${id}`, {method:'DELETE', headers, credentials:'same-origin'});
     if(!r.ok) throw new Error('Ошибка удаления');
     await _loadBotAssets();
-  }catch(e){ alert(e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 function _copyBaUrl(url, btn){
@@ -2008,7 +2008,8 @@ async function updateRecordStatus(recId, status){
 }
 
 async function deleteRecord(recId){
-  if(!_currentRecordsBot || !confirm('Удалить эту запись?')) return;
+  if(!_currentRecordsBot) return;
+  if(!await aiConfirm('Удалить эту запись?', {danger: true, okLabel: 'Удалить'})) return;
   try{
     await fetch(`${API}/chatbots/${_currentRecordsBot}/records/${recId}`, {method:'DELETE', headers: hdrs()});
     loadRecords();

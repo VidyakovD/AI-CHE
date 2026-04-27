@@ -181,15 +181,23 @@ def fetch_price_from_bot(db, bot_id: int, user_id: int) -> str:
 
 
 def _build_brand_css(brand: ProposalBrand | None) -> dict:
-    """Возвращает dict со стилевыми переменными бренда."""
+    """Возвращает dict со стилевыми переменными бренда.
+
+    ВАЖНО: основной шрифт всегда `DejaVuSans` — он регистрируется в
+    pdf_builder._ensure_cyrillic_font_registered и единственный гарантирует
+    поддержку кириллицы в xhtml2pdf. Шрифт бренда (Inter/Manrope/...)
+    указывается как fallback, но в xhtml2pdf без TTF не будет применён —
+    остаётся как «семантическая подсказка».
+    """
     if not brand:
         return {
             "primary": "#ff8c42", "accent": "#ffb347", "secondary": "#1C1C1C",
-            "font": "Inter, sans-serif", "preset": "minimal",
+            "font": "DejaVuSans, Inter, sans-serif", "preset": "minimal",
             "company": "", "logo_url": "", "contacts": "",
             "inn": "", "address": "", "signature": "",
         }
-    font = (brand.font_family or "Inter") + ", sans-serif"
+    brand_font = brand.font_family or "Inter"
+    font = f"DejaVuSans, {brand_font}, sans-serif"
     return {
         "primary": brand.primary_color or "#ff8c42",
         "accent": brand.accent_color or "#ffb347",

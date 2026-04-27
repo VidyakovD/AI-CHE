@@ -228,6 +228,157 @@
     _mo.observe(document.documentElement, {childList: true, subtree: true});
   } catch (e) { /* no-op */ }
 
+  // ── Custom modals: confirm/alert/prompt в стиле «Че» ──────────────────────
+  // Заменяет браузерные diaогли (которые выглядят как window.alert) на
+  // фирменные модалки с темным фоном, оранжевыми кнопками. Возвращают
+  // Promise — вместо синхронного confirm() пиши: `if(!await aiConfirm(...))`.
+  //
+  // Использование:
+  //   await aiAlert('Готово!', 'success');         // info | success | error | warn
+  //   if(!await aiConfirm('Удалить?')) return;
+  //   const v = await aiPrompt('Имя?', 'Default'); // null если отмена
+  //
+  // Стиль наследуется со страницы (Tailwind primary/surface/outline).
+  // Если страница не использует Tailwind — есть инлайновые цвета.
+
+  function _ensureModalRoot(){
+    let r = document.getElementById('__aiModalRoot');
+    if (r) return r;
+    r = document.createElement('div');
+    r.id = '__aiModalRoot';
+    document.body.appendChild(r);
+    // Базовые стили (если на странице не подгружен Tailwind)
+    if (!document.getElementById('__aiModalCss')){
+      const s = document.createElement('style');
+      s.id = '__aiModalCss';
+      s.textContent = `
+        .__ai_mw{position:fixed;inset:0;background:rgba(0,0,0,0.72);backdrop-filter:blur(6px);
+          z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;
+          font-family:Inter,'Segoe UI',sans-serif;animation:__ai_fade .15s ease-out}
+        @keyframes __ai_fade{from{opacity:0}to{opacity:1}}
+        @keyframes __ai_slide{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+        .__ai_mb{background:#1e1a14;border:1.5px solid rgba(255,140,66,0.25);border-radius:14px;
+          max-width:440px;width:100%;color:#f0e6d8;box-shadow:0 12px 48px rgba(0,0,0,0.5);
+          animation:__ai_slide .18s ease-out}
+        .__ai_mh{display:flex;align-items:center;gap:10px;padding:18px 22px 12px;
+          font-family:Manrope,Inter,sans-serif;font-weight:700;font-size:15px}
+        .__ai_mh .__ai_ic{width:28px;height:28px;border-radius:8px;display:flex;
+          align-items:center;justify-content:center;flex-shrink:0;font-size:15px}
+        .__ai_mh.info .__ai_ic{background:rgba(99,102,241,0.15);color:#a5b4fc}
+        .__ai_mh.success .__ai_ic{background:rgba(34,197,94,0.15);color:#86efac}
+        .__ai_mh.error .__ai_ic{background:rgba(255,107,107,0.15);color:#ff6b6b}
+        .__ai_mh.warn .__ai_ic{background:rgba(255,140,66,0.18);color:#ff8c42}
+        .__ai_mh.q .__ai_ic{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210}
+        .__ai_mt{padding:4px 22px 18px;font-size:13.5px;line-height:1.55;color:#d4c8b0;
+          white-space:pre-wrap;word-break:break-word}
+        .__ai_mi{margin:0 22px 16px;width:calc(100% - 44px);padding:9px 13px;border-radius:9px;
+          background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;
+          font-size:13px;font-family:inherit}
+        .__ai_mi:focus{border-color:#ff8c42}
+        .__ai_mf{display:flex;justify-content:flex-end;gap:8px;padding:0 18px 18px}
+        .__ai_btn{padding:9px 18px;border-radius:9px;font-size:13px;font-weight:600;
+          cursor:pointer;border:none;transition:opacity .15s,transform .1s;font-family:inherit}
+        .__ai_btn:active{transform:translateY(1px)}
+        .__ai_btn.cancel{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.5)}
+        .__ai_btn.cancel:hover{color:#f0e6d8;border-color:#ff8c42}
+        .__ai_btn.ok{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210}
+        .__ai_btn.ok:hover{opacity:.9}
+        .__ai_btn.danger{background:rgba(255,107,107,0.15);color:#ff6b6b;
+          border:1px solid rgba(255,107,107,0.35)}
+        .__ai_btn.danger:hover{background:rgba(255,107,107,0.28)}
+      `;
+      document.head.appendChild(s);
+    }
+    return r;
+  }
+
+  function _showModal({type, title, message, withInput, defaultInput, okLabel, cancelLabel, danger}){
+    return new Promise(resolve => {
+      const root = _ensureModalRoot();
+      const wrap = document.createElement('div');
+      wrap.className = '__ai_mw';
+      const iconMap = {info:'ⓘ', success:'✓', error:'✕', warn:'!', q:'?'};
+      const iconChar = iconMap[type] || 'ⓘ';
+      const titleSafe = String(title || '').replace(/[<>&]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+      const msgSafe = String(message || '').replace(/[<>&]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+      const inputHtml = withInput
+        ? `<input class="__ai_mi" type="text" value="${String(defaultInput||'').replace(/"/g,'&quot;')}"/>`
+        : '';
+      const cancelHtml = (okLabel === null) ? '' :
+        `<button class="__ai_btn cancel">${cancelLabel || 'Отмена'}</button>`;
+      const okClass = danger ? 'danger' : 'ok';
+      wrap.innerHTML =
+        `<div class="__ai_mb" role="dialog" aria-modal="true">
+          <div class="__ai_mh ${type||'info'}"><span class="__ai_ic">${iconChar}</span><span>${titleSafe}</span></div>
+          ${msgSafe ? `<div class="__ai_mt">${msgSafe}</div>` : ''}
+          ${inputHtml}
+          <div class="__ai_mf">
+            ${cancelHtml}
+            <button class="__ai_btn ${okClass}">${okLabel || 'OK'}</button>
+          </div>
+        </div>`;
+      root.appendChild(wrap);
+      const inputEl = wrap.querySelector('.__ai_mi');
+      const okBtn = wrap.querySelector('.__ai_btn.' + okClass);
+      const cancelBtn = wrap.querySelector('.__ai_btn.cancel');
+
+      function close(val){
+        wrap.remove();
+        document.removeEventListener('keydown', onKey);
+        resolve(val);
+      }
+      function onKey(e){
+        if (e.key === 'Escape'){ close(withInput ? null : false); }
+        else if (e.key === 'Enter' && (!inputEl || document.activeElement === inputEl)){
+          close(withInput ? (inputEl.value) : true);
+        }
+      }
+      okBtn.addEventListener('click', () => close(withInput ? (inputEl ? inputEl.value : true) : true));
+      if (cancelBtn) cancelBtn.addEventListener('click', () => close(withInput ? null : false));
+      // Клик вне окна = отмена
+      wrap.addEventListener('click', e => { if (e.target === wrap) close(withInput ? null : false); });
+      document.addEventListener('keydown', onKey);
+      setTimeout(() => { (inputEl || okBtn).focus(); }, 30);
+    });
+  }
+
+  window.aiConfirm = function(message, opts){
+    opts = opts || {};
+    return _showModal({
+      type: opts.type || 'q',
+      title: opts.title || 'Подтвердите действие',
+      message: message,
+      withInput: false,
+      okLabel: opts.okLabel || 'Подтвердить',
+      cancelLabel: opts.cancelLabel || 'Отмена',
+      danger: !!opts.danger,
+    });
+  };
+
+  window.aiAlert = function(message, type){
+    return _showModal({
+      type: type || 'info',
+      title: ({success:'Готово', error:'Ошибка', warn:'Внимание', info:'Уведомление'})[type] || 'Уведомление',
+      message: message,
+      withInput: false,
+      okLabel: 'OK',
+      cancelLabel: null,
+    }).then(() => undefined);
+  };
+
+  window.aiPrompt = function(message, defaultValue, opts){
+    opts = opts || {};
+    return _showModal({
+      type: opts.type || 'q',
+      title: opts.title || 'Введите значение',
+      message: message,
+      withInput: true,
+      defaultInput: defaultValue || '',
+      okLabel: opts.okLabel || 'OK',
+      cancelLabel: opts.cancelLabel || 'Отмена',
+    });
+  };
+
   // ── Global fetch shim: автоматический CSRF-token на write-методах ─────────
   // После миграции JWT в httpOnly cookie каждый write-запрос должен нести
   // X-CSRF-Token равный cookie csrf_token (double-submit pattern).

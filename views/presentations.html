@@ -292,7 +292,7 @@ async function saveProfile() {
       el.classList.remove('hidden');
       setTimeout(() => el.classList.add('hidden'), 2500);
     }
-  } catch(e) { alert('Ошибка сохранения: ' + e.message); }
+  } catch(e) { await aiAlert('Ошибка сохранения: ' + e.message, 'error'); }
 }
 
 function toggleProfile() {
@@ -409,7 +409,7 @@ async function openProject(id, preDesc) {
     const r = await fetch(`${API}/presentations/projects/${id}`, {headers: hdrs()});
     if (!r.ok) throw new Error(r.statusText);
     currentProject = await r.json();
-  } catch(e) { alert('Ошибка: ' + e.message); return; }
+  } catch(e) { await aiAlert(e.message, 'error'); return; }
 
   const p = currentProject;
   document.getElementById('detailTitle').textContent = p.name;
@@ -498,7 +498,7 @@ async function attachBotToPres(botId){
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Ошибка');
     currentProject.attached_bot_id = botId ? +botId : null;
-  } catch(e) { alert('Ошибка: ' + e.message); }
+  } catch(e) { await aiAlert(e.message, 'error'); }
 }
 
 function closeDetail() { document.getElementById('detailModal').classList.remove('show'); }
@@ -548,7 +548,7 @@ async function generateCurrent() {
     renderContent(data.generated_content);
     loadProjects();
   } catch(e) {
-    alert('Ошибка: ' + e.message);
+    await aiAlert(e.message, 'error');
   }
   btn.disabled = false; btn.textContent = 'Сгенерировать (5 ₽)';
 }
@@ -562,21 +562,21 @@ async function regenerateCurrent() {
 }
 
 async function deleteCurrentProject() {
-  if (!confirm('Удалить проект?')) return;
+  if (!await aiConfirm('Удалить проект?', {danger: true, okLabel: 'Удалить'})) return;
   try {
     await fetch(`${API}/presentations/projects/${currentProjectId}`, {method: 'DELETE', headers: hdrs()});
     closeDetail();
     await loadProjects();
-  } catch(e) { alert('Ошибка: ' + e.message); }
+  } catch(e) { await aiAlert(e.message, 'error'); }
 }
 
 async function deleteProjectFromList(id, name) {
-  if (!confirm(`Удалить проект «${name}»? Это действие нельзя отменить.`)) return;
+  if (!await aiConfirm(`Удалить проект «${name}»? Это действие нельзя отменить.`, {danger: true, okLabel: 'Удалить'})) return;
   try {
     const r = await fetch(`${API}/presentations/projects/${id}`, {method: 'DELETE', headers: hdrs()});
     if (!r.ok) throw new Error('Ошибка удаления');
     await loadProjects();
-  } catch(e) { alert('Ошибка: ' + e.message); }
+  } catch(e) { await aiAlert(e.message, 'error'); }
 }
 
 function copyContent() {

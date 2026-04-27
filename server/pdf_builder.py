@@ -171,15 +171,88 @@ hr {
 """
 
 
+_DEJAVU_REGISTERED = False
+_DEJAVU_PATHS = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+]
+
+
+def _ensure_cyrillic_font_registered() -> str | None:
+    """Регистрирует DejaVu Sans (TTF с поддержкой кириллицы) в ReportLab.
+    Без этого xhtml2pdf использует встроенный Helvetica, в котором нет
+    русских глифов → в PDF получаются «квадратики».
+
+    Возвращает имя зарегистрированного семейства (для использования в
+    font-family) или None если шрифт не найден.
+    """
+    global _DEJAVU_REGISTERED
+    if _DEJAVU_REGISTERED:
+        return "DejaVuSans"
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        # Базовый шрифт обязателен
+        if not os.path.exists(_DEJAVU_PATHS[0]):
+            return None
+        pdfmetrics.registerFont(TTFont("DejaVuSans", _DEJAVU_PATHS[0]))
+        # Bold/Italic — опциональны (xhtml2pdf использует если зарегистрированы)
+        if os.path.exists(_DEJAVU_PATHS[1]):
+            pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", _DEJAVU_PATHS[1]))
+        if os.path.exists(_DEJAVU_PATHS[2]):
+            pdfmetrics.registerFont(TTFont("DejaVuSans-Oblique", _DEJAVU_PATHS[2]))
+        if os.path.exists(_DEJAVU_PATHS[3]):
+            pdfmetrics.registerFont(TTFont("DejaVuSans-BoldOblique", _DEJAVU_PATHS[3]))
+        # Family-mapping: bold/italic варианты привязываются к семейству
+        from reportlab.pdfbase.pdfmetrics import registerFontFamily
+        registerFontFamily(
+            "DejaVuSans", normal="DejaVuSans",
+            bold="DejaVuSans-Bold" if os.path.exists(_DEJAVU_PATHS[1]) else "DejaVuSans",
+            italic="DejaVuSans-Oblique" if os.path.exists(_DEJAVU_PATHS[2]) else "DejaVuSans",
+            boldItalic="DejaVuSans-BoldOblique" if os.path.exists(_DEJAVU_PATHS[3]) else "DejaVuSans",
+        )
+        _DEJAVU_REGISTERED = True
+        log.info("[pdf] DejaVu Sans registered (cyrillic-ready)")
+        return "DejaVuSans"
+    except Exception as e:
+        log.warning(f"[pdf] Cyrillic font registration failed: {type(e).__name__}: {e}")
+        return None
+
+
+def _inject_dejavu_font_face(html: str) -> str:
+    """Внедряет @font-face декларацию в <head> с absolute path к DejaVu TTF.
+    xhtml2pdf использует это в дополнение к ReportLab-регистрации, чтобы
+    `font-family:'DejaVuSans'` в CSS работал предсказуемо.
+    """
+    if not os.path.exists(_DEJAVU_PATHS[0]):
+        return html
+    # file:// URL — xhtml2pdf поддерживает
+    face = """<style>
+      @font-face { font-family: 'DejaVuSans'; src: url('""" + _DEJAVU_PATHS[0] + """'); }
+      @font-face { font-family: 'DejaVuSans'; src: url('""" + _DEJAVU_PATHS[1] + """'); font-weight: bold; }
+      @font-face { font-family: 'DejaVuSans'; src: url('""" + _DEJAVU_PATHS[2] + """'); font-style: italic; }
+    </style>"""
+    if "</head>" in html:
+        return html.replace("</head>", face + "</head>", 1)
+    return face + html
+
+
 def html_to_pdf_bytes(full_html: str) -> bytes:
     """Конвертит готовый HTML (со своим <style>) в PDF-bytes.
     В отличие от markdown_to_pdf — не добавляет _BRAND_CSS и не заворачивает
     в обложку. Используется в proposal_builder где у нас свой шаблон бренда.
 
+    Регистрирует DejaVu Sans для поддержки кириллицы (без этого вместо
+    русских букв — квадратики).
+
     Кидает RuntimeError при ошибке pisa.
     """
     from xhtml2pdf import pisa
     import io
+    _ensure_cyrillic_font_registered()
+    full_html = _inject_dejavu_font_face(full_html)
     buf = io.BytesIO()
     res = pisa.CreatePDF(full_html, dest=buf, encoding="utf-8")
     if res.err:

@@ -374,7 +374,7 @@ function openCreate(){
 
 async function openProject(id){
   const r = await fetch(`${API}/proposals/projects/${id}`, {headers: hdrs(), credentials:'same-origin'});
-  if(!r.ok){ alert('Ошибка загрузки'); return; }
+  if(!r.ok){ await aiAlert('Не удалось загрузить проект (' + r.status + ')', 'error'); return; }
   const p = await r.json();
   currentProjectId = p.id;
   document.getElementById('projectModalTitle').textContent = p.name;
@@ -430,7 +430,11 @@ async function generateProposal(){
     // Сохранить актуальные значения перед генерацией
     if(!await saveProject(true)) return;
   }
-  if(!confirm('Сгенерировать КП? AI обработает запрос клиента, прочитает их сайт и составит документ под бренд. Списание автоматическое.')) return;
+  const ok = await aiConfirm(
+    'AI обработает запрос клиента, прочитает их сайт и составит документ под бренд. Списание произойдёт автоматически.',
+    {title: 'Сгенерировать КП?', okLabel: 'Сгенерировать'}
+  );
+  if(!ok) return;
   const btn = document.getElementById('pGenBtn');
   btn.disabled = true;
   const oldLabel = document.getElementById('pGenBtnLabel').textContent;
@@ -443,7 +447,7 @@ async function generateProposal(){
     showResult(data.generated_html || '');
     updateGenButton(data);
     await loadProjects();
-  }catch(e){ alert('Ошибка: ' + e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
   finally{
     btn.disabled = false;
     document.getElementById('pGenBtnLabel').textContent = oldLabel;
@@ -464,7 +468,7 @@ async function downloadPdf(){
     a.download = (document.getElementById('pNa').value || 'proposal') + '.pdf';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }catch(e){ alert('Ошибка: ' + e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 async function openPdfTab(){
@@ -477,7 +481,7 @@ async function openPdfTab(){
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank', 'noopener,noreferrer');
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  }catch(e){ alert('Ошибка: ' + e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 function closeProject(){ document.getElementById('projectModal').classList.remove('show'); }
@@ -493,7 +497,7 @@ async function saveProject(silent){
     client_site_url: document.getElementById('pClientSite').value.trim() || null,
     extra_notes: document.getElementById('pNotes').value.trim() || null,
   };
-  if(!body.name){ alert('Введите название КП'); return false; }
+  if(!body.name){ await aiAlert('Введите название КП', 'warn'); return false; }
   const url = currentProjectId
     ? `${API}/proposals/projects/${currentProjectId}`
     : `${API}/proposals/projects`;
@@ -518,19 +522,19 @@ async function saveProject(silent){
     }
     return true;
   }catch(e){
-    alert('Ошибка: ' + e.message);
+    await aiAlert(e.message, 'error');
     return false;
   }
 }
 
 async function deleteCurrentProject(){
   if(!currentProjectId) return;
-  if(!confirm('Удалить этот КП? Действие необратимо.')) return;
+  if(!await aiConfirm('Удалить этот КП? Действие необратимо.', {danger: true, okLabel: 'Удалить', title: 'Удаление КП'})) return;
   try{
     await fetch(`${API}/proposals/projects/${currentProjectId}`, {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
     closeProject();
     await loadProjects();
-  }catch(e){ alert('Ошибка: ' + e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 // ── Brands ──────────────────────────────────────────────────────────────────
@@ -642,7 +646,7 @@ function clearLogo(){
 async function uploadLogo(ev){
   const file = ev.target.files[0];
   if(!file) return;
-  if(file.size > 5 * 1024 * 1024){ alert('Файл слишком большой (макс 5 МБ)'); return; }
+  if(file.size > 5 * 1024 * 1024){ await aiAlert('Файл слишком большой (макс 5 МБ)', 'warn'); return; }
   const fd = new FormData();
   fd.append('file', file);
   try{
@@ -654,7 +658,7 @@ async function uploadLogo(ev){
     const d = await r.json();
     document.getElementById('bLogoUrl').value = d.url;
     setLogoPreview(d.url);
-  }catch(e){ alert('Ошибка: ' + e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
   finally { ev.target.value = ''; }
 }
 
@@ -677,7 +681,7 @@ async function saveBrand(){
     address: document.getElementById('bAddress').value.trim() || null,
     is_default: document.getElementById('bDefault').checked,
   };
-  if(!body.name){ alert('Введите название бренда'); return; }
+  if(!body.name){ await aiAlert('Введите название бренда', 'warn'); return; }
   const url = currentBrandId
     ? `${API}/proposals/brands/${currentBrandId}`
     : `${API}/proposals/brands`;
@@ -690,17 +694,17 @@ async function saveBrand(){
     }
     closeBrand();
     await loadBrands();
-  }catch(e){ alert('Ошибка: ' + e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 async function deleteCurrentBrand(){
   if(!currentBrandId) return;
-  if(!confirm('Удалить этот бренд? У всех КП с этим брендом он отвяжется.')) return;
+  if(!await aiConfirm('У всех КП с этим брендом он отвяжется.', {danger: true, okLabel: 'Удалить', title: 'Удалить бренд?'})) return;
   try{
     await fetch(`${API}/proposals/brands/${currentBrandId}`, {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
     closeBrand();
     await loadBrands();
-  }catch(e){ alert('Ошибка: ' + e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

@@ -587,7 +587,7 @@ async function openProject(id){
     const r = await fetch(`${API}/sites/projects/${id}`,{headers:authHeaders()});
     if(!r.ok) throw new Error(r.statusText);
     currentProject = await r.json();
-  }catch(e){ alert('Ошибка загрузки проекта: '+e.message); return; }
+  }catch(e){ await aiAlert('Ошибка загрузки проекта: '+e.message, 'error'); return; }
 
   const proj = currentProject;
   document.getElementById('detailTitle').textContent = proj.name || 'Проект';
@@ -820,7 +820,7 @@ async function approveSpec(){
     await loadProjectImages();
   }catch(e){
     hideAllPhases();
-    alert('Ошибка: '+e.message);
+    aiAlert(e.message, 'error');
   }
 }
 
@@ -885,7 +885,7 @@ async function handleImageUpload(event){
 
     await loadProjectImages();
   }catch(e){
-    alert('Ошибка загрузки: '+e.message);
+    aiAlert('Ошибка загрузки: '+e.message, 'error');
   }
 }
 
@@ -928,7 +928,7 @@ async function generateCode(){
     await pollGenerationStatus();
   }catch(e){
     hideAllPhases();
-    alert(e.message);
+    aiAlert(e.message, 'error');
     isGenerating = false;
   }
   // isGenerating снимется в pollGenerationStatus когда статус done/failed.
@@ -975,7 +975,7 @@ async function pollGenerationStatus(){
       if(!r.ok){
         // 5xx → backoff. 4xx без авторизации → останавливаемся.
         if(r.status === 401 || r.status === 403){
-          alert('Сессия истекла. Перезайдите в аккаунт.');
+          await aiAlert('Сессия истекла. Перезайдите в аккаунт.', 'warn');
           isGenerating = false; return;
         }
         consecutiveErrors++;
@@ -1007,7 +1007,7 @@ async function pollGenerationStatus(){
     }
     if(data.status === 'failed' || data.status === 'refunded'){
       hideAllPhases();
-      alert(data.error || 'Не удалось сгенерировать сайт. Деньги возвращены.');
+      aiAlert(data.error || 'Не удалось сгенерировать сайт. Деньги возвращены.', 'error');
       isGenerating = false;
       return;
     }
@@ -1030,14 +1030,14 @@ async function pollGenerationStatus(){
       }
       if(data.status === 'failed' || data.status === 'refunded'){
         hideAllPhases();
-        alert(data.error || 'Не удалось сгенерировать сайт. Деньги возвращены.');
+        aiAlert(data.error || 'Не удалось сгенерировать сайт. Деньги возвращены.', 'error');
         isGenerating = false;
         return;
       }
     }
   }catch(e){ /* AbortError или сеть — упадём в alert ниже */ }
   hideAllPhases();
-  alert('Генерация занимает слишком долго (> 10 минут). Попробуйте позже — возможно Claude перегружен.');
+  await aiAlert('Генерация занимает слишком долго (> 10 минут). Попробуйте позже — возможно Claude перегружен.', 'warn');
   isGenerating = false;
 }
 
@@ -1109,7 +1109,7 @@ async function attachBotToSite(botId){
       addChatMessage('system', '🤖 Чат-бот отвязан от сайта.');
     }
   }catch(e){
-    alert('Ошибка: ' + e.message);
+    aiAlert(e.message, 'error');
   }
 }
 
@@ -1136,7 +1136,7 @@ async function iterateCode(){
     currentProject = await getProjectDetail();
     document.getElementById('detailCost').textContent = fmtRub(currentProject.price_tokens||0);
   }catch(e){
-    alert(e.message);
+    aiAlert(e.message, 'error');
   }
 
   hideLoading();
@@ -1184,7 +1184,7 @@ async function saveCode(opts){
     }
     return true;
   }catch(e){
-    if(!opts.silent) alert('Ошибка: '+e.message);
+    if(!opts.silent) aiAlert(e.message, 'error');
     return false;
   } finally {
     if(!opts.silent){
@@ -1450,7 +1450,7 @@ function toggleAiBlockMode(){
 }
 
 async function aiEditBlock(blockId, blockHtml){
-  const instruction = prompt('Что изменить в этом блоке?\n(например: «сделай заголовок крупнее и добавь подзаголовок», «поменяй цвет на синий», «убери третью карточку»)');
+  const instruction = await aiPrompt('Что изменить в этом блоке? Например: «сделай заголовок крупнее и добавь подзаголовок», «поменяй цвет на синий», «убери третью карточку».', '', {title: 'AI-правка блока', okLabel: 'Применить'});
   if(!instruction || !instruction.trim()) return;
   showLoading('AI правит блок...');
   try{
@@ -1491,7 +1491,7 @@ async function aiEditBlock(blockId, blockHtml){
     if(window.refreshBalance) window.refreshBalance();
     refreshPreview();
   }catch(e){
-    alert('Ошибка: ' + e.message);
+    aiAlert(e.message, 'error');
   }
   hideLoading();
 }
@@ -1605,7 +1605,7 @@ function previewNav(action){
 }
 
 async function replaceSelectedImage(){
-  if(!selectedImg){ alert('Сначала кликни на картинку в превью'); return; }
+  if(!selectedImg){ await aiAlert('Сначала кликни на картинку в превью', 'info'); return; }
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
@@ -1651,7 +1651,7 @@ async function replaceSelectedImage(){
       refreshPreview();
       selectedImg = null;
       await saveCode({silent: true});
-    }catch(e){ alert('Ошибка загрузки: '+e.message); }
+    }catch(e){ aiAlert('Ошибка загрузки: '+e.message, 'error'); }
   };
   input.click();
 }
@@ -1659,14 +1659,14 @@ async function replaceSelectedImage(){
 // Замена иконки. Открывает модалку с вариантами (вставить SVG / FontAwesome /
 // эмодзи / лоад файла-иконки). После выбора — заменяет outerHTML по data-edit-icon.
 async function replaceSelectedIcon(iconId, currentHtml){
-  const choice = prompt(
-    'Заменить иконку. Введи один из вариантов:\n\n' +
-    '• Эмодзи: 🚀 ⭐ ✅ ❤️ 💬 (просто вставь)\n' +
+  const choice = await aiPrompt(
+    'Введи один из вариантов:\n\n' +
+    '• Эмодзи: 🚀 ⭐ ✅ ❤️ 💬\n' +
     '• FontAwesome: fa-bell, fa-rocket, fa-check, fa-heart, fa-star\n' +
     '• Lucide: lucide-bell, lucide-rocket, lucide-check, lucide-heart\n' +
-    '• Свой SVG: вставь полный <svg>...</svg>\n\n' +
-    'Текущая иконка:\n' + (currentHtml.length > 200 ? currentHtml.slice(0,200)+'…' : currentHtml),
-    ''
+    '• Свой SVG: вставь полный <svg>...</svg>',
+    '',
+    {title: 'Заменить иконку', okLabel: 'Заменить'}
   );
   if(!choice || !choice.trim()) return;
   const v = choice.trim();
@@ -1684,7 +1684,7 @@ async function replaceSelectedIcon(iconId, currentHtml){
     // Эмодзи или короткий символ
     replacement = `<span data-edit-icon="${iconId}">${v}</span>`;
   } else {
-    alert('Не понял формат иконки. Используй эмодзи, fa-имя, lucide-имя или <svg>...</svg>');
+    await aiAlert('Не понял формат иконки. Используй эмодзи, fa-имя, lucide-имя или <svg>...</svg>', 'warn');
     return;
   }
   try{
@@ -1699,14 +1699,14 @@ async function replaceSelectedIcon(iconId, currentHtml){
       if(code.includes(currentHtml)){
         code = code.replace(currentHtml, replacement);
       } else {
-        alert('Не удалось найти иконку в исходнике. Попробуй другую.');
+        await aiAlert('Не удалось найти иконку в исходнике. Попробуй другую.', 'warn');
         return;
       }
     }
     document.getElementById('codeEditor').value = code;
     refreshPreview();
     await saveCode({silent: true});
-  }catch(e){ alert('Ошибка замены иконки: '+e.message); }
+  }catch(e){ await aiAlert('Ошибка замены иконки: '+e.message, 'error'); }
 }
 
 // ── Host / Download ───────────────────────────────────────────────────────
@@ -1722,7 +1722,7 @@ async function hostSite(){
     currentProject.hosted_path = data.url;
     updateDoneBottomBar();
   }catch(e){
-    alert('Ошибка: '+e.message);
+    aiAlert(e.message, 'error');
   }
   btn.disabled = false;
 }
@@ -1749,7 +1749,7 @@ async function downloadZip(){
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }catch(e){ alert('Ошибка скачивания ZIP: '+e.message); }
+  }catch(e){ await aiAlert('Ошибка скачивания ZIP: '+e.message, 'error'); }
 }
 
 async function downloadSite(){
@@ -1760,7 +1760,7 @@ async function downloadSite(){
   }
   const editorValue = document.getElementById('codeEditor')?.value;
   const code = editorValue || currentProject.code_html;
-  if(!code){ alert('Сначала сгенерируйте код сайта'); return; }
+  if(!code){ await aiAlert('Сначала сгенерируйте код сайта', 'warn'); return; }
   const blob = new Blob([code], {type:'text/html;charset=utf-8'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1774,7 +1774,7 @@ async function downloadSite(){
 
 // ── Rename ────────────────────────────────────────────────────────────────
 async function startRename(){
-  const newName = prompt('Новое название:', currentProject.name || '');
+  const newName = await aiPrompt('Новое название проекта:', currentProject.name || '', {title: 'Переименовать сайт'});
   if(!newName || newName.trim() === currentProject.name) return;
   try{
     const r = await fetch(`${API}/sites/projects/${currentProjectId}/rename`,{
@@ -1785,13 +1785,13 @@ async function startRename(){
     currentProject.name = newName.trim();
     await loadProjects();
   }catch(e){
-    alert('Ошибка: '+e.message);
+    aiAlert(e.message, 'error');
   }
 }
 
 // ── Delete from list ──────────────────────────────────────────────────────
 async function deleteProjectFromList(id, name){
-  if(!confirm(`Удалить проект «${name}»? Это действие нельзя отменить.`)) return;
+  if(!await aiConfirm(`Удалить проект «${name}»? Это действие нельзя отменить.`, {danger: true, okLabel: 'Удалить', title: 'Удаление сайта'})) return;
   try{
     const r = await fetch(`${API}/sites/projects/${id}`,{
       method:'DELETE', headers:authHeaders(),
@@ -1799,14 +1799,14 @@ async function deleteProjectFromList(id, name){
     if(!r.ok) throw new Error('Ошибка удаления');
     await loadProjects();
   }catch(e){
-    alert('Ошибка: '+e.message);
+    aiAlert(e.message, 'error');
   }
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────
 async function deleteCurrentProject(){
   if(!currentProjectId) return;
-  if(!confirm('Удалить проект? Это действие нельзя отменить.')) return;
+  if(!await aiConfirm('Удалить проект? Это действие нельзя отменить.', {danger: true, okLabel: 'Удалить', title: 'Удаление сайта'})) return;
   try{
     const r = await fetch(`${API}/sites/projects/${currentProjectId}`,{
       method:'DELETE', headers:authHeaders(),
@@ -1815,7 +1815,7 @@ async function deleteCurrentProject(){
     closeDetail();
     await loadProjects();
   }catch(e){
-    alert('Ошибка: '+e.message);
+    aiAlert(e.message, 'error');
   }
 }
 

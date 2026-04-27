@@ -817,7 +817,7 @@ document.addEventListener("DOMContentLoaded",async()=>{
   // Показать ошибку OAuth
   const err = new URLSearchParams(location.search).get("oauth_error");
   if(err){
-    alert("Ошибка входа через OAuth: "+err);
+    aiAlert("Ошибка входа через OAuth: "+err, "error");
     history.replaceState(null,"","/");
   }
 
@@ -1250,7 +1250,7 @@ async function processVidImg(file, model, slot){
       if(th) th.src = API+d.url;
       document.getElementById(ids.ph)?.classList.add("hidden");
     }
-  }catch(e){alert("Ошибка загрузки: "+e.message);}
+  }catch(e){await aiAlert("Ошибка загрузки: "+e.message,"error");}
 }
 
 async function handleVidMotion(e){
@@ -1266,7 +1266,7 @@ async function handleVidMotion(e){
     document.getElementById("videoMotionName").textContent=f.name;
     const vid=document.getElementById("videoMotionThumb");
     if(vid){vid.src=API+d.url;}
-  }catch(e){alert("Ошибка загрузки: "+e.message);}
+  }catch(e){await aiAlert("Ошибка загрузки: "+e.message,"error");}
 }
 
 function clearVidImg(slot){
@@ -1639,21 +1639,21 @@ async function renderApiKeysTab(el){
 async function addApiKey(provider){
   const inp = document.getElementById('apk_' + provider);
   const key = (inp?.value || '').trim();
-  if(!key){ alert('Введите API-ключ'); return; }
+  if(!key){ await aiAlert('Введите API-ключ', 'warn'); return; }
   try{
     await apiPost('/user/api-keys', {provider, api_key: key});
     cabTab('apikeys');
-  }catch(e){ alert('Ошибка: ' + e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 async function deleteApiKey(id){
-  if(!confirm('Удалить ключ? Бот вернётся на наши ключи (по обычной цене).')) return;
+  if(!await aiConfirm('Бот вернётся на наши ключи (по обычной цене).', {danger: true, okLabel: 'Удалить', title: 'Удалить API-ключ?'})) return;
   try{
     const h={};if(authToken)h["Authorization"]="Bearer "+authToken;
     const r = await fetch(API+'/user/api-keys/' + id, {method:'DELETE', headers:h, credentials:'same-origin'});
     if(!r.ok) throw new Error('Ошибка ' + r.status);
     cabTab('apikeys');
-  }catch(e){ alert('Ошибка: ' + e.message); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 // ── Files tab: загруженные файлы / лидмагниты ──────────────────────────────
@@ -1797,7 +1797,7 @@ async function uploadAssetFile(file){
 }
 
 async function deleteAsset(id){
-  if(!confirm('Удалить этот файл?')) return;
+  if(!await aiConfirm('Удалить этот файл? Все ссылки на него перестанут работать.', {danger: true, okLabel: 'Удалить'})) return;
   try{
     const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
     const r = await fetch(`${API}/assets/${id}`, {
@@ -1807,7 +1807,7 @@ async function deleteAsset(id){
     });
     if(!r.ok) throw new Error('Ошибка удаления');
     renderFilesTab(document.getElementById('cabContent'));
-  } catch(e){ alert(e.message); }
+  } catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 async function restoreAsset(id){
@@ -1821,7 +1821,7 @@ async function restoreAsset(id){
     const d = await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(d.detail || 'Не удалось восстановить');
     renderFilesTab(document.getElementById('cabContent'));
-  } catch(e){ alert(e.message); }
+  } catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 function copyAssetUrl(url, btn){
@@ -1879,10 +1879,10 @@ async function saveLowBalance(){
 }
 
 async function downloadTxCsv(){
-  if(!authToken){ alert("Войдите в аккаунт"); return; }
+  if(!authToken){ await aiAlert("Войдите в аккаунт", "warn"); return; }
   try{
     const r = await fetch(API+'/user/transactions.csv', {headers:{"Authorization":"Bearer "+authToken}});
-    if(!r.ok){ alert("Не удалось скачать CSV"); return; }
+    if(!r.ok){ await aiAlert("Не удалось скачать CSV", "error"); return; }
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1890,7 +1890,7 @@ async function downloadTxCsv(){
     a.download = r.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'transactions.csv';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  }catch(e){ alert("Ошибка: "+e.message); }
+  }catch(e){ await aiAlert(e.message, "error"); }
 }
 function renderUsageTab(el){
   const breakdown = cabinetData?.spend_by_module;
@@ -2511,7 +2511,7 @@ async function loadChats(){
     };
     el.querySelector(".delete-action").onclick=async e=>{
       e.stopPropagation();dr.classList.add("hidden");
-      if(!confirm("Удалить чат?"))return;
+      if(!await aiConfirm("Удалить этот чат? Историю восстановить нельзя.", {danger: true, okLabel: 'Удалить'})) return;
       await fetch(`${API}/chat/${chat.id}`,{method:"DELETE"});
       if(currentChat===chat.id){currentChat=null;renderWelcome();}
       loadChats();
@@ -2990,14 +2990,14 @@ async function buyTokenPackage(pkgId){
   try{
     const r=await apiPost('/payment/buy-tokens',{package_id:pkgId,return_url:window.location.href+'?payment=success'});
     if(r.confirmation_url){window.open(r.confirmation_url,'_blank');pollTokenPayment(r.payment_id);}
-  }catch(e){alert('Ошибка оплаты: '+e.message);}
+  }catch(e){await aiAlert('Ошибка оплаты: '+e.message, 'error');}
 }
 
 async function pollTokenPayment(pid){
   let n=0;const iv=setInterval(async()=>{
     if(n++>60){clearInterval(iv);return;}
     try{const r=await api(`/payment/confirm-tokens/${pid}`);
-      if(r.status==='credited'){clearInterval(iv);await fetchMe();await openCabinet();alert(`✅ Зачислено ${fmtRub(r.kopecks_added)}!`);}}catch{}
+      if(r.status==='credited'){clearInterval(iv);await fetchMe();await openCabinet();await aiAlert(`Зачислено ${fmtRub(r.kopecks_added)}!`,'success');}}catch{}
   },5000);
 }
 
