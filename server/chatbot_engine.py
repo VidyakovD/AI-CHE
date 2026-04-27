@@ -1625,8 +1625,13 @@ MAX_API = "https://botapi.max.ru"
 
 def _max_headers(max_token: str) -> dict:
     """Auth-header для MAX API. Заменил query ?access_token=... после
-    deprecation в апреле 2026."""
-    return {"Authorization": f"Bearer {max_token}"}
+    deprecation в апреле 2026.
+
+    ВАЖНО: MAX ожидает голый токен в Authorization БЕЗ префикса 'Bearer '
+    (несмотря на формулировку их error 'use Authorization header').
+    Проверено живьём: с 'Bearer ' → 401, без префикса → 200 OK.
+    """
+    return {"Authorization": max_token}
 
 
 async def setup_max_webhook(max_token: str, webhook_url: str) -> dict:
