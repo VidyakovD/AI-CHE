@@ -769,3 +769,81 @@ class UserApiKey(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", backref="api_keys_own")
+
+
+# ── КП-конструктор: бренды + проекты + контекст клиента ────────────────────
+# Отделено от PresentationProject (где жили КП и презентации в одной таблице
+# с doc_type), потому что КП нужны:
+#   - брендинг (лого, цвета, шрифт, реквизиты) → шаблон оформления
+#   - контекст клиента (запрос, сайт) → персонализация
+#   - привязка к боту с прайсом
+#   - email-orchestration (auto-reply через trigger_imap)
+
+
+class ProposalBrand(Base):
+    """Шаблон фирменного оформления КП. У юзера может быть несколько
+    (для разных компаний/линеек продуктов).
+
+    Используется при генерации: лого + цвета + шрифт + контакты пишутся в
+    HTML/PDF одинаково, а наполнение генерится под клиента."""
+    __tablename__ = "proposal_brands"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    name            = Column(String, nullable=False)         # «Основной», «Линейка X»
+    company_name    = Column(String, nullable=True)
+    # Лого: URL загруженной картинки (через /upload или /assets)
+    logo_url        = Column(String, nullable=True)
+    # Цвета HEX (#RRGGBB), валидируются на стороне роута
+    primary_color   = Column(String, nullable=True, default="#ff8c42")
+    secondary_color = Column(String, nullable=True, default="#1C1C1C")
+    accent_color    = Column(String, nullable=True, default="#ffb347")
+    font_family     = Column(String, nullable=True, default="Inter")
+    # Преcет header/footer стиля: «minimal» | «classic» | «bold»
+    style_preset    = Column(String, nullable=True, default="minimal")
+    # Реквизиты для подвала
+    contacts        = Column(Text, nullable=True)
+    inn             = Column(String, nullable=True)
+    address         = Column(Text, nullable=True)
+    # Подпись (URL загруженной картинки факсимиле, опционально)
+    signature_url   = Column(String, nullable=True)
+    # Дефолтный — используется если в проекте КП не выбран бренд
+    is_default      = Column(Boolean, default=False)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+
+class ProposalProject(Base):
+    """Проект КП (коммерческого предложения).
+
+    Отдельно от PresentationProject. Хранит контекст клиента + сгенерённый
+    HTML/PDF. Может быть привязан к ProposalBrand (оформление) и ChatBot
+    (для подтягивания BotPriceItem)."""
+    __tablename__ = "proposal_projects"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    name            = Column(String, nullable=False)
+    status          = Column(String, default="draft")        # draft | done | error
+    brand_id        = Column(Integer, ForeignKey("proposal_brands.id", ondelete="SET NULL"),
+                             nullable=True)
+    bot_id          = Column(Integer, ForeignKey("chatbots.id", ondelete="SET NULL"),
+                             nullable=True)
+    # Контекст клиента
+    client_name     = Column(String, nullable=True)
+    client_email    = Column(String, nullable=True)
+    client_request  = Column(Text, nullable=True)            # текст письма/заявки
+    client_site_url = Column(String, nullable=True)          # URL для парсинга
+    client_site_ctx = Column(Text, nullable=True)            # извлечённый контекст
+    # Доп. инструкции от юзера (оффер, сроки, акции)
+    extra_notes     = Column(Text, nullable=True)
+    # Результаты
+    generated_html  = Column(Text, nullable=True)            # HTML с применённым брендом
+    generated_pdf   = Column(String, nullable=True)          # путь к PDF /uploads/proposals/...
+    price_kop       = Column(Integer, default=0)             # сколько списано
+    # Email-orchestration: если КП был сгенерён автоматически из IMAP-письма
+    auto_generated  = Column(Boolean, default=False)
+    source_email_id = Column(String, nullable=True)          # message-id входящего
+    sent_at         = Column(DateTime, nullable=True)        # когда отправили ответ
+    created_at      = Column(DateTime, default=datetime.utcnow)

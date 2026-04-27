@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>AI Студия Че — Презентации и КП</title>
+<title>AI Студия Че — Презентации</title>
 <script src="https://cdn.tailwindcss.com/3.4.0"></script>
 <script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
 <style>
@@ -48,8 +48,8 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     <div class="flex items-center gap-4">
       <a href="index.html" class="btn-g text-xs">← Назад</a>
       <div>
-        <h1 class="text-2xl font-extrabold font-headline">Презентации и <span class="sig-text">КП</span></h1>
-        <p class="text-sm text-on-dim">Генерация коммерческих предложений и презентаций с AI</p>
+        <h1 class="text-2xl font-extrabold font-headline">Презентации <span class="sig-text">с AI</span></h1>
+        <p class="text-sm text-on-dim">Структурированные презентации со слайдами и тезисами</p>
       </div>
     </div>
     <button onclick="openCreate()" class="btn-p">
@@ -110,17 +110,18 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     </div>
   </div>
 
-  <!-- ── Переключатель КП / Презентации ── -->
+  <!-- КП переехали в отдельный модуль /proposals.html. Здесь только презентации. -->
   <div class="flex items-center justify-between mb-5">
-    <div class="tab-switch w-fit">
-      <button class="tab-sw-btn active" id="tab-kp" onclick="switchTab('kp')">
-        📄 Коммерческие предложения
-      </button>
-      <button class="tab-sw-btn" id="tab-presentation" onclick="switchTab('presentation')">
-        📊 Презентации
-      </button>
-    </div>
+    <p class="text-xs text-on-dim">
+      Ищете КП? Они переехали:
+      <a href="proposals.html" class="text-primary hover:underline">Коммерческие предложения →</a>
+    </p>
     <p class="text-xs text-on-dim hidden md:block" id="tabCount">0 проектов</p>
+  </div>
+  <!-- Скрытые таб-кнопки для совместимости со старым кодом switchTab/currentTab -->
+  <div class="hidden">
+    <button id="tab-kp"></button>
+    <button id="tab-presentation" class="active"></button>
   </div>
 
   <!-- Projects grid -->
@@ -240,7 +241,8 @@ window.chToRub = window.fmtRub;
 window.formatCH = window.fmtRub;
 
 let projects = [];
-let currentTab = 'kp';
+// КП теперь в /proposals.html — этот модуль работает только с презентациями
+let currentTab = 'presentation';
 let createType = 'kp';
 let currentProjectId = null;
 let currentProject = null;

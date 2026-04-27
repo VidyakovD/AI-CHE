@@ -30,6 +30,7 @@ from server.routes.chatbots import router as chatbots_router
 from server.routes.assets import router as assets_router
 from server.routes.webhook import router as webhook_router
 from server.routes.widget import router as widget_router
+from server.routes.proposals import router as proposals_router
 
 load_dotenv()
 
@@ -294,6 +295,7 @@ app.include_router(webhook_router)
 app.include_router(widget_router)
 app.include_router(public_router)
 app.include_router(assets_router)
+app.include_router(proposals_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -357,6 +359,10 @@ def serve_sites():
 @app.get("/presentations.html", include_in_schema=False)
 def serve_presentations():
     return _html("presentations.html")
+
+@app.get("/proposals.html", include_in_schema=False)
+def serve_proposals():
+    return _html("proposals.html")
 
 @app.get("/terms.html", include_in_schema=False)
 def serve_terms():

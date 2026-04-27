@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Коммерческие предложения</title>
+<script src="https://cdn.tailwindcss.com/3.4.0"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
+<style>
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
+*::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:100vh}
+.sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
+.sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;font-family:inherit;transition:border-color .2s}
+.inp:focus{border-color:#ff8c42}.inp::placeholder{color:#a89880}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.btn-d{background:rgba(255,107,107,0.1);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-d:hover{background:rgba(255,107,107,0.2)}
+.card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
+.modal-bg.show{display:flex}
+.proj-card{cursor:pointer;transition:all .15s;background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:14px;padding:16px}
+.proj-card:hover{border-color:rgba(255,140,66,0.4);transform:translateY(-1px)}
+.status-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:9999px}
+.badge-draft{background:rgba(168,152,128,0.12);color:#a89880;border:1px solid rgba(168,152,128,0.2)}
+.badge-done{background:rgba(34,197,94,0.12);color:#86efac;border:1px solid rgba(34,197,94,0.2)}
+.badge-error{background:rgba(255,107,107,0.12);color:#ff6b6b;border:1px solid rgba(255,107,107,0.2)}
+.badge-auto{background:rgba(168,85,247,0.12);color:#d8b4fe;border:1px solid rgba(168,85,247,0.2)}
+.tab-switch{display:flex;background:#272018;border-radius:10px;padding:3px;gap:2px}
+.tab-sw-btn{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .15s;color:#a89880;background:transparent}
+.tab-sw-btn.active{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210}
+.brand-swatch{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid rgba(255,255,255,0.1);vertical-align:middle;margin-right:4px}
+.field label{display:block;font-size:11px;color:#a89880;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.empty{padding:48px 24px;text-align:center;color:#a89880}
+</style>
+<script src="/icons.js" defer></script>
+</head>
+<body class="dark">
+
+<div class="max-w-6xl mx-auto px-5 py-8">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div class="flex items-center gap-4">
+      <a href="index.html" class="btn-g text-xs">← Назад</a>
+      <div>
+        <h1 class="text-2xl font-extrabold font-headline">Коммерческие <span class="sig-text">предложения</span></h1>
+        <p class="text-sm text-on-dim">Персонализированные КП на основе бренда, прайса и контекста заявки</p>
+      </div>
+    </div>
+    <button onclick="openCreate()" class="btn-p">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+      Создать КП
+    </button>
+  </div>
+
+  <!-- ── Переключатель «Проекты / Бренды» ── -->
+  <div class="flex items-center gap-3 mb-5">
+    <div class="tab-switch">
+      <button class="tab-sw-btn active" id="tab-projects" onclick="switchTab('projects')">📄 Мои КП</button>
+      <button class="tab-sw-btn" id="tab-brands" onclick="switchTab('brands')">🎨 Оформление</button>
+    </div>
+  </div>
+
+  <!-- ── Tab: Проекты ── -->
+  <div id="paneProjects">
+    <div id="projectsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    <div id="projectsEmpty" class="card empty hidden">
+      <p class="text-base mb-2">У вас пока нет КП.</p>
+      <p class="text-xs">Создайте первое — нажмите «Создать КП» сверху.</p>
+    </div>
+  </div>
+
+  <!-- ── Tab: Бренды ── -->
+  <div id="paneBrands" class="hidden">
+    <div class="flex items-center justify-end mb-4">
+      <button onclick="openBrandModal()" class="btn-p text-sm py-2 px-4">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+        Новый бренд
+      </button>
+    </div>
+    <div id="brandsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    <div id="brandsEmpty" class="card empty hidden">
+      <p class="text-base mb-2">Брендов пока нет.</p>
+      <p class="text-xs">Бренд = шаблон оформления (лого, цвета, шрифт, реквизиты). Используется при генерации.</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Modal: Создать/редактировать проект ── -->
+<div id="projectModal" class="modal-bg">
+  <div class="card max-w-2xl w-full mx-auto" style="margin-top:5vh">
+    <div class="flex items-center justify-between p-5 border-b border-outline/15">
+      <h2 id="projectModalTitle" class="font-headline font-bold text-lg">Новое КП</h2>
+      <button onclick="closeProject()" class="btn-g text-xs">✕</button>
+    </div>
+    <div class="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+      <div class="field">
+        <label>Название проекта (для вас)</label>
+        <input id="pNa" type="text" class="inp" placeholder="КП для ООО Ромашка"/>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="field">
+          <label>Бренд (оформление)</label>
+          <select id="pBrand" class="inp"></select>
+        </div>
+        <div class="field">
+          <label>Бот (для подтягивания прайса)</label>
+          <select id="pBot" class="inp"></select>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="field">
+          <label>Имя клиента</label>
+          <input id="pClientName" type="text" class="inp" placeholder="Иван Иванов"/>
+        </div>
+        <div class="field">
+          <label>Email клиента</label>
+          <input id="pClientEmail" type="email" class="inp" placeholder="ivan@romashka.ru"/>
+        </div>
+      </div>
+      <div class="field">
+        <label>Запрос клиента (текст письма/заявки)</label>
+        <textarea id="pClientReq" rows="4" class="inp resize-none" placeholder="Здравствуйте, нас интересует ваше оборудование для пищевого производства..."></textarea>
+      </div>
+      <div class="field">
+        <label>Сайт клиента (для AI-контекста)</label>
+        <input id="pClientSite" type="url" class="inp" placeholder="https://romashka.ru"/>
+        <p class="text-xs text-on-dim mt-1">AI прочитает сайт и сделает КП персонализированным под их сферу.</p>
+      </div>
+      <div class="field">
+        <label>Доп. инструкции (опц.)</label>
+        <textarea id="pNotes" rows="2" class="inp resize-none" placeholder="Сделай акцент на скорость поставки. Спецпредложение: -10% при заказе до конца месяца."></textarea>
+      </div>
+    </div>
+    <div class="flex items-center justify-between gap-3 p-5 border-t border-outline/15">
+      <button id="pDeleteBtn" onclick="deleteCurrentProject()" class="btn-d text-sm hidden">Удалить</button>
+      <div class="flex gap-2 ml-auto">
+        <button onclick="closeProject()" class="btn-g text-sm">Отмена</button>
+        <button id="pSaveBtn" onclick="saveProject()" class="btn-p text-sm">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: Создать/редактировать бренд ── -->
+<div id="brandModal" class="modal-bg">
+  <div class="card max-w-2xl w-full mx-auto" style="margin-top:5vh">
+    <div class="flex items-center justify-between p-5 border-b border-outline/15">
+      <h2 id="brandModalTitle" class="font-headline font-bold text-lg">Новый бренд</h2>
+      <button onclick="closeBrand()" class="btn-g text-xs">✕</button>
+    </div>
+    <div class="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="field">
+          <label>Название бренда</label>
+          <input id="bName" type="text" class="inp" placeholder="Основной"/>
+        </div>
+        <div class="field">
+          <label>Название компании</label>
+          <input id="bCompany" type="text" class="inp" placeholder="ООО «Ромашка»"/>
+        </div>
+      </div>
+
+      <!-- Лого upload -->
+      <div class="field">
+        <label>Логотип</label>
+        <div class="flex items-center gap-3">
+          <img id="bLogoPreview" src="" alt="" class="w-16 h-16 rounded-lg bg-surface2 object-contain hidden border border-outline/30"/>
+          <input type="file" id="bLogoInput" accept="image/*" class="hidden" onchange="uploadLogo(event)"/>
+          <button onclick="document.getElementById('bLogoInput').click()" class="btn-g text-sm">Загрузить лого</button>
+          <button id="bLogoClear" onclick="clearLogo()" class="btn-g text-sm hidden">Убрать</button>
+        </div>
+        <input id="bLogoUrl" type="hidden"/>
+      </div>
+
+      <!-- Цвета -->
+      <div class="grid grid-cols-3 gap-4">
+        <div class="field">
+          <label>Основной цвет</label>
+          <div class="flex items-center gap-2">
+            <input id="bPrimary" type="color" value="#ff8c42" class="w-10 h-9 rounded cursor-pointer border border-outline/30 bg-transparent"/>
+            <input id="bPrimaryHex" type="text" class="inp" value="#ff8c42" oninput="syncColor('bPrimary',this.value)"/>
+          </div>
+        </div>
+        <div class="field">
+          <label>Акцент</label>
+          <div class="flex items-center gap-2">
+            <input id="bAccent" type="color" value="#ffb347" class="w-10 h-9 rounded cursor-pointer border border-outline/30 bg-transparent"/>
+            <input id="bAccentHex" type="text" class="inp" value="#ffb347" oninput="syncColor('bAccent',this.value)"/>
+          </div>
+        </div>
+        <div class="field">
+          <label>Фон/тёмный</label>
+          <div class="flex items-center gap-2">
+            <input id="bSecondary" type="color" value="#1C1C1C" class="w-10 h-9 rounded cursor-pointer border border-outline/30 bg-transparent"/>
+            <input id="bSecondaryHex" type="text" class="inp" value="#1C1C1C" oninput="syncColor('bSecondary',this.value)"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="field">
+          <label>Шрифт</label>
+          <select id="bFont" class="inp">
+            <option>Inter</option>
+            <option>Manrope</option>
+            <option>Roboto</option>
+            <option>Open Sans</option>
+            <option>Lato</option>
+            <option>Montserrat</option>
+            <option>Playfair Display</option>
+            <option>Merriweather</option>
+            <option>PT Sans</option>
+            <option>Noto Sans</option>
+            <option>Source Sans Pro</option>
+            <option>Raleway</option>
+            <option>Nunito</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Стиль оформления</label>
+          <select id="bPreset" class="inp">
+            <option value="minimal">Минимализм (тонкие линии, много воздуха)</option>
+            <option value="classic">Классика (заголовки, разделители)</option>
+            <option value="bold">Жирный (большие акценты, контраст)</option>
+            <option value="compact">Компактный (плотный, для длинных КП)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Контакты для подвала</label>
+        <textarea id="bContacts" rows="2" class="inp resize-none text-sm" placeholder="+7 999 000-00-00 | hello@romashka.ru | romashka.ru"></textarea>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="field">
+          <label>ИНН (опц.)</label>
+          <input id="bInn" type="text" class="inp" placeholder="7700000000"/>
+        </div>
+        <div class="field">
+          <label>
+            <input id="bDefault" type="checkbox" class="mr-2"/>
+            Использовать как бренд по умолчанию
+          </label>
+        </div>
+      </div>
+      <div class="field">
+        <label>Юридический адрес (опц.)</label>
+        <input id="bAddress" type="text" class="inp" placeholder="г. Москва, ул. ..."/>
+      </div>
+    </div>
+    <div class="flex items-center justify-between gap-3 p-5 border-t border-outline/15">
+      <button id="bDeleteBtn" onclick="deleteCurrentBrand()" class="btn-d text-sm hidden">Удалить</button>
+      <div class="flex gap-2 ml-auto">
+        <button onclick="closeBrand()" class="btn-g text-sm">Отмена</button>
+        <button id="bSaveBtn" onclick="saveBrand()" class="btn-p text-sm">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let projects = [];
+let brands = [];
+let bots = [];
+let currentTab = 'projects';
+let currentProjectId = null;
+let currentBrandId = null;
+
+function authToken(){ return localStorage.getItem('obs_token') || ''; }
+function hdrs(){
+  const h = {'Content-Type':'application/json'};
+  const tok = authToken();
+  if(tok) h['Authorization'] = 'Bearer ' + tok;
+  return h;
+}
+
+function switchTab(tab){
+  currentTab = tab;
+  document.getElementById('tab-projects').classList.toggle('active', tab==='projects');
+  document.getElementById('tab-brands').classList.toggle('active', tab==='brands');
+  document.getElementById('paneProjects').classList.toggle('hidden', tab!=='projects');
+  document.getElementById('paneBrands').classList.toggle('hidden', tab!=='brands');
+  if(tab==='brands') loadBrands();
+  else loadProjects();
+}
+
+// ── Projects ────────────────────────────────────────────────────────────────
+async function loadProjects(){
+  try{
+    const r = await fetch(`${API}/proposals/projects`, {headers: hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error(r.status);
+    projects = await r.json();
+    renderProjects();
+  }catch(e){
+    document.getElementById('projectsGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${e.message}</p>`;
+  }
+}
+
+function renderProjects(){
+  const grid = document.getElementById('projectsGrid');
+  const empty = document.getElementById('projectsEmpty');
+  if(!projects.length){
+    grid.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  grid.innerHTML = projects.map(p => {
+    const brand = brands.find(b => b.id === p.brand_id);
+    const statusBadge = p.status === 'done'
+      ? `<span class="status-badge badge-done">✓ Готово</span>`
+      : p.status === 'error'
+        ? `<span class="status-badge badge-error">✕ Ошибка</span>`
+        : `<span class="status-badge badge-draft">Черновик</span>`;
+    const autoBadge = p.auto_generated
+      ? `<span class="status-badge badge-auto">🤖 Авто</span>` : '';
+    const brandLine = brand
+      ? `<span class="brand-swatch" style="background:${brand.primary_color}"></span> ${escHtml(brand.name)}`
+      : '<span class="text-on-dim/60">без бренда</span>';
+    const clientLine = p.client_name
+      ? `<div class="text-xs text-on-dim mt-1">Клиент: ${escHtml(p.client_name)}</div>` : '';
+    return `
+      <div class="proj-card" onclick="openProject(${p.id})">
+        <div class="flex items-start justify-between gap-2 mb-2">
+          <h3 class="font-headline font-bold text-sm truncate">${escHtml(p.name)}</h3>
+          <div class="flex gap-1 flex-shrink-0">${statusBadge}${autoBadge}</div>
+        </div>
+        <div class="text-xs text-on-dim">${brandLine}</div>
+        ${clientLine}
+        ${p.price_kop ? `<div class="text-xs text-on-dim/70 mt-1">${(p.price_kop/100).toFixed(0)} ₽</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function openCreate(){
+  currentProjectId = null;
+  document.getElementById('projectModalTitle').textContent = 'Новое КП';
+  ['pNa','pClientName','pClientEmail','pClientReq','pClientSite','pNotes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pBrand').value = '';
+  document.getElementById('pBot').value = '';
+  document.getElementById('pDeleteBtn').classList.add('hidden');
+  populateBrandSelect();
+  populateBotSelect();
+  document.getElementById('projectModal').classList.add('show');
+}
+
+async function openProject(id){
+  const r = await fetch(`${API}/proposals/projects/${id}`, {headers: hdrs(), credentials:'same-origin'});
+  if(!r.ok){ alert('Ошибка загрузки'); return; }
+  const p = await r.json();
+  currentProjectId = p.id;
+  document.getElementById('projectModalTitle').textContent = p.name;
+  document.getElementById('pNa').value = p.name || '';
+  document.getElementById('pClientName').value = p.client_name || '';
+  document.getElementById('pClientEmail').value = p.client_email || '';
+  document.getElementById('pClientReq').value = p.client_request || '';
+  document.getElementById('pClientSite').value = p.client_site_url || '';
+  document.getElementById('pNotes').value = p.extra_notes || '';
+  populateBrandSelect();
+  populateBotSelect();
+  document.getElementById('pBrand').value = p.brand_id || '';
+  document.getElementById('pBot').value = p.bot_id || '';
+  document.getElementById('pDeleteBtn').classList.remove('hidden');
+  document.getElementById('projectModal').classList.add('show');
+}
+
+function closeProject(){ document.getElementById('projectModal').classList.remove('show'); }
+
+async function saveProject(){
+  const body = {
+    name: document.getElementById('pNa').value.trim(),
+    brand_id: parseInt(document.getElementById('pBrand').value) || null,
+    bot_id: parseInt(document.getElementById('pBot').value) || null,
+    client_name: document.getElementById('pClientName').value.trim() || null,
+    client_email: document.getElementById('pClientEmail').value.trim() || null,
+    client_request: document.getElementById('pClientReq').value.trim() || null,
+    client_site_url: document.getElementById('pClientSite').value.trim() || null,
+    extra_notes: document.getElementById('pNotes').value.trim() || null,
+  };
+  if(!body.name){ alert('Введите название КП'); return; }
+  const url = currentProjectId
+    ? `${API}/proposals/projects/${currentProjectId}`
+    : `${API}/proposals/projects`;
+  const method = currentProjectId ? 'PUT' : 'POST';
+  try{
+    const r = await fetch(url, {method, headers: hdrs(), credentials:'same-origin', body: JSON.stringify(body)});
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'Ошибка ' + r.status);
+    }
+    closeProject();
+    await loadProjects();
+  }catch(e){ alert('Ошибка: ' + e.message); }
+}
+
+async function deleteCurrentProject(){
+  if(!currentProjectId) return;
+  if(!confirm('Удалить этот КП? Действие необратимо.')) return;
+  try{
+    await fetch(`${API}/proposals/projects/${currentProjectId}`, {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
+    closeProject();
+    await loadProjects();
+  }catch(e){ alert('Ошибка: ' + e.message); }
+}
+
+// ── Brands ──────────────────────────────────────────────────────────────────
+async function loadBrands(){
+  try{
+    const r = await fetch(`${API}/proposals/brands`, {headers: hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error(r.status);
+    brands = await r.json();
+    renderBrands();
+  }catch(e){
+    document.getElementById('brandsGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${e.message}</p>`;
+  }
+}
+
+function renderBrands(){
+  const grid = document.getElementById('brandsGrid');
+  const empty = document.getElementById('brandsEmpty');
+  if(!brands.length){
+    grid.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  grid.innerHTML = brands.map(b => `
+    <div class="proj-card" onclick="openBrandModal(${b.id})">
+      <div class="flex items-start gap-3 mb-2">
+        ${b.logo_url
+          ? `<img src="${escAttr(b.logo_url)}" alt="" class="w-12 h-12 rounded-lg bg-surface2 object-contain flex-shrink-0"/>`
+          : `<div class="w-12 h-12 rounded-lg bg-surface2 flex items-center justify-center flex-shrink-0 text-xl">🎨</div>`}
+        <div class="flex-1 min-w-0">
+          <h3 class="font-headline font-bold text-sm truncate">${escHtml(b.name)}</h3>
+          <div class="text-xs text-on-dim truncate">${escHtml(b.company_name || 'без названия компании')}</div>
+        </div>
+        ${b.is_default ? '<span class="status-badge badge-done">по умолчанию</span>' : ''}
+      </div>
+      <div class="flex items-center gap-1.5 mt-2">
+        <span class="brand-swatch" style="background:${b.primary_color}" title="Основной"></span>
+        <span class="brand-swatch" style="background:${b.accent_color}" title="Акцент"></span>
+        <span class="brand-swatch" style="background:${b.secondary_color}" title="Фон"></span>
+        <span class="text-xs text-on-dim ml-1">${escHtml(b.font_family)} · ${escHtml(b.style_preset)}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function openBrandModal(id){
+  if(typeof id === 'number'){
+    const b = brands.find(x => x.id === id);
+    if(!b) return;
+    currentBrandId = b.id;
+    document.getElementById('brandModalTitle').textContent = 'Бренд: ' + b.name;
+    document.getElementById('bName').value = b.name || '';
+    document.getElementById('bCompany').value = b.company_name || '';
+    document.getElementById('bLogoUrl').value = b.logo_url || '';
+    syncColor('bPrimary', b.primary_color || '#ff8c42');
+    syncColor('bAccent', b.accent_color || '#ffb347');
+    syncColor('bSecondary', b.secondary_color || '#1C1C1C');
+    document.getElementById('bFont').value = b.font_family || 'Inter';
+    document.getElementById('bPreset').value = b.style_preset || 'minimal';
+    document.getElementById('bContacts').value = b.contacts || '';
+    document.getElementById('bInn').value = b.inn || '';
+    document.getElementById('bAddress').value = b.address || '';
+    document.getElementById('bDefault').checked = !!b.is_default;
+    setLogoPreview(b.logo_url || '');
+    document.getElementById('bDeleteBtn').classList.remove('hidden');
+  } else {
+    currentBrandId = null;
+    document.getElementById('brandModalTitle').textContent = 'Новый бренд';
+    ['bName','bCompany','bLogoUrl','bContacts','bInn','bAddress'].forEach(id => document.getElementById(id).value = '');
+    syncColor('bPrimary','#ff8c42');
+    syncColor('bAccent','#ffb347');
+    syncColor('bSecondary','#1C1C1C');
+    document.getElementById('bFont').value = 'Inter';
+    document.getElementById('bPreset').value = 'minimal';
+    document.getElementById('bDefault').checked = false;
+    setLogoPreview('');
+    document.getElementById('bDeleteBtn').classList.add('hidden');
+  }
+  document.getElementById('brandModal').classList.add('show');
+}
+
+function closeBrand(){ document.getElementById('brandModal').classList.remove('show'); }
+
+function syncColor(baseId, val){
+  const v = (val || '').trim();
+  document.getElementById(baseId).value = v;
+  document.getElementById(baseId + 'Hex').value = v;
+}
+
+function setLogoPreview(url){
+  const img = document.getElementById('bLogoPreview');
+  const clear = document.getElementById('bLogoClear');
+  if(url){
+    img.src = url;
+    img.classList.remove('hidden');
+    clear.classList.remove('hidden');
+  } else {
+    img.src = '';
+    img.classList.add('hidden');
+    clear.classList.add('hidden');
+  }
+}
+
+function clearLogo(){
+  document.getElementById('bLogoUrl').value = '';
+  setLogoPreview('');
+}
+
+async function uploadLogo(ev){
+  const file = ev.target.files[0];
+  if(!file) return;
+  if(file.size > 5 * 1024 * 1024){ alert('Файл слишком большой (макс 5 МБ)'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  try{
+    const r = await fetch(`${API}/upload`, {
+      method:'POST', headers:{'Authorization':'Bearer '+authToken()},
+      credentials:'same-origin', body: fd
+    });
+    if(!r.ok) throw new Error('Ошибка загрузки ' + r.status);
+    const d = await r.json();
+    document.getElementById('bLogoUrl').value = d.url;
+    setLogoPreview(d.url);
+  }catch(e){ alert('Ошибка: ' + e.message); }
+  finally { ev.target.value = ''; }
+}
+
+async function saveBrand(){
+  // Перед сохранением подтянуть текущие значения из color/hex inputs
+  const primary = document.getElementById('bPrimaryHex').value.trim() || '#ff8c42';
+  const accent = document.getElementById('bAccentHex').value.trim() || '#ffb347';
+  const secondary = document.getElementById('bSecondaryHex').value.trim() || '#1C1C1C';
+  const body = {
+    name: document.getElementById('bName').value.trim(),
+    company_name: document.getElementById('bCompany').value.trim() || null,
+    logo_url: document.getElementById('bLogoUrl').value.trim() || null,
+    primary_color: primary,
+    accent_color: accent,
+    secondary_color: secondary,
+    font_family: document.getElementById('bFont').value,
+    style_preset: document.getElementById('bPreset').value,
+    contacts: document.getElementById('bContacts').value.trim() || null,
+    inn: document.getElementById('bInn').value.trim() || null,
+    address: document.getElementById('bAddress').value.trim() || null,
+    is_default: document.getElementById('bDefault').checked,
+  };
+  if(!body.name){ alert('Введите название бренда'); return; }
+  const url = currentBrandId
+    ? `${API}/proposals/brands/${currentBrandId}`
+    : `${API}/proposals/brands`;
+  const method = currentBrandId ? 'PUT' : 'POST';
+  try{
+    const r = await fetch(url, {method, headers: hdrs(), credentials:'same-origin', body: JSON.stringify(body)});
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'Ошибка ' + r.status);
+    }
+    closeBrand();
+    await loadBrands();
+  }catch(e){ alert('Ошибка: ' + e.message); }
+}
+
+async function deleteCurrentBrand(){
+  if(!currentBrandId) return;
+  if(!confirm('Удалить этот бренд? У всех КП с этим брендом он отвяжется.')) return;
+  try{
+    await fetch(`${API}/proposals/brands/${currentBrandId}`, {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
+    closeBrand();
+    await loadBrands();
+  }catch(e){ alert('Ошибка: ' + e.message); }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+async function loadBots(){
+  try{
+    const r = await fetch(`${API}/chatbots`, {headers: hdrs(), credentials:'same-origin'});
+    if(r.ok) bots = await r.json();
+  }catch(e){}
+}
+
+function populateBrandSelect(){
+  const sel = document.getElementById('pBrand');
+  sel.innerHTML = '<option value="">— без бренда —</option>' +
+    brands.map(b => `<option value="${b.id}"${b.is_default?' selected':''}>${escHtml(b.name)}${b.is_default?' (по умолчанию)':''}</option>`).join('');
+}
+
+function populateBotSelect(){
+  const sel = document.getElementById('pBot');
+  sel.innerHTML = '<option value="">— без бота —</option>' +
+    bots.map(b => `<option value="${b.id}">${escHtml(b.name)}</option>`).join('');
+}
+
+function escHtml(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escAttr(s){ return escHtml(s); }
+
+// Color picker ↔ hex input bidirectional sync
+['bPrimary','bAccent','bSecondary'].forEach(id => {
+  const c = document.getElementById(id);
+  c.addEventListener('input', () => syncColor(id, c.value));
+});
+
+// Init
+(async () => {
+  await loadBrands();
+  await loadBots();
+  await loadProjects();
+})();
+</script>
+</body>
+</html>
