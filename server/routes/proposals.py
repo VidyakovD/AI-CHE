@@ -192,7 +192,13 @@ def _project_to_dict(p: ProposalProject, full: bool = False) -> dict:
         "client_name": p.client_name, "client_email": p.client_email,
         "price_kop": p.price_kop or 0,
         "auto_generated": bool(p.auto_generated),
+        "crm_stage": p.crm_stage or "new",
         "sent_at": p.sent_at.isoformat() if p.sent_at else None,
+        "opened_at": p.opened_at.isoformat() if p.opened_at else None,
+        "replied_at": p.replied_at.isoformat() if p.replied_at else None,
+        "won_at": p.won_at.isoformat() if p.won_at else None,
+        "lost_at": p.lost_at.isoformat() if p.lost_at else None,
+        "public_token": p.public_token,
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }
     if full:
@@ -206,6 +212,42 @@ def _project_to_dict(p: ProposalProject, full: bool = False) -> dict:
             "source_email_id": p.source_email_id,
         })
     return base
+
+
+_VALID_CRM_STAGES = {"new", "sent", "opened", "replied", "won", "lost"}
+
+
+class CrmStageBody(BaseModel):
+    stage: str
+
+
+@router.post("/projects/{project_id}/stage")
+def set_crm_stage(project_id: int, body: CrmStageBody,
+                   db: Session = Depends(get_db),
+                   user: User = Depends(current_user)):
+    """Перевести КП в новую CRM-стадию (won/lost/replied и т.д.)."""
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    stage = (body.stage or "").strip().lower()
+    if stage not in _VALID_CRM_STAGES:
+        raise HTTPException(400, f"Стадия должна быть одной из: {sorted(_VALID_CRM_STAGES)}")
+    from datetime import datetime as _dt
+    now = _dt.utcnow()
+    p.crm_stage = stage
+    if stage == "replied" and not p.replied_at:
+        p.replied_at = now
+    elif stage == "won" and not p.won_at:
+        p.won_at = now
+    elif stage == "lost" and not p.lost_at:
+        p.lost_at = now
+    elif stage == "opened" and not p.opened_at:
+        p.opened_at = now
+    db.commit()
+    log_action("proposal.stage_changed", user_id=user.id,
+                target_type="proposal", target_id=str(p.id),
+                details={"stage": stage})
+    return _project_to_dict(p)
 
 
 @router.get("/projects")
@@ -289,6 +331,32 @@ def update_project(project_id: int, body: ProposalCreateBody,
         p.extra_notes = (body.extra_notes or "")[:5000] or None
     db.commit(); db.refresh(p)
     return _project_to_dict(p, full=True)
+
+
+@router.post("/projects/{project_id}/duplicate")
+def duplicate_project(project_id: int, db: Session = Depends(get_db),
+                       user: User = Depends(current_user)):
+    """Создать копию КП на основе существующего (бренд + бот + extra_notes
+    переносятся; client_* — пустые, чтобы юзер заполнил под нового клиента;
+    generated_html/pdf — НЕ копируются, юзер генерит заново)."""
+    src = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not src:
+        raise HTTPException(404, "Исходный проект не найден")
+    new = ProposalProject(
+        user_id=user.id,
+        name=f"Копия — {src.name}"[:200],
+        brand_id=src.brand_id, bot_id=src.bot_id,
+        extra_notes=src.extra_notes,
+        # Контекст клиента — НЕ копируем (новый клиент, новые поля)
+        client_name=None, client_email=None,
+        client_request=None, client_site_url=None, client_site_ctx=None,
+        status="draft",
+    )
+    db.add(new); db.commit(); db.refresh(new)
+    log_action("proposal.duplicated", user_id=user.id,
+               target_type="proposal", target_id=str(new.id),
+               details={"source_id": project_id})
+    return _project_to_dict(new, full=True)
 
 
 @router.delete("/projects/{project_id}")
@@ -448,6 +516,43 @@ def download_pdf(project_id: int, db: Session = Depends(get_db),
         abs_path, media_type="application/pdf",
         filename=f"{safe_name}.pdf",
     )
+
+
+# ── Публичная ссылка (для отправки клиенту) ────────────────────────────────
+# Юзер может включить публичную ссылку → появляется URL вида
+# /p/{public_token} который ведёт на PDF без авторизации. При первом
+# открытии — фиксируется opened_at и crm_stage переходит «sent → opened».
+
+
+import secrets as _pub_secrets
+
+
+@router.post("/projects/{project_id}/public-link")
+def toggle_public_link(project_id: int, db: Session = Depends(get_db),
+                        user: User = Depends(current_user)):
+    """Создать/обновить публичную ссылку. Возвращает токен и URL.
+    Если уже есть — ротирует токен (старая ссылка перестаёт работать)."""
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.generated_pdf:
+        raise HTTPException(400, "Сначала сгенерируйте КП")
+    p.public_token = _pub_secrets.token_urlsafe(24)
+    db.commit()
+    app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+    return {"token": p.public_token, "url": f"{app_url}/p/{p.public_token}"}
+
+
+@router.delete("/projects/{project_id}/public-link")
+def revoke_public_link(project_id: int, db: Session = Depends(get_db),
+                        user: User = Depends(current_user)):
+    """Отозвать публичную ссылку (старый URL перестаёт работать)."""
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    p.public_token = None
+    db.commit()
+    return {"status": "revoked"}
 
 
 @router.get("/projects/{project_id}/preview")
@@ -746,6 +851,14 @@ def send_proposal_email(project_id: int, body: SendEmailBody,
 
     from datetime import datetime as _dt
     p.sent_at = _dt.utcnow()
+    # Сохраняем Message-ID для threading: входящие письма-ответы клиента
+    # будут содержать In-Reply-To с этим значением → автоматически
+    # отмечаем proposal как «replied».
+    if msgid:
+        p.outbox_message_id = msgid
+    # Автоматически переводим в стадию «отправлено» если ещё не дальше по воронке
+    if (p.crm_stage or "new") in ("new", "draft"):
+        p.crm_stage = "sent"
     if not p.client_email and to:
         p.client_email = to
     db.commit()

@@ -862,6 +862,16 @@ class ProposalProject(Base):
     price_kop       = Column(Integer, default=0)             # сколько списано
     # Email-orchestration: если КП был сгенерён автоматически из IMAP-письма
     auto_generated  = Column(Boolean, default=False)
-    source_email_id = Column(String, nullable=True)          # message-id входящего
+    source_email_id = Column(String, nullable=True, index=True)  # message-id входящего письма (на которое отвечаем)
+    outbox_message_id = Column(String, nullable=True, index=True)  # message-id нашего исходящего письма с КП (для threading)
     sent_at         = Column(DateTime, nullable=True)        # когда отправили ответ
+    # CRM: lifecycle статус, опц. поверх status (draft|done|error|refunded)
+    crm_stage       = Column(String, default="new", index=True)
+    # «new» (создан) | «sent» (отправлен) | «opened» (клиент открыл PDF/публичную ссылку)
+    # | «replied» (есть ответ от клиента) | «won» (закрыта сделка) | «lost» (отказ)
+    opened_at       = Column(DateTime, nullable=True)        # когда клиент впервые открыл публичную ссылку
+    replied_at      = Column(DateTime, nullable=True)
+    won_at          = Column(DateTime, nullable=True)
+    lost_at         = Column(DateTime, nullable=True)
+    public_token    = Column(String, unique=True, nullable=True, index=True)  # для публичной ссылки
     created_at      = Column(DateTime, default=datetime.utcnow)

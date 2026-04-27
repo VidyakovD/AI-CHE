@@ -1539,6 +1539,44 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
             log.warning(f"[auto_proposal] empty request — bot={ctx['bot'].id}")
             return "⚠ Пустой запрос — пропускаем"
 
+        # C.9 Whitelist: фильтр по содержанию письма. Если cfg.require_keywords
+        # задан — пропускаем только если хотя бы одно ключевое слово найдено.
+        # Защищает от автоответа на спам/уведомления/нерелевант.
+        # По умолчанию — стандартные KP-триггеры (если cfg вообще не задан).
+        keywords_cfg = cfg.get("require_keywords")
+        if keywords_cfg is None:
+            keywords = [
+                "коммерческое предложение", "коммерческое-предложение", "кп",
+                "расчёт", "расчет", "смета", "счёт", "стоимость", "сколько стоит",
+                "прайс", "прайслист", "цена", "тариф", "запрос", "заявка",
+                "predloz", "proposal", "quote", "cost", "price",
+            ]
+        elif isinstance(keywords_cfg, str):
+            keywords = [k.strip().lower() for k in keywords_cfg.split(",") if k.strip()]
+        elif isinstance(keywords_cfg, list):
+            keywords = [str(k).strip().lower() for k in keywords_cfg if str(k).strip()]
+        else:
+            keywords = []
+        if keywords:
+            haystack = ((subject_in or "") + " " + request_text).lower()
+            if not any(kw in haystack for kw in keywords):
+                log.info(f"[auto_proposal] skip — no keywords match for {client_email}")
+                return "⚠ Письмо не похоже на запрос КП — пропускаем"
+
+        # C.9 Email whitelist (опционально): cfg.email_whitelist=domain1.ru,domain2.com
+        # — только письма с этих доменов обрабатываются. Защита от случайного
+        # автоответа на personal email вместо корпоративного.
+        wl_cfg = cfg.get("email_whitelist") or ""
+        if wl_cfg and client_email and "@" in client_email:
+            wl_domains = {d.strip().lower().lstrip("@")
+                          for d in wl_cfg.split(",") if d.strip()}
+            if wl_domains:
+                client_domain = client_email.split("@", 1)[1].lower()
+                if not any(client_domain == d or client_domain.endswith("." + d)
+                           for d in wl_domains):
+                    log.info(f"[auto_proposal] skip — domain {client_domain} not in whitelist")
+                    return "⚠ Отправитель не в whitelist — пропускаем"
+
         # Списание (фикс 50 ₽ или из pricing_config). Если баланса нет —
         # пропускаем (ошибка тоже не отправит письмо).
         cost = int(_gp("proposal.auto_create", default=5000))
@@ -1596,6 +1634,29 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                 _db.commit()
                 return "⚠ Не удалось сгенерировать КП — деньги возвращены"
 
+        # C.10 Pre-approval: если cfg.require_approval=True, не отправляем
+        # автоматически — оставляем как draft и шлём TG-уведомление владельцу.
+        # Юзер видит проект в /proposals.html, проверяет, вручную жмёт «Отправить».
+        if cfg.get("require_approval"):
+            try:
+                owner_token = bot.tg_token if hasattr(bot, "tg_token") else None
+                owner_chat = (cfg.get("owner_tg_chat_id") or "").strip()
+                if owner_token and owner_chat:
+                    proj_url = (os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+                                + "/proposals.html")
+                    msg = (
+                        f"📨 *Новое КП готово к проверке*\n\n"
+                        f"Клиент: {client_name or '—'} ({client_email or 'без email'})\n"
+                        f"Тема: {subject_in[:80] if subject_in else '—'}\n\n"
+                        f"Открой /proposals.html, проверь и нажми «Отправить».\n"
+                        f"{proj_url}"
+                    )
+                    await send_telegram(owner_token, owner_chat, msg, parse_mode="Markdown")
+            except Exception as e:
+                log.warning(f"[auto_proposal] approval notify failed: {type(e).__name__}")
+            ctx["proposal_id"] = project_id
+            return f"✓ КП {project_id} сгенерировано — ожидает ручного подтверждения"
+
         # Отправляем по email если задан client_email и не отключено в cfg
         send_email = cfg.get("send_email", True)
         if send_email and client_email and "@" in client_email:
@@ -1619,7 +1680,7 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                                 .replace("\n", "<br/>")
                 body_html = f"<div style='font-family:Inter,sans-serif;line-height:1.6'>{body}</div>"
                 from server.email_service import send_with_attachment
-                send_with_attachment(
+                outbox_id = send_with_attachment(
                     to=client_email, subject=subject_tpl,
                     html_body=body_html,
                     attachments=[(f"kp_{project_id}.pdf", pdf_bytes, "application/pdf")],
@@ -1630,6 +1691,10 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                     if _proj:
                         from datetime import datetime as _dt
                         _proj.sent_at = _dt.utcnow()
+                        if outbox_id:
+                            _proj.outbox_message_id = outbox_id
+                        if (_proj.crm_stage or "new") in ("new", "draft"):
+                            _proj.crm_stage = "sent"
                         _db2.commit()
                 from server.audit_log import log_action as _la
                 _la("proposal.auto_sent", user_id=bot.user_id,

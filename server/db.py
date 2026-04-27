@@ -93,6 +93,14 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # Security: уведомления о входе с нового IP
     ("users", "last_login_ip", "VARCHAR"),
     ("users", "last_login_at", "DATETIME"),
+    # КП: CRM lifecycle (этап B.6 спринта проектов КП)
+    ("proposal_projects", "crm_stage", "VARCHAR DEFAULT 'new'"),
+    ("proposal_projects", "opened_at", "DATETIME"),
+    ("proposal_projects", "replied_at", "DATETIME"),
+    ("proposal_projects", "won_at", "DATETIME"),
+    ("proposal_projects", "lost_at", "DATETIME"),
+    ("proposal_projects", "public_token", "VARCHAR"),
+    ("proposal_projects", "outbox_message_id", "VARCHAR"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

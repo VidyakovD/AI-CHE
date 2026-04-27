@@ -30,6 +30,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .badge-done{background:rgba(34,197,94,0.12);color:#86efac;border:1px solid rgba(34,197,94,0.2)}
 .badge-error{background:rgba(255,107,107,0.12);color:#ff6b6b;border:1px solid rgba(255,107,107,0.2)}
 .badge-auto{background:rgba(168,85,247,0.12);color:#d8b4fe;border:1px solid rgba(168,85,247,0.2)}
+.crm-pipe{display:inline-flex;align-items:center;gap:1px;font-size:10px;border-radius:4px;overflow:hidden;border:1px solid rgba(74,63,47,0.3)}
+.crm-pipe span{padding:2px 6px;background:rgba(74,63,47,0.2);color:#a89880}
+.crm-pipe span.active{background:rgba(255,140,66,0.85);color:#141210;font-weight:700}
+.crm-pipe span.passed{background:rgba(34,197,94,0.4);color:#86efac}
 .tab-switch{display:flex;background:#272018;border-radius:10px;padding:3px;gap:2px}
 .tab-sw-btn{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .15s;color:#a89880;background:transparent}
 .tab-sw-btn.active{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210}
@@ -68,6 +72,16 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
   <!-- ── Tab: Проекты ── -->
   <div id="paneProjects">
+    <!-- Фильтр по CRM-стадии -->
+    <div class="flex items-center gap-2 mb-4 flex-wrap" id="stageFilters">
+      <button class="btn-g text-xs" data-stage="" onclick="setStageFilter('')">Все</button>
+      <button class="btn-g text-xs" data-stage="new" onclick="setStageFilter('new')">Новые</button>
+      <button class="btn-g text-xs" data-stage="sent" onclick="setStageFilter('sent')">Отправлены</button>
+      <button class="btn-g text-xs" data-stage="opened" onclick="setStageFilter('opened')">Открыты</button>
+      <button class="btn-g text-xs" data-stage="replied" onclick="setStageFilter('replied')">Ответили</button>
+      <button class="btn-g text-xs" data-stage="won" onclick="setStageFilter('won')">Выиграны</button>
+      <button class="btn-g text-xs" data-stage="lost" onclick="setStageFilter('lost')">Отказ</button>
+    </div>
     <div id="projectsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
     <div id="projectsEmpty" class="card empty hidden">
       <p class="text-base mb-2">У вас пока нет КП.</p>
@@ -155,9 +169,12 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           </button>
           <button onclick="downloadPdf()" class="btn-g text-xs">📥 Скачать PDF</button>
           <button onclick="openPdfTab()" class="btn-g text-xs">↗️ Открыть в новой вкладке</button>
+          <button onclick="togglePublicLink()" class="btn-g text-xs" id="pPublicBtn">🔗 Публ. ссылка</button>
+          <button onclick="openVersions()" class="btn-g text-xs" title="История версий">🕒 История</button>
         </div>
       </div>
       <p id="pSentInfo" class="text-xs text-on-dim hidden mb-2"></p>
+      <p id="pPublicInfo" class="text-xs text-on-dim hidden mb-2"></p>
       <!-- Режим превью: iframe с готовым HTML -->
       <div id="pResultIframeWrap" class="rounded-lg overflow-hidden bg-white" style="height:60vh">
         <iframe id="pResultIframe" sandbox="allow-same-origin" class="w-full h-full border-0"></iframe>
@@ -186,6 +203,21 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
           <span id="pGenBtnLabel">Сгенерировать (50 ₽)</span>
         </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: История версий КП ── -->
+<div id="versionsModal" class="modal-bg">
+  <div class="card max-w-lg w-full mx-auto" style="margin-top:8vh">
+    <div class="flex items-center justify-between p-5 border-b border-outline/15">
+      <h2 class="font-headline font-bold text-lg">История версий</h2>
+      <button onclick="closeVersions()" class="btn-g text-xs">✕</button>
+    </div>
+    <div class="p-5">
+      <div id="versionsList" class="space-y-2">
+        <p class="text-on-dim text-sm">Загружаю…</p>
       </div>
     </div>
   </div>
@@ -253,6 +285,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       </div>
 
       <!-- Цвета -->
+      <div class="field">
+        <label>Готовые палитры</label>
+        <div class="flex flex-wrap gap-2 mb-3" id="palettePresets"></div>
+      </div>
       <div class="grid grid-cols-3 gap-4">
         <div class="field">
           <label>Основной цвет</label>
@@ -327,6 +363,18 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <label>Юридический адрес (опц.)</label>
         <input id="bAddress" type="text" class="inp" placeholder="г. Москва, ул. ..."/>
       </div>
+
+      <div class="field">
+        <label>Факсимиле подписи (опц.)</label>
+        <div class="flex items-center gap-3">
+          <img id="bSigPreview" src="" alt="" class="h-12 rounded bg-white px-2 py-1 hidden border border-outline/30"/>
+          <input type="file" id="bSigInput" accept="image/*" class="hidden" onchange="uploadSignature(event)"/>
+          <button onclick="document.getElementById('bSigInput').click()" class="btn-g text-sm">Загрузить подпись</button>
+          <button id="bSigClear" onclick="clearSignature()" class="btn-g text-sm hidden">Убрать</button>
+        </div>
+        <input id="bSigUrl" type="hidden"/>
+        <p class="text-xs text-on-dim mt-1">Прозрачный PNG с подписью (макс 2 МБ). Появится в подвале PDF.</p>
+      </div>
     </div>
     <div class="flex items-center justify-between gap-3 p-5 border-t border-outline/15">
       <button id="bDeleteBtn" onclick="deleteCurrentBrand()" class="btn-d text-sm hidden">Удалить</button>
@@ -377,16 +425,46 @@ async function loadProjects(){
   }
 }
 
+// CRM stages в порядке воронки
+const _STAGE_ORDER = ['new', 'sent', 'opened', 'replied', 'won'];
+const _STAGE_LABELS = {new: 'Новый', sent: '→', opened: '👁', replied: '💬', won: '✓', lost: '✕'};
+let _stageFilter = '';
+
+function setStageFilter(stage){
+  _stageFilter = stage;
+  document.querySelectorAll('#stageFilters button').forEach(b => {
+    b.classList.toggle('!border-primary', b.dataset.stage === stage);
+    b.classList.toggle('!text-primary', b.dataset.stage === stage);
+  });
+  renderProjects();
+}
+
+function _crmPipeline(stage){
+  // Воронка: подсвечиваем активный этап + предыдущие
+  const cur = stage || 'new';
+  if(cur === 'lost'){
+    return `<span class="crm-pipe"><span class="active" style="background:rgba(255,107,107,0.7);color:#fff">Отказ</span></span>`;
+  }
+  const idx = _STAGE_ORDER.indexOf(cur);
+  return '<span class="crm-pipe">' + _STAGE_ORDER.map((s, i) => {
+    const cls = i < idx ? 'passed' : (i === idx ? 'active' : '');
+    return `<span class="${cls}">${_STAGE_LABELS[s]}</span>`;
+  }).join('') + '</span>';
+}
+
 function renderProjects(){
   const grid = document.getElementById('projectsGrid');
   const empty = document.getElementById('projectsEmpty');
-  if(!projects.length){
+  const filtered = _stageFilter
+    ? projects.filter(p => (p.crm_stage || 'new') === _stageFilter)
+    : projects;
+  if(!filtered.length){
     grid.innerHTML = '';
     empty.classList.remove('hidden');
     return;
   }
   empty.classList.add('hidden');
-  grid.innerHTML = projects.map(p => {
+  grid.innerHTML = filtered.map(p => {
     const brand = brands.find(b => b.id === p.brand_id);
     const statusBadge = p.status === 'done'
       ? `<span class="status-badge badge-done">✓ Готово</span>`
@@ -400,17 +478,59 @@ function renderProjects(){
       : '<span class="text-on-dim/60">без бренда</span>';
     const clientLine = p.client_name
       ? `<div class="text-xs text-on-dim mt-1">Клиент: ${escHtml(p.client_name)}</div>` : '';
+    const sentLine = p.sent_at
+      ? `<div class="text-xs text-on-dim/70 mt-1">📤 ${new Date(p.sent_at).toLocaleDateString('ru-RU')}</div>` : '';
     return `
       <div class="proj-card" onclick="openProject(${p.id})">
         <div class="flex items-start justify-between gap-2 mb-2">
           <h3 class="font-headline font-bold text-sm truncate">${escHtml(p.name)}</h3>
-          <div class="flex gap-1 flex-shrink-0">${statusBadge}${autoBadge}</div>
+          <div class="flex gap-1 flex-shrink-0 flex-wrap">${statusBadge}${autoBadge}</div>
         </div>
-        <div class="text-xs text-on-dim">${brandLine}</div>
+        <div class="text-xs text-on-dim mb-1">${brandLine}</div>
+        <div class="mb-1">${_crmPipeline(p.crm_stage)}</div>
         ${clientLine}
+        ${sentLine}
         ${p.price_kop ? `<div class="text-xs text-on-dim/70 mt-1">${(p.price_kop/100).toFixed(0)} ₽</div>` : ''}
+        <div class="flex gap-1 mt-2 flex-wrap" onclick="event.stopPropagation()">
+          <button onclick="duplicateProject(${p.id})" class="btn-g text-[10px] py-1 px-2" title="Создать копию для нового клиента">⎘ Дубль</button>
+          ${p.status === 'done' ? `
+            <button onclick="quickStage(${p.id}, 'won')" class="btn-g text-[10px] py-1 px-2" title="Закрыта сделка">✓ Выиграна</button>
+            <button onclick="quickStage(${p.id}, 'lost')" class="btn-g text-[10px] py-1 px-2" title="Отказ клиента">✕ Отказ</button>
+          ` : ''}
+        </div>
       </div>`;
   }).join('');
+}
+
+async function duplicateProject(id){
+  if(!await aiConfirm('Создать копию этого КП? Клиентские поля очистятся — заполнишь под нового клиента.', {okLabel: 'Создать копию', title: 'Дублировать КП'})) return;
+  try{
+    const r = await fetch(`${API}/proposals/projects/${id}/duplicate`, {method:'POST', headers: hdrs(), credentials:'same-origin'});
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'Ошибка ' + r.status);
+    }
+    const newProj = await r.json();
+    await loadProjects();
+    await openProject(newProj.id);
+    await aiAlert('Копия создана. Заполни поля клиента и нажми «Сгенерировать».', 'success');
+  }catch(e){ await aiAlert(e.message, 'error'); }
+}
+
+async function quickStage(id, stage){
+  const labels = {won: 'выиграна', lost: 'отказ', sent: 'отправлена', replied: 'ответ от клиента', opened: 'открыто'};
+  if(!await aiConfirm(`Перевести в стадию «${labels[stage] || stage}»?`, {okLabel: 'Перевести'})) return;
+  try{
+    const r = await fetch(`${API}/proposals/projects/${id}/stage`, {
+      method:'POST', headers: hdrs(), credentials:'same-origin',
+      body: JSON.stringify({stage}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'Ошибка ' + r.status);
+    }
+    await loadProjects();
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
 function openCreate(){
@@ -456,6 +576,18 @@ async function openProject(id){
       info.classList.remove('hidden');
     } else {
       info.classList.add('hidden');
+    }
+  }
+  // Публичная ссылка (если есть)
+  const pubInfo = document.getElementById('pPublicInfo');
+  if(pubInfo){
+    if(p.public_token){
+      const url = `${window.location.origin}/p/${p.public_token}`;
+      pubInfo.innerHTML = `🔗 Публичная: <a href="${url}" target="_blank" rel="noopener" class="text-primary hover:underline">${url}</a>` +
+        (p.opened_at ? ` <span class="text-xs text-on-dim/70">· открыта ${new Date(p.opened_at).toLocaleDateString('ru-RU')}</span>` : '');
+      pubInfo.classList.remove('hidden');
+    } else {
+      pubInfo.classList.add('hidden');
     }
   }
   if(p.status === 'done' && p.generated_html){
@@ -724,6 +856,115 @@ async function downloadPdf(){
   }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
+// Публичная ссылка (B.8)
+async function togglePublicLink(){
+  if(!currentProjectId) return;
+  // Проверяем, есть ли уже токен (показываем url или предлагаем создать)
+  const r = await fetch(`${API}/proposals/projects/${currentProjectId}`, {headers: hdrs(), credentials:'same-origin'});
+  if(!r.ok){ await aiAlert('Не удалось загрузить', 'error'); return; }
+  const p = await r.json();
+  if(p.public_token){
+    const appUrl = window.location.origin;
+    const url = `${appUrl}/p/${p.public_token}`;
+    const choice = await aiConfirm(
+      `Публичная ссылка активна:\n\n${url}\n\nКто откроет — видит PDF без авторизации. Открытие отмечается как «👁 Открыто» в воронке.`,
+      {title: 'Публичная ссылка', okLabel: 'Скопировать', cancelLabel: 'Отозвать'}
+    );
+    if(choice){
+      try{
+        await navigator.clipboard.writeText(url);
+        await aiAlert('Ссылка скопирована в буфер обмена', 'success');
+      }catch(e){
+        await aiAlert(url, 'info');
+      }
+    } else {
+      // false = «Отозвать»
+      try{
+        await fetch(`${API}/proposals/projects/${currentProjectId}/public-link`,
+                    {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
+        await aiAlert('Публичная ссылка отозвана. Старый URL больше не работает.', 'info');
+        document.getElementById('pPublicInfo').classList.add('hidden');
+      }catch(e){ await aiAlert(e.message, 'error'); }
+    }
+    return;
+  }
+  // Токена нет — создаём
+  if(!await aiConfirm('Создать публичную ссылку на PDF? Кто получит её — увидит документ без авторизации.', {okLabel: 'Создать', title: 'Публичная ссылка'})) return;
+  try{
+    const r2 = await fetch(`${API}/proposals/projects/${currentProjectId}/public-link`,
+                            {method:'POST', headers: hdrs(), credentials:'same-origin'});
+    if(!r2.ok){
+      const d = await r2.json().catch(()=>({}));
+      throw new Error(d.detail || 'Ошибка ' + r2.status);
+    }
+    const data = await r2.json();
+    try{
+      await navigator.clipboard.writeText(data.url);
+      await aiAlert(`Ссылка создана и скопирована:\n\n${data.url}`, 'success');
+    }catch(e){
+      await aiAlert(`Ссылка создана:\n\n${data.url}`, 'info');
+    }
+    const info = document.getElementById('pPublicInfo');
+    info.innerHTML = `🔗 Публичная: <a href="${data.url}" target="_blank" rel="noopener" class="text-primary hover:underline">${data.url}</a>`;
+    info.classList.remove('hidden');
+  }catch(e){ await aiAlert(e.message, 'error'); }
+}
+
+// История версий (A.4)
+async function openVersions(){
+  if(!currentProjectId) return;
+  const modal = document.getElementById('versionsModal');
+  const list = document.getElementById('versionsList');
+  list.innerHTML = '<p class="text-on-dim text-sm">Загружаю…</p>';
+  modal.classList.add('show');
+  try{
+    const r = await fetch(`${API}/proposals/projects/${currentProjectId}/versions`,
+                          {headers: hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error('Ошибка ' + r.status);
+    const versions = await r.json();
+    if(!versions.length){
+      list.innerHTML = '<p class="text-on-dim text-sm">Версий пока нет — генерация ещё не запускалась.</p>';
+      return;
+    }
+    list.innerHTML = versions.map(v => {
+      const dt = new Date(v.created_at).toLocaleString('ru-RU');
+      const note = escHtml(v.note || 'Без подписи');
+      const cost = v.cost_kop ? ` · ${(v.cost_kop/100).toFixed(2)} ₽` : '';
+      const cur = v.is_current
+        ? '<span class="status-badge badge-done">текущая</span>'
+        : `<button onclick="restoreVersion(${v.id})" class="btn-g text-xs">↺ Откатить</button>`;
+      return `
+        <div class="card p-3 flex items-center justify-between gap-3">
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-headline font-semibold">${note}</div>
+            <div class="text-xs text-on-dim mt-1">${dt}${cost}</div>
+          </div>
+          ${cur}
+        </div>`;
+    }).join('');
+  }catch(e){
+    list.innerHTML = `<p class="text-error text-sm">Ошибка: ${escHtml(e.message)}</p>`;
+  }
+}
+
+function closeVersions(){
+  document.getElementById('versionsModal').classList.remove('show');
+}
+
+async function restoreVersion(versionId){
+  if(!await aiConfirm('Откатить КП к этой версии? Текущее состояние сохранится в истории.', {okLabel: 'Откатить'})) return;
+  try{
+    const r = await fetch(`${API}/proposals/projects/${currentProjectId}/versions/${versionId}/restore`,
+                          {method:'POST', headers: hdrs(), credentials:'same-origin'});
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
+    showResult(data.generated_html || '');
+    closeVersions();
+    await aiAlert('Версия восстановлена. PDF пересобран.', 'success');
+    await loadProjects();
+  }catch(e){ await aiAlert(e.message, 'error'); }
+}
+
 async function openPdfTab(){
   if(!currentProjectId) return;
   try{
@@ -913,11 +1154,13 @@ async function openBrandModal(id){
     document.getElementById('bAddress').value = b.address || '';
     document.getElementById('bDefault').checked = !!b.is_default;
     setLogoPreview(b.logo_url || '');
+    document.getElementById('bSigUrl').value = b.signature_url || '';
+    setSignaturePreview(b.signature_url || '');
     document.getElementById('bDeleteBtn').classList.remove('hidden');
   } else {
     currentBrandId = null;
     document.getElementById('brandModalTitle').textContent = 'Новый бренд';
-    ['bName','bCompany','bLogoUrl','bContacts','bInn','bAddress'].forEach(id => document.getElementById(id).value = '');
+    ['bName','bCompany','bLogoUrl','bContacts','bInn','bAddress','bSigUrl'].forEach(id => document.getElementById(id).value = '');
     syncColor('bPrimary','#ff8c42');
     syncColor('bAccent','#ffb347');
     syncColor('bSecondary','#1C1C1C');
@@ -925,6 +1168,7 @@ async function openBrandModal(id){
     document.getElementById('bPreset').value = 'minimal';
     document.getElementById('bDefault').checked = false;
     setLogoPreview('');
+    setSignaturePreview('');
     document.getElementById('bDeleteBtn').classList.add('hidden');
   }
   document.getElementById('brandModal').classList.add('show');
@@ -976,6 +1220,44 @@ async function uploadLogo(ev){
   finally { ev.target.value = ''; }
 }
 
+function setSignaturePreview(url){
+  const img = document.getElementById('bSigPreview');
+  const clear = document.getElementById('bSigClear');
+  if(url){
+    img.src = url;
+    img.classList.remove('hidden');
+    clear.classList.remove('hidden');
+  } else {
+    img.src = '';
+    img.classList.add('hidden');
+    clear.classList.add('hidden');
+  }
+}
+
+function clearSignature(){
+  document.getElementById('bSigUrl').value = '';
+  setSignaturePreview('');
+}
+
+async function uploadSignature(ev){
+  const file = ev.target.files[0];
+  if(!file) return;
+  if(file.size > 2 * 1024 * 1024){ await aiAlert('Файл слишком большой (макс 2 МБ)', 'warn'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  try{
+    const r = await fetch(`${API}/upload`, {
+      method:'POST', headers:{'Authorization':'Bearer '+authToken()},
+      credentials:'same-origin', body: fd
+    });
+    if(!r.ok) throw new Error('Ошибка загрузки ' + r.status);
+    const d = await r.json();
+    document.getElementById('bSigUrl').value = d.url;
+    setSignaturePreview(d.url);
+  }catch(e){ await aiAlert(e.message, 'error'); }
+  finally { ev.target.value = ''; }
+}
+
 async function saveBrand(){
   // Перед сохранением подтянуть текущие значения из color/hex inputs
   const primary = document.getElementById('bPrimaryHex').value.trim() || '#ff8c42';
@@ -993,6 +1275,7 @@ async function saveBrand(){
     contacts: document.getElementById('bContacts').value.trim() || null,
     inn: document.getElementById('bInn').value.trim() || null,
     address: document.getElementById('bAddress').value.trim() || null,
+    signature_url: document.getElementById('bSigUrl').value.trim() || null,
     is_default: document.getElementById('bDefault').checked,
   };
   if(!body.name){ await aiAlert('Введите название бренда', 'warn'); return; }
@@ -1051,6 +1334,41 @@ function escAttr(s){ return escHtml(s); }
   const c = document.getElementById(id);
   c.addEventListener('input', () => syncColor(id, c.value));
 });
+
+// Готовые палитры (D.12) — клик подставляет primary/accent/secondary
+const _PALETTES = [
+  {name: 'Че',          primary: '#ff8c42', accent: '#ffb347', secondary: '#1C1C1C'},
+  {name: 'B2B классика', primary: '#1e3a8a', accent: '#3b82f6', secondary: '#0f172a'},
+  {name: 'Изумруд',     primary: '#047857', accent: '#10b981', secondary: '#064e3b'},
+  {name: 'Бургунди',    primary: '#9f1239', accent: '#e11d48', secondary: '#4c0519'},
+  {name: 'Графит',      primary: '#374151', accent: '#6b7280', secondary: '#111827'},
+  {name: 'Стальной',    primary: '#0e7490', accent: '#06b6d4', secondary: '#164e63'},
+  {name: 'Тёплый беж',  primary: '#92400e', accent: '#f59e0b', secondary: '#451a03'},
+  {name: 'Виноград',    primary: '#6d28d9', accent: '#a78bfa', secondary: '#2e1065'},
+];
+function _renderPalettePresets(){
+  const wrap = document.getElementById('palettePresets');
+  if(!wrap) return;
+  wrap.innerHTML = _PALETTES.map((p,i) => `
+    <button type="button" onclick="applyPalette(${i})"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-outline/30 hover:border-primary transition text-xs"
+            title="${p.name}">
+      <span style="display:inline-flex;gap:2px">
+        <span style="width:14px;height:14px;border-radius:3px;background:${p.primary}"></span>
+        <span style="width:14px;height:14px;border-radius:3px;background:${p.accent}"></span>
+        <span style="width:14px;height:14px;border-radius:3px;background:${p.secondary}"></span>
+      </span>
+      <span>${p.name}</span>
+    </button>
+  `).join('');
+}
+function applyPalette(i){
+  const p = _PALETTES[i]; if(!p) return;
+  syncColor('bPrimary', p.primary);
+  syncColor('bAccent', p.accent);
+  syncColor('bSecondary', p.secondary);
+}
+_renderPalettePresets();
 
 // Init
 (async () => {

@@ -364,6 +364,47 @@ def serve_presentations():
 def serve_proposals():
     return _html("proposals.html")
 
+
+@app.get("/p/{public_token}", include_in_schema=False)
+def serve_public_proposal(public_token: str):
+    """Публичная ссылка на КП. Без auth, по токену.
+    При первом открытии — отмечает opened_at + crm_stage=opened."""
+    from fastapi.responses import FileResponse, JSONResponse
+    from server.db import db_session
+    from server.models import ProposalProject
+    from datetime import datetime as _dt
+    if not public_token or len(public_token) < 16:
+        return JSONResponse({"detail": "Invalid token"}, status_code=404)
+    with db_session() as _db:
+        p = _db.query(ProposalProject).filter_by(public_token=public_token).first()
+        if not p or not p.generated_pdf:
+            return JSONResponse({"detail": "КП не найдено или удалено"}, status_code=404)
+        # Tracking первого открытия
+        first_open = (p.opened_at is None)
+        if first_open:
+            p.opened_at = _dt.utcnow()
+            if (p.crm_stage or "new") in ("new", "sent"):
+                p.crm_stage = "opened"
+            _db.commit()
+        # Путь к файлу
+        base = os.path.dirname(os.path.abspath(__file__))
+        pdf_path = os.path.join(base, p.generated_pdf.lstrip("/"))
+        if not os.path.exists(pdf_path):
+            return JSONResponse({"detail": "PDF файл недоступен"}, status_code=404)
+        # Audit-лог только при первом открытии (не спамить)
+        if first_open:
+            try:
+                from server.audit_log import log_action
+                log_action("proposal.public_opened", user_id=p.user_id,
+                            target_type="proposal", target_id=str(p.id))
+            except Exception:
+                pass
+        # Иконка для имени файла из проекта
+        import re as _re
+        safe = _re.sub(r"[^\w\-]", "_", p.name or "proposal")[:40]
+        return FileResponse(pdf_path, media_type="application/pdf",
+                             filename=f"{safe}.pdf")
+
 @app.get("/terms.html", include_in_schema=False)
 def serve_terms():
     return _html("terms.html")

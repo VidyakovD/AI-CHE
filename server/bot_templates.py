@@ -432,6 +432,14 @@ AUTO_PROPOSAL_EMAIL = {
          "placeholder": "Здравствуйте{{salut}}! Спасибо за запрос. Во вложении КП.",
          "multiline": True,
          "default": "Здравствуйте{{salut}}!\n\nСпасибо за ваш запрос. Во вложении — наше коммерческое предложение, подготовленное специально под вашу задачу.\n\nЕсли возникнут вопросы — мы на связи."},
+        {"key": "require_approval", "label": "Подтверждать вручную (true/false)",
+         "placeholder": "false — автоотправка; true — TG-уведомление + ручная отправка",
+         "default": "false"},
+        {"key": "owner_tg_chat_id", "label": "TG chat_id владельца (для approval)",
+         "placeholder": "123456789", "required": False},
+        {"key": "email_whitelist", "label": "Whitelist доменов (опц.)",
+         "placeholder": "company1.ru,company2.com — пусто = принимать от всех",
+         "required": False, "default": ""},
     ],
     "workflow": {
         "name": "Авто-КП по почте",
@@ -446,6 +454,9 @@ AUTO_PROPOSAL_EMAIL = {
                     "email_subject": "{{email_subject}}",
                     "reply_body": "{{reply_body}}",
                     "send_email": True,
+                    "require_approval": "{{require_approval}}",
+                    "owner_tg_chat_id": "{{owner_tg_chat_id}}",
+                    "email_whitelist": "{{email_whitelist}}",
                 }
             }},
             {"id": "rec", "type": "save_record", "x": 600, "y": 200, "props": {

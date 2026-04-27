@@ -75,6 +75,13 @@ def _fetch_new_emails_sync(host, port, user, password, use_ssl, last_uid, limit=
                 "subject": _decode_mime(msg.get("Subject", "")),
                 "date": msg.get("Date", ""),
                 "body": _extract_body(msg)[:5000],
+                # Headers для threading: In-Reply-To указывает на оригинальное
+                # сообщение; References — цепочку. Используется в B.7
+                # (proposals threading) — если пришёл ответ на наше КП-письмо,
+                # автоматически отмечаем replied_at + crm_stage=replied.
+                "in_reply_to": (msg.get("In-Reply-To") or "").strip(),
+                "references": (msg.get("References") or "").strip(),
+                "message_id": (msg.get("Message-ID") or "").strip(),
             })
             new_last_uid = max(new_last_uid, uid_int)
         M.logout()
@@ -145,6 +152,47 @@ async def imap_tick():
             if c:
                 c.last_uid = new_uid
                 db.commit()
+            # B.7 — Threading: ищем proposals у которых outbox_message_id
+            # совпадает с In-Reply-To/References входящего письма.
+            # Если нашли — отмечаем replied_at + crm_stage='replied'.
+            from server.models import ProposalProject as _PP
+            from datetime import datetime as _dt
+            for em in emails:
+                refs = []
+                if em.get("in_reply_to"):
+                    refs.append(em["in_reply_to"])
+                if em.get("references"):
+                    # References может содержать несколько ID через пробел
+                    refs.extend(em["references"].split())
+                if not refs:
+                    continue
+                for r in refs:
+                    rid = r.strip().strip("<>").strip()
+                    if not rid or len(rid) < 10:
+                        continue
+                    # Сопоставляем по outbox_message_id (с угловыми скобками
+                    # и без — Message-ID хранится с <…>, In-Reply-To тоже).
+                    targets = (db.query(_PP)
+                                 .filter(_PP.outbox_message_id != None)
+                                 .filter((_PP.outbox_message_id == r.strip()) |
+                                         (_PP.outbox_message_id == f"<{rid}>") |
+                                         (_PP.outbox_message_id.like(f"%{rid}%")))
+                                 .all())
+                    for proj in targets:
+                        if proj.replied_at:
+                            continue
+                        proj.replied_at = _dt.utcnow()
+                        if (proj.crm_stage or "new") in ("new", "sent", "opened"):
+                            proj.crm_stage = "replied"
+                        log.info(f"[IMAP threading] proposal {proj.id} → replied")
+                        try:
+                            from server.audit_log import log_action as _la
+                            _la("proposal.client_replied", user_id=proj.user_id,
+                                target_type="proposal", target_id=str(proj.id),
+                                details={"from": em.get("from", "")[:80]})
+                        except Exception:
+                            pass
+            db.commit()
         finally:
             db.close()
 

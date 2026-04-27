@@ -183,21 +183,24 @@ def fetch_price_from_bot(db, bot_id: int, user_id: int) -> str:
 def _build_brand_css(brand: ProposalBrand | None) -> dict:
     """Возвращает dict со стилевыми переменными бренда.
 
-    ВАЖНО: основной шрифт всегда `DejaVuSans` — он регистрируется в
-    pdf_builder._ensure_cyrillic_font_registered и единственный гарантирует
-    поддержку кириллицы в xhtml2pdf. Шрифт бренда (Inter/Manrope/...)
-    указывается как fallback, но в xhtml2pdf без TTF не будет применён —
-    остаётся как «семантическая подсказка».
+    Подбирает PDF-шрифт через pdf_builder.resolve_pdf_font: маппит
+    web-имя бренда (Inter/Manrope/Roboto) на установленный системный TTF
+    (Liberation Sans/Noto Sans/DejaVu Sans). Это гарантирует, что
+    xhtml2pdf отрендерит выбранный шрифт, а не fallback на встроенный
+    Helvetica (без кириллицы → квадратики).
     """
+    from server.pdf_builder import resolve_pdf_font as _resolve
     if not brand:
+        pdf_font = _resolve(None)
         return {
             "primary": "#ff8c42", "accent": "#ffb347", "secondary": "#1C1C1C",
-            "font": "DejaVuSans, Inter, sans-serif", "preset": "minimal",
+            "font": f"{pdf_font}, sans-serif", "preset": "minimal",
             "company": "", "logo_url": "", "contacts": "",
             "inn": "", "address": "", "signature": "",
         }
     brand_font = brand.font_family or "Inter"
-    font = f"DejaVuSans, {brand_font}, sans-serif"
+    pdf_font = _resolve(brand_font)
+    font = f"{pdf_font}, {brand_font}, sans-serif"
     return {
         "primary": brand.primary_color or "#ff8c42",
         "accent": brand.accent_color or "#ffb347",
@@ -355,6 +358,7 @@ _BASE_TEMPLATE = """<!DOCTYPE html>
   </div>
 </div>
 {ai_content}
+{signature_html}
 <div class="kp-footer">
   {footer_html}
 </div>
@@ -388,6 +392,20 @@ def _wrap_html(brand_css: dict, ai_html: str, project: ProposalProject) -> str:
         footer_lines.append(f"ИНН {_html_escape(brand_css['inn'])}")
     footer_html = "<br/>".join(footer_lines) or f"Создано в AI Студия Че · {today}"
 
+    # Подпись (если задана signature_url) — вставляем перед подвалом
+    signature_html = ""
+    if brand_css.get("signature"):
+        sig_url = brand_css["signature"]
+        if sig_url.startswith("/"):
+            app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+            sig_url = app_url + sig_url
+        signature_html = (
+            f'<div style="margin-top:20pt;padding-top:8pt;border-top:1pt dashed #ccc">'
+            f'<p style="font-size:10pt;color:#666;margin:0 0 4pt">С уважением,</p>'
+            f'<img src="{_html_escape(sig_url)}" alt="" style="max-width:140pt;max-height:50pt"/>'
+            f'</div>'
+        )
+
     title = "Коммерческое предложение"
     if project.client_name:
         title += " для " + project.client_name
@@ -399,6 +417,7 @@ def _wrap_html(brand_css: dict, ai_html: str, project: ProposalProject) -> str:
         logo_html=logo_html, company_html=company_html,
         today=today, valid_until=valid_until,
         ai_content=ai_html, footer_html=footer_html,
+        signature_html=signature_html,
     )
 
 

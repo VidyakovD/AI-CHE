@@ -171,69 +171,151 @@ hr {
 """
 
 
-_DEJAVU_REGISTERED = False
-_DEJAVU_PATHS = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
-]
+_FONTS_REGISTERED = False
+
+# Family → (regular, bold, italic, boldItalic). None если файла нет на системе.
+_FONT_FAMILIES = {
+    "DejaVuSans": (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+    ),
+    "Liberation Sans": (
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
+    ),
+    "Liberation Serif": (
+        "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSerif-BoldItalic.ttf",
+    ),
+    "Noto Sans": (
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Italic.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-BoldItalic.ttf",
+    ),
+    "Noto Serif": (
+        "/usr/share/fonts/truetype/noto/NotoSerif-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSerif-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSerif-Italic.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSerif-BoldItalic.ttf",
+    ),
+}
+
+# Маппинг web-имён шрифтов (Inter/Roboto/Manrope) на доступные системные
+# семейства — чтобы пользователь выбирал привычное имя в UI бренда, а
+# в PDF подставлялся ближайший аналог с поддержкой кириллицы.
+_FONT_FALLBACKS = {
+    "Inter": "Liberation Sans",
+    "Manrope": "Liberation Sans",
+    "Roboto": "Liberation Sans",
+    "Open Sans": "Liberation Sans",
+    "Lato": "Liberation Sans",
+    "Montserrat": "Liberation Sans",
+    "PT Sans": "Liberation Sans",
+    "Source Sans Pro": "Liberation Sans",
+    "Raleway": "Liberation Sans",
+    "Nunito": "Liberation Sans",
+    "Noto Sans": "Noto Sans",
+    "Liberation Sans": "Liberation Sans",
+    "Playfair Display": "Liberation Serif",
+    "Merriweather": "Liberation Serif",
+    "Liberation Serif": "Liberation Serif",
+    "Noto Serif": "Noto Serif",
+}
+
+
+def resolve_pdf_font(brand_font: str | None) -> str:
+    """Возвращает имя зарегистрированного семейства, подходящего для PDF.
+    Если выбранный шрифт неизвестен — DejaVuSans (гарантированно есть)."""
+    if not brand_font:
+        return "DejaVuSans"
+    fallback = _FONT_FALLBACKS.get(brand_font.strip())
+    if fallback and fallback in _FONT_FAMILIES:
+        # Проверяем что файл реально доступен
+        regular_path = _FONT_FAMILIES[fallback][0]
+        if os.path.exists(regular_path):
+            return fallback
+    return "DejaVuSans"
 
 
 def _ensure_cyrillic_font_registered() -> str | None:
-    """Регистрирует DejaVu Sans (TTF с поддержкой кириллицы) в ReportLab.
-    Без этого xhtml2pdf использует встроенный Helvetica, в котором нет
-    русских глифов → в PDF получаются «квадратики».
+    """Регистрирует все доступные TTF-семейства с поддержкой кириллицы в
+    ReportLab. Без этого xhtml2pdf использует встроенный Helvetica, в
+    котором нет русских глифов → «квадратики».
 
-    Возвращает имя зарегистрированного семейства (для использования в
-    font-family) или None если шрифт не найден.
+    DejaVu Sans — обязательный fallback (всегда установлен на проде).
+    Liberation Sans/Serif и Noto Sans/Serif — дополнительные пресеты для
+    выбора пользователем в UI бренда.
     """
-    global _DEJAVU_REGISTERED
-    if _DEJAVU_REGISTERED:
+    global _FONTS_REGISTERED
+    if _FONTS_REGISTERED:
         return "DejaVuSans"
     try:
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
-        # Базовый шрифт обязателен
-        if not os.path.exists(_DEJAVU_PATHS[0]):
-            return None
-        pdfmetrics.registerFont(TTFont("DejaVuSans", _DEJAVU_PATHS[0]))
-        # Bold/Italic — опциональны (xhtml2pdf использует если зарегистрированы)
-        if os.path.exists(_DEJAVU_PATHS[1]):
-            pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", _DEJAVU_PATHS[1]))
-        if os.path.exists(_DEJAVU_PATHS[2]):
-            pdfmetrics.registerFont(TTFont("DejaVuSans-Oblique", _DEJAVU_PATHS[2]))
-        if os.path.exists(_DEJAVU_PATHS[3]):
-            pdfmetrics.registerFont(TTFont("DejaVuSans-BoldOblique", _DEJAVU_PATHS[3]))
-        # Family-mapping: bold/italic варианты привязываются к семейству
         from reportlab.pdfbase.pdfmetrics import registerFontFamily
-        registerFontFamily(
-            "DejaVuSans", normal="DejaVuSans",
-            bold="DejaVuSans-Bold" if os.path.exists(_DEJAVU_PATHS[1]) else "DejaVuSans",
-            italic="DejaVuSans-Oblique" if os.path.exists(_DEJAVU_PATHS[2]) else "DejaVuSans",
-            boldItalic="DejaVuSans-BoldOblique" if os.path.exists(_DEJAVU_PATHS[3]) else "DejaVuSans",
-        )
-        _DEJAVU_REGISTERED = True
-        log.info("[pdf] DejaVu Sans registered (cyrillic-ready)")
-        return "DejaVuSans"
     except Exception as e:
-        log.warning(f"[pdf] Cyrillic font registration failed: {type(e).__name__}: {e}")
+        log.warning(f"[pdf] reportlab not available: {type(e).__name__}")
         return None
+
+    registered_count = 0
+    for family, (reg, bold, italic, boldit) in _FONT_FAMILIES.items():
+        if not os.path.exists(reg):
+            continue
+        try:
+            # Имена в ReportLab не должны содержать пробелов — заменяем
+            base = family.replace(" ", "")
+            pdfmetrics.registerFont(TTFont(base, reg))
+            bold_name = base
+            italic_name = base
+            boldit_name = base
+            if bold and os.path.exists(bold):
+                pdfmetrics.registerFont(TTFont(base + "-Bold", bold))
+                bold_name = base + "-Bold"
+            if italic and os.path.exists(italic):
+                pdfmetrics.registerFont(TTFont(base + "-Italic", italic))
+                italic_name = base + "-Italic"
+            if boldit and os.path.exists(boldit):
+                pdfmetrics.registerFont(TTFont(base + "-BoldItalic", boldit))
+                boldit_name = base + "-BoldItalic"
+            registerFontFamily(base, normal=base, bold=bold_name,
+                                italic=italic_name, boldItalic=boldit_name)
+            registered_count += 1
+        except Exception as e:
+            log.warning(f"[pdf] register {family} failed: {type(e).__name__}")
+
+    if registered_count == 0:
+        log.warning("[pdf] no cyrillic fonts registered")
+        return None
+    _FONTS_REGISTERED = True
+    log.info(f"[pdf] {registered_count} cyrillic font families registered")
+    return "DejaVuSans"
 
 
 def _inject_dejavu_font_face(html: str) -> str:
-    """Внедряет @font-face декларацию в <head> с absolute path к DejaVu TTF.
-    xhtml2pdf использует это в дополнение к ReportLab-регистрации, чтобы
-    `font-family:'DejaVuSans'` в CSS работал предсказуемо.
+    """Внедряет @font-face деклараци в <head> для всех зарегистрированных
+    семейств. xhtml2pdf использует это чтобы `font-family:'DejaVuSans'`
+    или `font-family:'LiberationSans'` в CSS работало предсказуемо.
     """
-    if not os.path.exists(_DEJAVU_PATHS[0]):
+    decls = []
+    for family, paths in _FONT_FAMILIES.items():
+        if not os.path.exists(paths[0]):
+            continue
+        base = family.replace(" ", "")
+        decls.append(f"@font-face {{ font-family: '{base}'; src: url('{paths[0]}'); }}")
+        if paths[1] and os.path.exists(paths[1]):
+            decls.append(f"@font-face {{ font-family: '{base}'; src: url('{paths[1]}'); font-weight: bold; }}")
+        if paths[2] and os.path.exists(paths[2]):
+            decls.append(f"@font-face {{ font-family: '{base}'; src: url('{paths[2]}'); font-style: italic; }}")
+    if not decls:
         return html
-    # file:// URL — xhtml2pdf поддерживает
-    face = """<style>
-      @font-face { font-family: 'DejaVuSans'; src: url('""" + _DEJAVU_PATHS[0] + """'); }
-      @font-face { font-family: 'DejaVuSans'; src: url('""" + _DEJAVU_PATHS[1] + """'); font-weight: bold; }
-      @font-face { font-family: 'DejaVuSans'; src: url('""" + _DEJAVU_PATHS[2] + """'); font-style: italic; }
-    </style>"""
+    face = "<style>" + "\n".join(decls) + "</style>"
     if "</head>" in html:
         return html.replace("</head>", face + "</head>", 1)
     return face + html
