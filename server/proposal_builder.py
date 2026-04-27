@@ -143,20 +143,8 @@ def _clean_text(s: str) -> str:
     return s.strip()
 
 
-def fetch_price_from_bot(db, bot_id: int, user_id: int) -> str:
-    """
-    Извлекает прайс-лист бота как plain text для вставки в Claude prompt.
-    Возвращает «» если бота нет или нет позиций.
-    """
-    if not bot_id:
-        return ""
-    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user_id).first()
-    if not bot:
-        return ""
-    items = (db.query(BotPriceItem)
-               .filter_by(bot_id=bot_id, is_active=True)
-               .order_by(BotPriceItem.sort_order, BotPriceItem.id)
-               .all())
+def _format_price_lines(items) -> str:
+    """Общий форматтер списка позиций в plain text для промпта."""
     if not items:
         return ""
     lines = []
@@ -175,6 +163,37 @@ def fetch_price_from_bot(db, bot_id: int, user_id: int) -> str:
         desc = f" — {it.description}" if it.description else ""
         lines.append(f"• {it.name}: {price}{desc}")
     return "\n".join(lines)[:8000]
+
+
+def fetch_price_from_bot(db, bot_id: int, user_id: int) -> str:
+    """Прайс из BotPriceItem (legacy, для обратной совместимости)."""
+    if not bot_id:
+        return ""
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user_id).first()
+    if not bot:
+        return ""
+    items = (db.query(BotPriceItem)
+               .filter_by(bot_id=bot_id, is_active=True)
+               .order_by(BotPriceItem.sort_order, BotPriceItem.id)
+               .all())
+    return _format_price_lines(items)
+
+
+def fetch_price_from_list(db, price_list_id: int, user_id: int) -> str:
+    """Прайс из ProposalPriceList — собственный, для КП.
+    Приоритет над bot_id: если у проекта есть price_list_id — используем его."""
+    if not price_list_id:
+        return ""
+    from server.models import ProposalPriceList, ProposalPriceItem
+    pl = db.query(ProposalPriceList).filter_by(
+        id=price_list_id, user_id=user_id).first()
+    if not pl:
+        return ""
+    items = (db.query(ProposalPriceItem)
+               .filter_by(price_list_id=price_list_id, is_active=True)
+               .order_by(ProposalPriceItem.sort_order, ProposalPriceItem.id)
+               .all())
+    return _format_price_lines(items)
 
 
 # ── HTML/PDF generation ────────────────────────────────────────────────────
@@ -464,9 +483,11 @@ def generate_proposal(db, project: ProposalProject, user_api_key: str | None = N
         if site_ctx and site_ctx != (project.client_site_ctx or ""):
             project.client_site_ctx = site_ctx
 
-    # Прайс из бота
+    # Прайс. Приоритет: собственный price_list (новый способ) → бот (legacy).
     price_text = ""
-    if project.bot_id:
+    if getattr(project, "price_list_id", None):
+        price_text = fetch_price_from_list(db, project.price_list_id, project.user_id)
+    if not price_text and project.bot_id:
         price_text = fetch_price_from_bot(db, project.bot_id, project.user_id)
 
     prompt = _claude_prompt(brand_css, project, price_text, site_ctx)

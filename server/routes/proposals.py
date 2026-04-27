@@ -9,7 +9,7 @@ import os
 import re
 import json
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ from server.routes.deps import get_db, current_user, optional_user
 from server.models import (
     ProposalProject, ProposalBrand, ChatBot, BotPriceItem,
     User, Transaction, ProposalVersion,
+    ProposalPriceList, ProposalPriceItem,
 )
 from server.audit_log import log_action
 
@@ -178,6 +179,7 @@ class ProposalCreateBody(BaseModel):
     name: str
     brand_id: int | None = None
     bot_id: int | None = None
+    price_list_id: int | None = None
     client_name: str | None = None
     client_email: str | None = None
     client_request: str | None = None
@@ -189,6 +191,7 @@ def _project_to_dict(p: ProposalProject, full: bool = False) -> dict:
     base = {
         "id": p.id, "name": p.name, "status": p.status,
         "brand_id": p.brand_id, "bot_id": p.bot_id,
+        "price_list_id": p.price_list_id,
         "client_name": p.client_name, "client_email": p.client_email,
         "price_kop": p.price_kop or 0,
         "auto_generated": bool(p.auto_generated),
@@ -273,10 +276,16 @@ def create_project(body: ProposalCreateBody, db: Session = Depends(get_db),
         bot = db.query(ChatBot).filter_by(id=body.bot_id, user_id=user.id).first()
         if not bot:
             raise HTTPException(404, "Бот не найден")
+    if body.price_list_id:
+        pl = db.query(ProposalPriceList).filter_by(
+            id=body.price_list_id, user_id=user.id).first()
+        if not pl:
+            raise HTTPException(404, "Прайс-лист не найден")
     p = ProposalProject(
         user_id=user.id,
         name=body.name.strip()[:200],
         brand_id=body.brand_id, bot_id=body.bot_id,
+        price_list_id=body.price_list_id,
         client_name=(body.client_name or "")[:200] or None,
         client_email=(body.client_email or "")[:254] or None,
         client_request=(body.client_request or "")[:20000] or None,
@@ -317,6 +326,13 @@ def update_project(project_id: int, body: ProposalCreateBody,
             if not bot:
                 raise HTTPException(404, "Бот не найден")
         p.bot_id = body.bot_id or None
+    if body.price_list_id is not None:
+        if body.price_list_id:
+            pl = db.query(ProposalPriceList).filter_by(
+                id=body.price_list_id, user_id=user.id).first()
+            if not pl:
+                raise HTTPException(404, "Прайс-лист не найден")
+        p.price_list_id = body.price_list_id or None
     if body.name:
         p.name = body.name.strip()[:200]
     if body.client_name is not None:
@@ -866,3 +882,274 @@ def send_proposal_email(project_id: int, body: SendEmailBody,
                target_type="proposal", target_id=str(p.id),
                details={"to": to[:50], "msgid": (msgid or "")[:80]})
     return {"status": "sent", "to": to, "sent_at": p.sent_at.isoformat()}
+
+
+# ── Прайс-листы (собственные, не привязанные к ботам) ────────────────────
+
+
+def _pricelist_to_dict(pl: ProposalPriceList, items: list | None = None) -> dict:
+    out = {
+        "id": pl.id, "name": pl.name, "description": pl.description,
+        "is_default": bool(pl.is_default),
+        "created_at": pl.created_at.isoformat() if pl.created_at else None,
+    }
+    if items is not None:
+        out["items"] = [{
+            "id": it.id, "name": it.name,
+            "price_kop": it.price_kop, "price_text": it.price_text,
+            "category": it.category, "description": it.description,
+            "sort_order": it.sort_order, "is_active": bool(it.is_active),
+        } for it in items]
+        out["item_count"] = len(items)
+    return out
+
+
+@router.get("/price-lists")
+def list_pricelists(db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
+    """Список прайсов юзера. Возвращает count позиций без самих позиций."""
+    rows = (db.query(ProposalPriceList)
+              .filter_by(user_id=user.id)
+              .order_by(ProposalPriceList.is_default.desc(),
+                        ProposalPriceList.id.desc())
+              .all())
+    out = []
+    for pl in rows:
+        cnt = db.query(ProposalPriceItem).filter_by(
+            price_list_id=pl.id, is_active=True).count()
+        d = _pricelist_to_dict(pl)
+        d["item_count"] = cnt
+        out.append(d)
+    return out
+
+
+@router.get("/price-lists/{pl_id}")
+def get_pricelist(pl_id: int, db: Session = Depends(get_db),
+                   user: User = Depends(current_user)):
+    pl = db.query(ProposalPriceList).filter_by(id=pl_id, user_id=user.id).first()
+    if not pl:
+        raise HTTPException(404, "Прайс не найден")
+    items = (db.query(ProposalPriceItem)
+               .filter_by(price_list_id=pl_id)
+               .order_by(ProposalPriceItem.sort_order, ProposalPriceItem.id)
+               .all())
+    return _pricelist_to_dict(pl, items)
+
+
+class PriceListBody(BaseModel):
+    name: str
+    description: str | None = None
+    is_default: bool | None = False
+
+
+@router.post("/price-lists")
+def create_pricelist(body: PriceListBody, db: Session = Depends(get_db),
+                      user: User = Depends(current_user)):
+    if not body.name or not body.name.strip():
+        raise HTTPException(400, "Название прайса обязательно")
+    if body.is_default:
+        db.query(ProposalPriceList).filter_by(user_id=user.id, is_default=True) \
+          .update({"is_default": False})
+    pl = ProposalPriceList(
+        user_id=user.id, name=body.name.strip()[:200],
+        description=(body.description or "")[:500] or None,
+        is_default=bool(body.is_default),
+    )
+    db.add(pl); db.commit(); db.refresh(pl)
+    log_action("proposal.pricelist_created", user_id=user.id,
+               target_type="pricelist", target_id=str(pl.id))
+    return _pricelist_to_dict(pl, [])
+
+
+@router.put("/price-lists/{pl_id}")
+def update_pricelist(pl_id: int, body: PriceListBody,
+                      db: Session = Depends(get_db),
+                      user: User = Depends(current_user)):
+    pl = db.query(ProposalPriceList).filter_by(id=pl_id, user_id=user.id).first()
+    if not pl:
+        raise HTTPException(404, "Прайс не найден")
+    if body.name:
+        pl.name = body.name.strip()[:200]
+    pl.description = (body.description or "")[:500] or None
+    if body.is_default and not pl.is_default:
+        db.query(ProposalPriceList).filter_by(user_id=user.id, is_default=True) \
+          .update({"is_default": False})
+        pl.is_default = True
+    db.commit(); db.refresh(pl)
+    return _pricelist_to_dict(pl)
+
+
+@router.delete("/price-lists/{pl_id}")
+def delete_pricelist(pl_id: int, db: Session = Depends(get_db),
+                      user: User = Depends(current_user)):
+    pl = db.query(ProposalPriceList).filter_by(id=pl_id, user_id=user.id).first()
+    if not pl:
+        raise HTTPException(404, "Прайс не найден")
+    db.delete(pl); db.commit()
+    log_action("proposal.pricelist_deleted", user_id=user.id,
+               target_type="pricelist", target_id=str(pl_id))
+    return {"status": "deleted"}
+
+
+# ── Позиции прайса ─────────────────────────────────────────────────────────
+
+
+class PriceItemBody(BaseModel):
+    name: str
+    price_kop: int | None = None
+    price_text: str | None = None
+    category: str | None = None
+    description: str | None = None
+    sort_order: int | None = 0
+
+
+def _validate_price_item(body: PriceItemBody) -> None:
+    if not body.name or not body.name.strip():
+        raise HTTPException(400, "Название позиции обязательно")
+    if body.price_kop is not None and body.price_kop < 0:
+        raise HTTPException(400, "Цена не может быть отрицательной")
+    if body.price_kop is not None and body.price_kop > 100_000_000_000:
+        raise HTTPException(400, "Цена слишком большая (макс 1 млрд ₽)")
+
+
+@router.post("/price-lists/{pl_id}/items")
+def add_price_item(pl_id: int, body: PriceItemBody,
+                    db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    pl = db.query(ProposalPriceList).filter_by(id=pl_id, user_id=user.id).first()
+    if not pl:
+        raise HTTPException(404, "Прайс не найден")
+    _validate_price_item(body)
+    item = ProposalPriceItem(
+        price_list_id=pl_id,
+        name=body.name.strip()[:200],
+        price_kop=body.price_kop if body.price_kop and body.price_kop > 0 else None,
+        price_text=(body.price_text or "")[:60] or None,
+        category=(body.category or "")[:60] or None,
+        description=(body.description or "")[:500] or None,
+        sort_order=int(body.sort_order or 0),
+        is_active=True,
+    )
+    db.add(item); db.commit(); db.refresh(item)
+    return {"id": item.id, "name": item.name}
+
+
+@router.put("/price-lists/{pl_id}/items/{item_id}")
+def update_price_item(pl_id: int, item_id: int, body: PriceItemBody,
+                       db: Session = Depends(get_db),
+                       user: User = Depends(current_user)):
+    pl = db.query(ProposalPriceList).filter_by(id=pl_id, user_id=user.id).first()
+    if not pl:
+        raise HTTPException(404, "Прайс не найден")
+    item = db.query(ProposalPriceItem).filter_by(
+        id=item_id, price_list_id=pl_id).first()
+    if not item:
+        raise HTTPException(404, "Позиция не найдена")
+    _validate_price_item(body)
+    item.name = body.name.strip()[:200]
+    item.price_kop = body.price_kop if body.price_kop and body.price_kop > 0 else None
+    item.price_text = (body.price_text or "")[:60] or None
+    item.category = (body.category or "")[:60] or None
+    item.description = (body.description or "")[:500] or None
+    item.sort_order = int(body.sort_order or 0)
+    db.commit(); db.refresh(item)
+    return {"id": item.id, "name": item.name}
+
+
+@router.delete("/price-lists/{pl_id}/items/{item_id}")
+def delete_price_item(pl_id: int, item_id: int,
+                       db: Session = Depends(get_db),
+                       user: User = Depends(current_user)):
+    pl = db.query(ProposalPriceList).filter_by(id=pl_id, user_id=user.id).first()
+    if not pl:
+        raise HTTPException(404, "Прайс не найден")
+    item = db.query(ProposalPriceItem).filter_by(
+        id=item_id, price_list_id=pl_id).first()
+    if not item:
+        raise HTTPException(404, "Позиция не найдена")
+    db.delete(item); db.commit()
+    return {"status": "deleted"}
+
+
+@router.post("/price-lists/{pl_id}/import-csv")
+async def import_price_csv(pl_id: int,
+                            file: UploadFile = File(...),
+                            db: Session = Depends(get_db),
+                            user: User = Depends(current_user)):
+    """Импорт CSV: name,price[,category,description].
+    Заменяет все существующие позиции (мягкое удаление is_active=False).
+    Защищён от 1e10 в экспоненциальной нотации (макс 1 млрд ₽)."""
+    import csv as _csv
+    import io as _io
+    pl = db.query(ProposalPriceList).filter_by(id=pl_id, user_id=user.id).first()
+    if not pl:
+        raise HTTPException(404, "Прайс не найден")
+    raw = await file.read()
+    if not raw or len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(413, "Файл пустой или слишком большой (>5 МБ)")
+    # Decode + auto-detect разделитель
+    text = None
+    for enc in ("utf-8-sig", "utf-8", "cp1251", "windows-1251"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise HTTPException(400, "Не удалось распознать кодировку CSV (utf-8 или cp1251)")
+    sample = text[:2000]
+    try:
+        sniffer = _csv.Sniffer()
+        dialect = sniffer.sniff(sample, delimiters=",;\t|")
+    except Exception:
+        class _D(_csv.excel): delimiter = ";"
+        dialect = _D
+    reader = _csv.DictReader(_io.StringIO(text), dialect=dialect)
+    cols_lower = {c.lower(): c for c in (reader.fieldnames or [])}
+    def _col(*aliases):
+        for a in aliases:
+            if a in cols_lower:
+                return cols_lower[a]
+        return None
+    col_name = _col("name", "название", "услуга", "товар", "позиция", "наименование")
+    col_price = _col("price", "цена", "стоимость", "price_rub", "руб")
+    col_desc = _col("description", "описание", "детали", "что входит")
+    col_cat = _col("category", "категория", "раздел", "группа")
+    if not col_name:
+        raise HTTPException(400, "В CSV не найдена колонка 'name' / 'название'")
+
+    # Деактивируем существующие
+    db.query(ProposalPriceItem).filter_by(price_list_id=pl_id).update({"is_active": False})
+
+    added = 0
+    for i, row in enumerate(reader):
+        name = (row.get(col_name) or "").strip()
+        if not name:
+            continue
+        price_kop, price_text = None, None
+        raw_price = ((row.get(col_price) or "") if col_price else "").strip()
+        if raw_price:
+            cleaned = raw_price.replace(" ", "").replace("\xa0", "") \
+                                .replace("₽", "").replace("руб", "").replace(",", ".")
+            try:
+                pf = float(cleaned)
+                if not (0 < pf <= 1_000_000_000):
+                    raise ValueError("out of range")
+                price_kop = int(round(pf * 100))
+            except (ValueError, TypeError, OverflowError):
+                price_text = raw_price[:60]
+        item = ProposalPriceItem(
+            price_list_id=pl_id,
+            name=name[:200],
+            price_kop=price_kop if price_kop and price_kop > 0 else None,
+            price_text=price_text,
+            description=((row.get(col_desc) or "") if col_desc else "").strip()[:500] or None,
+            category=((row.get(col_cat) or "") if col_cat else "").strip()[:60] or None,
+            sort_order=i, is_active=True,
+        )
+        db.add(item); added += 1
+    db.commit()
+    log_action("proposal.pricelist_imported", user_id=user.id,
+               target_type="pricelist", target_id=str(pl_id),
+               details={"added": added})
+    return {"status": "ok", "added": added}

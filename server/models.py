@@ -831,6 +831,42 @@ class ProposalVersion(Base):
     created_at      = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class ProposalPriceList(Base):
+    """Прайс-лист для КП. У юзера может быть несколько (для разных линеек,
+    отделов, языков). Привязан напрямую к user_id (не к боту) — раньше
+    прайс тянулся из ChatBot.BotPriceItem, но это неудобно: не у каждого
+    есть бот, плюс у бота прайс для разговоров, а тут нужен «оформительский»
+    список для КП."""
+    __tablename__ = "proposal_price_lists"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    name        = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    is_default  = Column(Boolean, default=False)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+
+class ProposalPriceItem(Base):
+    """Позиция прайса. Аналогична BotPriceItem (тот для чат-ботов), но
+    проще — без embedding'ов (для КП хватает простой текстовой подачи
+    в Claude prompt)."""
+    __tablename__ = "proposal_price_items"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    price_list_id = Column(Integer, ForeignKey("proposal_price_lists.id", ondelete="CASCADE"),
+                            nullable=False, index=True)
+    name        = Column(String, nullable=False)
+    price_kop   = Column(Integer, nullable=True)         # null = «по запросу»
+    price_text  = Column(String, nullable=True)          # «от 2 500 ₽», «договорная»
+    category    = Column(String, nullable=True)
+    description = Column(String, nullable=True)
+    sort_order  = Column(Integer, default=0)
+    is_active   = Column(Boolean, default=True)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+
 class ProposalProject(Base):
     """Проект КП (коммерческого предложения).
 
@@ -847,6 +883,8 @@ class ProposalProject(Base):
     brand_id        = Column(Integer, ForeignKey("proposal_brands.id", ondelete="SET NULL"),
                              nullable=True)
     bot_id          = Column(Integer, ForeignKey("chatbots.id", ondelete="SET NULL"),
+                             nullable=True)
+    price_list_id   = Column(Integer, ForeignKey("proposal_price_lists.id", ondelete="SET NULL"),
                              nullable=True)
     # Контекст клиента
     client_name     = Column(String, nullable=True)

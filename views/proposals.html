@@ -62,11 +62,12 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     </button>
   </div>
 
-  <!-- ── Переключатель «Проекты / Бренды» ── -->
+  <!-- ── Переключатель «Проекты / Бренды / Прайсы» ── -->
   <div class="flex items-center gap-3 mb-5">
     <div class="tab-switch">
       <button class="tab-sw-btn active" id="tab-projects" onclick="switchTab('projects')">📄 Мои КП</button>
       <button class="tab-sw-btn" id="tab-brands" onclick="switchTab('brands')">🎨 Оформление</button>
+      <button class="tab-sw-btn" id="tab-prices" onclick="switchTab('prices')">📋 Прайсы</button>
     </div>
   </div>
 
@@ -86,6 +87,22 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
     <div id="projectsEmpty" class="card empty hidden">
       <p class="text-base mb-2">У вас пока нет КП.</p>
       <p class="text-xs">Создайте первое — нажмите «Создать КП» сверху.</p>
+    </div>
+  </div>
+
+  <!-- ── Tab: Прайсы ── -->
+  <div id="panePrices" class="hidden">
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <p class="text-xs text-on-dim">Свои прайс-листы для КП. Цены берутся отсюда при генерации (приоритетнее ботовских).</p>
+      <button onclick="openPriceListModal()" class="btn-p text-sm py-2 px-4">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+        Новый прайс
+      </button>
+    </div>
+    <div id="pricesGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    <div id="pricesEmpty" class="card empty hidden">
+      <p class="text-base mb-2">Прайсов пока нет.</p>
+      <p class="text-xs">Создай первый прайс-лист — например «Услуги студии». Можно добавлять позиции вручную или импортировать CSV.</p>
     </div>
   </div>
 
@@ -124,9 +141,13 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <select id="pBrand" class="inp"></select>
         </div>
         <div class="field">
-          <label>Бот (для подтягивания прайса)</label>
-          <select id="pBot" class="inp"></select>
+          <label>Прайс-лист</label>
+          <select id="pPriceList" class="inp"></select>
         </div>
+      </div>
+      <div class="field">
+        <label class="text-xs text-on-dim/70">Бот (опционально, fallback для прайса если нет основного)</label>
+        <select id="pBot" class="inp"></select>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
@@ -200,6 +221,55 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
           <span id="pGenBtnLabel">Сгенерировать (50 ₽)</span>
         </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: Прайс-лист (CRUD позиций + CSV) ── -->
+<div id="priceListModal" class="modal-bg">
+  <div class="card max-w-3xl w-full mx-auto" style="margin-top:5vh">
+    <div class="flex items-center justify-between p-5 border-b border-outline/15">
+      <h2 id="plModalTitle" class="font-headline font-bold text-lg">Прайс-лист</h2>
+      <button onclick="closePriceListModal()" class="btn-g text-xs">✕</button>
+    </div>
+    <div class="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="field">
+          <label>Название</label>
+          <input id="plName" type="text" class="inp" placeholder="Услуги студии"/>
+        </div>
+        <div class="field">
+          <label class="flex items-center gap-2 mt-5">
+            <input id="plDefault" type="checkbox"/>
+            <span class="text-sm">По умолчанию (выбран в новом КП автоматом)</span>
+          </label>
+        </div>
+      </div>
+      <div class="field">
+        <label>Описание (опц.)</label>
+        <input id="plDesc" type="text" class="inp" placeholder="Например «Маникюр и уход — основной»"/>
+      </div>
+
+      <!-- Позиции -->
+      <div id="plItemsBlock" class="mt-4">
+        <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <h3 class="font-headline font-bold text-sm">Позиции</h3>
+          <div class="flex items-center gap-2">
+            <input type="file" id="plCsvInput" accept=".csv,.txt" class="hidden" onchange="importPriceCsv(event)"/>
+            <button onclick="document.getElementById('plCsvInput').click()" class="btn-g text-xs">📥 Импорт CSV</button>
+            <button onclick="addPriceItem()" class="btn-g text-xs">➕ Добавить позицию</button>
+          </div>
+        </div>
+        <p class="text-xs text-on-dim/70 mb-3">CSV формат: <code class="text-primary">name;price;category;description</code> (разделитель — точка с запятой или запятая, кодировка UTF-8 или CP1251).</p>
+        <div id="plItems" class="space-y-2"></div>
+      </div>
+    </div>
+    <div class="flex items-center justify-between gap-3 p-5 border-t border-outline/15">
+      <button id="plDeleteBtn" onclick="deleteCurrentPriceList()" class="btn-d text-sm hidden">Удалить прайс</button>
+      <div class="flex gap-2 ml-auto">
+        <button onclick="closePriceListModal()" class="btn-g text-sm">Закрыть</button>
+        <button onclick="savePriceList()" class="btn-p text-sm">💾 Сохранить</button>
       </div>
     </div>
   </div>
@@ -388,9 +458,12 @@ const API = '';
 let projects = [];
 let brands = [];
 let bots = [];
+let priceLists = [];
 let currentTab = 'projects';
 let currentProjectId = null;
 let currentBrandId = null;
+let currentPriceListId = null;
+let _plItemsBuffer = [];   // local buffer для редактируемого прайса
 
 function authToken(){ return localStorage.getItem('obs_token') || ''; }
 function hdrs(){
@@ -404,9 +477,12 @@ function switchTab(tab){
   currentTab = tab;
   document.getElementById('tab-projects').classList.toggle('active', tab==='projects');
   document.getElementById('tab-brands').classList.toggle('active', tab==='brands');
+  document.getElementById('tab-prices').classList.toggle('active', tab==='prices');
   document.getElementById('paneProjects').classList.toggle('hidden', tab!=='projects');
   document.getElementById('paneBrands').classList.toggle('hidden', tab!=='brands');
+  document.getElementById('panePrices').classList.toggle('hidden', tab!=='prices');
   if(tab==='brands') loadBrands();
+  else if(tab==='prices') loadPriceLists();
   else loadProjects();
 }
 
@@ -536,9 +612,11 @@ function openCreate(){
   ['pNa','pClientName','pClientEmail','pClientReq','pClientSite','pNotes'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('pBrand').value = '';
   document.getElementById('pBot').value = '';
+  if(document.getElementById('pPriceList')) document.getElementById('pPriceList').value = '';
   document.getElementById('pDeleteBtn').classList.add('hidden');
   populateBrandSelect();
   populateBotSelect();
+  populatePriceListSelect();
   hideResult();
   updateGenButton(null);
   document.getElementById('projectModal').classList.add('show');
@@ -558,8 +636,12 @@ async function openProject(id){
   document.getElementById('pNotes').value = p.extra_notes || '';
   populateBrandSelect();
   populateBotSelect();
+  populatePriceListSelect();
   document.getElementById('pBrand').value = p.brand_id || '';
   document.getElementById('pBot').value = p.bot_id || '';
+  if(document.getElementById('pPriceList')){
+    document.getElementById('pPriceList').value = p.price_list_id || '';
+  }
   document.getElementById('pDeleteBtn').classList.remove('hidden');
   document.getElementById('projectModal').classList.add('show');
   // Обновляем кнопку генерации и превью результата
@@ -1124,6 +1206,7 @@ async function saveProject(silent){
     name: document.getElementById('pNa').value.trim(),
     brand_id: parseInt(document.getElementById('pBrand').value) || null,
     bot_id: parseInt(document.getElementById('pBot').value) || null,
+    price_list_id: parseInt((document.getElementById('pPriceList')||{}).value || '') || null,
     client_name: document.getElementById('pClientName').value.trim() || null,
     client_email: document.getElementById('pClientEmail').value.trim() || null,
     client_request: document.getElementById('pClientReq').value.trim() || null,
@@ -1396,6 +1479,13 @@ function populateBrandSelect(){
     brands.map(b => `<option value="${b.id}"${b.is_default?' selected':''}>${escHtml(b.name)}${b.is_default?' (по умолчанию)':''}</option>`).join('');
 }
 
+function populatePriceListSelect(){
+  const sel = document.getElementById('pPriceList');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">— без прайса —</option>' +
+    priceLists.map(pl => `<option value="${pl.id}"${pl.is_default?' selected':''}>${escHtml(pl.name)} (${pl.item_count} поз.)${pl.is_default?' — по умолчанию':''}</option>`).join('');
+}
+
 function populateBotSelect(){
   const sel = document.getElementById('pBot');
   sel.innerHTML = '<option value="">— без бота —</option>' +
@@ -1406,6 +1496,197 @@ function escHtml(s){
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function escAttr(s){ return escHtml(s); }
+
+// ── Прайс-листы (свои, не привязанные к ботам) ──────────────────────────
+async function loadPriceLists(){
+  try{
+    const r = await fetch(`${API}/proposals/price-lists`, {headers: hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error(r.status);
+    priceLists = await r.json();
+    renderPriceLists();
+  }catch(e){
+    document.getElementById('pricesGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${e.message}</p>`;
+  }
+}
+
+function renderPriceLists(){
+  const grid = document.getElementById('pricesGrid');
+  const empty = document.getElementById('pricesEmpty');
+  if(!priceLists.length){
+    grid.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  grid.innerHTML = priceLists.map(pl => `
+    <div class="proj-card" onclick="openPriceListModal(${pl.id})">
+      <div class="flex items-start justify-between gap-2 mb-2">
+        <div class="flex-1 min-w-0">
+          <h3 class="font-headline font-bold text-sm truncate">${escHtml(pl.name)}</h3>
+          ${pl.description ? `<p class="text-xs text-on-dim mt-1 truncate">${escHtml(pl.description)}</p>` : ''}
+        </div>
+        ${pl.is_default ? '<span class="status-badge badge-done">по умолчанию</span>' : ''}
+      </div>
+      <div class="text-xs text-on-dim mt-2">📋 ${pl.item_count || 0} поз.</div>
+    </div>
+  `).join('');
+}
+
+async function openPriceListModal(id){
+  if(typeof id === 'number'){
+    try{
+      const r = await fetch(`${API}/proposals/price-lists/${id}`, {headers: hdrs(), credentials:'same-origin'});
+      if(!r.ok) throw new Error(r.status);
+      const pl = await r.json();
+      currentPriceListId = pl.id;
+      document.getElementById('plModalTitle').textContent = pl.name;
+      document.getElementById('plName').value = pl.name || '';
+      document.getElementById('plDesc').value = pl.description || '';
+      document.getElementById('plDefault').checked = !!pl.is_default;
+      _plItemsBuffer = (pl.items || []).map(it => ({...it, _saved: true}));
+      renderPlItems();
+      document.getElementById('plDeleteBtn').classList.remove('hidden');
+    }catch(e){ await aiAlert('Ошибка загрузки: ' + e.message, 'error'); return; }
+  } else {
+    currentPriceListId = null;
+    document.getElementById('plModalTitle').textContent = 'Новый прайс';
+    document.getElementById('plName').value = '';
+    document.getElementById('plDesc').value = '';
+    document.getElementById('plDefault').checked = false;
+    _plItemsBuffer = [];
+    renderPlItems();
+    document.getElementById('plDeleteBtn').classList.add('hidden');
+  }
+  document.getElementById('priceListModal').classList.add('show');
+}
+
+function closePriceListModal(){
+  document.getElementById('priceListModal').classList.remove('show');
+}
+
+function renderPlItems(){
+  const wrap = document.getElementById('plItems');
+  if(!_plItemsBuffer.length){
+    wrap.innerHTML = '<p class="text-on-dim text-sm py-3 text-center">Позиций пока нет — добавь вручную или импортируй CSV.</p>';
+    return;
+  }
+  wrap.innerHTML = _plItemsBuffer.map((it, idx) => {
+    if(it._deleted) return '';
+    return `
+      <div class="card p-3" data-idx="${idx}">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+          <input type="text" class="inp md:col-span-4" placeholder="Название" value="${escAttr(it.name||'')}"
+                 onchange="_plItemsBuffer[${idx}].name=this.value;_plItemsBuffer[${idx}]._dirty=true"/>
+          <input type="text" class="inp md:col-span-2" placeholder="Цена ₽" value="${it.price_kop ? (it.price_kop/100) : ''}"
+                 onchange="_plItemsBuffer[${idx}].price_kop=this.value?Math.round(parseFloat(this.value)*100):null;_plItemsBuffer[${idx}]._dirty=true"/>
+          <input type="text" class="inp md:col-span-2" placeholder="Категория" value="${escAttr(it.category||'')}"
+                 onchange="_plItemsBuffer[${idx}].category=this.value;_plItemsBuffer[${idx}]._dirty=true"/>
+          <input type="text" class="inp md:col-span-3" placeholder="Описание" value="${escAttr(it.description||'')}"
+                 onchange="_plItemsBuffer[${idx}].description=this.value;_plItemsBuffer[${idx}]._dirty=true"/>
+          <button onclick="removePlItem(${idx})" class="btn-d text-xs py-1 md:col-span-1">✕</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function addPriceItem(){
+  _plItemsBuffer.push({name:'', price_kop:null, category:null, description:null, _dirty: true});
+  renderPlItems();
+}
+
+function removePlItem(idx){
+  if(_plItemsBuffer[idx]._saved){
+    // Помечаем как удалённый — отправим DELETE при сохранении
+    _plItemsBuffer[idx]._deleted = true;
+  } else {
+    _plItemsBuffer.splice(idx, 1);
+  }
+  renderPlItems();
+}
+
+async function savePriceList(){
+  const name = document.getElementById('plName').value.trim();
+  if(!name){ await aiAlert('Название обязательно', 'warn'); return; }
+  const body = {
+    name,
+    description: document.getElementById('plDesc').value.trim() || null,
+    is_default: document.getElementById('plDefault').checked,
+  };
+  try{
+    let plId = currentPriceListId;
+    // Создаём/обновляем сам прайс
+    const url = plId ? `${API}/proposals/price-lists/${plId}` : `${API}/proposals/price-lists`;
+    const method = plId ? 'PUT' : 'POST';
+    const r = await fetch(url, {method, headers: hdrs(), credentials:'same-origin', body: JSON.stringify(body)});
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'Ошибка ' + r.status);
+    }
+    const data = await r.json();
+    if(!plId) plId = data.id;
+    // Синхронизируем позиции
+    for(const [idx, it] of _plItemsBuffer.entries()){
+      if(it._deleted && it.id){
+        await fetch(`${API}/proposals/price-lists/${plId}/items/${it.id}`, {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
+      } else if(!it._deleted && it._dirty){
+        if(!it.name || !it.name.trim()) continue;
+        const itemBody = {
+          name: it.name.trim(),
+          price_kop: it.price_kop || null,
+          category: it.category || null,
+          description: it.description || null,
+          sort_order: idx,
+        };
+        if(it.id){
+          await fetch(`${API}/proposals/price-lists/${plId}/items/${it.id}`, {
+            method:'PUT', headers: hdrs(), credentials:'same-origin', body: JSON.stringify(itemBody),
+          });
+        } else {
+          await fetch(`${API}/proposals/price-lists/${plId}/items`, {
+            method:'POST', headers: hdrs(), credentials:'same-origin', body: JSON.stringify(itemBody),
+          });
+        }
+      }
+    }
+    closePriceListModal();
+    await loadPriceLists();
+    await aiAlert('Прайс сохранён', 'success');
+  }catch(e){ await aiAlert(e.message, 'error'); }
+}
+
+async function deleteCurrentPriceList(){
+  if(!currentPriceListId) return;
+  if(!await aiConfirm('Удалить весь прайс-лист со всеми позициями?', {danger: true, okLabel: 'Удалить'})) return;
+  try{
+    await fetch(`${API}/proposals/price-lists/${currentPriceListId}`, {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
+    closePriceListModal();
+    await loadPriceLists();
+  }catch(e){ await aiAlert(e.message, 'error'); }
+}
+
+async function importPriceCsv(ev){
+  const file = ev.target.files[0];
+  if(!file) return;
+  // Если прайс ещё не сохранён — сначала сохраним, чтобы был id
+  if(!currentPriceListId){
+    const name = document.getElementById('plName').value.trim();
+    if(!name){ await aiAlert('Сначала введи название прайса', 'warn'); ev.target.value=''; return; }
+    await savePriceList();
+    if(!currentPriceListId){ ev.target.value=''; return; }
+  }
+  const fd = new FormData(); fd.append('file', file);
+  const tok = localStorage.getItem('obs_token');
+  try{
+    const r = await fetch(`${API}/proposals/price-lists/${currentPriceListId}/import-csv`, {
+      method:'POST', headers:{'Authorization':'Bearer '+tok}, credentials:'same-origin', body: fd,
+    });
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
+    await openPriceListModal(currentPriceListId);
+    await aiAlert(`Импортировано ${data.added} позиций`, 'success');
+  }catch(e){ await aiAlert(e.message, 'error'); }
+  finally{ ev.target.value = ''; }
+}
 
 // Color picker ↔ hex input bidirectional sync
 ['bPrimary','bAccent','bSecondary'].forEach(id => {
@@ -1452,6 +1733,7 @@ _renderPalettePresets();
 (async () => {
   await loadBrands();
   await loadBots();
+  await loadPriceLists();
   await loadProjects();
 })();
 </script>
