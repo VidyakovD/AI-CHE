@@ -78,26 +78,46 @@ def _get_fernet(version: str = _CURRENT_VERSION) -> Fernet | None:
 def _all_fernets() -> list[tuple[str, Fernet]]:
     """Текущий ключ + все legacy-ключи для попытки расшифровки.
 
-    Включает три источника:
+    Включает источники:
       1. JWT_SECRET с HKDF (текущий v1).
       2. JWT_SECRET со старым sha256-KDF (для токенов до 2026-04-26).
-      3. LEGACY_JWT_SECRETS с обоими KDF (на случай ротации secret + KDF одновременно).
+      3. Содержимое файла server/.jwt_secret (если отличается от env)
+         — для случаев когда токен был зашифрован файловым ключом
+         (auth.py импортировался до load_dotenv).
+      4. LEGACY_JWT_SECRETS с обоими KDF (на случай ротации secret + KDF).
     """
     out: list[tuple[str, Fernet]] = []
-    base = os.getenv("JWT_SECRET", "")
-    if base:
-        out.append((_CURRENT_VERSION, Fernet(_derive_key(base))))
+    seen_secrets: set[str] = set()
+
+    def _add(name: str, secret: str):
+        if not secret or secret in seen_secrets:
+            return
+        seen_secrets.add(secret)
         try:
-            out.append(("v1-sha256", Fernet(_legacy_sha256_key(base))))
+            out.append((f"{name}-hkdf", Fernet(_derive_key(secret))))
         except Exception:
             pass
+        try:
+            out.append((f"{name}-sha256", Fernet(_legacy_sha256_key(secret))))
+        except Exception:
+            pass
+
+    _add("env", os.getenv("JWT_SECRET", ""))
+
+    # Файловый ключ — если auth.py успел его прочитать до load_dotenv,
+    # секреты могли быть зашифрованы им. Пробуем как fallback.
+    try:
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  ".jwt_secret")
+        if os.path.exists(file_path):
+            with open(file_path) as f:
+                _add("file", f.read().strip())
+    except Exception:
+        pass
+
     legacy_raw = [s.strip() for s in os.getenv("LEGACY_JWT_SECRETS", "").split(",") if s.strip()]
     for i, secret in enumerate(legacy_raw):
-        try:
-            out.append((f"legacy{i}-hkdf", Fernet(_derive_key(secret))))
-            out.append((f"legacy{i}-sha256", Fernet(_legacy_sha256_key(secret))))
-        except Exception:
-            pass
+        _add(f"legacy{i}", secret)
     return out
 
 

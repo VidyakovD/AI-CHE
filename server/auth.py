@@ -5,6 +5,18 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from fastapi import Response, Request
 
+# ВАЖНО: load_dotenv ДО _get_jwt_secret — иначе race condition.
+# Если auth.py импортируется раньше ai.py (где раньше был load_dotenv),
+# os.getenv("JWT_SECRET") вернёт None → возьмётся ключ из server/.jwt_secret.
+# При следующей перезагрузке порядок мог быть другой → разные ключи →
+# зашифрованные секреты в БД (max_token, IMAP пароли) не расшифровываются.
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv()
+except Exception:
+    pass
+
+
 def _get_jwt_secret() -> str:
     """Стабильный JWT-секрет: из env или сохранённый файл (генерируется один раз)."""
     env_secret = os.getenv("JWT_SECRET")
