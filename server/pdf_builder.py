@@ -232,7 +232,10 @@ _FONT_FALLBACKS = {
 
 def resolve_pdf_font(brand_font: str | None) -> str:
     """Возвращает имя зарегистрированного семейства, подходящего для PDF.
-    Если выбранный шрифт неизвестен — DejaVuSans (гарантированно есть)."""
+    Имя БЕЗ пробелов — точно как в @font-face и в registerFontFamily
+    (xhtml2pdf требует точный матч). Например «Liberation Sans» →
+    «LiberationSans». Если выбранный шрифт неизвестен — DejaVuSans
+    (гарантированно есть)."""
     if not brand_font:
         return "DejaVuSans"
     fallback = _FONT_FALLBACKS.get(brand_font.strip())
@@ -240,7 +243,7 @@ def resolve_pdf_font(brand_font: str | None) -> str:
         # Проверяем что файл реально доступен
         regular_path = _FONT_FAMILIES[fallback][0]
         if os.path.exists(regular_path):
-            return fallback
+            return fallback.replace(" ", "")
     return "DejaVuSans"
 
 
