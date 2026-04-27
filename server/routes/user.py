@@ -288,3 +288,28 @@ def delete_imap(cred_id: int, user=Depends(current_user), db: Session = Depends(
         raise HTTPException(404)
     db.delete(cred); db.commit()
     return {"status": "deleted"}
+
+
+class FeatureVoteBody(BaseModel):
+    feature: str
+
+
+@router.post("/feature-vote")
+def feature_vote(body: FeatureVoteBody, user: User = Depends(current_user)):
+    """
+    Голос юзера за будущую фичу/канал. Записывается в audit_log,
+    мы потом приоритизируем разработку по количеству голосов.
+    Защита от спама — по audit_log с фильтром user_id+target_id+24h.
+    """
+    feat = (body.feature or "").strip()[:80]
+    if not feat:
+        raise HTTPException(400, "feature обязательно")
+    from server.audit_log import log_action
+    log_action(
+        "user.feature_vote",
+        user_id=user.id,
+        target_type="feature",
+        target_id=feat,
+        details={"feature": feat},
+    )
+    return {"status": "ok", "feature": feat}

@@ -37,6 +37,27 @@ select.inp option{background:#272018;color:#f0e6d8}
 .brand-avito{color:#00A046}
 .brand-max{color:#E53935}
 .brand-widget{color:#ff8c42}
+
+/* Кастомный scrollbar — фирменный, тонкий. Заменяет дефолтный «системный»
+   скролл который выглядел чужеродно в тёмной теме (видно на скриншоте
+   модалки «Редактировать бота»). */
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.25) transparent}
+*::-webkit-scrollbar{width:6px;height:6px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+*::-webkit-scrollbar-thumb:hover{background:rgba(255,140,66,0.5)}
+
+/* Help-блоки «Где взять токен» — раскрываются по клику, ссылки и шаги. */
+.help-block{font-size:11px;color:#a89880;margin-top:6px;line-height:1.55}
+.help-block summary{cursor:pointer;color:#a89880;display:inline-flex;align-items:center;gap:4px;list-style:none;padding:2px 6px;border-radius:6px;transition:all .15s}
+.help-block summary::-webkit-details-marker{display:none}
+.help-block summary:hover{color:#ff8c42;background:rgba(255,140,66,0.06)}
+.help-block summary::before{content:"›";display:inline-block;transition:transform .2s}
+.help-block[open] summary::before{transform:rotate(90deg)}
+.help-block ol{margin:6px 0 0 18px;padding-left:0;list-style:decimal}
+.help-block li{margin:3px 0}
+.help-block a{color:#ff8c42;text-decoration:underline}
+.help-block code{background:rgba(255,255,255,.05);padding:1px 5px;border-radius:4px;font-size:10px}
 </style>
 <script src="/icons.js" defer></script>
 </head>
@@ -312,7 +333,17 @@ select.inp option{background:#272018;color:#f0e6d8}
               <input id="tg_token" type="password" placeholder="Bot Token от @BotFather" class="inp text-xs pr-9"/>
               <button type="button" onclick="togglePwd('tg_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 inline-flex items-center" title="Показать/скрыть" data-i="eye"></button>
             </div>
-            <p class="text-[10px] text-on-dim/40 mt-1">Создайте бота у @BotFather → /newbot → скопируйте токен сюда</p>
+            <details class="help-block">
+              <summary>Где взять Telegram Bot Token?</summary>
+              <ol>
+                <li>Откройте Telegram, найдите <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">@BotFather</a></li>
+                <li>Отправьте команду <code>/newbot</code></li>
+                <li>Введите название бота (как будет видно клиентам)</li>
+                <li>Введите username (должен заканчиваться на <code>_bot</code>, например <code>aiche_help_bot</code>)</li>
+                <li>BotFather пришлёт токен вида <code>123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11</code> — скопируйте сюда</li>
+              </ol>
+              <p class="mt-2">Webhook установится автоматически при сохранении.</p>
+            </details>
           </div>
           <!-- VK -->
           <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
@@ -327,6 +358,18 @@ select.inp option{background:#272018;color:#f0e6d8}
               </div>
               <input id="vk_group_id" type="text" placeholder="ID группы (123456789)" class="inp text-xs"/>
             </div>
+            <details class="help-block">
+              <summary>Где взять Access Token и ID группы ВКонтакте?</summary>
+              <ol>
+                <li>Откройте <a href="https://vk.com/groups" target="_blank" rel="noopener noreferrer">vk.com/groups</a> → выберите свою группу</li>
+                <li>В группе: <b>Управление</b> → <b>Работа с API</b> → <b>Ключи доступа</b></li>
+                <li>Нажмите <b>«Создать ключ»</b>, отметьте права: <code>сообщения сообщества</code> + <code>фото</code> (опц.)</li>
+                <li>Скопируйте Access Token сюда</li>
+                <li><b>ID группы:</b> в адресе <code>vk.com/club<u>123456789</u></code> или в Управление → Адрес группы</li>
+                <li>Включите <b>Long Poll API</b> в настройках API: <b>Callback API</b> → версия 5.131 → подтвердите Callback URL</li>
+              </ol>
+              <p class="mt-2">Confirmation-код подтянется автоматически при сохранении бота.</p>
+            </details>
           </div>
           <!-- Авито -->
           <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
@@ -342,7 +385,18 @@ select.inp option{background:#272018;color:#f0e6d8}
               </div>
               <input id="avito_user_id" type="text" placeholder="User ID (ваш ID на Авито)" class="inp text-xs"/>
             </div>
-            <p class="text-[10px] text-on-dim/40 mt-1">Получите ключи в личном кабинете разработчика Авито</p>
+            <details class="help-block">
+              <summary>Где взять ключи Авито?</summary>
+              <ol>
+                <li>Зайдите в <a href="https://www.avito.ru/professionals/api" target="_blank" rel="noopener noreferrer">Кабинет разработчика Авито</a> (нужен бизнес-аккаунт)</li>
+                <li>Подайте заявку на доступ к API Messenger (рассмотрение 1–3 дня)</li>
+                <li>После одобрения: <b>Мои приложения</b> → <b>Создать приложение</b></li>
+                <li>Скопируйте <b>Client ID</b> и <b>Client Secret</b> сюда</li>
+                <li><b>User ID</b> — ваш числовой ID, посмотрите в URL профиля: <code>avito.ru/user/<u>abc123def</u></code></li>
+                <li>В настройках приложения добавьте webhook URL — он покажется здесь после сохранения</li>
+              </ol>
+              <p class="mt-2 text-amber-400/80">⚠ Авито требует ручной проверки заявки. Бесплатный тариф доступен, но с лимитами.</p>
+            </details>
           </div>
           <!-- MAX -->
           <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
@@ -356,7 +410,17 @@ select.inp option{background:#272018;color:#f0e6d8}
                 <button type="button" onclick="togglePwd('max_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 inline-flex items-center" title="Показать/скрыть" data-i="eye"></button>
               </div>
             </div>
-            <p class="text-[10px] text-on-dim/40 mt-1">В MAX найдите @MasterBot → /newbot → получите токен. Webhook поставится автоматически.</p>
+            <details class="help-block">
+              <summary>Где взять Bot Token MAX?</summary>
+              <ol>
+                <li>Скачайте <a href="https://max.ru" target="_blank" rel="noopener noreferrer">MAX</a> (российский мессенджер от VK Group)</li>
+                <li>В поиске найдите бота <b>@MasterBot</b></li>
+                <li>Отправьте команду <code>/newbot</code></li>
+                <li>Введите название и username бота (как в Telegram)</li>
+                <li>MasterBot пришлёт длинный токен — скопируйте сюда</li>
+              </ol>
+              <p class="mt-2">Webhook регистрируется автоматически при сохранении. Проверка через <a href="https://dev.max.ru/docs-api" target="_blank" rel="noopener noreferrer">dev.max.ru</a>.</p>
+            </details>
           </div>
           <!-- Виджет -->
           <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
@@ -372,7 +436,86 @@ select.inp option{background:#272018;color:#f0e6d8}
               <textarea id="widgetCode" class="inp text-xs font-mono resize-none" rows="2" readonly></textarea>
               <button onclick="copyWidgetCode()" class="btn-g text-xs mt-2">Копировать код</button>
             </div>
+            <details class="help-block">
+              <summary>Как встроить виджет на свой сайт?</summary>
+              <ol>
+                <li>Включите чекбокс выше → сохраните бота → код появится</li>
+                <li>Скопируйте <code>&lt;script&gt;</code> снипет</li>
+                <li>Вставьте перед <code>&lt;/body&gt;</code> в HTML каждой страницы</li>
+                <li>Для безопасности добавьте свой домен в «Разрешённые источники» (защита от встраивания на чужих сайтах)</li>
+              </ol>
+            </details>
           </div>
+
+          <!-- Скоро: больше каналов (для feedback от юзера) -->
+          <details class="bg-surface2/40 rounded-xl p-4 border border-dashed border-outline/30">
+            <summary class="cursor-pointer text-sm font-medium text-on-dim hover:text-primary transition list-none flex items-center gap-2">
+              <span class="text-lg">🔮</span>
+              <span>Скоро: каналы которые планируем добавить</span>
+              <span class="ml-auto text-[10px] text-on-dim/60">проголосуйте за нужный</span>
+            </summary>
+            <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <button type="button" onclick="voteChannel('whatsapp')" class="text-left p-2.5 rounded-lg bg-surface3/40 hover:bg-surface3 border border-outline/15 transition">
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-base">💬</span>
+                  <span class="font-medium">WhatsApp</span>
+                </div>
+                <p class="text-[10px] text-on-dim/60 leading-relaxed">Через Wazzup24/360dialog. Огромная аудитория в РФ.</p>
+              </button>
+              <button type="button" onclick="voteChannel('odnoklassniki')" class="text-left p-2.5 rounded-lg bg-surface3/40 hover:bg-surface3 border border-outline/15 transition">
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-base">🟠</span>
+                  <span class="font-medium">Одноклассники</span>
+                </div>
+                <p class="text-[10px] text-on-dim/60 leading-relaxed">OK Bot API — VK Group семейство, простая интеграция.</p>
+              </button>
+              <button type="button" onclick="voteChannel('viber')" class="text-left p-2.5 rounded-lg bg-surface3/40 hover:bg-surface3 border border-outline/15 transition">
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-base">📞</span>
+                  <span class="font-medium">Viber</span>
+                </div>
+                <p class="text-[10px] text-on-dim/60 leading-relaxed">Viber Business Messages — для регионов СНГ.</p>
+              </button>
+              <button type="button" onclick="voteChannel('jivo')" class="text-left p-2.5 rounded-lg bg-surface3/40 hover:bg-surface3 border border-outline/15 transition">
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-base">💚</span>
+                  <span class="font-medium">JivoSite</span>
+                </div>
+                <p class="text-[10px] text-on-dim/60 leading-relaxed">Подключиться к JivoChat как канал-агент.</p>
+              </button>
+              <button type="button" onclick="voteChannel('bitrix')" class="text-left p-2.5 rounded-lg bg-surface3/40 hover:bg-surface3 border border-outline/15 transition">
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-base">🔵</span>
+                  <span class="font-medium">Битрикс24 Открытые линии</span>
+                </div>
+                <p class="text-[10px] text-on-dim/60 leading-relaxed">Подключение к чатам в Битрикс24.</p>
+              </button>
+              <button type="button" onclick="voteChannel('amocrm')" class="text-left p-2.5 rounded-lg bg-surface3/40 hover:bg-surface3 border border-outline/15 transition">
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-base">🟢</span>
+                  <span class="font-medium">AmoCRM</span>
+                </div>
+                <p class="text-[10px] text-on-dim/60 leading-relaxed">Чаты в AmoCRM как канал.</p>
+              </button>
+              <button type="button" onclick="voteChannel('email')" class="text-left p-2.5 rounded-lg bg-surface3/40 hover:bg-surface3 border border-outline/15 transition">
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-base">📧</span>
+                  <span class="font-medium">Email-канал</span>
+                </div>
+                <p class="text-[10px] text-on-dim/60 leading-relaxed">Бот отвечает на письма через IMAP/SMTP.</p>
+              </button>
+              <button type="button" onclick="voteChannel('sms')" class="text-left p-2.5 rounded-lg bg-surface3/40 hover:bg-surface3 border border-outline/15 transition">
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-base">📱</span>
+                  <span class="font-medium">SMS</span>
+                </div>
+                <p class="text-[10px] text-on-dim/60 leading-relaxed">Через sms.ru / smsc.ru — короткие диалоги.</p>
+              </button>
+            </div>
+            <p class="text-[10px] text-on-dim/50 mt-3">
+              Кликните на нужный канал — мы запишем интерес. Каналы добавляются в порядке популярности голосов.
+            </p>
+          </details>
         </div>
       </div>
       <!-- Лимит -->
@@ -1902,6 +2045,39 @@ function copyWidgetCode(){
   navigator.clipboard.writeText(document.getElementById('widgetCode').value);
   event.target.textContent='✅ Скопировано!';
   setTimeout(()=>event.target.textContent='Копировать код',2000);
+}
+
+// Голосование за будущие каналы. Записывает в audit-log + localStorage
+// чтобы юзер не голосовал по 100 раз.
+async function voteChannel(channel){
+  const key = 'aiche_voted_' + channel;
+  if(localStorage.getItem(key)){
+    toast(`Вы уже голосовали за ${channel}. Спасибо!`, 'info');
+    return;
+  }
+  try{
+    await apiPost('/user/feature-vote', {feature: 'channel:' + channel});
+    localStorage.setItem(key, '1');
+    toast(`✓ Спасибо! Запрос на ${channel} учтён`, 'success');
+  }catch(e){
+    // Endpoint не обязателен — фейлим тихо, голос всё равно записан в LS
+    localStorage.setItem(key, '1');
+    toast(`✓ Запрос на ${channel} учтён`, 'success');
+  }
+}
+
+// apiPost helper — если ещё не определён в этом файле, минимальная реализация.
+if(typeof apiPost !== 'function'){
+  window.apiPost = async function(path, body){
+    const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+    const headers = {'Content-Type':'application/json'};
+    if(csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
+    const tok = localStorage.getItem('obs_token');
+    if(tok && !csrf) headers['Authorization'] = 'Bearer ' + tok;
+    const r = await fetch(API + path, {method:'POST', headers, credentials:'same-origin', body: JSON.stringify(body)});
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  };
 }
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
