@@ -323,7 +323,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
             <span id="editModeLabel">Редактировать</span>
           </button>
           <button id="aiBlockBtn" onclick="toggleAiBlockMode()" class="btn-g text-xs py-1.5 flex items-center gap-1.5">
-            <span data-i="sparkle"></span><span id="aiBlockLabel">AI-правка блока (5 ₽)</span>
+            <span data-i="sparkle"></span><span id="aiBlockLabel">AI-правка блока</span>
           </button>
           <button id="replaceImgBtn" onclick="replaceSelectedImage()" class="btn-g text-xs py-1.5 hidden flex items-center gap-1.5"><span data-i="image"></span> Заменить картинку</button>
           <span id="editHint" class="text-xs text-on-dim hidden">Клик на элемент → правка текста · Клик на картинку → замена</span>
@@ -333,6 +333,24 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
             <button class="vp-btn inline-flex items-center gap-1" data-vp="tablet" onclick="setViewport('tablet')" title="Планшет 768px"><span data-i="tablet"></span>Tablet</button>
             <button class="vp-btn inline-flex items-center gap-1" data-vp="mobile" onclick="setViewport('mobile')" title="Телефон 375px"><span data-i="mobile"></span>Mobile</button>
           </div>
+        </div>
+        <!-- Mini-browser toolbar: назад/вперёд/обновить + индикатор пути.
+             Управляет iframe через postMessage (sandbox не пускает читать
+             history напрямую). injected runtime в превью слушает команды. -->
+        <div class="flex items-center gap-1 mb-2 px-2 py-1 bg-surface2/50 rounded-lg border border-outline/15">
+          <button id="prevNavBack" onclick="previewNav('back')" class="w-7 h-7 rounded-md hover:bg-surface3 flex items-center justify-center text-on-dim hover:text-primary transition disabled:opacity-30 disabled:cursor-not-allowed" title="Назад" aria-label="Назад">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+          </button>
+          <button id="prevNavFwd" onclick="previewNav('forward')" class="w-7 h-7 rounded-md hover:bg-surface3 flex items-center justify-center text-on-dim hover:text-primary transition disabled:opacity-30 disabled:cursor-not-allowed" title="Вперёд" aria-label="Вперёд">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+          </button>
+          <button onclick="previewNav('reload')" class="w-7 h-7 rounded-md hover:bg-surface3 flex items-center justify-center text-on-dim hover:text-primary transition" title="Обновить" aria-label="Обновить">
+            <span data-i="refresh"></span>
+          </button>
+          <button onclick="previewNav('home')" class="w-7 h-7 rounded-md hover:bg-surface3 flex items-center justify-center text-on-dim hover:text-primary transition" title="К началу страницы" aria-label="Домой">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+          </button>
+          <div class="flex-1 px-3 py-1 mx-1 bg-surface3/50 rounded-md text-[11px] text-on-dim/70 truncate font-mono" id="prevNavUrl">/ (главная)</div>
         </div>
         <div id="previewWrap" class="preview-wrap vp-desktop">
           <!-- sandbox БЕЗ allow-same-origin: AI-сгенерированный HTML
@@ -1279,10 +1297,75 @@ function refreshPreview(){
     }
   }
   applyEditMode();
+
+  // ── Mini-browser история навигации ────────────────────────────────────
+  // Sandbox без allow-same-origin не даёт parent читать iframe.history.
+  // Поэтому ведём history сами: ловим клики по <a>, scrollTo по #anchor,
+  // оповещаем parent. На команды parent (back/forward/reload/home) реагируем.
+  (function(){
+    function reportNav(url){
+      try{
+        window.parent.postMessage({type:'site:nav', url: url || location.href},
+                                   window.__parentOrigin);
+      }catch(e){}
+    }
+    // Первичное оповещение — parent узнает что страница открыта
+    reportNav(location.pathname + location.search + location.hash);
+
+    // Перехватываем клики по <a> чтобы навигация была внутри iframe (не
+    // window.open). Якоря (#id) — scrollIntoView с smooth + report.
+    document.addEventListener('click', function(ev){
+      if(window.__editMode || window.__aiBlockMode) return;
+      const a = ev.target.closest && ev.target.closest('a[href]');
+      if(!a) return;
+      const href = a.getAttribute('href');
+      if(!href) return;
+      // Якорь в текущей странице
+      if(href.startsWith('#')){
+        const tgt = document.querySelector(href);
+        if(tgt){
+          ev.preventDefault();
+          tgt.scrollIntoView({behavior:'smooth', block:'start'});
+          history.pushState({h:href}, '', href);
+          reportNav(location.pathname + location.search + location.hash);
+        }
+        return;
+      }
+      // External link — открываем в новой вкладке (sandbox не разрешает,
+      // но браузер сам открывает через target=_blank в parent контексте)
+      if(/^https?:\/\//.test(href) && !href.startsWith(window.__parentOrigin)){
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+        // не preventDefault — пусть браузер откроет
+      }
+    }, true);
+
+    // popstate (back/forward кнопки браузера или iframe.history)
+    window.addEventListener('popstate', function(){
+      reportNav(location.pathname + location.search + location.hash);
+    });
+
+    // Команды от parent: back/forward/reload/home
+    window.addEventListener('message', function(e){
+      if(!e.data || e.data.type !== 'site:cmd') return;
+      const action = e.data.action;
+      if(action === 'back'){ history.back(); }
+      else if(action === 'forward'){ history.forward(); }
+      else if(action === 'reload'){ location.reload(); }
+      else if(action === 'home'){
+        window.scrollTo({top:0, behavior:'smooth'});
+        history.pushState({h:'home'}, '', '#');
+        reportNav('/');
+      }
+    });
+  })();
 <\/script>
 </body>`);
   const blob = new Blob([injected],{type:'text/html'});
   frame.src = URL.createObjectURL(blob);
+  // Сброс адресной строки мини-браузера при перезагрузке превью
+  const elUrl = document.getElementById('prevNavUrl');
+  if(elUrl) elUrl.textContent = '/ (главная)';
 }
 
 function toggleAiBlockMode(){
@@ -1293,7 +1376,7 @@ function toggleAiBlockMode(){
     document.getElementById('editModeLabel').textContent = 'Редактировать';
     document.getElementById('editHint').classList.add('hidden');
   }
-  document.getElementById('aiBlockLabel').textContent = aiBlockMode ? 'Готово' : 'AI-правка блока (5 ₽)';
+  document.getElementById('aiBlockLabel').textContent = aiBlockMode ? 'Готово' : 'AI-правка блока';
   document.getElementById('aiBlockHint').classList.toggle('hidden', !aiBlockMode);
   refreshPreview();
 }
@@ -1401,7 +1484,7 @@ window.addEventListener('message', e => {
   if(!frame || e.source !== frame.contentWindow) return;
   if(!e.data || typeof e.data !== 'object') return;
   // Доп. защита: тип сообщения должен быть строкой из allow-list
-  const allowedTypes = new Set(['site:htmlChange','site:imgClick','site:blockClick']);
+  const allowedTypes = new Set(['site:htmlChange','site:imgClick','site:blockClick','site:nav']);
   if(!allowedTypes.has(e.data.type)) return;
   if(e.data.type === 'site:htmlChange'){
     if(editMode && typeof e.data.html === 'string'){
@@ -1420,7 +1503,33 @@ window.addEventListener('message', e => {
       aiEditBlock(e.data.blockId, e.data.html);
     }
   }
+  if(e.data.type === 'site:nav'){
+    // Обновляем индикатор пути в адресной строке мини-браузера
+    const url = String(e.data.url || '/');
+    const elUrl = document.getElementById('prevNavUrl');
+    if(elUrl) elUrl.textContent = url || '/ (главная)';
+  }
 });
+
+// Mini-browser: команды navigations в iframe через postMessage.
+// Sandbox не даёт читать iframe.history напрямую, поэтому шлём команды,
+// injected runtime вызывает history.back/forward/reload/scroll сам.
+function previewNav(action){
+  const frame = document.getElementById('previewFrame');
+  if(!frame || !frame.contentWindow) return;
+  // На reload — самый надёжный способ полного reset: пересоздать blob.
+  if(action === 'reload'){
+    refreshPreview();
+    document.getElementById('prevNavUrl').textContent = '/ (главная)';
+    return;
+  }
+  try{
+    // origin='*' потому что iframe sandboxed без allow-same-origin →
+    // его origin = "null", а проверка в дочернем — по сообщению нет смысла.
+    // Безопасность: только мы можем встроить наш iframe (sandbox + blob).
+    frame.contentWindow.postMessage({type:'site:cmd', action: action}, '*');
+  }catch(e){}
+}
 
 async function replaceSelectedImage(){
   if(!selectedImg){ alert('Сначала кликни на картинку в превью'); return; }

@@ -537,9 +537,13 @@ async def bot_ai_improve(bot_id: int, req: AiImproveRequest,
     from server.workflow_builder import build_from_task
     from server.models import Transaction
     from server.pricing import get_price
-    improve_min = int(get_price("bot.ai_improve_min", default=10_000))
-    if get_balance(db, user.id) < improve_min:
-        raise HTTPException(402, f"Недостаточно средств (минимум {improve_min/100:.0f} ₽)")
+    # AI-правки: real × 5 (без фикс-минимума по умолчанию). Список цен:
+    # bot.ai_improve_min — минимум, обычно 0 (real × margin без жёсткого пола)
+    # ai.improve_margin_pct — множитель (по умолчанию 500 = ×5)
+    improve_min = int(get_price("bot.ai_improve_min", default=0))
+    # Анти-зацикливание: даже если минимум 0, не пускаем юзера с пустым балансом
+    if get_balance(db, user.id) < max(improve_min, 100):
+        raise HTTPException(402, "Недостаточно средств для AI-правок (минимум 1 ₽)")
 
     # Кормим workflow_builder и текущим графом, и инструкцией.
     # Так LLM видит контекст и не собирает с нуля, а правит.
@@ -564,11 +568,12 @@ async def bot_ai_improve(bot_id: int, req: AiImproveRequest,
     usage = result.get("usage") or {}
     real_kop = int(usage.get("input_tokens", 0) / 1000 * 80
                  + usage.get("output_tokens", 0) / 1000 * 300)
-    margin_pct = int(get_price("ai.reply_margin_pct", default=300))
-    cost_kop = max(improve_min, int(real_kop * margin_pct / 100))
+    # AI-правки используют отдельный margin (×5 по умолчанию), не reply (×3)
+    margin_pct = int(get_price("ai.improve_margin_pct", default=500))
+    cost_kop = max(improve_min, int(real_kop * margin_pct / 100), 1)
     charged = deduct_atomic(db, user.id, cost_kop)
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
-                       description=f"AI-доработка бота «{bot.name}» ({charged/100:.0f} ₽)",
+                       description=f"AI-доработка бота «{bot.name}» ({charged/100:.2f} ₽)",
                        model="claude"))
 
     import json as _json

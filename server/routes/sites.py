@@ -977,15 +977,12 @@ def site_project_edit_block(project_id: int, body: EditBlockBody,
     if len(block.encode("utf-8")) > _MAX_BLOCK_BYTES:
         raise HTTPException(413, f"Блок слишком большой (макс. {_MAX_BLOCK_BYTES//1024} KB)")
 
-    cost = CODE_ITER_CH_COST  # 5 ₽
-    if not deduct_strict(db, user.id, cost):
-        raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
-    p.price_tokens = (p.price_tokens or 0) + cost
-    db.add(Transaction(
-        user_id=user.id, type="usage", tokens_delta=-cost,
-        description=f"AI-правка блока сайта ({cost/100:.0f} ₽)",
-        model="claude",
-    ))
+    # Pre-check баланса (не списываем заранее — ждём реальные токены AI).
+    # Анти-зацикливание: минимум 1 ₽ должен быть, иначе халява в случае 0-токенов.
+    from server.billing import deduct_atomic, get_balance
+    from server.pricing import get_price
+    if get_balance(db, user.id) < 100:
+        raise HTTPException(402, "Недостаточно средств для AI-правки (минимум 1 ₽)")
 
     prompt = (
         "Ты — веб-разработчик. Тебе передан ОДИН блок HTML с одностраничного "
@@ -1003,14 +1000,7 @@ def site_project_edit_block(project_id: int, body: EditBlockBody,
         answer = generate_response("claude", [{"role": "user", "content": prompt}],
                                    extra={"max_tokens": 8000})
     except Exception as e:
-        # Возвращаем деньги — ничего не сделали
-        from server.billing import credit_atomic
-        credit_atomic(db, user.id, cost)
-        db.add(Transaction(user_id=user.id, type="refund", tokens_delta=cost,
-                           description=f"Возврат: ошибка AI-правки блока ({e})",
-                           model="claude"))
-        db.commit()
-        raise HTTPException(503, "AI временно недоступен, средства возвращены")
+        raise HTTPException(503, "AI временно недоступен")
 
     new_html = answer.get("content", "") if isinstance(answer, dict) else str(answer)
     # Снимаем markdown-обёртки если AI ослушался
@@ -1021,19 +1011,27 @@ def site_project_edit_block(project_id: int, body: EditBlockBody,
             break
     new_html = new_html.strip()
 
-    # Sanity: блок должен начинаться с тега. Если AI вернул мусор — возвращаем
-    # деньги и старый блок (фронт не подменит → юзер увидит что не сработало).
+    # Sanity: блок должен начинаться с тега. Если AI вернул мусор — НЕ
+    # списываем (ничего не сделали).
     if not new_html.startswith("<"):
-        from server.billing import credit_atomic
-        credit_atomic(db, user.id, cost)
-        db.add(Transaction(user_id=user.id, type="refund", tokens_delta=cost,
-                           description="Возврат: AI вернул не-HTML для правки блока",
-                           model="claude"))
-        db.commit()
-        raise HTTPException(503, "AI вернул некорректный HTML, средства возвращены")
+        raise HTTPException(503, "AI вернул некорректный HTML, средства не списаны")
 
+    # Списание: real × improve_margin (×5). Без фикс-минимума.
+    real_kop = 0
+    if isinstance(answer, dict):
+        real_kop = int(answer.get("input_tokens", 0) / 1000 * 80
+                     + answer.get("output_tokens", 0) / 1000 * 300)
+    margin_pct = int(get_price("ai.improve_margin_pct", default=500))
+    cost = max(1, int(real_kop * margin_pct / 100))
+    charged = deduct_atomic(db, user.id, cost)
+    p.price_tokens = (p.price_tokens or 0) + charged
+    db.add(Transaction(
+        user_id=user.id, type="usage", tokens_delta=-charged,
+        description=f"AI-правка блока сайта ({charged/100:.2f} ₽)",
+        model="claude",
+    ))
     db.commit()
-    return {"new_html": new_html, "block_id": body.block_id, "cost_kop": cost}
+    return {"new_html": new_html, "block_id": body.block_id, "cost_kop": charged}
 
 
 # ---------------------------------------------------------------------------
