@@ -653,30 +653,27 @@ function showResult(html){
   if(!_wysiwygMode) exitEditMode();
 }
 
-// WYSIWYG-инжект: делает текстовые элементы contenteditable + пушит
-// обновлённый HTML в parent через postMessage при каждом input/blur.
+// WYSIWYG-инжект: ставит contenteditable=true на <body> целиком — юзер
+// кликает в любой текст и печатает. Медиа-элементы (img/svg/video) от-
+// ключены через contenteditable=false. Изменения шлются parent через
+// postMessage debounced 250 ms + on blur.
 function _injectWysiwyg(html){
   const parentOrigin = window.location.origin;
   const inj = `
 <style>
-  [contenteditable="true"]:hover { outline: 2px dashed rgba(255,140,66,0.5); outline-offset: 2px; cursor: text; }
-  [contenteditable="true"]:focus { outline: 2px solid #ff8c42; outline-offset: 2px; cursor: text; }
+  body[contenteditable="true"] *:hover { outline: 1px dashed rgba(255,140,66,0.45); outline-offset: 1px; }
+  body[contenteditable="true"] *:focus { outline: 2px solid #ff8c42 !important; outline-offset: 2px; }
 </style>
 <script>
 (function(){
   var origin = ${JSON.stringify(parentOrigin)};
-  var EDITABLE_TAGS = ['H1','H2','H3','H4','H5','H6','P','LI','TD','TH','BLOCKQUOTE','SPAN','STRONG','EM','SMALL','FIGCAPTION','DT','DD'];
-  document.querySelectorAll('*').forEach(function(el){
-    if(!EDITABLE_TAGS.includes(el.tagName)) return;
-    if(!el.textContent || !el.textContent.trim()) return;
-    // Не делаем contenteditable=true на вложенных, если родитель уже редактируется
-    var p = el.parentElement;
-    while(p){
-      if(p.getAttribute && p.getAttribute('contenteditable') === 'true') return;
-      p = p.parentElement;
-    }
-    el.setAttribute('contenteditable', 'true');
-    el.spellcheck = true;
+  // Включаем редактирование на всём <body>. Раньше точечно по EDITABLE_TAGS —
+  // пропускали часть элементов. Теперь редактируется ВСЁ кроме медиа.
+  document.body.setAttribute('contenteditable', 'true');
+  document.body.spellcheck = true;
+  // Медиа и интерактивные элементы — НЕ редактируются, их структура важна
+  document.querySelectorAll('img, svg, video, audio, iframe, picture, source, canvas, input, select, textarea').forEach(function(el){
+    el.setAttribute('contenteditable', 'false');
   });
   function pushUpdate(){
     try {

@@ -318,16 +318,18 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <!-- Preview tab — минимальный padding, чтобы превью не было узким -->
       <div id="dtab-preview" class="tab-pane flex-1 min-h-0 flex flex-col p-2">
         <div class="flex items-center gap-2 mb-3">
-          <button id="editModeBtn" onclick="toggleEditMode()" class="btn-g text-xs py-1.5 flex items-center gap-1.5">
+          <button id="editModeBtn" onclick="toggleEditMode()" class="btn-g text-xs py-1.5 flex items-center gap-1.5"
+                  title="Ручная правка: кликаешь по любому тексту/картинке/иконке и меняешь">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-            <span id="editModeLabel">Редактировать</span>
+            <span id="editModeLabel">Редактировать вручную</span>
           </button>
-          <button id="aiBlockBtn" onclick="toggleAiBlockMode()" class="btn-g text-xs py-1.5 flex items-center gap-1.5">
-            <span data-i="sparkle"></span><span id="aiBlockLabel">AI-правка блока</span>
+          <button id="aiBlockBtn" onclick="toggleAiBlockMode()" class="btn-g text-xs py-1.5 flex items-center gap-1.5"
+                  title="AI перепишет выбранный раздел: ты словами говоришь что изменить, а нейросеть делает">
+            <span data-i="sparkle"></span><span id="aiBlockLabel">Переделать через AI</span>
           </button>
           <button id="replaceImgBtn" onclick="replaceSelectedImage()" class="btn-g text-xs py-1.5 hidden flex items-center gap-1.5"><span data-i="image"></span> Заменить картинку</button>
-          <span id="editHint" class="text-xs text-on-dim hidden">Клик на элемент → правка текста · Клик на картинку → замена</span>
-          <span id="aiBlockHint" class="text-xs text-on-dim hidden">Клик на блок (section/header/...) → опиши что изменить</span>
+          <span id="editHint" class="text-xs text-on-dim hidden">✏️ Клик на текст → печатай · клик на картинку → выбери файл · клик на иконку → выбери новую</span>
+          <span id="aiBlockHint" class="text-xs text-primary hidden">✨ Кликни любой раздел сайта → опиши словами что изменить (например: «сделай заголовок крупнее» / «добавь блок с гарантиями»)</span>
           <div class="ml-auto flex gap-1">
             <button class="vp-btn active inline-flex items-center gap-1" data-vp="desktop" onclick="setViewport('desktop')" title="Полная ширина"><span data-i="desktop"></span>Desktop</button>
             <button class="vp-btn inline-flex items-center gap-1" data-vp="tablet" onclick="setViewport('tablet')" title="Планшет 768px"><span data-i="tablet"></span>Tablet</button>
@@ -1288,61 +1290,67 @@ function refreshPreview(){
     clearAiOverlay();
 
     if(window.__editMode){
-      document.querySelectorAll('*').forEach(el=>{
-        const tag = el.tagName;
-        // Любой текстовый блок с непустым textContent — редактируемый.
-        // Раньше требовали hasOnlyText (только листовые), но это пропускало
-        // <h1>Привет <span>мир</span></h1> и подобные смешанные структуры.
-        // Теперь делаем contenteditable=true на верхнем родителе текста;
-        // дочерние тоже редактируются как часть родителя.
-        if(TEXT_TAGS.includes(tag) && el.textContent && el.textContent.trim()){
-          // Не делаем contenteditable если родитель уже contenteditable
-          // (иначе вложенные contenteditable=false создают баг с курсором).
-          let p = el.parentElement;
-          let parentEditable = false;
-          while(p){
-            if(p.getAttribute && p.getAttribute('contenteditable')==='true'){ parentEditable = true; break; }
-            p = p.parentElement;
-          }
-          if(!parentEditable){
-            el.setAttribute('contenteditable','true');
-            el.style.cursor='text';
-            el.addEventListener('mouseenter',()=>{ if(!el.matches(':focus')) el.style.outline='2px dashed rgba(255,140,66,0.5)'; });
-            el.addEventListener('mouseleave',()=>{ if(!el.matches(':focus')) el.style.outline=''; });
-          }
-        }
-        if(tag==='IMG'){
-          el.style.cursor='pointer';
-          el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.7)');
-          el.addEventListener('mouseleave',()=>el.style.outline='');
-          el.addEventListener('click',(ev)=>{
-            ev.preventDefault(); ev.stopPropagation();
-            window.parent.postMessage({type:'site:imgClick',src:el.src,alt:el.alt||''}, window.__parentOrigin);
-          });
-        }
-        // Иконки: SVG / FontAwesome / Lucide — клик открывает «заменить иконку»
-        if(isIcon(el)){
-          el.style.cursor='pointer';
-          el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.7)');
-          el.addEventListener('mouseleave',()=>el.style.outline='');
-          el.addEventListener('click',(ev)=>{
-            ev.preventDefault(); ev.stopPropagation();
-            // Уникальный data-edit-icon чтобы parent смог найти и заменить
-            if(!el.dataset.editIcon){
-              el.dataset.editIcon = 'ic_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
-            }
-            window.parent.postMessage({
-              type:'site:iconClick',
-              iconId: el.dataset.editIcon,
-              tag: el.tagName.toLowerCase(),
-              outerHtml: el.outerHTML.length < 4000 ? el.outerHTML : el.outerHTML.slice(0,4000),
-            }, window.__parentOrigin);
-          });
-        }
+      // ВСЁ редактируется: ставим contenteditable=true на <body> целиком,
+      // выключаем на медиа-элементах. Так юзер кликает куда угодно и
+      // печатает — ни один текст не остаётся «недоступным».
+      // Раньше точечно перечисляли TEXT_TAGS — пропускали часть элементов.
+      document.body.setAttribute('contenteditable', 'true');
+      document.body.spellcheck = true;
+      // Стиль: подсвечиваем активный элемент при focus.
+      // Используем конкатенацию строк (не template literal) — внешний
+      // injected runtime сам в backticks, вложенные backticks ломают парсер.
+      const styleEl = document.createElement('style');
+      styleEl.id = '__editmode_css';
+      styleEl.textContent =
+        'body[contenteditable="true"] *:hover{outline:1px dashed rgba(255,140,66,0.4);outline-offset:1px}' +
+        'body[contenteditable="true"] *:focus{outline:2px solid #ff8c42 !important;outline-offset:2px}';
+      document.head.appendChild(styleEl);
+      // Медиа и интерактивные — НЕ редактируются, их роль другая
+      document.querySelectorAll('img, svg, video, audio, iframe, picture, source, canvas, input, select, textarea').forEach(el => {
+        el.setAttribute('contenteditable', 'false');
       });
-      document.addEventListener('input',e=>{
-        window.parent.postMessage({type:'site:htmlChange',html:document.documentElement.outerHTML}, window.__parentOrigin);
+      // Картинки — клик открывает file picker (через parent)
+      document.querySelectorAll('img').forEach(el => {
+        el.style.cursor = 'pointer';
+        el.addEventListener('mouseenter', () => el.style.outline = '2px dashed rgba(255,140,66,0.7)');
+        el.addEventListener('mouseleave', () => el.style.outline = '');
+        el.addEventListener('click', (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          window.parent.postMessage({type:'site:imgClick', src:el.src, alt:el.alt||''}, window.__parentOrigin);
+        });
       });
+      // Иконки: SVG / FontAwesome / Lucide — клик открывает «заменить иконку»
+      document.querySelectorAll('*').forEach(el => {
+        if(!isIcon(el)) return;
+        el.style.cursor = 'pointer';
+        el.addEventListener('mouseenter', () => el.style.outline = '2px dashed rgba(255,140,66,0.7)');
+        el.addEventListener('mouseleave', () => el.style.outline = '');
+        el.addEventListener('click', (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          if(!el.dataset.editIcon){
+            el.dataset.editIcon = 'ic_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+          }
+          window.parent.postMessage({
+            type:'site:iconClick',
+            iconId: el.dataset.editIcon,
+            tag: el.tagName.toLowerCase(),
+            outerHtml: el.outerHTML.length < 4000 ? el.outerHTML : el.outerHTML.slice(0,4000),
+          }, window.__parentOrigin);
+        });
+      });
+      // Шлём обновлённый HTML на каждое изменение текста
+      document.addEventListener('input', () => {
+        window.parent.postMessage({type:'site:htmlChange', html:document.documentElement.outerHTML}, window.__parentOrigin);
+      });
+      // Также после blur — финальная синхронизация
+      document.body.addEventListener('blur', () => {
+        window.parent.postMessage({type:'site:htmlChange', html:document.documentElement.outerHTML}, window.__parentOrigin);
+      }, true);
+    } else {
+      // Выход из edit-режима: убираем contenteditable + наш CSS
+      document.body.removeAttribute('contenteditable');
+      const old = document.getElementById('__editmode_css');
+      if(old) old.remove();
     }
 
     if(window.__aiBlockMode){
@@ -1621,37 +1629,61 @@ async function replaceSelectedImage(){
       });
       if(!r.ok) throw new Error('Загрузка провалилась');
       const d = await r.json();
-      // Cache-bust: добавляем ?v=<ts> чтобы iframe не показал старую закэшированную
-      const cacheBust = '?v=' + Date.now();
-      const relUrl = d.url + cacheBust;
-      const absUrl = (API.startsWith('http') ? API : window.location.origin) + relUrl;
-      // Универсальная замена: ловим и абсолютный URL, и относительный путь, и
-      // в srcset (через запятую). Используем regex-escape от старой URL.
+      // Новый URL — относительный путь /uploads/<uuid>.<ext> от бэка.
+      // Уникальное имя само даёт cache-bust — не нужно ?v=.
+      const newRel = d.url;                                      // например /uploads/abc.jpg
+      const newAbs = window.location.origin + newRel;            // https://aiche.ru/uploads/abc.jpg
+
+      // Что ищем в коде. selectedImg в iframe = el.src — резолвится браузером
+      // в абсолютный URL. В исходном HTML может быть КАК АБСОЛЮТНЫМ, так и
+      // ОТНОСИТЕЛЬНЫМ. Ловим оба варианта.
       let code = document.getElementById('codeEditor').value;
-      const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const candidates = new Set();
       candidates.add(selectedImg);
-      try {
+      try{
         const u = new URL(selectedImg);
-        if(u.pathname) candidates.add(u.pathname);                  // /uploads/x.png
-        if(u.pathname) candidates.add(u.pathname + u.search);        // /uploads/x.png?v=1
-        candidates.add(u.origin + u.pathname);                       // https://aiche.ru/uploads/x.png
+        // Полный URL без query — на случай если в HTML нет ?v=
+        candidates.add(u.origin + u.pathname);
+        // Относительный путь
+        candidates.add(u.pathname);
+        // С query (на случай если в HTML тоже была ?v=)
+        if(u.search) candidates.add(u.pathname + u.search);
       } catch(e){
-        // selectedImg может быть уже относительным — оставляем как есть
         if(selectedImg.startsWith('/')) candidates.add(selectedImg);
       }
+      let replaced = 0;
       for(const oldRef of candidates){
         if(!oldRef) continue;
-        // Заменяем ВСЕ вхождения (split+join вместо replace для глобал-замены без regex-flag)
-        code = code.split(oldRef).join(absUrl);
+        const before = code;
+        code = code.split(oldRef).join(newAbs);
+        if(code !== before) replaced++;
       }
-      // Срез ?v=... в srcset тоже надо догнать — после split-замены могло
-      // остаться `xxx.png?v=12345 1x, xxx.png?v=12345 2x` — нормально, оставим.
+      if(replaced === 0){
+        // Не нашли по точному совпадению — берём только имя файла из URL
+        // и заменяем все вхождения (срабатывает на srcset с разными размерами).
+        try{
+          const oldName = new URL(selectedImg).pathname.split('/').pop();
+          if(oldName && oldName.length > 3){
+            // Заменяем целиком URL'ы заканчивающиеся на oldName на newAbs
+            const re = new RegExp('(?:https?:\\/\\/[^\\s"\']*?|/[^\\s"\']*?)' + oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+            const before = code;
+            code = code.replace(re, newAbs);
+            if(code !== before) replaced++;
+          }
+        } catch(e){}
+      }
+      if(replaced === 0){
+        await aiAlert('Не удалось найти эту картинку в коде. Попробуй обновить превью и повторить.', 'warn');
+        return;
+      }
       document.getElementById('codeEditor').value = code;
+      _unsavedChanges = true;
+      // Сохраняем ДО refresh — чтобы при перезагрузке вкладки картинка
+      // не потерялась. Затем перерисовываем превью с новым blob URL.
+      await saveCode({silent: true});
       refreshPreview();
       selectedImg = null;
-      await saveCode({silent: true});
-    }catch(e){ aiAlert('Ошибка загрузки: '+e.message, 'error'); }
+    }catch(e){ await aiAlert('Ошибка загрузки: '+e.message, 'error'); }
   };
   input.click();
 }
