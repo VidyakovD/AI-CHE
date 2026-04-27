@@ -1282,11 +1282,12 @@ async function deployAgentAsBot(agentId) {
 
   // Если не хватает — спросим токен
   if (!tg_token) {
-    tg_token = prompt(
-      'Вставьте Bot Token от @BotFather:\n\n'
-      + '1. Откройте https://t.me/BotFather в Telegram\n'
+    tg_token = await aiPrompt(
+      '1. Откройте @BotFather в Telegram\n'
       + '2. /newbot → имя → @username (оканчивается на bot)\n'
-      + '3. Скопируйте токен вида 1234567890:AAH... и вставьте сюда'
+      + '3. Скопируйте токен вида 1234567890:AAH... и вставьте сюда',
+      '',
+      {title: 'Telegram Bot Token', okLabel: 'Подключить'}
     );
     if (!tg_token) return;
     tg_token = tg_token.trim();
@@ -1328,10 +1329,9 @@ async function deployAgentAsBot(agentId) {
     workflow_json = JSON.stringify({wfc_nodes: nodes, wfc_edges: edges});
   } else {
     // Совсем пусто — создадим минимальный GPT-бот с system prompt по умолчанию
-    if (!confirm(
-      'В этом агенте нет ни блоков, ни графа.\n\n'
-      + 'Создать простого GPT-4o-mini бота который будет отвечать на любые вопросы?\n'
-      + '(Позже сможете доделать в Конструкторе)'
+    if (!await aiConfirm(
+      'В этом агенте нет ни блоков, ни графа. Создать простого GPT-4o-mini бота, который будет отвечать на любые вопросы? Позже сможете доделать в Конструкторе.',
+      {title: 'Пустой агент', okLabel: 'Создать'}
     )) return;
     workflow_json = JSON.stringify({
       wfc_nodes: [
@@ -1365,21 +1365,22 @@ async function deployAgentAsBot(agentId) {
       // Красивая модалка вместо alert
       showDeploySuccess(bot.name, username, tmeUrl);
     } else {
-      alert(
-        `✅ Бот «${bot.name}» создан!\n\n`
-        + (tgOk
+      await aiAlert(
+        `Бот «${bot.name}» создан. ` +
+        (tgOk
           ? `Telegram webhook установлен — можете писать боту прямо сейчас.`
-          : `ChatBot создан, но webhook не подтвердился. Проверьте токен в /chatbots.html → ▶ Запуск`)
+          : `ChatBot создан, но webhook не подтвердился. Проверьте токен в /chatbots.html → ▶ Запуск`),
+        tgOk ? 'success' : 'warn'
       );
       window.location.href = '/chatbots.html';
     }
   } catch (e) {
-    alert('Ошибка: ' + e.message);
+    await aiAlert(e.message, 'error');
   }
 }
 
 async function deleteAgent(id) {
-  if (!confirm('Удалить агента?')) return;
+  if (!await aiConfirm('Удалить этого агента? Все настройки будут потеряны.', {danger: true, okLabel: 'Удалить'})) return;
   await fetch(`${API}/agent/config/${id}`, {method:'DELETE', headers:hdrs()});
   await loadAgents();
 }
@@ -1473,7 +1474,7 @@ async function saveAndDeployAgent() {
       await deployAgentAsBot(just.id);
     }
   } catch (e) {
-    alert('Ошибка: ' + e.message);
+    await aiAlert(e.message, 'error');
   } finally {
     deployBtn.disabled = false; saveBtn.disabled = false;
     deployBtn.textContent = origText;
@@ -2184,7 +2185,7 @@ async function addUserKey() {
 }
 
 async function deleteUserKey(id) {
-  if (!confirm('Удалить ключ?')) return;
+  if (!await aiConfirm('Удалить этот API-ключ?', {danger: true, okLabel: 'Удалить'})) return;
   await fetch(`${API}/user/api-keys/${id}`, { method:'DELETE', headers:hdrs() });
   await loadUserKeys();
   renderKeysList();
@@ -2567,7 +2568,7 @@ async function wfcImportJSONFile(ev) {
     const text = await file.text();
     const data = JSON.parse(text);
     if (!data || !Array.isArray(data.nodes)) throw new Error('Неверный формат');
-    if (wfc.nodes.length && !confirm('Заменить текущий воркфлоу на импортированный?')) {
+    if (wfc.nodes.length && !await aiConfirm('Текущий воркфлоу будет заменён на импортированный.', {okLabel: 'Заменить', title: 'Импорт'})) {
       ev.target.value = ''; return;
     }
     // Пере-генерируем ID чтобы не было конфликтов
@@ -2590,7 +2591,7 @@ async function wfcImportJSONFile(ev) {
     const m = document.getElementById('wfcMsg');
     if (m) { m.className = 'text-xs text-green-400'; m.textContent = `✓ Импортировано: ${wfc.nodes.length} блоков`; m.classList.remove('hidden'); setTimeout(()=>m.classList.add('hidden'), 3000); }
   } catch (e) {
-    alert('Ошибка импорта: ' + e.message);
+    await aiAlert('Ошибка импорта: ' + e.message, 'error');
   }
   ev.target.value = '';  // allow re-import same file
 }
@@ -2606,7 +2607,7 @@ function _wfcSaveTemplates(list) {
 }
 function wfcSaveAsTemplate() {
   const defaultName = document.getElementById('wfcName')?.value?.trim() || 'Мой шаблон';
-  const name = prompt('Название шаблона:', defaultName);
+  const name = await aiPrompt('Название шаблона:', defaultName, {title: 'Сохранить как шаблон'});
   if (!name) return;
   const list = _wfcLoadTemplates();
   list.push({
@@ -2655,7 +2656,7 @@ function wfcRenderTemplates() {
 function wfcApplyTemplate(id) {
   const t = _wfcLoadTemplates().find(x => x.id === id);
   if (!t) return;
-  if (wfc.nodes.length && !confirm(`Заменить текущий воркфлоу на «${t.name}»?`)) return;
+  if (wfc.nodes.length && !await aiConfirm(`Текущий воркфлоу будет заменён на «${t.name}».`, {okLabel: 'Заменить', title: 'Применить шаблон'})) return;
   const idMap = {}; wfc.ctr = 1;
   wfc.nodes = (t.nodes || []).map(n => {
     const nid = 'n' + (wfc.ctr++);
@@ -2674,7 +2675,7 @@ function wfcApplyTemplate(id) {
   wfcPushHistory();
 }
 function wfcDeleteTemplate(id) {
-  if (!confirm('Удалить шаблон?')) return;
+  if (!await aiConfirm('Удалить этот шаблон?', {danger: true, okLabel: 'Удалить'})) return;
   _wfcSaveTemplates(_wfcLoadTemplates().filter(x => x.id !== id));
   wfcRenderTemplates();
 }
@@ -2701,8 +2702,8 @@ async function wfcAiBuild() {
   const status = document.getElementById('wfcAiStatus');
   const btn = document.getElementById('wfcAiBuildBtn');
   const task = (ta?.value || '').trim();
-  if (!task) { alert('Опишите задачу'); return; }
-  if (wfc.nodes.length && !confirm('Заменить текущий граф собранным с AI?')) return;
+  if (!task) { await aiAlert('Опишите задачу', 'warn'); return; }
+  if (wfc.nodes.length && !await aiConfirm('Текущий граф будет заменён собранным AI.', {okLabel: 'Заменить', title: 'AI-сборка'})) return;
   status.classList.remove('hidden');
   status.style.color = '#a89880';
   status.textContent = '⏳ Claude собирает воркфлоу… (10–30 сек)';
@@ -3253,7 +3254,7 @@ function wfcAddAt(type, x, y) {
 
 // ── Save / Run / Clear ────────────────────────────────────────────────────────
 function wfcClear() {
-  if(!confirm('Очистить воркфлоу?')) return;
+  if(!await aiConfirm('Все блоки и связи будут удалены.', {danger: true, okLabel: 'Очистить', title: 'Очистить воркфлоу?'})) return;
   wfc.nodes=[]; wfc.edges=[]; wfc.sel=null;
   document.getElementById('wfcPanel')?.classList.add('hidden'); wfcRender();
   wfcPushHistory();
@@ -3273,7 +3274,7 @@ async function wfcSave() {
   } catch(e){ m.className='text-xs text-error'; m.textContent=e.message; setTimeout(()=>m.classList.add('hidden'),5000); }
 }
 async function wfcDeployAsBot() {
-  if(!wfc.nodes.length){alert('Добавьте блоки');return;}
+  if(!wfc.nodes.length){await aiAlert('Добавьте блоки в воркфлоу', 'warn'); return;}
   const name=document.getElementById('wfcName')?.value?.trim()||'Воркфлоу-бот';
   const m=document.getElementById('wfcMsg');
 
@@ -3288,10 +3289,9 @@ async function wfcDeployAsBot() {
   // Валидация: если есть triggerTG/outputTG но токен пуст — подсказать юзеру
   if((trgTg||outTg) && !tg_token){
     const target = trgTg || outTg;
-    if(!confirm(
-      'В ноде Telegram не указан Bot Token!\n\n'
-      +'Клик OK: откроется панель настроек — вставь токен от @BotFather.\n'
-      +'Клик Отмена: создать бота без TG (настроишь позже на странице «Чат-боты»).'
+    if(!await aiConfirm(
+      'В ноде Telegram не указан Bot Token. Открыть панель настроек, чтобы вставить токен от @BotFather? Если откажетесь — бот создастся без TG, токен можно настроить позже на странице «Чат-боты».',
+      {title: 'Не указан Telegram токен', okLabel: 'Открыть настройки', cancelLabel: 'Создать без TG'}
     )){
       // Юзер выбрал "без TG" — продолжаем создание
     } else {

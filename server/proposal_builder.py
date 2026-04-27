@@ -214,56 +214,96 @@ def _build_brand_css(brand: ProposalBrand | None) -> dict:
 def _claude_prompt(brand_css: dict, project: ProposalProject, price_text: str,
                     site_ctx: str) -> str:
     """Собираем промпт. Просим Claude вернуть HTML <div>, мы потом обернём в шаблон."""
+    today = datetime.utcnow()
+    valid_until = today.replace(day=min(today.day, 28))
+    # +30 дней действия КП
+    from datetime import timedelta as _td
+    valid_until = (today + _td(days=30)).strftime("%d.%m.%Y")
+
     parts = [
-        "Ты — копирайтер B2B-агентства. Сделай **коммерческое предложение** в HTML.",
+        "Ты — копирайтер B2B-агентства. Сделай профессиональное **коммерческое предложение** в HTML.",
+        "Адресуйся к клиенту лично (по имени/обращению из запроса). Пиши конкретно, "
+        "с цифрами и фактами, без воды и общих фраз. Обоснуй каждую цену ценностью для клиента.",
+        "",
+        "=== ФОРМАТ ОТВЕТА ===",
         "Возвращай ТОЛЬКО содержимое <body> в виде серии <section> блоков. "
         "Не пиши <html>, <head>, <body>, <style>, <script> — оформление мы добавим сами.",
-        "Используй классы: `.kp-hero` (титульный блок), `.kp-section` (раздел), "
-        "`.kp-grid` (карточки 2-3 в ряд), `.kp-card`, `.kp-price-table`, `.kp-cta`.",
-        "Структура: 1) hero с обращением к клиенту, 2) понимание задачи, "
-        "3) что предлагаем (с фактами/цифрами), 4) состав работ + цены (таблица), "
-        "5) гарантии/сроки, 6) призыв к действию.",
+        "Без markdown-обёртки (без ```html), без комментариев — чистый HTML.",
+        "",
+        "=== СТИЛЬ HTML ===",
+        "Используй наши классы:",
+        "  • .kp-hero — титульный блок (большой заголовок + персональное обращение)",
+        "  • .kp-section — обычный раздел с h2",
+        "  • .kp-grid — контейнер для карточек 2-3 в ряд",
+        "  • .kp-card — отдельная карточка преимущества/характеристики",
+        "  • .kp-price-table — <table> с колонками и строками для прайса",
+        "  • .kp-summary — итоговая стоимость / опции",
+        "  • .kp-cta — финальный призыв к действию",
+        "",
+        "=== ОБЯЗАТЕЛЬНАЯ СТРУКТУРА ===",
+        "1. <section class=\"kp-hero\">: персональное обращение, краткое формулирование задачи "
+        "клиента в одном предложении. Заголовок h1 короткий, не «Коммерческое предложение».",
+        "2. <section class=\"kp-section\"> «Понимание задачи»: 2-4 строки — покажи что ты "
+        "услышал клиента. Используй конкретику с его сайта/запроса.",
+        "3. <section class=\"kp-section\"> «Что мы предлагаем»: <ul> или .kp-grid из 3-4 "
+        "карточек с короткими фактами (цифры/сроки/материалы).",
+        "4. <section class=\"kp-section\"> «Состав и стоимость» с <table class=\"kp-price-table\"> "
+        "(колонки: Услуга/Описание/Стоимость). Берём цены ТОЛЬКО из нашего прайса ниже. "
+        "Если позиции нет — пиши «по запросу». В конце таблицы — итоговая строка.",
+        "5. <section class=\"kp-section\"> «Сроки и гарантии»: 2-3 пункта.",
+        "6. <section class=\"kp-cta\"> с конкретным следующим шагом (созвон/договор/предоплата).",
         "",
         "=== БРЕНД ===",
-        f"Компания: {brand_css.get('company') or '—'}",
-        f"Контакты: {brand_css.get('contacts') or '—'}",
-        f"Тон: профессиональный, без воды, с цифрами и фактами.",
+        f"Компания: {brand_css.get('company') or '(не указано)'}",
+        f"Контакты: {brand_css.get('contacts') or '(не указано)'}",
+        "",
+        "=== ДЕЙСТВИТЕЛЬНОСТЬ ===",
+        f"Сегодня: {today.strftime('%d.%m.%Y')}",
+        f"КП действует до: {valid_until}",
+        "Упомяни срок действия в hero или cta-блоке.",
     ]
     if project.client_name or project.client_email:
         parts += [
             "",
-            "=== КЛИЕНТ ===",
-            f"Имя: {project.client_name or '—'}",
-            f"Email: {project.client_email or '—'}",
+            "=== КЛИЕНТ (адресуйся лично!) ===",
+            f"Имя: {project.client_name or '(имя в запросе)'}",
+            f"Email: {project.client_email or '(не указан)'}",
         ]
     if project.client_request:
         parts += [
             "",
-            "=== ЗАПРОС КЛИЕНТА (адресуйся к нему лично!) ===",
+            "=== ЗАПРОС КЛИЕНТА (это центральная информация — обязательно отрази в КП) ===",
             project.client_request[:5000],
         ]
     if site_ctx:
         parts += [
             "",
-            "=== КОНТЕКСТ КЛИЕНТА (с его сайта) — упомяни их сферу/специфику ===",
+            "=== КОНТЕКСТ КЛИЕНТА (с его сайта — упомяни их сферу/нишу/преимущества) ===",
             site_ctx[:_SITE_CTX_MAX_CHARS],
         ]
     if price_text:
         parts += [
             "",
-            "=== НАШ ПРАЙС (бери цены отсюда, релевантные запросу) ===",
+            "=== НАШ ПРАЙС-ЛИСТ (БЕРИ ЦЕНЫ ТОЛЬКО ОТСЮДА, выбирай релевантные запросу) ===",
             price_text,
+            "",
+            "ВАЖНО: не выдумывай цены. Если нужной услуги нет в прайсе — пиши «по запросу» "
+            "и предложи обсудить на созвоне.",
+        ]
+    else:
+        parts += [
+            "",
+            "(прайс не привязан — указывай примерные цены или «по запросу»)",
         ]
     if project.extra_notes:
         parts += [
             "",
-            "=== ДОП. ИНСТРУКЦИИ ===",
+            "=== ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОТ ВЛАДЕЛЬЦА (учти обязательно) ===",
             project.extra_notes[:2000],
         ]
     parts += [
         "",
-        "Важно: верни ТОЛЬКО HTML-разметку (без markdown ```), "
-        "русский язык, на сегодня дата " + datetime.utcnow().strftime("%d.%m.%Y") + ".",
+        "Объём: 5-7 секций суммарно, без воды. Русский язык. Только HTML, без обёрток.",
     ]
     return "\n".join(parts)
 
@@ -275,25 +315,35 @@ _BASE_TEMPLATE = """<!DOCTYPE html>
   @page {{ size: A4; margin: 18mm 16mm; }}
   body {{ font-family: {font}; color: #1a1a1a; line-height: 1.55; font-size: 11pt; }}
   h1, h2, h3 {{ font-family: {font}; color: {primary}; margin: 0.6em 0 0.3em; }}
-  h1 {{ font-size: 22pt; }}
-  h2 {{ font-size: 15pt; border-bottom: 2px solid {accent}; padding-bottom: 4pt; }}
+  h1 {{ font-size: 22pt; line-height: 1.2; }}
+  h2 {{ font-size: 15pt; border-bottom: 2px solid {accent}; padding-bottom: 4pt; margin-top: 10pt; }}
   h3 {{ font-size: 12pt; color: {secondary}; }}
-  .kp-header {{ display: table; width: 100%; margin-bottom: 18pt; }}
+  p {{ margin: 0 0 6pt; }}
+  strong {{ color: {primary}; }}
+  .kp-header {{ display: table; width: 100%; margin-bottom: 14pt; }}
   .kp-header .logo {{ display: table-cell; width: 90pt; vertical-align: middle; }}
   .kp-header .logo img {{ max-width: 80pt; max-height: 60pt; }}
   .kp-header .meta {{ display: table-cell; vertical-align: middle; text-align: right; font-size: 9pt; color: #666; }}
-  .kp-hero {{ background: {primary}; color: #fff; padding: 16pt 18pt; border-radius: 8pt; margin-bottom: 14pt; }}
-  .kp-hero h1 {{ color: #fff; }}
-  .kp-section {{ margin-bottom: 14pt; }}
-  .kp-grid {{ display: table; width: 100%; }}
-  .kp-card {{ display: table-cell; padding: 10pt; background: #f7f5f1; border-left: 3pt solid {accent}; vertical-align: top; }}
-  .kp-card + .kp-card {{ border-left: 8pt solid #fff; padding-left: 10pt; }}
+  .kp-header .meta .valid {{ color: {primary}; font-weight: 600; }}
+  .kp-hero {{ background: {primary}; color: #fff; padding: 18pt 20pt; border-radius: 8pt; margin-bottom: 14pt; }}
+  .kp-hero h1, .kp-hero h2, .kp-hero h3 {{ color: #fff; }}
+  .kp-hero strong {{ color: #fff; }}
+  .kp-hero p {{ color: #fff; opacity: 0.95; }}
+  .kp-section {{ margin-bottom: 12pt; }}
+  .kp-grid {{ display: table; width: 100%; border-collapse: separate; border-spacing: 6pt 0; margin: 6pt 0; }}
+  .kp-card {{ display: table-cell; padding: 10pt; background: #f7f5f1; border-left: 3pt solid {accent}; vertical-align: top; border-radius: 4pt; }}
+  .kp-card h3 {{ margin-top: 0; }}
   .kp-price-table {{ width: 100%; border-collapse: collapse; margin: 10pt 0; }}
-  .kp-price-table th, .kp-price-table td {{ padding: 7pt 9pt; text-align: left; border-bottom: 1pt solid #ddd; }}
-  .kp-price-table th {{ background: {secondary}; color: #fff; font-weight: 600; }}
-  .kp-cta {{ background: {accent}; color: {secondary}; padding: 14pt; border-radius: 6pt; text-align: center; font-weight: 700; font-size: 13pt; }}
+  .kp-price-table th, .kp-price-table td {{ padding: 8pt 10pt; text-align: left; border-bottom: 1pt solid #e0d8c8; vertical-align: top; }}
+  .kp-price-table th {{ background: {secondary}; color: #fff; font-weight: 600; font-size: 10pt; text-transform: uppercase; letter-spacing: 0.5pt; }}
+  .kp-price-table tr:nth-child(even) td {{ background: #faf7f0; }}
+  .kp-price-table td:last-child {{ text-align: right; font-weight: 600; white-space: nowrap; }}
+  .kp-price-table tr.total td {{ background: {accent}; color: {secondary}; font-weight: 700; font-size: 12pt; border-bottom: none; }}
+  .kp-summary {{ background: #f7f5f1; border-left: 4pt solid {primary}; padding: 10pt 14pt; margin: 10pt 0; border-radius: 4pt; }}
+  .kp-cta {{ background: {accent}; color: {secondary}; padding: 16pt; border-radius: 6pt; text-align: center; font-weight: 700; font-size: 13pt; margin: 14pt 0 8pt; }}
+  .kp-cta strong {{ color: {primary}; }}
   .kp-footer {{ border-top: 1pt solid #ccc; margin-top: 18pt; padding-top: 8pt; font-size: 8pt; color: #777; }}
-  ul, ol {{ padding-left: 18pt; }}
+  ul, ol {{ padding-left: 18pt; margin: 4pt 0; }}
   li {{ margin-bottom: 3pt; }}
 </style></head><body>
 <div class="kp-header">
@@ -301,6 +351,7 @@ _BASE_TEMPLATE = """<!DOCTYPE html>
   <div class="meta">
     {company_html}
     <div>Дата: {today}</div>
+    <div class="valid">КП действует до: {valid_until}</div>
   </div>
 </div>
 {ai_content}
@@ -312,7 +363,11 @@ _BASE_TEMPLATE = """<!DOCTYPE html>
 
 def _wrap_html(brand_css: dict, ai_html: str, project: ProposalProject) -> str:
     """Оборачивает AI-сгенерённый контент в фирменный шаблон."""
-    today = datetime.utcnow().strftime("%d.%m.%Y")
+    from datetime import timedelta as _td
+    today_dt = datetime.utcnow()
+    today = today_dt.strftime("%d.%m.%Y")
+    valid_until = (today_dt + _td(days=30)).strftime("%d.%m.%Y")
+
     logo_html = ""
     if brand_css.get("logo_url"):
         logo_url = brand_css["logo_url"]
@@ -341,7 +396,8 @@ def _wrap_html(brand_css: dict, ai_html: str, project: ProposalProject) -> str:
         title=_html_escape(title), font=brand_css["font"],
         primary=brand_css["primary"], accent=brand_css["accent"],
         secondary=brand_css["secondary"],
-        logo_html=logo_html, company_html=company_html, today=today,
+        logo_html=logo_html, company_html=company_html,
+        today=today, valid_until=valid_until,
         ai_content=ai_html, footer_html=footer_html,
     )
 

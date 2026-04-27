@@ -555,9 +555,9 @@ async function wfImportJSONFile(ev) {
     const text = await file.text();
     const data = JSON.parse(text);
     if (!data || !Array.isArray(data.nodes)) throw new Error('Неверный формат');
-    if (nodes.length && !confirm('Заменить текущий граф на импортированный?')) { ev.target.value=''; return; }
+    if (nodes.length && !await aiConfirm('Текущий граф будет заменён на импортированный.', {okLabel: 'Заменить'})) { ev.target.value=''; return; }
     _wfApplyGraph(data);
-  } catch (e) { alert('Ошибка импорта: ' + e.message); }
+  } catch (e) { await aiAlert('Ошибка импорта: ' + e.message, 'error'); }
   ev.target.value = '';
 }
 
@@ -592,7 +592,7 @@ function _wfTplSave(list) { localStorage.setItem(WF_TEMPLATES_KEY, JSON.stringif
 
 function wfSaveAsTemplate() {
   const def = document.getElementById('wf-name')?.value?.trim() || 'Мой шаблон';
-  const name = prompt('Название шаблона:', def); if (!name) return;
+  const name = await aiPrompt('Название шаблона:', def, {title: 'Сохранить шаблон'}); if (!name) return;
   const list = _wfTplLoad();
   list.push({
     id: Date.now(), name,
@@ -633,12 +633,12 @@ function wfRenderTemplates() {
 }
 function wfApplyTemplate(id) {
   const t = _wfTplLoad().find(x => x.id === id); if (!t) return;
-  if (nodes.length && !confirm(`Заменить текущий граф на «${t.name}»?`)) return;
+  if (nodes.length && !await aiConfirm(`Текущий граф будет заменён на «${t.name}».`, {okLabel: 'Заменить', title: 'Применить шаблон'})) return;
   _wfApplyGraph({ name: t.name, nodes: t.nodes, conns: t.conns });
   wfCloseTemplates();
 }
 function wfDeleteTemplate(id) {
-  if (!confirm('Удалить шаблон?')) return;
+  if (!await aiConfirm('Удалить этот шаблон?', {danger: true, okLabel: 'Удалить'})) return;
   _wfTplSave(_wfTplLoad().filter(x => x.id !== id));
   wfRenderTemplates();
 }
@@ -1105,14 +1105,14 @@ function triggerUpload(nodeId,accept){
     const file=e.target.files[0];if(!file)return;
     const fd=new FormData();fd.append('file',file);
     try{
-      if(!authToken){alert('Требуется авторизация');return;}
+      if(!authToken){await aiAlert('Требуется авторизация','warn');return;}
       const r=await fetch(API+'/upload',{method:'POST',headers:{'Authorization':'Bearer '+authToken},body:fd});
-      if(!r.ok){const err=await r.json().catch(()=>({}));alert(err.detail||'Ошибка загрузки');return;}
+      if(!r.ok){const err=await r.json().catch(()=>({}));await aiAlert(err.detail||'Ошибка загрузки','error');return;}
       const d=await r.json();
       const node=nodes.find(n=>n.id===nodeId);
       if(node){node.uploadedUrl=d.url;updateNodeBody(node);}
       openProp(nodeId);
-    }catch(e){alert('Ошибка загрузки: '+e.message);}
+    }catch(e){await aiAlert('Ошибка загрузки: '+e.message,'error');}
   };
   inp.click();
 }
@@ -1373,7 +1373,7 @@ function saveWorkflow(){
   const idx=savedWfs.findIndex(w=>w.id===wf.id);
   if(idx>=0)savedWfs[idx]=wf;else savedWfs.push(wf);
   localStorage.setItem('obs_wf_v3',JSON.stringify(savedWfs));
-  alert('✅ Сохранено: '+name);
+  await aiAlert('Сохранено: '+name, 'success');
 }
 
 function loadWorkflow(wf){
@@ -1398,7 +1398,7 @@ function loadWorkflow(wf){
 }
 
 function clearCanvas(){
-  if(nodes.length&&!confirm('Очистить холст?'))return;
+  if(nodes.length && !await aiConfirm('Все блоки и связи будут удалены.', {danger: true, okLabel: 'Очистить', title: 'Очистить холст?'})) return;
   nodes=[];conns=[];nodeIdCtr=1;curWfId=null;
   document.getElementById('nodes-layer').innerHTML='';
   document.getElementById('wf-name').value='';

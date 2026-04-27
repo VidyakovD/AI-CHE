@@ -401,3 +401,69 @@ def preview_html(project_id: int, db: Session = Depends(get_db),
     if not p.generated_html:
         raise HTTPException(404, "Не сгенерировано")
     return {"html": p.generated_html}
+
+
+# ── Manual send by email ───────────────────────────────────────────────────
+
+
+class SendEmailBody(BaseModel):
+    to: str | None = None        # default — client_email из проекта
+    subject: str | None = None
+    body: str | None = None      # plain текст письма (тело)
+
+
+@router.post("/projects/{project_id}/send-email")
+def send_proposal_email(project_id: int, body: SendEmailBody,
+                         db: Session = Depends(get_db),
+                         user: User = Depends(current_user)):
+    """Ручная отправка сгенерированного PDF клиенту по email.
+    Не списывает баланс (генерация уже была оплачена).
+    """
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.generated_pdf:
+        raise HTTPException(400, "Сначала сгенерируйте КП — кнопка «Сгенерировать»")
+    to = (body.to or p.client_email or "").strip()
+    if not to or "@" not in to:
+        raise HTTPException(400, "Не указан email получателя (заполните «Email клиента» или укажите явно)")
+
+    # Считываем PDF
+    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    pdf_full = os.path.join(base, p.generated_pdf.lstrip("/"))
+    if not os.path.exists(pdf_full):
+        raise HTTPException(404, "PDF файл удалён — пересоздайте КП")
+    with open(pdf_full, "rb") as f:
+        pdf_bytes = f.read()
+
+    subject = (body.subject or "").strip() or f"Коммерческое предложение — {p.name}"
+    user_body = (body.body or "").strip()
+    if not user_body:
+        salut = f", {p.client_name}" if p.client_name else ""
+        user_body = (f"Здравствуйте{salut}!\n\n"
+                     f"Спасибо за интерес к нашей компании. Во вложении — "
+                     f"коммерческое предложение, подготовленное специально для вас.\n\n"
+                     f"Если возникнут вопросы — мы на связи.")
+    body_html = "<div style='font-family:Inter,sans-serif;line-height:1.6'>" + \
+                user_body.replace("\n", "<br/>") + "</div>"
+
+    try:
+        from server.email_service import send_with_attachment
+        msgid = send_with_attachment(
+            to=to, subject=subject, html_body=body_html,
+            attachments=[(f"kp_{p.id}.pdf", pdf_bytes, "application/pdf")],
+        )
+    except Exception as e:
+        log.error(f"[proposal] manual email send failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, f"Не удалось отправить email: {type(e).__name__}. "
+                                  f"Проверьте SMTP-настройки в .env (SMTP_HOST/USER/PASS).")
+
+    from datetime import datetime as _dt
+    p.sent_at = _dt.utcnow()
+    if not p.client_email and to:
+        p.client_email = to
+    db.commit()
+    log_action("proposal.manual_sent", user_id=user.id,
+               target_type="proposal", target_id=str(p.id),
+               details={"to": to[:50], "msgid": (msgid or "")[:80]})
+    return {"status": "sent", "to": to, "sent_at": p.sent_at.isoformat()}

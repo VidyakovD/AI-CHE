@@ -757,27 +757,27 @@ function renderUsers(){
 }
 
 async function toggleBan(userId,email){
-  const act=confirm(`Заблокировать ${email}?`);
+  const act=await aiConfirm(`Заблокировать ${email}?`, {danger: true, okLabel: 'Заблокировать'});
   if(!act)return;
   try{
     const r=await post(`/admin/users/${userId}/toggle-ban`,{ban:true});
-    alert(r.is_banned?`${email} заблокирован`:`${email} разбанен`);
+    await aiAlert(r.is_banned?`${email} заблокирован`:`${email} разбанен`, 'info');
     await loadUsers();
-  }catch(e){alert("Ошибка: "+e.message);}
+  }catch(e){await aiAlert(e.message,"error");}
 }
 async function respondSupportReq(id){
-  const resp=prompt("Ответ пользователю:");
+  const resp=await aiPrompt("Текст ответа пользователю:", "", {title: 'Ответ на запрос', okLabel: 'Отправить'});
   if(!resp)return;
   try{
     await post(`/admin/support-requests/${id}`,{admin_response:resp,status:"resolved"});
     await loadSupport();
-  }catch(e){alert("Ошибка: "+e.message);}
+  }catch(e){await aiAlert(e.message,"error");}
 }
 async function rejectSupportReq(id){
   try{
     await post(`/admin/support-requests/${id}`,{status:"rejected"});
     await loadSupport();
-  }catch(e){alert("Ошибка: "+e.message);}
+  }catch(e){await aiAlert(e.message,"error");}
 }
 
 // ── Support Requests ───────────────────────────────────────────────────────
@@ -987,7 +987,7 @@ async function loadApiKeys(){
 }
 
 async function deleteKey(id){
-  if(!confirm("Точно удалить ключ? Юзеры с этим провайдером перестанут работать."))return;
+  if(!await aiConfirm("Юзеры с этим провайдером перестанут работать.", {danger: true, okLabel: 'Удалить', title: 'Удалить API-ключ?'}))return;
   await del(`/admin/apikeys/${id}`);
   await loadApiKeys();
 }
@@ -1026,7 +1026,7 @@ async function editSol(id){
   const sol=await get(`/solutions/${id}`);openSolModal(sol);
 }
 async function deleteSol(id){
-  if(!confirm("Удалить решение?"))return;
+  if(!await aiConfirm("Удалить это бизнес-решение?", {danger: true, okLabel: 'Удалить'}))return;
   await del(`/admin/solutions/${id}`);loadSolutions(currentCatFilter);
 }
 
@@ -1230,7 +1230,7 @@ async function savePkg(id){
 }
 
 async function deletePkg(id){
-  if(!confirm("Удалить пакет?")) return;
+  if(!await aiConfirm("Удалить этот пакет?", {danger: true, okLabel: 'Удалить'})) return;
   await del(`/admin/pricing/packages/${id}`);
   const pkgs = await get("/pricing/packages");
   renderTokenPackages(pkgs);
@@ -1294,7 +1294,7 @@ async function saveFaq(id){
 }
 
 async function deleteFaq(id){
-  if(!confirm("Удалить?")) return;
+  if(!await aiConfirm("Удалить запись?", {danger: true, okLabel: 'Удалить'})) return;
   await del(`/admin/faq/${id}`);
   loadFaq();
 }
@@ -1352,7 +1352,7 @@ async function togglePromo(id, active){
 }
 
 async function deletePromoItem(id){
-  if(!confirm('Удалить промокод?'))return;
+  if(!await aiConfirm('Удалить этот промокод? Юзеры больше не смогут его применять.', {danger: true, okLabel: 'Удалить'}))return;
   await del(`/admin/promos/${id}`);loadPromos();
 }
 

@@ -200,8 +200,8 @@ function duplicateWf(id){
   workflows.push(copy);save();render();
 }
 
-function deleteWf(id){
-  if(!confirm('Удалить воркфлоу?'))return;
+async function deleteWf(id){
+  if(!await aiConfirm('Удалить этот воркфлоу?', {danger: true, okLabel: 'Удалить'})) return;
   workflows=workflows.filter(w=>w.id!==id);save();render();
 }
 

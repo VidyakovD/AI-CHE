@@ -117,7 +117,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
           <label>Имя клиента</label>
-          <input id="pClientName" type="text" class="inp" placeholder="Иван Иванов"/>
+          <input id="pClientName" type="text" class="inp" placeholder="Иван Иванов" onblur="_autoFillName()"/>
         </div>
         <div class="field">
           <label>Email клиента</label>
@@ -143,10 +143,15 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h3 class="font-headline font-bold text-sm">Сгенерированное КП</h3>
         <div class="flex gap-2 flex-wrap">
+          <button onclick="openSendEmail()" class="btn-p text-xs py-1.5 px-3" title="Отправить клиенту на email">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            Отправить по email
+          </button>
           <button onclick="downloadPdf()" class="btn-g text-xs">📥 Скачать PDF</button>
           <button onclick="openPdfTab()" class="btn-g text-xs">↗️ Открыть в новой вкладке</button>
         </div>
       </div>
+      <p id="pSentInfo" class="text-xs text-on-dim hidden mb-2"></p>
       <div id="pResultIframeWrap" class="rounded-lg overflow-hidden bg-white" style="height:60vh">
         <iframe id="pResultIframe" sandbox="allow-same-origin" class="w-full h-full border-0"></iframe>
       </div>
@@ -162,6 +167,36 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
           <span id="pGenBtnLabel">Сгенерировать (50 ₽)</span>
         </button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: Отправить КП по email ── -->
+<div id="sendEmailModal" class="modal-bg">
+  <div class="card max-w-lg w-full mx-auto" style="margin-top:8vh">
+    <div class="flex items-center justify-between p-5 border-b border-outline/15">
+      <h2 class="font-headline font-bold text-lg">Отправить КП клиенту</h2>
+      <button onclick="closeSendEmail()" class="btn-g text-xs">✕</button>
+    </div>
+    <div class="p-5 space-y-4">
+      <div class="field">
+        <label>Email получателя</label>
+        <input id="seTo" type="email" class="inp" placeholder="client@example.com"/>
+      </div>
+      <div class="field">
+        <label>Тема письма</label>
+        <input id="seSubject" type="text" class="inp" placeholder="Коммерческое предложение"/>
+      </div>
+      <div class="field">
+        <label>Текст письма</label>
+        <textarea id="seBody" rows="6" class="inp resize-none"
+                  placeholder="Здравствуйте! Во вложении — наше КП. Если возникнут вопросы — на связи."></textarea>
+        <p class="text-xs text-on-dim mt-1">PDF КП прикрепится автоматически как вложение.</p>
+      </div>
+    </div>
+    <div class="flex items-center justify-end gap-2 p-5 border-t border-outline/15">
+      <button onclick="closeSendEmail()" class="btn-g text-sm">Отмена</button>
+      <button id="seSendBtn" onclick="sendEmail()" class="btn-p text-sm">Отправить</button>
     </div>
   </div>
 </div>
@@ -392,10 +427,34 @@ async function openProject(id){
   document.getElementById('projectModal').classList.add('show');
   // Обновляем кнопку генерации и превью результата
   updateGenButton(p);
+  // Индикатор «отправлено» если уже было
+  const info = document.getElementById('pSentInfo');
+  if(info){
+    if(p.sent_at){
+      const dt = new Date(p.sent_at).toLocaleString('ru-RU');
+      info.textContent = `✓ Отправлено на ${p.client_email || 'клиента'} — ${dt}`;
+      info.classList.remove('hidden');
+    } else {
+      info.classList.add('hidden');
+    }
+  }
   if(p.status === 'done' && p.generated_html){
     showResult(p.generated_html);
   } else {
     hideResult();
+  }
+}
+
+// Авто-обновление имени проекта по «Имени клиента» если юзер не задал
+// своё. Срабатывает на blur/change поля client_name.
+function _autoFillName(){
+  const clientName = document.getElementById('pClientName').value.trim();
+  if(!clientName) return;
+  const nameInput = document.getElementById('pNa');
+  const cur = nameInput.value.trim();
+  // Не перезаписываем если юзер уже что-то ввёл и оно не равно старому шаблону
+  if(!cur || /^КП для /i.test(cur)){
+    nameInput.value = `КП для ${clientName}`;
   }
 }
 
@@ -482,6 +541,67 @@ async function openPdfTab(){
     window.open(url, '_blank', 'noopener,noreferrer');
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }catch(e){ await aiAlert(e.message, 'error'); }
+}
+
+function openSendEmail(){
+  if(!currentProjectId) return;
+  const clientEmail = document.getElementById('pClientEmail').value.trim();
+  const clientName = document.getElementById('pClientName').value.trim();
+  document.getElementById('seTo').value = clientEmail || '';
+  const projName = document.getElementById('pNa').value.trim() || 'Коммерческое предложение';
+  document.getElementById('seSubject').value = `Коммерческое предложение — ${projName}`;
+  const salut = clientName ? `, ${clientName}` : '';
+  document.getElementById('seBody').value =
+    `Здравствуйте${salut}!\n\nСпасибо за интерес к нашей компании. Во вложении — коммерческое предложение, подготовленное специально для вас.\n\nЕсли возникнут вопросы — мы на связи.`;
+  document.getElementById('sendEmailModal').classList.add('show');
+}
+
+function closeSendEmail(){
+  document.getElementById('sendEmailModal').classList.remove('show');
+}
+
+async function sendEmail(){
+  const to = document.getElementById('seTo').value.trim();
+  if(!to || !to.includes('@')){
+    await aiAlert('Укажи корректный email получателя', 'warn');
+    return;
+  }
+  const ok = await aiConfirm(
+    `КП будет отправлено на ${to} с PDF-вложением.`,
+    {title: 'Отправить?', okLabel: 'Отправить'}
+  );
+  if(!ok) return;
+  const btn = document.getElementById('seSendBtn');
+  btn.disabled = true;
+  const oldLabel = btn.textContent;
+  btn.textContent = 'Отправляю…';
+  try{
+    const r = await fetch(`${API}/proposals/projects/${currentProjectId}/send-email`, {
+      method: 'POST', headers: hdrs(), credentials: 'same-origin',
+      body: JSON.stringify({
+        to: to,
+        subject: document.getElementById('seSubject').value.trim(),
+        body: document.getElementById('seBody').value,
+      }),
+    });
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
+    closeSendEmail();
+    // Подписать «Отправлено»
+    const info = document.getElementById('pSentInfo');
+    if(info){
+      const dt = new Date(data.sent_at).toLocaleString('ru-RU');
+      info.textContent = `✓ Отправлено на ${data.to} — ${dt}`;
+      info.classList.remove('hidden');
+    }
+    await aiAlert(`КП отправлено на ${data.to}`, 'success');
+    await loadProjects();
+  }catch(e){
+    await aiAlert(e.message, 'error');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+  }
 }
 
 function closeProject(){ document.getElementById('projectModal').classList.remove('show'); }
