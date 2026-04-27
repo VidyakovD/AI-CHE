@@ -194,11 +194,12 @@ async def csrf_middleware(request: Request, call_next):
         if path.startswith(prefix):
             return await call_next(request)
     # CSRF нужен ТОЛЬКО если запрос использует cookie-based auth.
-    # Если есть Authorization header — это API-клиент / legacy frontend,
-    # cross-site атака не может подделать Authorization (CORS блокирует
-    # отправку custom headers без preflight + наш CORS не разрешает).
+    # Если есть Authorization header С НЕПУСТЫМ ТОКЕНОМ — это API-клиент / legacy
+    # frontend, cross-site атака не может подделать Authorization (CORS блокирует).
+    # ВАЖНО: проверяем длину после "Bearer ", иначе атакующий может прислать
+    # `Authorization: Bearer ` (только префикс) и обойти CSRF проверку.
     auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
+    if auth_header.startswith("Bearer ") and len(auth_header.strip()) > 10:
         return await call_next(request)
     # Если нет ни cookie с access_token — пропускаем (anon/public endpoint
     # сам решит надо ли auth)

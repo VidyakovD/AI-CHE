@@ -508,12 +508,16 @@ async def _storage_billing_tick():
                 log.info(f"[storage-billing] charged={charged} skipped(no balance)={skipped}")
 
             # ── Архивация просроченных (>7 дней без оплаты) ──────────────
+            # Защита от race: новые файлы (created_at > cutoff) пропускаем,
+            # даже если last_billed_at старый — последнее обновление billing
+            # tick'а могло их пропустить, но грейс-период есть.
             cutoff_archive = now - timedelta(days=7)
             archived = (
                 db.query(StoredAsset)
                 .filter(StoredAsset.is_active == True)
                 .filter(StoredAsset.last_billed_at != None)
                 .filter(StoredAsset.last_billed_at < cutoff_archive)
+                .filter(StoredAsset.created_at < cutoff_archive)
                 .all()
             )
             archived_ids: list[int] = []

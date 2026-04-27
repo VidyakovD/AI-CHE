@@ -327,9 +327,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <div id="previewWrap" class="preview-wrap vp-desktop">
           <!-- sandbox БЕЗ allow-same-origin: AI-сгенерированный HTML
                не имеет доступа ни к нашим cookies, ни к localStorage parent.
-               allow-scripts нужен для injected runtime редактора. -->
+               allow-scripts нужен для injected runtime редактора.
+               allow-popups убран — иначе можно выйти из песочницы через
+               window.open('_blank') и атаковать parent через opener. -->
           <iframe id="previewFrame" class="preview-frame"
-                  sandbox="allow-scripts allow-modals allow-popups allow-forms"
+                  sandbox="allow-scripts allow-modals allow-forms"
                   referrerpolicy="no-referrer"></iframe>
         </div>
       </div>
@@ -370,7 +372,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       </div>
       <div id="hostedUrl" class="hidden flex-1 min-w-0">
         <p class="text-xs text-on-dim mb-0.5">Сайт опубликован:</p>
-        <a id="hostedLink" href="#" target="_blank" class="text-xs text-primary underline truncate block"></a>
+        <a id="hostedLink" href="#" target="_blank" rel="noopener noreferrer" class="text-xs text-primary underline truncate block"></a>
       </div>
     </div>
   </div>
@@ -821,7 +823,7 @@ function renderImages(){
     return;
   }
   list.innerHTML = imagePaths.map((url,i)=>`
-    <a href="${API}${url.startsWith('/')?url:'/'+url}" target="_blank">
+    <a href="${API}${url.startsWith('/')?url:'/'+url}" target="_blank" rel="noopener noreferrer">
       <img src="${API}${url.startsWith('/')?url:'/'+url}" class="img-thumb" title="${url.split('/').pop()}"/>
     </a>
   `).join('');
@@ -1186,11 +1188,18 @@ function refreshPreview(){
   const code = document.getElementById('codeEditor').value;
   const frame = document.getElementById('previewFrame');
   if(!frame || !code) return;
-  // Inject editing runtime into preview iframe
+  // Inject editing runtime into preview iframe.
+  // ВАЖНО: JSON.stringify+`!!` для всех значений — даже если переменная
+  // когда-то станет string'ом (refactor / опечатка), это не даст
+  // JS-injection в код юзера через template-string interpolation.
   const injected = code.replace(/<\/body>/i, `
 <script>
-  window.__editMode = ${editMode};
-  window.__aiBlockMode = ${aiBlockMode};
+  window.__editMode = ${JSON.stringify(!!editMode)};
+  window.__aiBlockMode = ${JSON.stringify(!!aiBlockMode)};
+  // Origin родителя — постим только сюда, не через '*'. Защита: даже если
+  // кто-то злоумышленно встроит наш iframe внутрь своего сайта, postMessage
+  // уйдёт на наш origin, не на их (там просто потеряется без обработки).
+  window.__parentOrigin = ${JSON.stringify(window.location.origin)};
   const TEXT_TAGS=['H1','H2','H3','H4','H5','H6','P','SPAN','A','LI','BUTTON','LABEL','STRONG','EM','DIV'];
   // Top-level "блоки" для AI-правки: семантические разделы и контейнеры верхнего уровня
   const BLOCK_TAGS=['SECTION','HEADER','FOOTER','MAIN','ARTICLE','ASIDE','NAV'];
@@ -1231,12 +1240,12 @@ function refreshPreview(){
           el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.7)');
           el.addEventListener('mouseleave',()=>el.style.outline='');
           el.addEventListener('click',()=>{
-            window.parent.postMessage({type:'site:imgClick',src:el.src,alt:el.alt||''},'*');
+            window.parent.postMessage({type:'site:imgClick',src:el.src,alt:el.alt||''}, window.__parentOrigin);
           });
         }
       });
       document.addEventListener('input',e=>{
-        window.parent.postMessage({type:'site:htmlChange',html:document.documentElement.outerHTML},'*');
+        window.parent.postMessage({type:'site:htmlChange',html:document.documentElement.outerHTML}, window.__parentOrigin);
       });
     }
 
@@ -1254,7 +1263,7 @@ function refreshPreview(){
             type:'site:blockClick',
             blockId: el.dataset.editId,
             html: el.outerHTML,
-          },'*');
+          }, window.__parentOrigin);
         }, true);
       });
     }

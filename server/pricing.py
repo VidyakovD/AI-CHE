@@ -125,8 +125,12 @@ def list_all_pricing() -> list[dict]:
 
 
 def update_price(key: str, value_kop: int, label: str | None = None) -> bool:
-    """Обновить цену через админку. Возвращает True если изменено."""
-    if value_kop < 0:
+    """Обновить цену через админку. Возвращает True если изменено.
+    Лимит value_kop: не более 100_000_000 коп (1 000 000 ₽) — защита от
+    опечатки или взлома админки которая привела бы к мгновенной разрядке
+    балансов всех юзеров (например storage-tick × огромная цена).
+    """
+    if value_kop < 0 or value_kop > 100_000_000:
         return False
     with db_session() as db:
         row = db.query(PricingConfig).filter_by(key=key).first()

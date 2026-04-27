@@ -24,6 +24,16 @@ def _max_webhook_url(app_url: str, bot_id: int, max_token: str) -> str:
     return base
 
 
+def _avito_webhook_url(app_url: str, bot_id: int, avito_client_id: str) -> str:
+    """URL для Avito webhook с secret-параметром (Avito не шлёт собственный
+    signature header → защищаемся через computed secret в URL)."""
+    secret = tg_webhook_secret(avito_client_id or "")
+    base = f"{app_url}/webhook/avito/{bot_id}"
+    if secret:
+        return f"{base}?secret={secret}"
+    return base
+
+
 # Базовый набор команд для меню «/» в TG. Подставляется при деплое любого
 # TG-бота — юзер сразу видит подсказки `/start /help /menu` в меню рядом с input.
 DEFAULT_TG_COMMANDS = [
@@ -134,7 +144,7 @@ async def _auto_setup_channels(bot: ChatBot) -> dict:
                      "confirmation_code": bot.vk_confirmation,
                      "hint": "Укажите Callback URL в настройках группы VK"}
     if bot.avito_client_id and bot.avito_client_secret:
-        out["avito"] = {"ok": True, "webhook_url": f"{APP_URL}/webhook/avito/{bot.id}"}
+        out["avito"] = {"ok": True, "webhook_url": _avito_webhook_url(APP_URL, bot.id, bot.avito_client_id)}
     if bot.max_token:
         wh_url = _max_webhook_url(APP_URL, bot.id, bot.max_token)
         try:
@@ -1019,7 +1029,7 @@ async def deploy_bot(bot_id: int, db: Session = Depends(get_db),
 
     # Авито
     if bot.avito_client_id and bot.avito_client_secret:
-        results["avito"] = {"status": "ready", "webhook_url": f"{APP_URL}/webhook/avito/{bot.id}"}
+        results["avito"] = {"status": "ready", "webhook_url": _avito_webhook_url(APP_URL, bot.id, bot.avito_client_id)}
 
     # MAX
     if bot.max_token:

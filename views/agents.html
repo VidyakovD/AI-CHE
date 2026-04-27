@@ -1130,7 +1130,7 @@ function renderAgents() {
               <p class="font-headline font-bold text-sm truncate">${esc(a.name)}</p>
               ${chLabels ? `<span class="flex gap-1">${chLabels}</span>` : ''}
               <span class="text-[10px] text-on-dim/80 px-2 py-0.5 rounded-full bg-surface3/60">${stLabel}</span>
-              ${a.bot_username ? `<a href="https://t.me/${esc(a.bot_username)}" target="_blank" class="text-[10px] text-primary hover:underline">@${esc(a.bot_username)}</a>` : ''}
+              ${a.bot_username ? `<a href="https://t.me/${esc(a.bot_username)}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-primary hover:underline">@${esc(a.bot_username)}</a>` : ''}
             </div>
             <p class="text-xs text-on-dim">
               ${blockCount} блоков${hasGraph ? ` · граф из ${orchSettings.wfc_nodes.length} узлов` : ''}
@@ -1188,7 +1188,7 @@ function showDeploySuccess(botName, username, tmeUrl) {
           </div>
         </div>
         <div style="display:flex;gap:8px">
-          <a href="${esc(tmeUrl)}" target="_blank" style="flex:1;padding:11px;background:linear-gradient(135deg,#29b6f6,#0288d1);color:#fff;border-radius:10px;text-align:center;font-weight:700;font-size:13px;text-decoration:none">Открыть в Telegram →</a>
+          <a href="${esc(tmeUrl)}" target="_blank" rel="noopener noreferrer" style="flex:1;padding:11px;background:linear-gradient(135deg,#29b6f6,#0288d1);color:#fff;border-radius:10px;text-align:center;font-weight:700;font-size:13px;text-decoration:none">Открыть в Telegram →</a>
           <button onclick="navigator.clipboard.writeText('${esc(tmeUrl)}').then(()=>{this.textContent='✓'});" style="padding:11px 14px;background:#231d16;color:#a89880;border:1px solid rgba(74,63,47,.4);border-radius:10px;font-size:13px;cursor:pointer">📋</button>
         </div>
         <p style="font-size:11px;color:#6b5d4a;margin-top:14px;line-height:1.5">

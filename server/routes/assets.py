@@ -143,6 +143,9 @@ async def upload_asset(file: UploadFile = File(...),
         public_token=secrets.token_urlsafe(16),
         purpose=purpose[:40] if purpose else "general",
         is_active=True,
+        # Сразу ставим last_billed_at=now, чтобы scheduler не архивировал
+        # только что загруженный файл если billing tick прошёл вчера ночью.
+        last_billed_at=datetime.utcnow(),
     )
     db.add(asset); db.commit(); db.refresh(asset)
     log_action("asset.upload", user_id=user.id, target_type="asset",

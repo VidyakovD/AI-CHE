@@ -219,10 +219,24 @@ async def vk_webhook(bot_id: int, request: Request,
 @router.post("/avito/{bot_id}")
 async def avito_webhook(bot_id: int, request: Request,
                         db: Session = Depends(get_db)):
-    """Обработка Avito Messenger webhook."""
+    """Обработка Avito Messenger webhook.
+
+    Авторизация: Avito Messenger сам не передаёт signature header. Защищаем
+    через secret в URL `?secret=<computed>`. Без него любой мог бы POST'ить
+    фейк-сообщения и сжигать AI-баланс владельца бота.
+    """
     bot = _get_active_bot(bot_id, db)
     if not bot or not bot.avito_client_id:
         return {"ok": True}
+
+    # SECURITY: проверка secret (computed = HMAC от avito_client_id + JWT_SECRET)
+    expected_secret = tg_webhook_secret(bot.avito_client_id or "")
+    if expected_secret:
+        got_secret = request.query_params.get("secret", "")
+        import hmac as _hmac
+        if not got_secret or not _hmac.compare_digest(got_secret, expected_secret):
+            log.warning(f"[Avito Bot {bot_id}] webhook без/с неверным secret — отклонено")
+            raise HTTPException(401, "Invalid or missing secret")
 
     try:
         body = await request.json()

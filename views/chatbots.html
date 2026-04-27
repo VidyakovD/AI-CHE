@@ -1369,7 +1369,7 @@ async function _loadBotAssets(){
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium truncate">${escHtml(f.name)}</p>
-            <p class="text-[11px] text-on-dim">${f.size_mb} МБ · ${escHtml(f.mime_type||'')} · ${escHtml(f.purpose||'')}</p>
+            <p class="text-[11px] text-on-dim">${escHtml(String(f.size_mb||0))} МБ · ${escHtml(f.mime_type||'')} · ${escHtml(f.purpose||'')}</p>
             <input readonly value="${escHtml(url)}" class="w-full text-[10px] mt-1 px-2 py-1 rounded bg-surface3 border border-outline/15 text-on-dim font-mono" onclick="this.select()" aria-label="Public URL"/>
           </div>
           <div class="flex flex-col gap-1.5 items-end flex-shrink-0">
@@ -1474,16 +1474,15 @@ async function loadRecords(){
   tbl.innerHTML = '<p class="text-on-dim text-xs">Загрузка...</p>';
   const t = document.getElementById('recordsTypeFilter').value;
   const s = document.getElementById('recordsStatusFilter').value;
-  // CSV-кнопка
+  // CSV-кнопка. ВАЖНО: токен НЕ кладём в href — попадёт в browser history,
+  // referer headers, nginx access.log. Скачиваем через blob с Authorization.
   const params = new URLSearchParams();
   if(t) params.set('type', t);
-  document.getElementById('recordsCsvBtn').href = `${API}/chatbots/${_currentRecordsBot}/records.csv?${params}` +
-    `&_h=${encodeURIComponent(localStorage.getItem('obs_token')||'')}`;
-  // Записи нельзя через href передать Authorization, поэтому скачиваем через blob
+  document.getElementById('recordsCsvBtn').href = '#';
   document.getElementById('recordsCsvBtn').onclick = async (ev)=>{
     ev.preventDefault();
     try{
-      const r = await fetch(`${API}/chatbots/${_currentRecordsBot}/records.csv?${params}`, {headers: hdrs()});
+      const r = await fetch(`${API}/chatbots/${_currentRecordsBot}/records.csv?${params}`, {headers: hdrs(), credentials:'same-origin'});
       if(!r.ok) throw new Error('Ошибка скачивания');
       const blob = await r.blob();
       const a = document.createElement('a');

@@ -139,8 +139,15 @@ def _origin_host(origin: str) -> str:
 
 
 def _origin_allowed(origin: str, allowed_csv: str | None) -> bool:
-    """Проверка Origin против CSV-whitelist бота. Пустой whitelist = разрешено всё."""
+    """Проверка Origin против CSV-whitelist бота.
+
+    Пустой whitelist = разрешено всё (legacy back-compat). НЕ безопасно:
+    кто-то может встроить виджет к себе на сайт и тратить AI-баланс владельца.
+    Юзеру стоит ОБЯЗАТЕЛЬНО задать widget_allowed_origins. Тут только warning,
+    блокировку оставляем за юзером (иначе сломаем существующих клиентов).
+    """
     if not allowed_csv or not allowed_csv.strip():
+        log.warning(f"[Widget WS] origin={origin!r} — accepted because allowlist is EMPTY (juzer should set widget_allowed_origins)")
         return True
     if not origin:
         # При непустом whitelist отсутствие Origin (нативный клиент / curl) — отказ.

@@ -1574,7 +1574,7 @@ async function renderFilesTab(el){
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium truncate">${esc(f.name)}</p>
-          <p class="text-[11px] text-on-surface-dim">${f.size_mb} МБ · ${esc(f.mime_type||'-')} · ${esc(f.purpose||'general')}</p>
+          <p class="text-[11px] text-on-surface-dim">${esc(String(f.size_mb||0))} МБ · ${esc(f.mime_type||'-')} · ${esc(f.purpose||'general')}</p>
         </div>
         <div class="flex flex-col gap-1.5 items-end">
           <button onclick="copyAssetUrl('${publicUrl}', this)" class="text-xs px-2 py-1 rounded-full bg-primary/15 text-primary hover:bg-primary/25 transition" title="Скопировать ссылку для бота">
@@ -1597,7 +1597,7 @@ async function renderFilesTab(el){
             <span class="opacity-50">📦</span>
             <div class="flex-1 min-w-0">
               <p class="text-xs truncate">${esc(a.name)}</p>
-              <p class="text-[10px] text-on-surface-dim">${a.size_mb} МБ</p>
+              <p class="text-[10px] text-on-surface-dim">${esc(String(a.size_mb||0))} МБ</p>
             </div>
             <button onclick="restoreAsset(${a.id})" class="text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-500 hover:bg-green-500/25">
               Восстановить
@@ -1878,8 +1878,8 @@ function renderReferralTab(el){
         <button onclick="copyRefLink('${esc(refUrl)}')" id="copyRefUrlBtn" class="btn-g text-xs">Копировать ссылку</button>
       </div>
       <div class="flex gap-2 mt-3">
-        <a href="https://t.me/share/url?url=${encodeURIComponent(refUrl)}&text=${encodeURIComponent('Попробуй AI Студию Че — платформу с Claude, GPT, генерацией картинок и видео. Регистрируйся по моей ссылке:')}" target="_blank" class="btn-g text-xs flex-1 text-center">📤 Telegram</a>
-        <a href="https://wa.me/?text=${encodeURIComponent('Попробуй AI Студию Че: ' + refUrl)}" target="_blank" class="btn-g text-xs flex-1 text-center">📱 WhatsApp</a>
+        <a href="https://t.me/share/url?url=${encodeURIComponent(refUrl)}&text=${encodeURIComponent('Попробуй AI Студию Че — платформу с Claude, GPT, генерацией картинок и видео. Регистрируйся по моей ссылке:')}" target="_blank" rel="noopener noreferrer" class="btn-g text-xs flex-1 text-center">📤 Telegram</a>
+        <a href="https://wa.me/?text=${encodeURIComponent('Попробуй AI Студию Че: ' + refUrl)}" target="_blank" rel="noopener noreferrer" class="btn-g text-xs flex-1 text-center">📱 WhatsApp</a>
       </div>
     </div>
 
@@ -2846,7 +2846,7 @@ async function openFaq(){
           </details>`).join('')}
       </div>
       ${supportUrl ? `<div class="pt-4 border-t border-outline/20 text-center">
-        <a href="${esc(supportUrl)}" target="_blank" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition">
+        <a href="${esc(supportUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px"><path d="M21 12.22C21 6.73 16.74 3 12 3c-4.69 0-9 3.65-9 9.28-.6.34-1 .98-1 1.72v2c0 1.1.9 2 2 2h1v-6.1c0-3.87 3.13-7 7-7s7 3.13 7 7V19h-8v2h8c1.1 0 2-.9 2-2v-1.22c.59-.31 1-.92 1-1.64v-2.3c0-.7-.41-1.31-1-1.62z"/><circle cx="9" cy="13" r="1"/><circle cx="15" cy="13" r="1"/><path d="M18 11.03C17.52 8.18 15.04 6 12.05 6c-3.03 0-6.29 2.51-6.03 6.45 2.47-1.01 4.33-3.21 4.86-5.89 1.31 2.63 4 4.44 7.12 4.47z"/></svg>Написать в поддержку
         </a>
       </div>` : ''}`;
