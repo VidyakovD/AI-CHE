@@ -598,21 +598,29 @@ function render(){
       `<span class="ch-chip"><span class="${brandClass||''}">${_i(icon)}</span>` +
       `<span style="margin-left:4px">${label}</span>` +
       `<span style="margin-left:3px;opacity:.7">${ok===true?_i('check'):ok===false?_i('warn'):''}</span></span>`;
-    if(b.tg_token_set)ch.push(`<span title="${b.tg_webhook_set?'Webhook подтверждён':'Webhook не установлен — нажмите Запуск'}">${chip('plane','TG',b.tg_webhook_set,'brand-tg')}</span>`);
-    if(b.vk_token_set)ch.push(`<span title="${b.vk_confirmed?'Callback API подтверждён':'Ожидает подтверждения VK'}">${chip('people','VK',b.vk_confirmed,'brand-vk')}</span>`);
-    if(b.avito_set)ch.push(`<span title="Авито Messenger подключён">${chip('chat','Авито',true,'brand-avito')}</span>`);
-    if(b.max_token_set)ch.push(`<span title="${b.max_webhook_set?'MAX webhook подтверждён':'MAX webhook не установлен — нажмите Запуск'}">${chip('bolt','MAX',b.max_webhook_set,'brand-max')}</span>`);
-    if(b.widget_enabled)ch.push(`<span title="Виджет на сайт активен">${chip('globe','Виджет',true,'brand-widget')}</span>`);
+    // Брендовые иконки (brand_telegram/brand_vk/...) уже окрашены в фирменные
+    // цвета внутри SVG, поэтому brandClass для span-обёртки больше не нужен.
+    if(b.tg_token_set)ch.push(`<span title="${b.tg_webhook_set?'Webhook подтверждён':'Webhook не установлен — нажмите Запуск'}">${chip('brand_telegram','Telegram',b.tg_webhook_set,'')}</span>`);
+    if(b.vk_token_set)ch.push(`<span title="${b.vk_confirmed?'Callback API подтверждён':'Ожидает подтверждения VK'}">${chip('brand_vk','VK',b.vk_confirmed,'')}</span>`);
+    if(b.avito_set)ch.push(`<span title="Авито Messenger подключён">${chip('brand_avito','Авито',true,'')}</span>`);
+    if(b.max_token_set)ch.push(`<span title="${b.max_webhook_set?'MAX webhook подтверждён':'MAX webhook не установлен — нажмите Запуск'}">${chip('brand_max','MAX',b.max_webhook_set,'')}</span>`);
+    if(b.widget_enabled)ch.push(`<span title="Виджет на сайт активен">${chip('brand_widget','Виджет',true,'')}</span>`);
     const sc=b.status==='active'?'dot-active':b.status==='paused'?'dot-paused':'dot-off';
     const sl=b.status==='active'?'Активен':b.status==='paused'?'На паузе':'Выключен';
     return `
       <div class="card bot-card p-4" onclick="editBot(${b.id})">
-        <div class="flex items-start justify-between gap-2 mb-3">
-          <div class="flex-1 min-w-0">
-            <p class="font-bold font-headline truncate">${esc(b.name)}</p>
-            <p class="text-xs text-on-dim mt-0.5">${modelLabels[b.model]||b.model}</p>
+        <!-- Шапка: название + модель отдельной строкой, кнопки ниже flex-wrap -->
+        <div class="mb-3">
+          <div class="flex items-start justify-between gap-2 mb-3">
+            <div class="flex-1 min-w-0">
+              <p class="font-bold font-headline truncate">${esc(b.name)}</p>
+              <p class="text-xs text-on-dim mt-0.5 truncate">${modelLabels[b.model]||b.model}</p>
+            </div>
+            <button onclick="event.stopPropagation();deleteBot(${b.id})" class="btn-d text-[10px] py-1 px-2 inline-flex items-center flex-shrink-0" title="Удалить" aria-label="Удалить">${_i('close')}</button>
           </div>
-          <div class="flex gap-1.5 flex-shrink-0" onclick="event.stopPropagation()">
+          <!-- Кнопки действий: flex-wrap чтобы переносились на узких карточках,
+               не вытесняя название и не отрывая от карточки. -->
+          <div class="flex flex-wrap gap-1.5" onclick="event.stopPropagation()">
             ${b.status==='active'?`<button onclick="pauseBot(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1">${_i('pause')}<span>Пауза</span></button>`
               :`<button onclick="deployBot(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1">${_i('play')}<span>Запуск</span></button>`}
             <button onclick="openPreview(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Превью диалога (песочница)" aria-label="Превью">${_i('eye')}</button>
@@ -621,7 +629,6 @@ function render(){
             <button onclick="openRecords(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Заявки и записи" aria-label="Записи">${_i('clipboard')}</button>
             <button onclick="openBotAssets(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Лидмагниты и файлы бота" aria-label="Файлы">${_i('image')}</button>
             <button onclick="showSummary(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Пересказ диалогов" aria-label="Пересказ">${_i('chat')}</button>
-            <button onclick="deleteBot(${b.id})" class="btn-d text-[10px] py-1 px-2 inline-flex items-center" title="Удалить" aria-label="Удалить">${_i('close')}</button>
           </div>
         </div>
         <div class="flex items-center gap-2 mb-2">
