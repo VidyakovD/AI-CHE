@@ -138,11 +138,29 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <textarea id="pNotes" rows="2" class="inp resize-none" placeholder="Сделай акцент на скорость поставки. Спецпредложение: -10% при заказе до конца месяца."></textarea>
       </div>
     </div>
-    <div class="flex items-center justify-between gap-3 p-5 border-t border-outline/15">
+    <!-- Превью сгенерированного КП -->
+    <div id="pResult" class="hidden border-t border-outline/15 bg-surface2/40 p-5">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h3 class="font-headline font-bold text-sm">Сгенерированное КП</h3>
+        <div class="flex gap-2 flex-wrap">
+          <button onclick="downloadPdf()" class="btn-g text-xs">📥 Скачать PDF</button>
+          <button onclick="openPdfTab()" class="btn-g text-xs">↗️ Открыть в новой вкладке</button>
+        </div>
+      </div>
+      <div id="pResultIframeWrap" class="rounded-lg overflow-hidden bg-white" style="height:60vh">
+        <iframe id="pResultIframe" sandbox="allow-same-origin" class="w-full h-full border-0"></iframe>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between gap-3 p-5 border-t border-outline/15 flex-wrap">
       <button id="pDeleteBtn" onclick="deleteCurrentProject()" class="btn-d text-sm hidden">Удалить</button>
-      <div class="flex gap-2 ml-auto">
-        <button onclick="closeProject()" class="btn-g text-sm">Отмена</button>
-        <button id="pSaveBtn" onclick="saveProject()" class="btn-p text-sm">Сохранить</button>
+      <div class="flex gap-2 ml-auto flex-wrap">
+        <button onclick="closeProject()" class="btn-g text-sm">Закрыть</button>
+        <button id="pSaveBtn" onclick="saveProject(false)" class="btn-g text-sm">Сохранить</button>
+        <button id="pGenBtn" onclick="generateProposal()" class="btn-p text-sm">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
+          <span id="pGenBtnLabel">Сгенерировать (50 ₽)</span>
+        </button>
       </div>
     </div>
   </div>
@@ -349,6 +367,8 @@ function openCreate(){
   document.getElementById('pDeleteBtn').classList.add('hidden');
   populateBrandSelect();
   populateBotSelect();
+  hideResult();
+  updateGenButton(null);
   document.getElementById('projectModal').classList.add('show');
 }
 
@@ -370,11 +390,99 @@ async function openProject(id){
   document.getElementById('pBot').value = p.bot_id || '';
   document.getElementById('pDeleteBtn').classList.remove('hidden');
   document.getElementById('projectModal').classList.add('show');
+  // Обновляем кнопку генерации и превью результата
+  updateGenButton(p);
+  if(p.status === 'done' && p.generated_html){
+    showResult(p.generated_html);
+  } else {
+    hideResult();
+  }
+}
+
+function updateGenButton(p){
+  const label = document.getElementById('pGenBtnLabel');
+  if(p && p.status === 'done'){
+    label.textContent = 'Перегенерировать (5 ₽)';
+  } else {
+    label.textContent = 'Сгенерировать (50 ₽)';
+  }
+}
+
+function showResult(html){
+  const wrap = document.getElementById('pResult');
+  const iframe = document.getElementById('pResultIframe');
+  // srcdoc безопасен — sandbox="allow-same-origin" без allow-scripts
+  // (если в HTML случайно появятся <script> — они не исполнятся)
+  iframe.srcdoc = html;
+  wrap.classList.remove('hidden');
+}
+
+function hideResult(){
+  document.getElementById('pResult').classList.add('hidden');
+  document.getElementById('pResultIframe').srcdoc = '';
+}
+
+async function generateProposal(){
+  if(!currentProjectId){
+    // Сначала сохранить
+    if(!await saveProject(true)) return;
+  } else {
+    // Сохранить актуальные значения перед генерацией
+    if(!await saveProject(true)) return;
+  }
+  if(!confirm('Сгенерировать КП? AI обработает запрос клиента, прочитает их сайт и составит документ под бренд. Списание автоматическое.')) return;
+  const btn = document.getElementById('pGenBtn');
+  btn.disabled = true;
+  const oldLabel = document.getElementById('pGenBtnLabel').textContent;
+  document.getElementById('pGenBtnLabel').textContent = 'Генерирую…';
+  try{
+    const r = await fetch(`${API}/proposals/projects/${currentProjectId}/generate`,
+                          {method:'POST', headers: hdrs(), credentials:'same-origin'});
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
+    showResult(data.generated_html || '');
+    updateGenButton(data);
+    await loadProjects();
+  }catch(e){ alert('Ошибка: ' + e.message); }
+  finally{
+    btn.disabled = false;
+    document.getElementById('pGenBtnLabel').textContent = oldLabel;
+  }
+}
+
+async function downloadPdf(){
+  if(!currentProjectId) return;
+  // FileResponse через fetch с auth-headers, потом blob → клик-скачивание
+  try{
+    const r = await fetch(`${API}/proposals/projects/${currentProjectId}/pdf`,
+                          {headers: hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error('Ошибка скачивания: ' + r.status);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (document.getElementById('pNa').value || 'proposal') + '.pdf';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }catch(e){ alert('Ошибка: ' + e.message); }
+}
+
+async function openPdfTab(){
+  if(!currentProjectId) return;
+  try{
+    const r = await fetch(`${API}/proposals/projects/${currentProjectId}/pdf`,
+                          {headers: hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error('Ошибка ' + r.status);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }catch(e){ alert('Ошибка: ' + e.message); }
 }
 
 function closeProject(){ document.getElementById('projectModal').classList.remove('show'); }
 
-async function saveProject(){
+async function saveProject(silent){
   const body = {
     name: document.getElementById('pNa').value.trim(),
     brand_id: parseInt(document.getElementById('pBrand').value) || null,
@@ -385,7 +493,7 @@ async function saveProject(){
     client_site_url: document.getElementById('pClientSite').value.trim() || null,
     extra_notes: document.getElementById('pNotes').value.trim() || null,
   };
-  if(!body.name){ alert('Введите название КП'); return; }
+  if(!body.name){ alert('Введите название КП'); return false; }
   const url = currentProjectId
     ? `${API}/proposals/projects/${currentProjectId}`
     : `${API}/proposals/projects`;
@@ -396,9 +504,23 @@ async function saveProject(){
       const d = await r.json().catch(()=>({}));
       throw new Error(d.detail || 'Ошибка ' + r.status);
     }
-    closeProject();
-    await loadProjects();
-  }catch(e){ alert('Ошибка: ' + e.message); }
+    const data = await r.json();
+    if(!currentProjectId && data && data.id){
+      currentProjectId = data.id;
+      document.getElementById('pDeleteBtn').classList.remove('hidden');
+    }
+    if(!silent){
+      closeProject();
+      await loadProjects();
+    } else {
+      // Тихое сохранение — просто обновим список в фоне
+      loadProjects();
+    }
+    return true;
+  }catch(e){
+    alert('Ошибка: ' + e.message);
+    return false;
+  }
 }
 
 async function deleteCurrentProject(){

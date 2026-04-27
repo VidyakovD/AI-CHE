@@ -300,9 +300,6 @@ def delete_project(project_id: int, db: Session = Depends(get_db),
     # Удалить PDF на диске если есть
     if p.generated_pdf:
         try:
-            from pathlib import Path
-            from server.routes.sites import _BASE_PROJ_DIR  # noqa
-            # Просто относительный путь от корня проекта
             base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             pdf_path = os.path.join(base, p.generated_pdf.lstrip("/"))
             if os.path.exists(pdf_path):
@@ -313,3 +310,94 @@ def delete_project(project_id: int, db: Session = Depends(get_db),
     log_action("proposal.deleted", user_id=user.id,
                target_type="proposal", target_id=str(project_id))
     return {"status": "deleted"}
+
+
+# ── Generate (AI → HTML → PDF) ─────────────────────────────────────────────
+
+
+@router.post("/projects/{project_id}/generate")
+def generate_proposal_endpoint(project_id: int, db: Session = Depends(get_db),
+                                 user: User = Depends(current_user)):
+    """Сгенерировать КП: парсит сайт клиента → промпт Claude → HTML+PDF.
+    Списывает фикс. цену (5 ₽ = 500 коп при перегенерации, 50 ₽ за первый раз)."""
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.client_request and not p.extra_notes:
+        raise HTTPException(400, "Заполните «Запрос клиента» или «Доп. инструкции» — без контекста КП не получится")
+
+    # Цена: первый раз — 50 ₽, перегенерация — 5 ₽
+    is_regen = p.status == "done"
+    cost = PROPOSAL_EDIT_COST_KOP if is_regen else PROPOSAL_COST_KOP
+
+    from server.billing import deduct_strict
+    if not deduct_strict(db, user.id, cost):
+        raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
+    p.price_kop = (p.price_kop or 0) + cost
+    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+                       description=f"КП «{p.name}» ({cost/100:.0f} ₽)"))
+
+    # User-key (если у юзера привязан Anthropic ключ — работаем по скидке)
+    from server.models import UserApiKey
+    uk = db.query(UserApiKey).filter_by(user_id=user.id, provider="anthropic").first()
+    user_key = uk.api_key if uk else None
+
+    try:
+        from server.proposal_builder import generate_proposal
+        result = generate_proposal(db, p, user_api_key=user_key)
+        p.generated_html = result["html"]
+        p.generated_pdf = result["pdf_path"]
+        p.status = "done"
+        db.commit()
+        log_action("proposal.generated", user_id=user.id,
+                   target_type="proposal", target_id=str(p.id),
+                   details={"regen": is_regen, "cost_kop": cost,
+                            "has_brand": bool(p.brand_id),
+                            "has_bot": bool(p.bot_id),
+                            "has_site": bool(p.client_site_url)})
+    except Exception as e:
+        log.error(f"[proposal] generate failed: {type(e).__name__}: {e}")
+        # Refund при ошибке
+        from server.billing import credit_atomic
+        credit_atomic(db, user.id, cost)
+        p.price_kop = max(0, (p.price_kop or 0) - cost)
+        db.add(Transaction(user_id=user.id, type="refund", tokens_delta=cost,
+                           description=f"Возврат: КП «{p.name}» — ошибка генерации"))
+        p.status = "error"
+        db.commit()
+        raise HTTPException(503, f"Не удалось сгенерировать КП: {type(e).__name__}. Деньги возвращены.")
+
+    return _project_to_dict(p, full=True)
+
+
+@router.get("/projects/{project_id}/pdf")
+def download_pdf(project_id: int, db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
+    """Скачать сгенерированный PDF. Файл лежит в /uploads/proposals/."""
+    from fastapi.responses import FileResponse
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.generated_pdf:
+        raise HTTPException(404, "PDF ещё не сгенерирован — нажмите «Сгенерировать»")
+    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    abs_path = os.path.join(base, p.generated_pdf.lstrip("/"))
+    if not os.path.exists(abs_path):
+        raise HTTPException(404, "PDF файл удалён или перемещён — пересоздайте КП")
+    safe_name = re.sub(r"[^\w\-]", "_", p.name or "proposal")[:40]
+    return FileResponse(
+        abs_path, media_type="application/pdf",
+        filename=f"{safe_name}.pdf",
+    )
+
+
+@router.get("/projects/{project_id}/preview")
+def preview_html(project_id: int, db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
+    """Вернуть сгенерированный HTML для inline-превью (без авторизации в URL)."""
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.generated_html:
+        raise HTTPException(404, "Не сгенерировано")
+    return {"html": p.generated_html}

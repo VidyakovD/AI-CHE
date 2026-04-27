@@ -171,6 +171,22 @@ hr {
 """
 
 
+def html_to_pdf_bytes(full_html: str) -> bytes:
+    """Конвертит готовый HTML (со своим <style>) в PDF-bytes.
+    В отличие от markdown_to_pdf — не добавляет _BRAND_CSS и не заворачивает
+    в обложку. Используется в proposal_builder где у нас свой шаблон бренда.
+
+    Кидает RuntimeError при ошибке pisa.
+    """
+    from xhtml2pdf import pisa
+    import io
+    buf = io.BytesIO()
+    res = pisa.CreatePDF(full_html, dest=buf, encoding="utf-8")
+    if res.err:
+        raise RuntimeError(f"PDF generation failed: {res.err} errors")
+    return buf.getvalue()
+
+
 def markdown_to_pdf(md_text: str, title: str = "Бизнес-отчёт",
                     out_path: str = None,
                     subtitle: str = "") -> str | None:
