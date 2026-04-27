@@ -472,11 +472,19 @@ async def _storage_billing_tick():
     daily_rate = max(1, rate_kop_month // 30)
     chunk = 100 * 1024 * 1024
     now = datetime.utcnow()
+    # tick_start фиксируем ДО SELECT'а, чтобы при UPDATE last_billed_at не
+    # затронуть файлы, загруженные параллельно с tick'ом (у них при upload
+    # last_billed_at=now() >= tick_start). Иначе race: tick посчитал SUM без
+    # свежего файла, но обновил его last_billed_at — на следующих сутках
+    # файл попадает в SUM как «уже оплачен».
+    tick_start = now
     try:
         with db_session() as db:
             users_with_storage = (
                 db.query(StoredAsset.user_id, func.sum(StoredAsset.size_bytes).label("total"))
                 .filter(StoredAsset.is_active == True)
+                .filter((StoredAsset.last_billed_at == None) |
+                        (StoredAsset.last_billed_at < tick_start))
                 .group_by(StoredAsset.user_id)
                 .all()
             )
@@ -493,11 +501,16 @@ async def _storage_billing_tick():
                         user_id=user_id, type="usage", tokens_delta=-cost,
                         description=f"Хранилище: {round(total_bytes/1024/1024, 1)} МБ ({cost/100:.2f} ₽/день)",
                     ))
-                    # Помечаем все активные asset'ы юзера как «оплачено сегодня».
+                    # Помечаем «оплачено» ТОЛЬКО те asset'ы, которые попали в
+                    # SUM этого тика. Свежезагруженные (last_billed_at >=
+                    # tick_start) не трогаем — они сами проставили актуальную
+                    # дату и попадут в SUM следующего тика.
                     db.execute(
                         sa_update(StoredAsset)
                         .where(StoredAsset.user_id == user_id,
-                               StoredAsset.is_active == True)
+                               StoredAsset.is_active == True,
+                               (StoredAsset.last_billed_at == None) |
+                               (StoredAsset.last_billed_at < tick_start))
                         .values(last_billed_at=now)
                     )
                     charged += 1

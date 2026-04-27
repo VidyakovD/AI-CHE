@@ -944,13 +944,18 @@ def export_bot_records_csv(bot_id: int, type: str | None = None,
     buf.write("\ufeff")
     w = csv.writer(buf, delimiter=";")
     w.writerow(["id", "type", "created_at", "name", "phone", "email", "status", "notes", "payload"])
+    # Защита от CSV-injection: ячейка с лидирующим `= + - @ \t \r` в Excel/
+    # Numbers/LibreOffice интерпретируется как формула (включая DDE →
+    # удалённое исполнение). Поля пришли от внешних клиентов через бота —
+    # доверять им нельзя.
+    from server.routes.user import _csv_safe
     for r in rows:
         w.writerow([
             r.id, r.record_type,
             r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "",
-            r.customer_name or "", r.customer_phone or "", r.customer_email or "",
-            r.status or "", (r.notes or "").replace("\n", " "),
-            r.payload or "",
+            _csv_safe(r.customer_name), _csv_safe(r.customer_phone), _csv_safe(r.customer_email),
+            _csv_safe(r.status), _csv_safe((r.notes or "").replace("\n", " ")),
+            _csv_safe(r.payload),
         ])
     buf.seek(0)
     safe_name = "".join(c if c.isalnum() else "_" for c in (bot.name or "bot"))[:40]
@@ -1447,9 +1452,15 @@ async def import_price_csv(bot_id: int,
         if raw_price:
             cleaned = raw_price.replace(" ", "").replace("\xa0", "").replace("₽", "").replace("руб", "").replace(",", ".")
             try:
-                price_kop = int(round(float(cleaned) * 100))
-            except (ValueError, TypeError):
-                # Не число — сохраняем как текст («от 1500», «договорная»)
+                price_float = float(cleaned)
+                # Верхняя граница 1 млрд ₽ (= 100 млрд коп). Защищает от
+                # экспоненциальной нотации в CSV (`1e10` → 10 млрд) и от
+                # переполнения int. Всё что больше — сохраняем как текст.
+                if not (0 < price_float <= 1_000_000_000):
+                    raise ValueError("price out of range")
+                price_kop = int(round(price_float * 100))
+            except (ValueError, TypeError, OverflowError):
+                # Не число / вне диапазона — сохраняем как текст («от 1500», «договорная»)
                 price_text = raw_price[:60]
         item = BotPriceItem(
             bot_id=bot_id,

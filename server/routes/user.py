@@ -179,7 +179,6 @@ def set_low_balance_threshold(body: LowBalanceThresholdBody,
             "threshold_kopecks": int(u.low_balance_threshold or 0)}
 
 
-@router.get("/transactions.csv")
 def _csv_safe(v):
     """Защита от CSV-injection: если поле начинается с =+-@, префиксим апострофом.
     Excel/LibreOffice иначе воспримут как формулу (может выполнить команду через DDE)."""
@@ -189,6 +188,7 @@ def _csv_safe(v):
     return s
 
 
+@router.get("/transactions.csv")
 def export_transactions_csv(user=Depends(current_user), db: Session = Depends(get_db)):
     """Экспорт всех транзакций юзера в CSV (для бухгалтерии)."""
     rows = db.query(Transaction).filter_by(user_id=user.id).order_by(Transaction.created_at.desc()).all()

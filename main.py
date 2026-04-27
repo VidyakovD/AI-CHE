@@ -69,6 +69,16 @@ def _setup_logging():
     root.handlers = [handler]
     root.setLevel(level)
 
+    # Defence-in-depth: маскируем секреты на уровне root-handler. Любой логгер
+    # (свой / SDK / framework) пройдёт через фильтр на handler'е, не нужно
+    # навешивать на каждый логгер отдельно. Фильтр режет sk-*/Bearer/AIza.../
+    # прокси-креды/key= в URL — см. server.ai._SecretFilter.
+    try:
+        from server.ai import _SecretFilter as _SF
+        handler.addFilter(_SF())
+    except Exception:
+        pass
+
 
 _setup_logging()
 log = logging.getLogger(__name__)

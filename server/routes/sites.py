@@ -1181,15 +1181,23 @@ def site_project_zip(project_id: int, db: Session = Depends(get_db),
         fname = os.path.basename(local_rel)
         html_zip = html_zip.replace(orig_url, f"images/{fname}")
 
-    # Пакуем ZIP
+    # Пакуем ZIP. Защита от path-traversal: AI/юзер мог сгенерировать
+    # `src="/uploads/../../etc/passwd"`. Нормализуем путь и проверяем,
+    # что он остаётся внутри /uploads/ — иначе пропускаем.
+    from pathlib import Path as _Path
+    uploads_root = (_Path(project_root) / "uploads").resolve()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("index.html", html_zip)
         for orig_url, local_rel in found:
-            local_abs = os.path.join(project_root, local_rel.lstrip("/"))
-            if os.path.exists(local_abs):
+            try:
+                abs_path = (_Path(project_root) / local_rel.lstrip("/")).resolve()
+                abs_path.relative_to(uploads_root)
+            except (ValueError, OSError):
+                continue
+            if abs_path.exists() and abs_path.is_file():
                 fname = os.path.basename(local_rel)
-                zf.write(local_abs, f"images/{fname}")
+                zf.write(str(abs_path), f"images/{fname}")
     buf.seek(0)
 
     safe_name = re.sub(r'[^\w\-]', '_', p.name or 'site')[:40]
