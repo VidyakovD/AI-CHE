@@ -42,6 +42,43 @@ REFRESH_TTL = 60 * 24 * 30   # 30 days in minutes (long-lived refresh token)
 JWT_ISS     = os.getenv("JWT_ISS", "aiche")
 JWT_AUD     = os.getenv("JWT_AUD", "aiche-web")
 
+
+def _all_jwt_secrets() -> list[str]:
+    """
+    Все возможные ключи для verify JWT — на случай race в _get_jwt_secret
+    или ротации secret. Раньше токены могли быть подписаны:
+      - текущим JWT_SECRET (из env через load_dotenv)
+      - содержимым файла server/.jwt_secret (если auth.py импортировался
+        раньше load_dotenv())
+      - ключом из LEGACY_JWT_SECRETS
+
+    decode_token пробует их все по очереди — до первого успешного verify.
+    Так уже выданные браузерные сессии не отвалятся при изменении
+    последовательности импортов.
+    """
+    seen = set()
+    out = []
+    for s in (SECRET_KEY, os.getenv("JWT_SECRET", "")):
+        if s and s not in seen:
+            seen.add(s); out.append(s)
+    # Файловый ключ
+    try:
+        secret_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    ".jwt_secret")
+        if os.path.exists(secret_path):
+            with open(secret_path) as f:
+                fk = f.read().strip()
+            if fk and fk not in seen:
+                seen.add(fk); out.append(fk)
+    except Exception:
+        pass
+    # Legacy секреты для ротации
+    for s in os.getenv("LEGACY_JWT_SECRETS", "").split(","):
+        s = s.strip()
+        if s and s not in seen:
+            seen.add(s); out.append(s)
+    return out
+
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -70,14 +107,23 @@ def create_refresh_token(user_id: int, email: str) -> str:
     )
 
 def decode_token(token: str, require_type: str = None) -> dict | None:
+    """Verify JWT. Пробует все доступные ключи (текущий + legacy), чтобы
+    не разлогинивать юзеров при смене источника JWT_SECRET (env vs файл)."""
+    payload = None
+    last_exc: Exception | None = None
+    for secret in _all_jwt_secrets():
+        try:
+            payload = jwt.decode(
+                token, secret, algorithms=[ALGORITHM],
+                options={"verify_aud": False, "verify_iss": False},
+            )
+            break  # Успех — выходим из цикла
+        except JWTError as e:
+            last_exc = e
+            continue
+    if payload is None:
+        return None
     try:
-        # Допускаем legacy-токены без aud/iss (были выданы до добавления claims).
-        # Но если claim присутствует — проверяем строго (не «мягкая» проверка).
-        # Явно фиксируем разрешённые алгоритмы — защита от alg:none и HS/RS confusion.
-        payload = jwt.decode(
-            token, SECRET_KEY, algorithms=[ALGORITHM],
-            options={"verify_aud": False, "verify_iss": False},
-        )
         # Токены выданные после фикса всегда имеют aud+iss — проверяем
         if payload.get("aud") is not None and payload["aud"] != JWT_AUD:
             return None
