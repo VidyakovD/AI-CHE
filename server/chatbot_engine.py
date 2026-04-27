@@ -227,11 +227,17 @@ async def handle_message(bot, chat_id: str, user_text: str,
     # Инициализируем usage в ctx чтобы провайдеры могли его заполнить
     usage_acc = {"input": 0, "output": 0, "cached": 0, "model": bot.model or "gpt"}
 
+    # Свои API-ключи юзера для AI-провайдеров (для скидки + использования
+    # его лимитов/квоты вместо наших). Загружаем один раз для всего диалога.
+    user_keys = _load_user_api_keys(bot.user_id)
+
+    base_ctx = {**(extra_ctx or {}), "_usage": usage_acc, "_user_keys": user_keys}
+
     if workflow:
         answer = await _execute_workflow(bot, chat_id, user_text, platform, user_name, workflow,
-                                         extra_ctx={**(extra_ctx or {}), "_usage": usage_acc})
+                                         extra_ctx=base_ctx)
     else:
-        answer = await _simple_reply(bot, chat_id, user_text, platform, user_name, usage_acc)
+        answer = await _simple_reply(bot, chat_id, user_text, platform, user_name, usage_acc, user_keys)
 
     if answer:
         _save_for_summary(bot.id, chat_id, user_text, answer, user_name, platform)
@@ -246,6 +252,84 @@ def _owner_has_balance(bot, minimum: int = 1) -> bool:
     with db_session() as db:
         owner = db.query(User).filter_by(id=bot.user_id).first()
         return bool(owner and (owner.tokens_balance or 0) >= minimum)
+
+
+def _load_user_api_keys(user_id: int) -> dict[str, str]:
+    """
+    Возвращает {provider: api_key} — все собственные API-ключи юзера.
+    Используется в AI-нодах для подмены наших ключей юзерскими (скидка 80%
+    + его квота, не наша). Кешируется на 60 секунд per-user.
+    """
+    if not user_id:
+        return {}
+    import time as _t
+    now = _t.time()
+    cached = _USER_KEYS_CACHE.get(user_id)
+    if cached and (now - cached[0]) < _USER_KEYS_TTL:
+        return dict(cached[1])
+    from server.db import db_session
+    from server.models import UserApiKey
+    out: dict[str, str] = {}
+    try:
+        with db_session() as db:
+            rows = db.query(UserApiKey).filter_by(user_id=user_id).all()
+            for r in rows:
+                if r.api_key and r.provider:
+                    out[r.provider] = r.api_key
+    except Exception as e:
+        log.warning(f"[user_keys] load failed for user {user_id}: {type(e).__name__}")
+    _USER_KEYS_CACHE[user_id] = (now, dict(out))
+    return out
+
+
+_USER_KEYS_CACHE: dict[int, tuple[float, dict[str, str]]] = {}
+_USER_KEYS_TTL = 60   # секунд
+
+
+def invalidate_user_keys_cache(user_id: int | None = None) -> None:
+    """Сбросить кэш user-ключей. Вызывать при добавлении/удалении ключа."""
+    if user_id is None:
+        _USER_KEYS_CACHE.clear()
+    else:
+        _USER_KEYS_CACHE.pop(user_id, None)
+
+
+def _user_key_for_model(ctx: dict, model_id: str) -> str | None:
+    """Возвращает user-ключ для модели если у юзера он привязан, иначе None."""
+    user_keys = ctx.get("_user_keys") or {}
+    if not user_keys:
+        return None
+    provider = _model_to_provider(model_id)
+    if not provider:
+        return None
+    return user_keys.get(provider)
+
+
+def _call_ai_with_fallback(model: str, messages: list, user_key: str | None,
+                            extra: dict | None = None) -> dict:
+    """
+    Универсальный вызов AI с поддержкой user-ключа + fallback.
+    Если user_key передан — пробуем сначала его. При ошибке (401/403/quota) —
+    откатываемся на наши ключи (если allow_fallback=True у этого ключа,
+    но пока всегда True — будущая колонка).
+
+    Возвращает {content, input_tokens, output_tokens, cached_tokens, ...}.
+    """
+    if user_key:
+        try:
+            result = generate_response(model, messages, extra=extra,
+                                       user_api_key=user_key)
+            content = result.get("content", "") if isinstance(result, dict) else ""
+            # generate_response при ошибке провайдера может вернуть fallback-stub
+            # «Сервис временно недоступен» — это значит user-ключ упал.
+            # В таком случае пробуем наш ключ.
+            if "временно недоступен" not in content and content:
+                return result
+            log.warning(f"[user_key] {model}: упал на user-ключе, fallback на наш")
+        except Exception as e:
+            log.warning(f"[user_key] {model}: exception на user-ключе ({type(e).__name__}), fallback")
+    # Наш ключ
+    return generate_response(model, messages, extra=extra)
 
 
 def _get_bot_workflow(bot) -> dict | None:
@@ -273,8 +357,14 @@ def _get_bot_workflow(bot) -> dict | None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _simple_reply(bot, chat_id, user_text, platform, user_name,
-                        usage_acc: dict | None = None) -> str:
-    """Простой режим: system_prompt → AI модель → ответ."""
+                        usage_acc: dict | None = None,
+                        user_keys: dict[str, str] | None = None) -> str:
+    """Простой режим: system_prompt → AI модель → ответ.
+
+    user_keys — собственные API-ключи юзера {provider: key}. Если у юзера
+    есть ключ для провайдера выбранной модели — AI-вызов идёт через него
+    (его квота, скидка 80% на маржу). При ошибке user-key — fallback на наш.
+    """
     history = conv_history(bot.id, chat_id)
 
     messages = []
@@ -288,14 +378,20 @@ async def _simple_reply(bot, chat_id, user_text, platform, user_name,
     messages.append({"role": "user", "content": user_text})
 
     try:
-        result = generate_response(bot.model or "gpt", messages)
+        model = bot.model or "gpt"
+        # user_keys приходят из _load_user_api_keys(bot.user_id) в handle_message
+        user_key = None
+        if user_keys:
+            provider = _model_to_provider(model)
+            user_key = user_keys.get(provider) if provider else None
+        result = _call_ai_with_fallback(model, messages, user_key)
         answer = result.get("content", "") if isinstance(result, dict) else str(result)
         if usage_acc and isinstance(result, dict):
             usage_acc["input"] += result.get("input_tokens", 0) or 0
             usage_acc["output"] += result.get("output_tokens", 0) or 0
             usage_acc["cached"] += result.get("cached_tokens", 0) or 0
     except Exception as e:
-        log.error(f"[Bot {bot.id}] AI error: {e}")
+        log.error(f"[Bot {bot.id}] AI error: {type(e).__name__}")
         return "Произошла ошибка. Попробуйте позже."
 
     if not answer:
@@ -460,7 +556,10 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         for msg in ctx.get("history", [])[-10:]:
             messages.append(msg)
         messages.append({"role": "user", "content": input_text})
-        result = generate_response(model, messages)
+        # Свой ключ юзера → AI-вызов идёт от его имени (его квота, скидка 80%
+        # на нашу маржу). Если ключ упал — fallback на наш (наши ключи).
+        user_key = _user_key_for_model(ctx, model)
+        result = _call_ai_with_fallback(model, messages, user_key)
         answer = result.get("content", "") if isinstance(result, dict) else str(result)
         # Копим usage для финального списания
         usage_acc = ctx.get("_usage")
