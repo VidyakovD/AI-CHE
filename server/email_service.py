@@ -14,6 +14,8 @@ If SMTP_HOST is not set, codes are only printed to console (dev mode).
 import os, smtplib, logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
+from email.utils import make_msgid, formatdate
 
 log = logging.getLogger(__name__)
 
@@ -107,6 +109,71 @@ def send_welcome(to: str, name: str) -> None:
     <p style="color:rgba(199,196,215,0.8);line-height:1.6">Ваш аккаунт успешно подтверждён. На баланс начислено <strong style="color:#c0c1ff">5 000 токенов</strong> в подарок.</p>
     <div style="text-align:center"><a href="{APP_URL}" class="btn">Открыть Obsidian AI</a></div>"""
     _send(to, "Добро пожаловать в Obsidian AI!", _base_template("Добро пожаловать!", body))
+
+
+def send_with_attachment(to: str, subject: str, html_body: str,
+                         attachments: list[tuple[str, bytes, str]] | None = None,
+                         in_reply_to: str | None = None,
+                         from_override: str | None = None) -> str | None:
+    """Универсальный SMTP-send с возможностью аттачей и In-Reply-To.
+
+    attachments — список (filename, bytes, mime_type), напр.
+        [("kp.pdf", pdf_bytes, "application/pdf")]
+    in_reply_to — Message-ID входящего письма (для threading в Gmail/Yandex)
+    from_override — нестандартный From (если SMTP-relay поддерживает)
+
+    Возвращает Message-ID отправленного письма (или None если SMTP не настроен).
+    """
+    if not SMTP_HOST:
+        log.warning(f"[EMAIL STUB] To: {to} | Subject: {subject}")
+        log.warning(f"[EMAIL STUB] Body length: {len(html_body or '')} chars, attachments: {len(attachments or [])}")
+        return None
+
+    msg = MIMEMultipart("mixed")
+    sender = from_override or SMTP_FROM
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = to
+    msg["Date"] = formatdate(localtime=True)
+    new_msg_id = make_msgid(domain=(SMTP_HOST.split(".")[-2] + "." + SMTP_HOST.split(".")[-1])
+                                   if "." in SMTP_HOST else "aiche.local")
+    msg["Message-ID"] = new_msg_id
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = in_reply_to
+
+    # Тело — alternative (text + html)
+    body_alt = MIMEMultipart("alternative")
+    # Plain-text fallback из html (грубо — без html-тегов)
+    import re as _re_html
+    plain = _re_html.sub(r"<[^>]+>", " ", html_body or "")
+    plain = _re_html.sub(r"\s+", " ", plain).strip()[:5000]
+    body_alt.attach(MIMEText(plain, "plain", "utf-8"))
+    body_alt.attach(MIMEText(html_body or "", "html", "utf-8"))
+    msg.attach(body_alt)
+
+    # Аттачи
+    for fname, data, mtype in (attachments or []):
+        if not data:
+            continue
+        maintype, _, subtype = mtype.partition("/")
+        att = MIMEApplication(data, _subtype=subtype or "octet-stream")
+        att.add_header("Content-Disposition", "attachment", filename=fname)
+        msg.attach(att)
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.ehlo(); s.starttls(); s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(sender, to, msg.as_string())
+        try:
+            from server.security import mask_email
+            log.info(f"Email+attachment sent to {mask_email(to)} attach={len(attachments or [])}")
+        except Exception:
+            log.info("Email sent")
+        return new_msg_id
+    except Exception as e:
+        log.error(f"Email send (with attachment) failed: {type(e).__name__}: {e}")
+        raise
 
 
 def send_login_alert(to: str, name: str, ip: str, when: str) -> None:

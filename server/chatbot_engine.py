@@ -1492,6 +1492,158 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
 
         return cfg.get("ack_text") or "✓ Заявка принята! Мы скоро свяжемся."
 
+    if ntype == "auto_proposal":
+        # Генерация коммерческого предложения по входящему запросу
+        # (текст сообщения / письма от IMAP) и автоматическая отправка
+        # PDF клиенту. Работает с пайплайном:
+        #   trigger_imap → auto_proposal (cfg.brand_id, cfg.bot_id_for_price,
+        #   cfg.email_subject) → save_record (тип proposal_sent)
+        #
+        # cfg:
+        #   brand_id: int — какой бренд использовать для оформления
+        #   bot_id_for_price: int — бот, у которого взять прайс-лист
+        #                          (если не задан — берём текущего бота)
+        #   email_subject: str — шаблон темы ответа,
+        #                       поддерживает {{client_name}} {{subject}}
+        #   reply_body: str — текст письма (без HTML обвязки),
+        #                    поддерживает {{client_name}}
+        #   send_email: bool — отправить ли ответ автоматически (default: True)
+        from server.models import (ProposalProject as _PP,
+                                    ProposalBrand as _PB)
+        from server.proposal_builder import generate_proposal as _gen_proposal
+        from server.billing import deduct_strict as _ded_strict, credit_atomic as _cr
+        from server.pricing import get_price as _gp
+        # В preview-режиме НЕ генерируем — слишком дорого.
+        if ctx.get("is_preview"):
+            return "✓ (превью) Здесь был бы сгенерирован и отправлен PDF КП."
+
+        # Достаём контекст письма (если был trigger_imap)
+        em = ctx.get("email") or {}
+        from_email = (em.get("from") or "").strip()
+        # Из «Иван Иванов <ivan@x.ru>» извлекаем сам email
+        client_email = ""
+        client_name_from_em = ""
+        if "<" in from_email and ">" in from_email:
+            client_name_from_em = from_email.split("<")[0].strip().strip('"')
+            client_email = from_email.split("<", 1)[1].split(">", 1)[0].strip()
+        else:
+            client_email = from_email
+        client_name = (ctx.get("customer_name") or client_name_from_em
+                       or ctx.get("user_name") or "")[:200]
+        client_email = (ctx.get("customer_email") or client_email)[:254]
+        request_text = (em.get("body") or input_text or "")[:20000]
+        subject_in = em.get("subject", "")
+        message_id_in = em.get("message_id") or ""
+
+        if not request_text or not request_text.strip():
+            log.warning(f"[auto_proposal] empty request — bot={ctx['bot'].id}")
+            return "⚠ Пустой запрос — пропускаем"
+
+        # Списание (фикс 50 ₽ или из pricing_config). Если баланса нет —
+        # пропускаем (ошибка тоже не отправит письмо).
+        cost = int(_gp("proposal.auto_create", default=5000))
+        bot = ctx["bot"]
+        with SessionLocal() as _db:
+            if not _ded_strict(_db, bot.user_id, cost):
+                log.warning(f"[auto_proposal] no balance, user={bot.user_id}")
+                return "⚠ Недостаточно средств для авто-КП"
+            # Создаём ProposalProject
+            brand_id = cfg.get("brand_id")
+            if not brand_id:
+                _bd = _db.query(_PB).filter_by(user_id=bot.user_id, is_default=True).first()
+                if _bd:
+                    brand_id = _bd.id
+            bot_for_price = cfg.get("bot_id_for_price") or bot.id
+            proj = _PP(
+                user_id=bot.user_id,
+                name=f"Авто-КП: {(subject_in or client_email or 'без темы')[:80]}",
+                brand_id=brand_id, bot_id=bot_for_price,
+                client_name=client_name or None,
+                client_email=client_email or None,
+                client_request=request_text,
+                client_site_url=cfg.get("client_site_url") or None,
+                extra_notes=cfg.get("extra_notes") or None,
+                auto_generated=True,
+                source_email_id=message_id_in or None,
+                status="draft",
+            )
+            _db.add(proj); _db.commit(); _db.refresh(proj)
+            project_id = proj.id
+
+            from server.models import Transaction as _Tx
+            _db.add(_Tx(user_id=bot.user_id, type="usage", tokens_delta=-cost,
+                        description=f"Авто-КП «{proj.name}»"))
+            _db.commit()
+
+            # User-key (если есть Anthropic ключ юзера)
+            from server.models import UserApiKey as _UK
+            uk = _db.query(_UK).filter_by(user_id=bot.user_id, provider="anthropic").first()
+            user_key = uk.api_key if uk else None
+
+            try:
+                result = _gen_proposal(_db, proj, user_api_key=user_key)
+                proj.generated_html = result["html"]
+                proj.generated_pdf = result["pdf_path"]
+                proj.status = "done"
+                _db.commit()
+                pdf_rel = result["pdf_path"]
+            except Exception as e:
+                log.error(f"[auto_proposal] gen failed: {type(e).__name__}: {e}")
+                _cr(_db, bot.user_id, cost)
+                _db.add(_Tx(user_id=bot.user_id, type="refund", tokens_delta=cost,
+                            description=f"Возврат: авто-КП «{proj.name}» — ошибка"))
+                proj.status = "error"
+                _db.commit()
+                return "⚠ Не удалось сгенерировать КП — деньги возвращены"
+
+        # Отправляем по email если задан client_email и не отключено в cfg
+        send_email = cfg.get("send_email", True)
+        if send_email and client_email and "@" in client_email:
+            try:
+                base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                pdf_full = os.path.join(base, pdf_rel.lstrip("/"))
+                with open(pdf_full, "rb") as f:
+                    pdf_bytes = f.read()
+                subject_tpl = cfg.get("email_subject") or "Коммерческое предложение"
+                subject_tpl = subject_tpl.replace("{{client_name}}", client_name) \
+                                          .replace("{{subject}}", subject_in or "")
+                # Тело — короткое + ссылка-fallback (вдруг почтовик не покажет PDF)
+                body_tpl = cfg.get("reply_body") or (
+                    "Здравствуйте{{salut}}!\n\n"
+                    "Спасибо за ваш запрос. Во вложении — наше коммерческое предложение."
+                    "\n\nЕсли возникнут вопросы, мы на связи."
+                )
+                salut = f", {client_name}" if client_name else ""
+                body = body_tpl.replace("{{client_name}}", client_name) \
+                                .replace("{{salut}}", salut) \
+                                .replace("\n", "<br/>")
+                body_html = f"<div style='font-family:Inter,sans-serif;line-height:1.6'>{body}</div>"
+                from server.email_service import send_with_attachment
+                send_with_attachment(
+                    to=client_email, subject=subject_tpl,
+                    html_body=body_html,
+                    attachments=[(f"kp_{project_id}.pdf", pdf_bytes, "application/pdf")],
+                    in_reply_to=(message_id_in or None),
+                )
+                with SessionLocal() as _db2:
+                    _proj = _db2.query(_PP).filter_by(id=project_id).first()
+                    if _proj:
+                        from datetime import datetime as _dt
+                        _proj.sent_at = _dt.utcnow()
+                        _db2.commit()
+                from server.audit_log import log_action as _la
+                _la("proposal.auto_sent", user_id=bot.user_id,
+                    target_type="proposal", target_id=str(project_id),
+                    details={"to": client_email[:50]})
+            except Exception as e:
+                log.error(f"[auto_proposal] email send failed: {type(e).__name__}: {e}")
+                return f"⚠ КП сгенерировано (id={project_id}), но отправка email упала"
+
+        # Возвращаем краткий ack — для дальнейшей save_record / output_save ноды
+        ctx["proposal_id"] = project_id
+        ctx["proposal_pdf_path"] = pdf_rel
+        return f"✓ КП {project_id} сгенерировано и отправлено на {client_email or '(нет email)'}"
+
     if ntype == "chat_action_typing":
         # Показать «бот печатает…» перед длинным AI-вызовом.
         # Не блокирует — просто шлёт action и идём дальше.

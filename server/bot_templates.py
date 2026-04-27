@@ -401,6 +401,69 @@ CONTENT_BROADCAST = {
 }
 
 
+# ──────────────────────── 7. Авто-КП по входящим письмам ────────────────────
+
+AUTO_PROPOSAL_EMAIL = {
+    "slug": "auto_proposal_email",
+    "name": "Авто-КП по запросам в почту",
+    "category": "Продажи",
+    "short": "Читает письма с запросами → AI составляет КП → отправляет PDF в ответ.",
+    "description": (
+        "Бот-оркестратор: каждые 60 сек проверяет inbox через IMAP. На каждое "
+        "новое письмо генерирует персонализированное коммерческое предложение "
+        "(под бренд + прайс из бота), сохраняет PDF и автоматически отвечает "
+        "клиенту вложением. Идеально для отдела продаж B2B — менеджер только "
+        "правит отправленные КП и закрывает сделки."
+    ),
+    "who": "B2B-продажи, агентства, консультанты",
+    "recommended_model": "claude",
+    "default_name": "📨 Авто-КП по почте",
+    "customizable": [
+        {"key": "imap_cred_id", "label": "IMAP-credential id (создать в /admin)",
+         "placeholder": "1", "required": True},
+        {"key": "brand_id", "label": "Бренд (id из /proposals.html)",
+         "placeholder": "1", "required": True},
+        {"key": "bot_id_for_price", "label": "Бот с прайсом (id, опц.)",
+         "placeholder": "оставьте пустым — возьмём текущего бота", "required": False},
+        {"key": "email_subject", "label": "Тема ответа",
+         "placeholder": "Re: {{subject}} — наше КП",
+         "default": "Re: {{subject}} — коммерческое предложение"},
+        {"key": "reply_body", "label": "Текст письма",
+         "placeholder": "Здравствуйте{{salut}}! Спасибо за запрос. Во вложении КП.",
+         "multiline": True,
+         "default": "Здравствуйте{{salut}}!\n\nСпасибо за ваш запрос. Во вложении — наше коммерческое предложение, подготовленное специально под вашу задачу.\n\nЕсли возникнут вопросы — мы на связи."},
+    ],
+    "workflow": {
+        "name": "Авто-КП по почте",
+        "wfc_nodes": [
+            {"id": "trg", "type": "trigger_imap", "x": 80, "y": 200, "props": {
+                "cfg": {"cred_id": "{{imap_cred_id}}"}
+            }},
+            {"id": "kp", "type": "auto_proposal", "x": 340, "y": 200, "props": {
+                "cfg": {
+                    "brand_id": "{{brand_id}}",
+                    "bot_id_for_price": "{{bot_id_for_price}}",
+                    "email_subject": "{{email_subject}}",
+                    "reply_body": "{{reply_body}}",
+                    "send_email": True,
+                }
+            }},
+            {"id": "rec", "type": "save_record", "x": 600, "y": 200, "props": {
+                "cfg": {
+                    "record_type": "proposal_sent",
+                    "notify_owner": False,
+                    "ack_text": "✓ КП отправлено",
+                }
+            }},
+        ],
+        "wfc_edges": [
+            {"id": "e1", "from": "trg", "to": "kp"},
+            {"id": "e2", "from": "kp", "to": "rec"},
+        ],
+    },
+}
+
+
 # ──────────────────────── Регистрация шаблонов ──────────────────────────────
 
 TEMPLATES = [
@@ -410,6 +473,7 @@ TEMPLATES = [
     BOOKING,
     QUIZ_FUNNEL,
     CONTENT_BROADCAST,
+    AUTO_PROPOSAL_EMAIL,
 ]
 
 TEMPLATES_BY_SLUG = {t["slug"]: t for t in TEMPLATES}
