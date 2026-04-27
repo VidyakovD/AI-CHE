@@ -733,6 +733,15 @@ async def bot_preview(bot_id: int, req: PreviewMessageRequest,
         raise HTTPException(400, "Пустое сообщение")
     if len(text) > 2000:
         text = text[:2000]
+    # Внятная ошибка вместо «(Бот не ответил)» когда у бота пустой workflow
+    # (бывает после создания «с нуля» если юзер не зашёл в конструктор).
+    wf = (bot.workflow_json or "").strip()
+    if not wf or wf in ("{}", "null", "[]"):
+        raise HTTPException(
+            400,
+            "У бота нет настроенного workflow. Откройте конструктор и добавьте "
+            "хотя бы триггер + AI-ноду + output. Или импортируйте готовый шаблон."
+        )
     chat_id = req.chat_id or f"preview_{user.id}_{bot_id}"
 
     try:

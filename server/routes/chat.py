@@ -402,10 +402,10 @@ def kling_status(task_id: str, db: Session = Depends(get_db), user=Depends(curre
     import httpx as hx
     keys = [k.strip() for k in os.getenv("KLING_API_KEYS", "").split(",") if k.strip()]
     if not keys:
-        raise HTTPException(503, "No Kling keys")
+        raise HTTPException(503, "Видео-генератор Kling временно недоступен. Попробуйте через несколько минут.")
     try:
         r = hx.get(f"https://api.klingai.com/v1/videos/text2video/{task_id}",
                    headers={"Authorization": f"Bearer {keys[0]}"}, timeout=15)
         return r.json()
     except hx.TimeoutException:
-        raise HTTPException(504, "Kling API timeout")
+        raise HTTPException(504, "Kling не успел обработать запрос. Видео ещё может быть готово — обновите статус через минуту.")
