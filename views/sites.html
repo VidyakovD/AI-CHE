@@ -1012,6 +1012,30 @@ async function pollGenerationStatus(){
       return;
     }
   }
+  // Wallclock истёк (10 мин), но при tab-suspend в Chrome setTimeout
+  // отстаёт от реального времени → бэкенд может уже завершить генерацию,
+  // пока цикл ждал. Делаем финальную проверку статуса перед alert'ом.
+  try{
+    const r = await fetch(`${API}/sites/projects/${projectId}/generation-status`,{
+      headers: authHeaders(), signal: myAbort.signal,
+    });
+    if(r.ok){
+      const data = await r.json();
+      if(data.status === 'done'){
+        currentProject = await getProjectDetail();
+        hideAllPhases();
+        showDonePhase(data.code_html);
+        isGenerating = false;
+        return;
+      }
+      if(data.status === 'failed' || data.status === 'refunded'){
+        hideAllPhases();
+        alert(data.error || 'Не удалось сгенерировать сайт. Деньги возвращены.');
+        isGenerating = false;
+        return;
+      }
+    }
+  }catch(e){ /* AbortError или сеть — упадём в alert ниже */ }
   hideAllPhases();
   alert('Генерация занимает слишком долго (> 10 минут). Попробуйте позже — возможно Claude перегружен.');
   isGenerating = false;
