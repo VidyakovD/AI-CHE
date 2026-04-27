@@ -19,13 +19,15 @@
 Главные инструменты:
 - **Чат** с моделями: GPT-4o / Claude Sonnet+Opus / Perplexity / Grok / GPT-image / **Imagen 4** / **Veo 3** (видео)
 - **Бизнес-решения** (Solutions) — 30 экспертных промптов с фикс-ценой 50/100 ₽, выдача PDF
-- **Чат-боты** TG / VK / Avito / **MAX** с конструктором workflow + **6 готовых шаблонов**
+- **Чат-боты** TG / VK / Avito / **MAX** с конструктором workflow + **6 готовых шаблонов** + **прайс-лист с semantic search** (text-embedding-3-small)
 - **AI-агенты** с очередью + AI-сборка графа по описанию
-- **Сайты** — фикс **1500 ₽ (Sonnet)** или **1990 ₽ (Opus премиум)**, фоновая генерация с polling
+- **Сайты** — фикс **1500 ₽ (Sonnet)** или **1990 ₽ (Opus премиум)**, фоновая генерация с polling, мини-браузер в превью
 - **КП и Презентации** — фикс 50/100 ₽
 - **Платежи** ЮKassa (только пополнение баланса, без подписок)
-- **Админка**: пользователи, ключи, цены, контент, фичи, промокоды, **аудит-лог**
+- **Админка**: пользователи, ключи, цены, контент, фичи, промокоды, **аудит-лог**, **pricing_config** (тарифы в БД)
 - **Рефералка**: 10% от пополнения
+- **Свои API-ключи юзера** (OpenAI/Claude/Gemini/Grok) — скидка 80% при использовании, fallback на наши при ошибке
+- **Storage assets** (лидмагниты PDF/картинки/видео) — 50 ₽/мес за 100 МБ
 
 ## Стек
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy, SQLite (`chat.db`)
@@ -38,7 +40,7 @@
   - **Google AI Studio через прокси** — Imagen 4 fast/std/ultra, Veo 2/3/3.1
 - **Платежи:** ЮKassa
 - **PDF:** xhtml2pdf (markdown → HTML → PDF) с фирменным CSS
-- **Авторизация:** JWT через python-jose, bcrypt через passlib
+- **Авторизация:** JWT через python-jose в **httpOnly cookie** (после миграции 2026-04-26) + CSRF middleware (double-submit `csrf_token` cookie ↔ `X-CSRF-Token` header). Legacy: `Authorization: Bearer` в header (back-compat). bcrypt через passlib. `decode_token` пробует все доступные ключи (env + file + LEGACY) — старые сессии не отваливаются при смене источника JWT_SECRET
 
 ## Структура файлов
 | Файл | Что делает |
@@ -48,8 +50,11 @@
 | `server/routes/oauth.py` | Google/VK OAuth (ключей в env пока нет — см. TODO_NEXT) |
 | `server/routes/chat.py` | `/message`, `/upload`. **Auto-refund** если AI-видео/картинка вернулись с ошибкой |
 | `server/routes/payments.py` | YooKassa init + webhook + confirm-tokens (UNIQUE на yookassa_payment_id) |
-| `server/routes/sites.py` | **Фоновая генерация** с polling, `/quality-tiers` (Sonnet/Opus), edit-block AI-правка |
-| `server/routes/chatbots.py` | CRUD ботов + 6 шаблонов + AI-improve + превью + аналитика + records |
+| `server/routes/sites.py` | **Фоновая генерация** с polling, `/quality-tiers` (Sonnet/Opus), edit-block AI-правка (real × 5) |
+| `server/routes/chatbots.py` | CRUD ботов + 6 шаблонов + AI-improve + превью + аналитика + records + **прайс-лист с embeddings** + **export ZIP** |
+| `server/routes/assets.py` | Storage assets (лидмагниты): upload/list/delete + публичный URL `/assets/public/{token}` |
+| `server/routes/user_apikeys.py` | Свои API-ключи юзера (OpenAI/Anthropic/Gemini/Grok) с EncryptedString |
+| `server/pricing.py` | Динамические цены через БД `pricing_config` с TTL-кэшем 60с. `get_price(key, default)` + `update_price()`, `seed_pricing_defaults()` |
 | `server/routes/webhook.py` | TG / VK / Avito / MAX webhooks (TG требует X-Telegram-Bot-Api-Secret-Token) |
 | `server/routes/widget.py` | JS-виджет на сайт + WebSocket с Origin-whitelist |
 | `server/routes/solutions.py` | Бизнес-решения: запуск + PDF |
@@ -58,7 +63,7 @@
 | `server/routes/public.py` | FAQ, плата по моделям, промокоды |
 | `server/routes/user.py` | Личный кабинет, статистика, поддержка |
 | `server/routes/presentations.py` | КП + презентации |
-| `server/ai.py` | MODEL_REGISTRY, generate_response, **try_with_keys helper**, image/video через прокси |
+| `server/ai.py` | MODEL_REGISTRY, generate_response (с user_api_key), **try_with_keys helper**, image/video через прокси, **`_SecretFilter`** маскирует ключи в логах httpx/openai/anthropic |
 | `server/auth.py` | JWT (с iss/aud), хэширование |
 | `server/db.py` | SQLAlchemy + LIGHTWEIGHT_MIGRATIONS + WAL + foreign_keys + busy_timeout 30s |
 | `server/billing.py` | **Атомарные** списания + `claim_welcome_bonus` + `claim_referral_signup_bonus` |
@@ -67,7 +72,7 @@
 | `server/payments.py` | YooKassa + `credit_referral_bonus(payment_id=...)` идемпотентный |
 | `server/security.py` | Rate-limit per-IP, validation, `tg_webhook_secret`, `require_admin` |
 | `server/agent_runner.py` | Очередь AI-агентов |
-| `server/chatbot_engine.py` | Движок чат-ботов: workflow + новые ноды (request_contact, output_photo, edit_message, save_record) + persistent conv-память в SQLite |
+| `server/chatbot_engine.py` | Движок чат-ботов: workflow + ноды + persistent conv-память. **MAX**: `_max_headers()` (Authorization БЕЗ Bearer), `setup_max_webhook` со HTTPS-валидацией. **Прайс**: `_price_context_for_question()` с keyword-trigger + cosine similarity. **User-keys**: `_load_user_api_keys()`, `_call_ai_with_fallback()`. **Embeddings**: `_compute_embedding()`, `batch_update_price_embeddings()` |
 | `server/workflow_builder.py` | AI-сборка графа из описания через Claude |
 | `server/pdf_builder.py` | Markdown→PDF (xhtml2pdf), em→pt, page-break |
 | `server/email_service.py` | SMTP отправка |
@@ -80,10 +85,10 @@
 | `views/index.html` | Главная: чат + бизнес-решения + lightbox |
 | `views/admin.html` | Админ-панель |
 | `views/agents.html` | AI-агенты + Canvas |
-| `views/chatbots.html` | Чат-боты: chooser (шаблон/AI/с-нуля) + галерея + превью + аналитика + records + AI-improve |
-| `views/sites.html` | Сайты: chooser tier (Sonnet/Opus) + polling-генерация + edit-block AI-правка |
+| `views/chatbots.html` | Чат-боты: chooser (шаблон/AI/с-нуля) + галерея + превью + аналитика + records + AI-improve + **модалка «Прайс»** (taлица + CSV import + reembed) + **модалка «Лидмагниты»** + help-инструкции к токенам + roadmap каналов |
+| `views/sites.html` | Сайты: chooser tier (Sonnet/Opus) + polling-генерация + edit-block AI-правка + **mini-browser в превью** (back/forward/reload/home через postMessage) |
 | `views/presentations.html` | КП и презентации |
-| `views/icons.js` | **Единый набор 66 SVG-иконок** (заменяет эмодзи в UI) |
+| `views/icons.js` | **Единый набор SVG-иконок** + **canonical brand_* лого** (Telegram/VK/Avito/MAX/OpenAI/Claude/Gemini/Grok/Perplexity из simple-icons.org CC0) + `getModelBrandIcon(model_id)` helper + **fetch-shim** (auto X-CSRF-Token) + **textarea autopatch maxlength** |
 
 ## Запуск (local dev)
 ```bash
@@ -104,6 +109,22 @@ cd /root/AI-CHE && git pull origin main && systemctl restart ai-che
 - Бонусы:
   - Welcome **50 ₽** (env `WELCOME_BONUS_RUB`) — атомарный gate `User.welcome_bonus_claimed_at`
   - Реферал **10% от каждого пополнения** друга — идемпотентность через `Transaction.yookassa_payment_id` UNIQUE
+
+### Тарифы (актуально на 2026-04-27, все цены в БД `pricing_config`)
+| Что | Цена | Pricing-key |
+|---|---|---|
+| Создание бота с нуля | бесплатно | `bot.scratch_create=0` |
+| Бот из шаблона | бесплатно | `bot.template_create=0` |
+| AI-конструктор бота | **≥ 1000 ₽** | `bot.ai_create_min=100_000` |
+| AI-доработка / правки | real × 5 без минимума | `bot.ai_improve_min=0`, `ai.improve_margin_pct=500` |
+| Реальные диалоги бота | real × 3 | `ai.reply_margin_pct=300` |
+| Edit-block в сайте | real × 5 | переписан с фикс 5 ₽ |
+| Storage файлов | 50 ₽/мес за 100 МБ | `storage.per_100mb_month=5_000` |
+| Сайт Sonnet | 1500 ₽ | `site.standard=150_000` |
+| Сайт Opus премиум | 1990 ₽ | `site.premium=199_000` |
+| Свой API-ключ юзера | -80% (платит 20%) | `ai.user_key_discount_pct=20` |
+
+Изменить любую цену — `POST /admin/pricing` с `{"key":"bot.ai_create_min","value_kop":150000}`. Кэш сбрасывается автоматически.
 
 ## AI провайдеры
 
@@ -222,11 +243,37 @@ cd /root/AI-CHE && git pull origin main && systemctl restart ai-che
 - **Деплой:** `git pull origin main && systemctl restart ai-che`. NEVER `db.drop_all()`, NEVER reset api_keys/users/transactions
 
 ## Тесты
-`pytest tests/` — 72 проходят. Файлы:
-- `tests/test_api.py` — auth, chat, chatbots CRUD, security, webhooks
+`pytest tests/` — **83 проходят** (актуально на 2026-04-27). Файлы:
+- `tests/test_api.py` — auth, chat, chatbots CRUD, security, webhooks, **CookieAuth** (4 теста на cookie+CSRF), **YooKassaWebhookSignature** (4 теста на HMAC)
 - `tests/test_billing.py` — atomic gates, race conditions, widget Origin/escape, injection
 - `tests/test_critical_paths.py` — promo, conversation persistence, try_with_keys, secrets HKDF, edit-block refund
-- `tests/conftest.py` — DEV_MODE=true + JWT_SECRET + apply migrations
+- `tests/conftest.py` — DEV_MODE=true + APP_ENV=dev + JWT_SECRET + apply migrations + **`_clear_cookies_and_rl` autouse fixture** (между тестами чистит client.cookies + SQLite rate-limit)
 
-## Свежие коммиты
-Смотри `git log --oneline -20` или `HANDOVER.md` для разбора последних сессий.
+Запуск:
+```bash
+cd .claude/worktrees/intelligent-poincare-7d27bf/
+DEV_MODE=true APP_ENV=dev JWT_SECRET=test-jwt-secret-32-chars-long-yes \
+ALLOWED_ORIGINS=http://localhost:8000 \
+python -m pytest tests/ --tb=line
+```
+
+## Деплой workflow
+Я (Claude) деплою сам когда юзер просит. Команды:
+```bash
+# Из worktree push в main (fast-forward)
+git push origin claude/intelligent-poincare-7d27bf:main
+
+# Прод (HOME workaround для кириллицы в пути SSH-ключа)
+HOME="C:\\Users\\Денис" ssh -i "C:\\Users\\Денис\\.ssh\\id_ed25519" \
+  root@194.104.9.219 "cd /root/AI-CHE && git pull origin main && \
+                       systemctl restart ai-che && systemctl is-active ai-che"
+```
+
+## Свежие коммиты (топ-5 на 2026-04-27)
+- `3d5f6cf` — help-инструкции к токенам + scrollbar + roadmap каналов
+- `40e4e12` — semantic vector search через OpenAI embeddings для прайса
+- `868840f` — прайс-лист бота с smart-inject (только при вопросе о цене)
+- `823ef92` — мини-браузер в превью + AI-правки real ×5 без фикс
+- `624ed9a` — тарифы AI-create ≥1000 ₽ + свои API-ключи юзеров
+
+Полный лог: `git log --oneline -25`. Развёрнутый разбор спринтов — `HANDOVER.md`.

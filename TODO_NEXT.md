@@ -1,192 +1,113 @@
 # TODO — задачи в работе и на очереди
 
-_Последнее обновление: 2026-04-26 (после Sites bugs + Bot constructor + Storage спринта)_
+_Последнее обновление: 2026-04-27 (после Bot pricing rework + Price-list spринта)_
 
-## ✅ Закрыто в последнем спринте
+## ✅ Закрыто за последние 2 спринта (см. HANDOVER.md)
 
-- ✅ Sites bugs — узкое превью, потеря работы (auto-save), GPT enhance переписан
-- ✅ Bot constructor — двухэтапный GPT→Claude pipeline, library блоков, френдли entry-point
-- ✅ MAX security — webhook secret + idempotency + 401/403 disable + HTTPS validate
-- ✅ Self-hosting export workflow в ZIP с README
-- ✅ Storage assets (лидмагниты) с тарификацией 50 ₽/мес за 100 МБ
-- ✅ JWT в httpOnly cookie + CSRF middleware
-- ✅ Pricing config в БД (заменил hardcoded SITE_QUALITY_TIERS)
-- ✅ FK CASCADE в моделях + миграция-скрипт
-- ✅ Pagination /records (back-compat)
-- ✅ ARIA / a11y проход (44 правки в 5 views)
-
-## 🟠 Незакрытое
-
-### Self-hosted standalone-runtime
-**Сейчас сделано**: экспорт workflow в ZIP с README (для импорта в другую AI Студию Че).
-**НЕ сделано**: standalone-движок который можно запустить отдельно от платформы.
-**Why deferred**: chatbot_engine.py = 110KB кода с многими зависимостями (БД,
-шифрование, AI-провайдеры). Standalone версия = килотонна работы.
-**Решение**: документировать API/архитектуру, помогать enterprise-клиентам форкать
-весь репо если им нужен полный self-hosted (договариваться индивидуально).
-
-### Storage UI в личном кабинете
-API готов (/assets/*), но UI ещё нет. Нужно добавить вкладку «Файлы» в
-`views/index.html` (личный кабинет) или в `views/chatbots.html` (для лидмагнитов
-конкретного бота). Загрузка drag-n-drop + список + удаление + копирование
-public URL для использования в воркфлоу.
-
-### Архивация asset'ов при просрочке оплаты
-Сейчас если баланс кончился — storage_billing_tick пропускает списание.
-Нужно: после N дней (например 7) без оплаты → is_active=False, файлы остаются
-на диске но недоступны через public URL. Через 30 дней — физическое удаление.
-
-### Tailwind CDN → локальный bundle (defer)
-Supply-chain risk + 300ms latency. Требует node-сборки или 280KB prebuilt CSS.
-
-## 🔴 Security debt после P0/P1 спринта
-
-### JWT в localStorage → httpOnly cookie + CSRF (defer)
-**Зачем:** сейчас XSS = моментальный угон сессии (token читается JS). httpOnly cookie + CSRF-токен в заголовке = XSS получает только короткое окно.
-
-**Где трогать:**
-- `server/auth.py` — добавить `set_access_cookie(response, token)` хелпер.
-- `server/routes/auth.py` — `/login`, `/register/verify-email`, `/oauth/exchange` — устанавливать `Set-Cookie: access_token=...; HttpOnly; Secure; SameSite=Lax; Path=/`.
-- `server/routes/deps.py:current_user` — читать токен сначала из cookie, потом из Authorization (back-compat).
-- Новый middleware: для всех `POST/PUT/DELETE/PATCH` требовать `X-CSRF-Token` совпадающий с cookie `csrf_token` (double-submit pattern).
-- Все views — убрать `localStorage.setItem('obs_token')`, читать csrf-token из cookie через JS, добавлять в `fetch` header.
-- `/auth/logout` — очистка cookie через `Set-Cookie: access_token=; Max-Age=0`.
-
-**Why deferred:** инвазивная миграция, требует тестов на back-compat (старые залогиненные клиенты должны продолжать работать), отдельные тесты на CSRF middleware.
-
-### Прочие из аудита (низкий приоритет)
-- `tg_webhook_secret()[:32]` оставлено (128 бит — приемлемо, увеличение сломает выставленные webhook'и).
-- Tailwind CDN → локальный bundle (300ms latency + supply-chain risk).
-- Hardcoded цены `SITE_QUALITY_TIERS`/`CODE_GEN_PREMIUM_COST` — мигрировать в `model_pricing` БД с UI в админке.
-- ARIA / a11y — пройтись по основным views.
-
-## 🟡 В разработке / на очереди
-
-### 1. Чат-бот «Конструктор ботов» в TG и MAX 🆕
-
-**Что делаем:** AI-бот, живущий в TG и MAX, который через диалог создаёт
-**другие** боты для конкретных бизнес-задач — например запись в салон
-красоты, мастерскую, на консультацию. Конструктор сам:
-
-- Спрашивает у клиента (владельца салона) что нужно: тематика, услуги,
-  расписание, как принимать оплату/контакты.
-- Генерирует workflow для нового бота (текстовое меню, кнопки, переходы).
-- Деплоит этого нового бота под вторым TG/MAX токеном клиента.
-- Конечный бот умеет:
-  - Inline-кнопки (мы уже поддерживаем `output_tg_buttons` в воркфлоу-движке).
-  - Сценарные переходы (switch / condition по callback_data).
-  - Сохранение записи в storage (имя, телефон, услуга, время).
-  - Подтверждение / отмену / напоминание (`trigger_schedule`).
-  - Опционально: уведомление владельца о новой записи (`output_tg`).
-
-**Где трогать:**
-- `server/agent_runner.py` — добавить агент `bot_builder` с системным
-  промптом «ты собираешь TG/MAX-бота под бизнес-задачу».
-- `server/workflow_builder.py` — у нас уже есть AI-сборка графа
-  по задаче. Может стать ядром.
-- `server/chatbot_engine.py` — поддержка inline-кнопок MAX
-  (`output_max_buttons`, аналог output_tg_buttons).
-- `views/chatbots.html` или новая страница — UX «создать бота через AI».
-
-**Why:** клиент-салон не должен сам собирать workflow в Canvas-конструкторе
-— это слишком сложно. Через диалог в TG/MAX — бизнес-юзеру комфортно.
+- ✅ Bot pricing rework: с-нуля бесплатно, AI-create ≥1000 ₽, AI-improve real ×5
+- ✅ Реальные диалоги с маржой ×3, edit-block переписан с фикс на real ×5
+- ✅ Свои API-ключи юзеров (OpenAI/Claude/Gemini/Grok) с fallback и скидкой 80%
+- ✅ Прайс-лист бота с semantic vector search (text-embedding-3-small)
+- ✅ MAX полный фикс: Authorization БЕЗ Bearer, secrets_crypto fallback, JWT decode со всеми ключами
+- ✅ Mini-browser в превью сайта (back/forward/reload/home через postMessage)
+- ✅ Брендовые иконки каналов и AI (canonical из simple-icons.org CC0)
+- ✅ Кнопка «🔄 Обновить» на active-боте (redeployBot)
+- ✅ Кастомный scrollbar + help-инструкции к токенам каналов
+- ✅ Roadmap каналов с голосованием (POST /user/feature-vote)
+- ✅ Storage UI в кабинете и в карточке бота
+- ✅ Self-hosting export workflow (ZIP + README)
+- ✅ Sites: auto-save + узкое превью fix + GPT enhance улучшен
+- ✅ Bot constructor: GPT→Claude pipeline, library блоков, френдли entry-point
+- ✅ Security: 11 P0 + 25+ P1 закрыты в двух аудит-спринтах
+- ✅ JWT в httpOnly cookie + CSRF (double-submit) с back-compat
+- ✅ Pricing config в БД (заменил hardcoded), FK CASCADE, pagination, ARIA проход
 
 ---
 
-### 2. Сайты — ручное редактирование + точечная AI-правка 🆕
+## 🟡 На очереди (в порядке убывания пользы)
 
-**Что делаем:** в редакторе сайта (`views/sites.html` → детальная модалка)
-после генерации HTML добавить:
+### 1. Видео-туториалы в UI (после получения GIF от юзера)
 
-- **Ручное редактирование текста и картинок прямо в превью** (частично
-  уже работает через `contenteditable` + `editMode`). Доделать:
-  - Стабильное сохранение изменений в исходный `code_html` без срыва
-    разметки (сейчас `site:htmlChange` пуляет в textarea, но не всегда
-    синхронизируется при `click outside`).
-  - Замена картинок через клик: модальное окно «загрузить новую» или
-    выбрать из ранее загруженных в проект.
-- **Точечная AI-правка по блокам:**
-  - Юзер выделяет блок (`section`, `div`, `header` …) → клик правой
-    кнопкой / иконка «✨ Изменить через AI».
-  - Открывается мини-промпт «что хочешь изменить в этом блоке?».
-  - Backend получает ID блока + текущий HTML блока + промпт →
-    Claude отдаёт обновлённый блок → подменяем в `code_html`.
-  - **Цена:** 5 ₽ за точечную правку (как сейчас iterate).
-- **Сохранение перед скачиванием:**
-  - Перед `Download HTML` / `ZIP` / `Опубликовать` — финальный коммит
-    всех ручных правок в `code_html` через POST `/save-code`.
-  - В `code_html` идёт уже отредактированная финальная версия
-    (включая заменённые картинки и AI-правки блоков).
+Список из 15 GIF-туториалов сделан в `docs/gif_tutorials.md`. Юзер
+самостоятельно снимет MP4 (приоритет 1: bot-from-template, bot-via-ai,
+connect-tg-token, lead-magnet-upload, site-generate). Когда положит в
+`views/static/tutorials/<slug>.mp4` — встроить lightbox с автоплеем
+в empty-state'ы и при кнопке «📺 Как это работает».
 
-**Где трогать:**
-- `server/routes/sites.py` — новый endpoint
-  `POST /sites/projects/{id}/edit-block` (cost 500 коп = 5 ₽):
-  принимает `block_id`, `block_html`, `instruction` → возвращает обновлённый блок.
-- `views/sites.html` — JS:
-  - `data-edit-id` атрибуты на каждый top-level блок при рендере iframe.
-  - Hover-toolbar над блоком: «✨ AI-правка», «🖼 Заменить фон/картинку».
-  - Перед download/publish — `finalizeEdits()` собирает HTML из iframe
-    и POSTит в `/save-code`.
-- `server/chatbot_engine.py` уже не нужен — это про сайты.
+### 2. Голоса РФ-каналов → реальная разработка
 
-**Why:** клиент хочет менять отдельные секции точечно, а не
-гонять весь HTML через Claude (5 ₽ за блок гораздо дешевле, чем 1500 ₽
-за полную регенерацию).
+Юзер видит блок «🔮 Скоро» в модалке настроек бота. Раз в неделю
+смотреть статистику голосов:
+```bash
+ssh root@194.104.9.219 'cd /root/AI-CHE && /root/AI-CHE/venv/bin/python -c "
+from server.db import db_session
+from server.models import ActionLog
+from sqlalchemy import func
+with db_session() as db:
+  rows = db.query(ActionLog.target_id, func.count(ActionLog.id)) \
+           .filter(ActionLog.action==\"user.feature_vote\") \
+           .group_by(ActionLog.target_id).all()
+  for r in sorted(rows, key=lambda x: -x[1]): print(f\"  {r[0]}: {r[1]}\")
+"'
+```
 
----
+Кандидаты по простоте интеграции:
+- **WhatsApp** через Wazzup24 (российская инфра, без VPN, простой REST API)
+- **Одноклассники** — OK Bot API (от VK Group, похож на VK)
+- **Email-канал** — IMAP уже частично есть как trigger (`server/email_imap.py`)
+- **JivoSite** — webhook + REST (если их API живой)
 
-### 3. Доделки по картинкам (минор)
+### 3. Архивация asset'ов при просрочке оплаты
 
-- Размер 1024×1536 / 1536×1024 — проверить что реально применяется
-  при `images.edit` (gpt-image-1). Если игнорится — открыть issue в OpenAI
-  cookbook или добавить fallback на images.generate с перерисовкой по описанию.
-- Lightbox / hover-кнопки могут не работать если у юзера старый кэш —
-  всегда инструктировать `Ctrl+Shift+R`.
+Сейчас если баланс кончился — `_storage_billing_tick` пропускает списание.
+Нужно: после N дней (например 7) без оплаты → `is_active=False`, файлы
+остаются на диске но недоступны через public URL. Через 30 дней —
+физическое удаление. Базовая логика готова в scheduler, но не активирована
+в production-режиме (cutoff даты сейчас грейс-период).
 
----
+### 4. Pure self-hosted standalone-runtime
 
-### 4. PDF бизнес-решений — мелкие косметика
+**Сделано**: экспорт workflow в ZIP (для импорта в другую AI Студию Че).
+**НЕ сделано**: standalone-движок отдельно от платформы.
+**Why deferred**: `chatbot_engine.py` = 110KB с многими зависимостями
+(БД, шифрование, AI-провайдеры). Реальный self-host = форк всего репо.
+**Решение**: договариваться с enterprise-клиентами индивидуально.
 
-- xhtml2pdf варнинг `getSize: Not a float '0.4em'` — поправить CSS,
-  заменить em на pt в `_BRAND_CSS` (server/pdf_builder.py).
-- Добавить логотип на обложку (если поднимем `/static/logo.png`).
-- Пагинация: проверить разрыв страниц перед `<h1>`/`<h2>`.
+### 5. Tailwind CDN → локальный bundle
 
----
+Сейчас pinned `cdn.tailwindcss.com/3.4.0` (защита от breaking changes,
+но supply-chain риск остаётся). Полный self-host требует node на dev:
+- `npx tailwindcss -i src.css -o views/static/tailwind.min.css --minify`
+- Конфиг с custom-colors (primary #ff8c42 и т.д.) уже задокументирован
+  в `scripts/build_tailwind.md`
+- Bundle с tree-shaking ~30-50 KB вместо 50 KB JIT runtime
 
-## ✅ Сделано (хвост за апрель 2026)
+Defer пока на dev-машине нет node.
 
-### Большой рефакторинг 2026-04-25
-- ❌ Подписки убраны полностью (PLANS, /payment/create, _sub_dict, subscription tab)
-- 💰 CH (внутренняя валюта) → копейки. Миграция × 10 на проде применена.
-- 📋 Оферта.txt + terms.html переписаны (раздел 4 «Оплата», 5 «Баланс»)
-- 🟥 Интеграция MAX (botapi.max.ru) — TG/VK/Avito/Widget + MAX
-- ✨ AI-сборка воркфлоу по описанию через Claude
-- 🔧 Фиксы безопасности из аудита: чат-leak, шифрование токенов,
-  YooKassa HMAC, /message требует auth, condition word-boundary,
-  orchestrator JSON parsing, env-token fallback убран
-- 🎨 Картинки: gpt-image-1 + DALL-E, edit-by-reference (до 10 фото),
-  выбор формата, lightbox + hover-кнопки, цена 15 ₽ (маржа ~3-4×)
-- 🌐 Сайты: фикс 1500 ₽, чат по ТЗ через GPT-4o, генерация HTML через
-  Claude с auto-continue (max_tokens=16000), viewport-resizer,
-  привязка чат-бота, ресайз модалки
-- 📄 КП/Презентации: фикс 50/100 ₽ + 5 ₽ правки, картинки upload,
-  привязка чат-бота
-- 💼 Бизнес-решения: фикс 50/100 ₽, Markdown→PDF (xhtml2pdf) с
-  фирменными стилями + обложка + footer
-- 🔑 OpenAI/Anthropic/Grok ключи — прямые, прокси awstore удалён
-- 💸 Пакеты пополнения: 500 ₽ / 1000+50 ₽ / 3000+250 ₽
-- ⚡ nginx proxy_read_timeout 600s для долгих Claude-запросов
-- 🐛 Фиксы: картинки сохранялись в server/uploads вместо /uploads,
-  fetchMe возвращал {user:...} вместо user, баланс не обновлялся
-  на главной (auto-refresh каждые 30 сек + focus + visibilitychange)
+### 6. Прочие мелочи
+
+- **MAX inline-кнопки** реально протестировать с живым ботом (код есть,
+  юзер ещё не подключил продакшн-бот)
+- **systemd `User=aiche`** — миграция на отдельного юзера от root
+  (команды в комментариях `ai-che.service`)
+- **localStorage.obs_token** окончательно убрать после периода миграции
+  (когда все access-токены истекут — 1+ день после деплоя cookie)
+- **Голос Google API ключ** засветился в старых journalctl до фильтра
+  `_SecretFilter` — ротировать `AIza...` при удобном случае
+- **Embeddings перевод на pgvector / FAISS** при росте прайсов >500 позиций
+  (сейчас linear scan по cosine similarity достаточно)
 
 ---
 
 ## 📋 Заметки для следующей сессии
 
-- **Нет ключей для OAuth Google/VK** — код готов, ждёт `GOOGLE_CLIENT_ID`,
-  `GOOGLE_CLIENT_SECRET`, `VK_CLIENT_ID`, `VK_CLIENT_SECRET`.
-- **YooKassa тестовый shop** — для прод-платежей нужен live shop_id и secret.
-- **Видео-модели (Kling, Veo, Nano)** — временно скрыты из UI, но код живёт.
-  При желании вернуть — добавить в `MODELS` массив в index.html.
+- **Все цены в БД** `pricing_config` — менять через `POST /admin/pricing`
+  без редеплоя. Список ключей и дефолтов — в `server/pricing.py:DEFAULTS`.
+- **Свои API-ключи юзера** — вкладка «Свои API» в кабинете
+  (`/index.html` → аватар → cabTab('apikeys'))
+- **Прайс-лист бота** — кнопка `₽` в карточке бота в `/chatbots.html`,
+  CSV import + reembed
+- **No OAuth keys** — `GOOGLE_CLIENT_ID/VK_CLIENT_ID` в env пока пусто
+  (код готов, ждёт регистрации в Google/VK)
+- **YooKassa тестовый** — для прода нужен live shop_id
+- **Видео Kling/Veo/Nano** — модели работают, но скрыты из UI MODELS array

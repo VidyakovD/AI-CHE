@@ -1,6 +1,93 @@
 # HANDOVER — для нового AI-ассистента
 
-Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-04-26 после последнего большого спринта**.
+Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-04-27 после большого ребилда тарифов и фич**.
+
+## Спринт «Bot pricing rework + Price-list + MAX fix» (2026-04-27)
+
+### Bot pricing — пересмотр тарифов (`pricing.py` + `624ed9a`, `823ef92`)
+
+Юзер пересмотрел тарификацию. Сейчас:
+
+| Действие | Цена | Где списывается |
+|---|---|---|
+| **Создание с нуля Canvas** | бесплатно | `POST /chatbots` — без `deduct` |
+| **Из шаблона** | бесплатно | `POST /chatbots/from-template/{slug}` |
+| **AI-конструктор** | **≥ 1000 ₽** | `bot.ai_create_min`. cost = max(min, real_tokens × margin) |
+| **AI-доработка / правки** | **real × 5, без фикс** | `bot.ai_improve_min=0`, `ai.improve_margin_pct=500` |
+| **Реальные диалоги бота** | **real × 3** | `ai.reply_margin_pct=300` |
+| **Edit-block в сайте** | **real × 5** | переписан с фикс 5 ₽ на real × 5 |
+| **Storage файлов** | 50 ₽/мес за 100 МБ | `storage.per_100mb_month`, дневное списание в scheduler |
+
+**Все цены в БД** (`pricing_config`), меняются через `POST /admin/pricing` без редеплоя. См. `server/pricing.py` DEFAULTS.
+
+### Свои API-ключи юзера (`cdd735d`, `624ed9a`)
+
+Юзер может в кабинете → вкладка «Свои API» подключить свой OpenAI/Claude/Gemini/Grok ключ:
+- Хранится `EncryptedString` через HKDF от JWT_SECRET
+- При AI-вызове бота → `_load_user_api_keys(user_id)` загружает в ctx
+- AI-ноды → `_user_key_for_model(ctx, model_id)` → если есть, `_call_ai_with_fallback(...)` использует его
+- При ошибке user-key (401/quota/«временно недоступен») — fallback на наш ключ
+- Скидка: `ai.user_key_discount_pct=20` — юзер платит **20%** от обычной цены (за инфраструктуру)
+
+### Прайс-лист бота с semantic vector search (`868840f`, `40e4e12`)
+
+Новая модель `BotPriceItem` (bot_id, name, price_kop, price_text, category, description, sort_order, **embedding_json** — TEXT с JSON-сериализованным 1536-dim вектором).
+
+UX:
+- Кнопка `₽` на карточке бота → модалка «Прайс-лист бота»
+- Inline-таблица + импорт CSV (`/chatbots/{id}/price/import-csv`) с auto-detect разделителя и русскими колонками
+- Кнопка «Векторы» — пересчитать embeddings (если импорт был без OpenAI ключа)
+
+Технически (важное!):
+- Embeddings через `text-embedding-3-small` ($0.02/1M токенов = ~0.0002 ₽ за 200 позиций batch'ом)
+- При **POST/PATCH** — single embedding sync (`update_price_item_embedding`)
+- При **CSV import** — `batch_update_price_embeddings` (1 API-call вместо N)
+- При **вопросе клиента**:
+  1. `_price_keyword_in_text()` — детектит триггер («сколько», «цена», «прайс», «руб», «₽», ...) — БЕЗ триггера прайс не подключается → не удорожаем обычные диалоги
+  2. `_cached_query_embedding()` — embedding запроса с TTL 10 мин
+  3. Cosine similarity ко всем позициям → top-15 при threshold 0.30
+  4. Inject компактным форматом в system_prompt
+  5. Fallback на substring search если OpenAI недоступен
+
+### MAX полный fix (`bb18a4f`, `7bfa9cc`, `d88077b`, `d81a0b5`)
+
+Долгий debug — каскад из 3 багов:
+
+1. **MAX API deprecation** — `?access_token=` больше не работает, требует `Authorization` header
+2. **MAX ожидает Authorization БЕЗ префикса `Bearer`** — нестандартное поведение, их error message обманчивая. Live-тест: `Bearer xxx` → 401, `xxx` → 200 OK
+3. **JWT_SECRET race** — `auth.py` импортировался раньше `ai.py` (где был `load_dotenv()`), брался ключ из `server/.jwt_secret` файла; при следующем рестарте — из `.env`. Шифрованные `max_token` не расшифровывались.
+
+Фиксы:
+- `_max_headers(token)` возвращает `{"Authorization": token}` (без Bearer)
+- `auth.py` сам делает `load_dotenv()` в начале файла
+- `secrets_crypto._all_fernets()` пробует и env-ключ, и файловый
+- `auth.decode_token` пробует все доступные ключи (env + file + LEGACY) — чтобы старые сессии не отвалились при смене источника
+
+### UI / UX правки (`5d6c76b`, `7d314be`, `929cd00`, `f49c18b`, `3d5f6cf`)
+
+- **Брендовые иконки каналов и AI** — canonical SVG из simple-icons.org (CC0): Telegram, VK, OpenAI, Claude, Gemini, Grok, Perplexity. + кастомные для MAX, Avito, Imagen, Veo, Kling. `views/icons.js` + `getModelBrandIcon(model_id)` helper.
+- **Карточка бота** — кнопки переехали в `flex-wrap-row` под названием, кнопка ❌ Удалить рядом с именем, имя через `truncate` не сжимается
+- **Кнопка «🔄 Обновить»** в карточке active-бота (`redeployBot()`) — применяет свежие настройки без Pause/Start
+- **Узкое превью** в /sites.html — `min-height:70vh` на `.preview-wrap` + iframe (фикс цепочки flex)
+- **Mini-browser** в превью сайта — toolbar `← → ↻ 🏠` + адресная строка. Управление через postMessage в injected runtime (sandbox без allow-same-origin не пускает читать iframe.history)
+- **Кастомный scrollbar** — тонкий 6px, оранжевый `rgba(255,140,66,0.25)`
+- **Help-блоки `<details>`** «Где взять токен?» — пошаговые инструкции для TG/VK/Avito/MAX/виджет
+- **Roadmap «🔮 Скоро»** — 8 РФ-каналов (WhatsApp/OK/Viber/JivoSite/Битрикс/AmoCRM/Email/SMS) с голосованием через `POST /user/feature-vote` → audit_log
+
+### Security audit (после большого спринта) (`ddc0040`)
+
+Прошёл повторный аудит. Закрыто 4 P0 + 7 P1:
+- **CSRF bypass через `Authorization: Bearer ` (пустой токен)** — теперь `len > 10`
+- **CSV-export `?_h=<token>` в URL** — переписан на blob через fetch с Authorization
+- **Sites injected JS** — `${editMode}` без JSON.stringify → потенциал XSS если переменная станет string
+- **Avito webhook без auth** — добавлен `?secret=` через `tg_webhook_secret(avito_client_id)`
+- **Storage billing race** — `last_billed_at=now` при upload + `created_at < cutoff` в архивации
+- **`update_price` без верхней границы** — лимит 100M коп
+- **target=_blank без rel=noopener** — 7 мест автопатчем
+- **iframe sandbox `allow-popups`** — убран
+- **postMessage `'*'` → `window.__parentOrigin`**
+
+---
 
 ## Спринт «Sites bugs + Bot constructor + Storage» (2026-04-26 второй заход)
 
