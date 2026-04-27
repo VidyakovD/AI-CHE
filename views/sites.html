@@ -33,6 +33,12 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .tab-btn.active{color:#c0c1ff;border-bottom-color:#c0c1ff}
 .tab-pane{display:none}
 .tab-pane.active{display:block}
+/* Если tab-pane имеет Tailwind class `flex` — он должен остаться flex'ом
+   когда становится active. Без этого override `display:block` ломал высоту
+   у preview-iframe (превью становилось узкой полосой 550px вместо растяжения
+   на всю модалку). Селектор `.tab-pane.active.flex` имеет специфичность 0,3,0
+   против 0,2,0 у `.tab-pane.active` — выигрывает. */
+.tab-pane.active.flex{display:flex}
 /* Chat */
 .chat-box{flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:12px}
 .chat-msg{max-width:85%;border-radius:14px;padding:10px 14px;font-size:14px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
