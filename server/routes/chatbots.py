@@ -1,6 +1,6 @@
 """CRUD API для постоянных чат-ботов."""
 import os, logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -1275,3 +1275,185 @@ def _build_export_readme(bot_name: str) -> str:
 - Вопросы по платформе: https://aiche.ru
 - Telegram: @aiche_support
 """
+
+
+# ── Прайс-лист бота ─────────────────────────────────────────────────────────
+# Структурированные записи (название/цена/описание/категория) которые бот
+# автоматически использует при ответах на «сколько стоит». Inject в
+# system_prompt каждого AI-вызова через _build_price_context().
+
+class PriceItemBody(BaseModel):
+    name: str
+    price_kop: int | None = None      # 250000 = 2500 ₽
+    price_text: str | None = None     # «от 1500 ₽», «договорная», «бесплатно»
+    category: str | None = None       # «Услуги», «Товары»
+    description: str | None = None
+    sort_order: int = 0
+
+
+@router.get("/{bot_id}/price")
+def list_price(bot_id: int,
+                db: Session = Depends(get_db),
+                user: User = Depends(current_user)):
+    """Все позиции прайса бота (для UI таблицы)."""
+    from server.models import BotPriceItem
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
+    if not bot:
+        raise HTTPException(404, "Бот не найден")
+    rows = (db.query(BotPriceItem)
+              .filter_by(bot_id=bot_id, is_active=True)
+              .order_by(BotPriceItem.sort_order, BotPriceItem.id)
+              .all())
+    return [{
+        "id": r.id, "name": r.name,
+        "price_kop": r.price_kop,
+        "price_rub": (r.price_kop or 0) / 100 if r.price_kop else None,
+        "price_text": r.price_text,
+        "category": r.category,
+        "description": r.description,
+        "sort_order": r.sort_order,
+    } for r in rows]
+
+
+@router.post("/{bot_id}/price")
+def add_price_item(bot_id: int, body: PriceItemBody,
+                    db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    """Добавить одну позицию прайса."""
+    from server.models import BotPriceItem
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
+    if not bot:
+        raise HTTPException(404, "Бот не найден")
+    if not body.name or not body.name.strip():
+        raise HTTPException(400, "Название обязательно")
+    item = BotPriceItem(
+        bot_id=bot_id,
+        name=body.name.strip()[:200],
+        price_kop=body.price_kop if body.price_kop and body.price_kop > 0 else None,
+        price_text=(body.price_text or "").strip()[:60] or None,
+        category=(body.category or "").strip()[:60] or None,
+        description=(body.description or "").strip()[:500] or None,
+        sort_order=int(body.sort_order or 0),
+    )
+    db.add(item); db.commit(); db.refresh(item)
+    return {"id": item.id, "status": "ok"}
+
+
+@router.patch("/{bot_id}/price/{item_id}")
+def update_price_item(bot_id: int, item_id: int, body: PriceItemBody,
+                       db: Session = Depends(get_db),
+                       user: User = Depends(current_user)):
+    from server.models import BotPriceItem
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
+    if not bot:
+        raise HTTPException(404, "Бот не найден")
+    item = db.query(BotPriceItem).filter_by(id=item_id, bot_id=bot_id).first()
+    if not item:
+        raise HTTPException(404, "Позиция не найдена")
+    item.name = body.name.strip()[:200] if body.name else item.name
+    item.price_kop = body.price_kop if body.price_kop and body.price_kop > 0 else None
+    item.price_text = (body.price_text or "").strip()[:60] or None
+    item.category = (body.category or "").strip()[:60] or None
+    item.description = (body.description or "").strip()[:500] or None
+    item.sort_order = int(body.sort_order or 0)
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.delete("/{bot_id}/price/{item_id}")
+def delete_price_item(bot_id: int, item_id: int,
+                       db: Session = Depends(get_db),
+                       user: User = Depends(current_user)):
+    from server.models import BotPriceItem
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
+    if not bot:
+        raise HTTPException(404, "Бот не найден")
+    item = db.query(BotPriceItem).filter_by(id=item_id, bot_id=bot_id).first()
+    if not item:
+        raise HTTPException(404, "Позиция не найдена")
+    db.delete(item); db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/{bot_id}/price/import-csv")
+async def import_price_csv(bot_id: int,
+                            file: UploadFile = File(...),
+                            db: Session = Depends(get_db),
+                            user: User = Depends(current_user)):
+    """
+    Импорт прайса из CSV.
+
+    Ожидаемые колонки (любой регистр, в любом порядке):
+      - name (обязательно)
+      - price / price_rub / цена — число (рубли) или текст
+      - description / описание
+      - category / категория
+
+    Разделитель: , или ; (auto-detect). Кодировка: UTF-8 (с BOM или без).
+    Заменяет ВЕСЬ текущий прайс бота (предыдущие позиции деактивируются).
+    """
+    from server.models import BotPriceItem
+    import csv as _csv, io as _io
+    bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
+    if not bot:
+        raise HTTPException(404, "Бот не найден")
+    raw = await file.read()
+    if len(raw) > 2 * 1024 * 1024:
+        raise HTTPException(413, "CSV больше 2 МБ")
+    # Снимаем BOM если есть
+    text = raw.decode("utf-8-sig", errors="replace")
+    # Auto-detect delimiter
+    sample = text[:2048]
+    try:
+        dialect = _csv.Sniffer().sniff(sample, delimiters=";,\t|")
+    except _csv.Error:
+        dialect = _csv.excel  # fallback на ,
+    reader = _csv.DictReader(_io.StringIO(text), dialect=dialect)
+    if not reader.fieldnames:
+        raise HTTPException(400, "В CSV не найдены колонки. Первая строка — заголовки.")
+    # Нормализуем headers (lower + strip)
+    headers_map = {h.lower().strip(): h for h in reader.fieldnames if h}
+    def _col(*aliases):
+        for a in aliases:
+            if a in headers_map:
+                return headers_map[a]
+        return None
+    col_name  = _col("name", "название", "услуга", "товар", "позиция")
+    col_price = _col("price", "цена", "стоимость", "price_rub", "руб")
+    col_desc  = _col("description", "описание", "детали", "что входит")
+    col_cat   = _col("category", "категория", "раздел", "группа")
+    if not col_name:
+        raise HTTPException(400, "В CSV не найдена колонка 'name' / 'название'")
+
+    # Деактивируем текущий прайс (мягкое удаление)
+    db.query(BotPriceItem).filter_by(bot_id=bot_id).update({"is_active": False})
+
+    added = 0
+    for i, row in enumerate(reader):
+        name = (row.get(col_name) or "").strip()
+        if not name:
+            continue
+        # Парсим цену: «2 500», «2500.50», «2500₽», «от 1500», текст оставляем как price_text
+        price_kop, price_text = None, None
+        raw_price = (row.get(col_price) if col_price else "" or "").strip()
+        if raw_price:
+            cleaned = raw_price.replace(" ", "").replace("\xa0", "").replace("₽", "").replace("руб", "").replace(",", ".")
+            try:
+                price_kop = int(round(float(cleaned) * 100))
+            except (ValueError, TypeError):
+                # Не число — сохраняем как текст («от 1500», «договорная»)
+                price_text = raw_price[:60]
+        item = BotPriceItem(
+            bot_id=bot_id,
+            name=name[:200],
+            price_kop=price_kop if price_kop and price_kop > 0 else None,
+            price_text=price_text,
+            description=((row.get(col_desc) if col_desc else "") or "").strip()[:500] or None,
+            category=((row.get(col_cat) if col_cat else "") or "").strip()[:60] or None,
+            sort_order=i,
+            is_active=True,
+        )
+        db.add(item)
+        added += 1
+    db.commit()
+    return {"status": "ok", "added": added}

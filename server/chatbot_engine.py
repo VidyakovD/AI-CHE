@@ -231,7 +231,8 @@ async def handle_message(bot, chat_id: str, user_text: str,
     # его лимитов/квоты вместо наших). Загружаем один раз для всего диалога.
     user_keys = _load_user_api_keys(bot.user_id)
 
-    base_ctx = {**(extra_ctx or {}), "_usage": usage_acc, "_user_keys": user_keys}
+    base_ctx = {**(extra_ctx or {}), "_usage": usage_acc,
+                "_user_keys": user_keys, "_bot": bot}
 
     if workflow:
         answer = await _execute_workflow(bot, chat_id, user_text, platform, user_name, workflow,
@@ -305,6 +306,101 @@ def _user_key_for_model(ctx: dict, model_id: str) -> str | None:
     return user_keys.get(provider)
 
 
+# ── Прайс-контекст для AI ──────────────────────────────────────────────────
+# Чтобы не таскать весь прайс при каждом сообщении (дорого по токенам),
+# подключаем его только когда вопрос связан с ценой/услугой.
+# Алгоритм:
+#   1. detect price-keywords в user_text — если нет, прайс НЕ инжектим
+#   2. ищем релевантные позиции (substring match по name/category/description)
+#   3. inject топ-15 в system_prompt компактным форматом
+#
+# Без vector embeddings — простой текстовый поиск. Для большинства прайсов
+# (10–200 позиций) этого хватает + быстро + бесплатно.
+
+_PRICE_KEYWORDS = (
+    "сколько", "стоит", "стоимост", "цена", "цены", "ценник", "ценам",
+    "прайс", "тариф", "оплат", "руб", "₽", "₽,", "rub", "дорог", "дешев",
+    "бюджет", "сколько будет", "сколько стоит", "сколько по",
+    "сколько это", "почём", "почем", "по чем", "сколько за",
+    "стоимость", "услуг", "товар",
+)
+
+
+def _price_keyword_in_text(text: str) -> bool:
+    """Содержит ли user-text триггер на показ прайса."""
+    if not text:
+        return False
+    t = text.lower()
+    return any(kw in t for kw in _PRICE_KEYWORDS)
+
+
+def _price_context_for_question(bot, user_text: str, max_items: int = 15) -> str:
+    """
+    Возвращает компактный prompt-фрагмент с релевантными позициями прайса
+    либо пустую строку (когда вопрос не про цены ИЛИ прайса нет).
+
+    Релевантность: substring match по name/category/description против слов
+    из вопроса (длина >= 3). Если совпадений нет — возвращаем top-N всех
+    позиций (юзер мог спросить «прайс» без конкретики).
+    """
+    if not _price_keyword_in_text(user_text):
+        return ""
+    from server.db import db_session
+    from server.models import BotPriceItem
+    try:
+        with db_session() as db:
+            rows = (db.query(BotPriceItem)
+                      .filter_by(bot_id=bot.id, is_active=True)
+                      .order_by(BotPriceItem.sort_order, BotPriceItem.id)
+                      .all())
+            if not rows:
+                return ""
+            # Слова из вопроса для substring match (минимум 3 символа)
+            words = [w for w in user_text.lower().split() if len(w) >= 3]
+            scored = []
+            for item in rows:
+                hay = " ".join(filter(None, [
+                    (item.name or "").lower(),
+                    (item.category or "").lower(),
+                    (item.description or "").lower(),
+                ]))
+                score = sum(1 for w in words if w in hay)
+                scored.append((score, item))
+            # Если никаких совпадений — берём top-N всех (юзер просит общий прайс)
+            scored.sort(key=lambda x: (-x[0], x[1].sort_order or 0, x[1].id))
+            if scored and scored[0][0] == 0:
+                # Совпадений нет — берём первые N
+                items = [s[1] for s in scored[:max_items]]
+            else:
+                items = [s[1] for s in scored if s[0] > 0][:max_items]
+            if not items:
+                return ""
+            lines = ["", "ПРАЙС-ЛИСТ (только релевантные позиции):"]
+            current_cat = None
+            for it in items:
+                cat = it.category or ""
+                if cat != current_cat:
+                    if cat:
+                        lines.append(f"\n{cat}:")
+                    current_cat = cat
+                price_str = ""
+                if it.price_kop:
+                    price_str = f"{it.price_kop / 100:,.0f} ₽".replace(",", " ")
+                elif it.price_text:
+                    price_str = it.price_text
+                else:
+                    price_str = "цена по запросу"
+                desc = f" — {it.description}" if it.description else ""
+                lines.append(f"• {it.name}: {price_str}{desc}")
+            lines.append("")
+            lines.append("Если клиент спрашивает цену — отвечай по этому прайсу. "
+                          "Если позиции нет в прайсе — скажи что уточнишь и спроси контакт.")
+            return "\n".join(lines)
+    except Exception as e:
+        log.warning(f"[price_context] failed for bot {bot.id}: {type(e).__name__}")
+        return ""
+
+
 def _call_ai_with_fallback(model: str, messages: list, user_key: str | None,
                             extra: dict | None = None) -> dict:
     """
@@ -367,12 +463,13 @@ async def _simple_reply(bot, chat_id, user_text, platform, user_name,
     """
     history = conv_history(bot.id, chat_id)
 
-    messages = []
-    if bot.system_prompt:
-        messages.append({"role": "system", "content": bot.system_prompt})
-    else:
-        messages.append({"role": "system", "content": "Ты полезный AI-ассистент. Отвечай кратко и по делу."})
+    # Базовый system_prompt + умный inject прайса (только при вопросе о цене)
+    sys_prompt = bot.system_prompt or "Ты полезный AI-ассистент. Отвечай кратко и по делу."
+    price_ctx = _price_context_for_question(bot, user_text)
+    if price_ctx:
+        sys_prompt = sys_prompt + "\n" + price_ctx
 
+    messages = [{"role": "system", "content": sys_prompt}]
     for msg in history:
         messages.append(msg)
     messages.append({"role": "user", "content": user_text})
@@ -552,6 +649,13 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         system = cfg.get("system", "Ты полезный ассистент.")
         if ctx.get("active_role_prompt"):
             system = ctx["active_role_prompt"] + "\n\n" + system
+        # Умный inject прайса: только если вопрос содержит price-keywords
+        # (иначе не тратим токены). Берётся из ctx['_bot'] что лежит во фрейме.
+        _bot = ctx.get("_bot")
+        if _bot:
+            price_ctx = _price_context_for_question(_bot, input_text)
+            if price_ctx:
+                system = system + "\n" + price_ctx
         messages = [{"role": "system", "content": system}]
         for msg in ctx.get("history", [])[-10:]:
             messages.append(msg)

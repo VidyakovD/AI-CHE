@@ -716,6 +716,35 @@ class ChatBot(Base):
     user = relationship("User", backref="chatbots")
 
 
+class BotPriceItem(Base):
+    """
+    Прайс-лист бота. Записи автоматически inject'ятся в system_prompt
+    AI-вызовов бота — когда клиент спрашивает «сколько стоит», AI находит
+    в прайсе нужную позицию и отвечает с ценой.
+
+    Поля:
+    - name: «Маникюр классический» — что продаём
+    - price_kop: 250000 (= 2500 ₽) — цена в копейках
+    - price_text: «от 2 500 ₽» — текстовая форма (для «договорных», «от/до»)
+    - category: «Услуги», «Товары», «Тарифы» — для группировки
+    - description: подробности (длительность, что входит, нюансы)
+    - sort_order: порядок отображения
+    """
+    __tablename__ = "bot_price_items"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    bot_id      = Column(Integer, ForeignKey("chatbots.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    name        = Column(String, nullable=False)
+    price_kop   = Column(Integer, nullable=True)         # null = «по запросу»
+    price_text  = Column(String, nullable=True)          # «от 1500 ₽», «договорная»
+    category    = Column(String, nullable=True)
+    description = Column(String, nullable=True)
+    sort_order  = Column(Integer, default=0)
+    is_active   = Column(Boolean, default=True)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+
 class UserApiKey(Base):
     """Собственные API-ключи пользователя для AI-провайдеров.
 

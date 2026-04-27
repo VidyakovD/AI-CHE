@@ -487,6 +487,55 @@ select.inp option{background:#272018;color:#f0e6d8}
 
 <!-- ── Записи бота: заявки, брони, заказы, опросы ── -->
 <!-- ── Asset / Лидмагниты конкретного бота ── -->
+<!-- ── Прайс-лист бота ── -->
+<div id="botPriceModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="botPriceModalTitle">
+  <div class="bg-surface rounded-2xl w-full max-w-4xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
+    <div class="sig px-6 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="botPriceModalTitle">
+          ₽ Прайс-лист бота
+        </h2>
+        <p class="text-[11px] text-[#1e1a14]/70 mt-0.5" id="botPriceBotName">—</p>
+      </div>
+      <button onclick="closeBotPrice()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="p-5 max-h-[80vh] overflow-y-auto">
+      <p class="text-xs text-on-dim mb-4 leading-relaxed">
+        Бот <b>не</b> добавляет прайс к каждому сообщению (это было бы дорого).
+        Прайс инжектится в AI-ответ только когда клиент пишет «сколько стоит»,
+        «цена», «прайс» и подобное — и только релевантные позиции (по поиску слов
+        из вопроса). Лимит: 15 позиций за раз.
+      </p>
+      <div class="flex items-center gap-2 mb-4 flex-wrap">
+        <button onclick="bp_addRow()" class="btn-p text-xs py-1.5 inline-flex items-center gap-1">
+          <span data-i="plus"></span> Добавить позицию
+        </button>
+        <input id="bpCsvInput" type="file" accept=".csv,text/csv" class="hidden"/>
+        <button onclick="document.getElementById('bpCsvInput').click()" class="btn-g text-xs py-1.5 inline-flex items-center gap-1">
+          <span data-i="upload"></span> Импорт CSV
+        </button>
+        <span id="bpCsvStatus" class="text-[11px] text-on-dim"></span>
+        <span class="text-[11px] text-on-dim/50 ml-auto" id="bpCount">0 позиций</span>
+      </div>
+      <div id="bpTable" class="space-y-2">Загрузка…</div>
+      <details class="mt-4 text-xs text-on-dim">
+        <summary class="cursor-pointer hover:text-primary">Формат CSV для импорта</summary>
+        <pre class="mt-2 bg-surface2 p-3 rounded text-[10px] overflow-x-auto">name,price,description,category
+Маникюр классический,2500,Покрытие,Услуги
+Гель-лак,3500,С дизайном,Услуги
+Наращивание,от 4000,Длинные ногти,Услуги</pre>
+        <p class="mt-2">
+          Колонки <code>name</code> (обязательно), <code>price</code>,
+          <code>description</code>, <code>category</code>. Принимаются также
+          русские: «название», «цена», «описание», «категория».
+          Цена может быть числом (2500) или текстом («от 1500», «договорная»).
+          Импорт <b>заменяет</b> текущий прайс.
+        </p>
+      </details>
+    </div>
+  </div>
+</div>
+
 <div id="botAssetsModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="botAssetsModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-3xl border border-outline/25 shadow-2xl overflow-hidden mx-4">
     <div class="sig px-6 py-4 flex items-center justify-between">
@@ -648,6 +697,7 @@ function render(){
             <button onclick="openAiImprove(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Доработать через AI" aria-label="AI-доработка">${_i('sparkle')}</button>
             <button onclick="openRecords(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Заявки и записи" aria-label="Записи">${_i('clipboard')}</button>
             <button onclick="openBotAssets(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Лидмагниты и файлы бота" aria-label="Файлы">${_i('image')}</button>
+            <button onclick="openBotPrice(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Прайс-лист бота" aria-label="Прайс">₽</button>
             <button onclick="showSummary(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Пересказ диалогов" aria-label="Пересказ">${_i('chat')}</button>
           </div>
         </div>
@@ -1346,6 +1396,181 @@ async function resetPreview(){
 document.getElementById('previewModal').addEventListener('click', e => {
   if(e.target === e.currentTarget) closePreview();
 });
+
+
+// ── Прайс-лист бота ────────────────────────────────────────────────────────
+let _currentPriceBot = null;
+let _bpItems = [];   // локальный массив для редактирования
+
+async function openBotPrice(botId, botName){
+  _currentPriceBot = botId;
+  document.getElementById('botPriceBotName').textContent = botName ? `«${botName}»` : '';
+  document.getElementById('botPriceModal').classList.add('show');
+  document.getElementById('bpTable').textContent = 'Загрузка…';
+  document.getElementById('bpCsvStatus').textContent = '';
+  // Wire CSV import once
+  const inp = document.getElementById('bpCsvInput');
+  inp.value = '';
+  inp.onchange = async ev => {
+    const f = ev.target.files?.[0];
+    if(f) await _bp_importCsv(f);
+    ev.target.value = '';
+  };
+  await _bp_load();
+}
+
+function closeBotPrice(){
+  document.getElementById('botPriceModal').classList.remove('show');
+  _currentPriceBot = null;
+  _bpItems = [];
+}
+document.getElementById('botPriceModal').addEventListener('click', e=>{
+  if(e.target===e.currentTarget) closeBotPrice();
+});
+
+async function _bp_load(){
+  if(!_currentPriceBot) return;
+  try{
+    const r = await fetch(`${API}/chatbots/${_currentPriceBot}/price`,
+                          {headers: hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error('Ошибка загрузки');
+    _bpItems = await r.json();
+    _bp_render();
+  }catch(e){
+    document.getElementById('bpTable').innerHTML =
+      `<p class="text-error text-sm">Ошибка: ${escHtml(e.message)}</p>`;
+  }
+}
+
+function _bp_render(){
+  document.getElementById('bpCount').textContent =
+    _bpItems.length + ' позиц' + (_bpItems.length === 1 ? 'ия' : _bpItems.length < 5 ? 'ии' : 'ий');
+  const tbl = document.getElementById('bpTable');
+  if(!_bpItems.length){
+    tbl.innerHTML = `<p class="text-sm text-on-dim text-center py-8">
+      Прайс пуст. Нажмите <b>«Добавить позицию»</b> или <b>«Импорт CSV»</b>.
+    </p>`;
+    return;
+  }
+  tbl.innerHTML = `
+    <div class="grid grid-cols-12 gap-2 text-[10px] uppercase text-on-dim/60 tracking-wider px-2 py-1 font-bold">
+      <div class="col-span-4">Название</div>
+      <div class="col-span-2">Цена ₽</div>
+      <div class="col-span-2">или текст</div>
+      <div class="col-span-2">Категория</div>
+      <div class="col-span-1">№</div>
+      <div class="col-span-1"></div>
+    </div>` +
+    _bpItems.map((it, idx) => `
+      <div class="grid grid-cols-12 gap-2 items-center bg-surface2 rounded-lg p-2 border border-outline/15" data-bp-idx="${idx}">
+        <input class="col-span-4 inp text-xs" value="${escHtml(it.name||'')}" placeholder="Название позиции" data-bp="name"/>
+        <input class="col-span-2 inp text-xs" type="number" step="1" min="0" value="${it.price_kop ? Math.round(it.price_kop/100) : ''}" placeholder="2500" data-bp="price_rub"/>
+        <input class="col-span-2 inp text-xs" value="${escHtml(it.price_text||'')}" placeholder="от 1500 / договорная" data-bp="price_text"/>
+        <input class="col-span-2 inp text-xs" value="${escHtml(it.category||'')}" placeholder="Услуги" data-bp="category"/>
+        <input class="col-span-1 inp text-xs" type="number" step="1" value="${it.sort_order||0}" data-bp="sort_order"/>
+        <div class="col-span-1 flex justify-end">
+          <button onclick="bp_save(${idx})" class="text-xs px-2 py-1 rounded-full bg-primary/15 text-primary hover:bg-primary/25" title="Сохранить">✓</button>
+          <button onclick="bp_delete(${idx})" class="text-xs px-2 py-1 rounded-full bg-error/15 text-error hover:bg-error/25 ml-1" title="Удалить">🗑</button>
+        </div>
+      </div>`).join('') +
+    `<div class="text-[10px] text-on-dim/50 mt-2">
+      Описание (что входит, длительность) можно добавить нажав на позицию — пока поля компактны.
+      Для полной формы используйте импорт CSV.
+    </div>`;
+  if(window.renderIcons) window.renderIcons(tbl);
+}
+
+function _bp_collectRow(idx){
+  const row = document.querySelector(`[data-bp-idx="${idx}"]`);
+  if(!row) return null;
+  const get = (k) => row.querySelector(`[data-bp="${k}"]`)?.value || '';
+  const priceRub = parseFloat(get('price_rub'));
+  return {
+    name: get('name').trim(),
+    price_kop: !isNaN(priceRub) && priceRub > 0 ? Math.round(priceRub * 100) : null,
+    price_text: get('price_text').trim() || null,
+    category: get('category').trim() || null,
+    description: _bpItems[idx]?.description || null,
+    sort_order: parseInt(get('sort_order')) || 0,
+  };
+}
+
+function bp_addRow(){
+  _bpItems.push({
+    name: '', price_kop: null, price_text: '', category: '',
+    sort_order: _bpItems.length, description: null, id: null,
+  });
+  _bp_render();
+}
+
+async function bp_save(idx){
+  const data = _bp_collectRow(idx);
+  if(!data || !data.name){ alert('Название обязательно'); return; }
+  const item = _bpItems[idx];
+  const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+  const headers = {'Content-Type':'application/json'};
+  if(csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
+  const tok = localStorage.getItem('obs_token');
+  if(tok && !csrf) headers['Authorization'] = 'Bearer ' + tok;
+  try{
+    if(item.id){
+      const r = await fetch(`${API}/chatbots/${_currentPriceBot}/price/${item.id}`,
+                            {method:'PATCH', headers, credentials:'same-origin', body: JSON.stringify(data)});
+      if(!r.ok) throw new Error('Ошибка');
+    } else {
+      const r = await fetch(`${API}/chatbots/${_currentPriceBot}/price`,
+                            {method:'POST', headers, credentials:'same-origin', body: JSON.stringify(data)});
+      if(!r.ok) throw new Error('Ошибка');
+      const d = await r.json();
+      _bpItems[idx].id = d.id;
+    }
+    Object.assign(_bpItems[idx], data);
+    toast('✓ Позиция сохранена', 'success');
+  }catch(e){ alert('Ошибка: ' + e.message); }
+}
+
+async function bp_delete(idx){
+  const item = _bpItems[idx];
+  if(item?.id){
+    if(!confirm('Удалить позицию «' + (item.name || '') + '»?')) return;
+    const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+    const headers = {};
+    if(csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
+    const tok = localStorage.getItem('obs_token');
+    if(tok && !csrf) headers['Authorization'] = 'Bearer ' + tok;
+    try{
+      await fetch(`${API}/chatbots/${_currentPriceBot}/price/${item.id}`,
+                  {method:'DELETE', headers, credentials:'same-origin'});
+    }catch(e){}
+  }
+  _bpItems.splice(idx, 1);
+  _bp_render();
+}
+
+async function _bp_importCsv(file){
+  const status = document.getElementById('bpCsvStatus');
+  status.textContent = `Загрузка ${file.name}…`;
+  status.className = 'text-[11px] text-on-dim';
+  try{
+    const fd = new FormData();
+    fd.append('file', file);
+    const csrf = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+    const headers = {};
+    if(csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf);
+    const tok = localStorage.getItem('obs_token');
+    if(tok && !csrf) headers['Authorization'] = 'Bearer ' + tok;
+    const r = await fetch(`${API}/chatbots/${_currentPriceBot}/price/import-csv`,
+                          {method:'POST', headers, credentials:'same-origin', body: fd});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || 'Ошибка импорта');
+    status.textContent = `✓ Импортировано ${d.added} позиций`;
+    status.className = 'text-[11px] text-green-500';
+    await _bp_load();
+  }catch(e){
+    status.textContent = 'Ошибка: ' + e.message;
+    status.className = 'text-[11px] text-error';
+  }
+}
 
 
 // ── Записи бота (заявки/брони/заказы) ─────────────────────────────────────
