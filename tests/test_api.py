@@ -475,9 +475,21 @@ class TestSecurity:
 
     def test_validate_password(self):
         from server.security import validate_password
-        validate_password("12345678")  # ok
+        # Длина >=10, минимум 2 класса символов
+        validate_password("StrongPass1")  # ok (буквы+цифры)
+        validate_password("password!2026")  # ok (буквы+цифры+знак)
+        # Слишком короткий
         with pytest.raises(Exception):
             validate_password("short")
+        # Только цифры (один класс)
+        with pytest.raises(Exception):
+            validate_password("1234567890")
+        # Только буквы (один класс)
+        with pytest.raises(Exception):
+            validate_password("aaaaaaaaaaaa")
+        # В чёрном списке распространённых
+        with pytest.raises(Exception):
+            validate_password("password1")
 
     def test_rate_limit_ip_extraction(self):
         from server.security import _get_client_ip

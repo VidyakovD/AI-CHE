@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 WorkingDirectory=/root/AI-CHE
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/root/AI-CHE/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+ExecStart=/root/AI-CHE/venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --workers 4
 
 # ── Restart policy ─────────────────────────────────────────────────────────
 # on-failure (а не always) — не перезапускаемся при чистом выходе по SIGTERM.

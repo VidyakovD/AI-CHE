@@ -46,6 +46,9 @@ class User(Base):
     referral_signup_bonus_paid_at = Column(DateTime, nullable=True)
     # Лимит дочерних ботов через AI-конструктор (защита от runaway).
     max_auto_bots    = Column(Integer, default=5)
+    # Уведомления о входе с нового IP (security alert).
+    last_login_ip    = Column(String, nullable=True)
+    last_login_at    = Column(DateTime, nullable=True)
     created_at       = Column(DateTime, default=datetime.utcnow)
 
     messages      = relationship("Message",      back_populates="user")

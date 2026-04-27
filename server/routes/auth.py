@@ -1,7 +1,7 @@
 """Auth router — registration, login, verification, password reset, email change, me."""
 import os
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Response, Cookie
+from fastapi import APIRouter, Depends, HTTPException, Response, Cookie, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -182,7 +182,8 @@ _DUMMY_BCRYPT = "$2b$12$C6UzMDM.H6dfI/f/IKyt7.Re3vdDe4xD3Z3iVfvjxQ0Pu4sPxc7/e"
 
 
 @router.post("/login")
-def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
+def login(req: LoginRequest, response: Response, request: Request,
+          db: Session = Depends(get_db)):
     email = validate_email(req.email)
     user = db.query(User).filter_by(email=email).first()
     # Защита от timing-based account enumeration:
@@ -194,6 +195,33 @@ def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
     if not user.is_verified:
         return {"status": "pending_verification", "user_id": user.id,
                 "message": "Подтвердите email. Выслать код повторно?"}
+
+    # Security alert: вход с нового IP — уведомляем юзера на email.
+    # Не блокируем login — это только уведомление. Не шлём при первом входе
+    # (last_login_ip == None) и при повторе с того же IP.
+    try:
+        from server.security import _get_client_ip
+        ip = _get_client_ip(request)
+        prev_ip = user.last_login_ip
+        now_utc = datetime.utcnow()
+        if prev_ip and ip and ip != "unknown" and ip != prev_ip:
+            try:
+                from server.email_service import send_login_alert
+                send_login_alert(user.email, user.name or "",
+                                 ip, now_utc.strftime("%Y-%m-%d %H:%M"))
+            except Exception as e:
+                log.warning(f"login-alert email failed: {type(e).__name__}")
+            from server.audit_log import log_action
+            log_action("auth.login_new_ip", user_id=user.id, target_type="user",
+                       target_id=user.id, level="warn",
+                       details={"prev_ip_hash": str(hash(prev_ip))[-6:],
+                                "new_ip_hash": str(hash(ip))[-6:]})
+        user.last_login_ip = ip
+        user.last_login_at = now_utc
+        db.commit()
+    except Exception as e:
+        log.warning(f"login-alert flow failed: {type(e).__name__}")
+
     access = create_token(user.id, user.email)
     refresh = create_refresh_token(user.id, user.email)
     csrf = set_auth_cookies(response, access, refresh)

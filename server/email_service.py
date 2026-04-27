@@ -109,6 +109,23 @@ def send_welcome(to: str, name: str) -> None:
     _send(to, "Добро пожаловать в Obsidian AI!", _base_template("Добро пожаловать!", body))
 
 
+def send_login_alert(to: str, name: str, ip: str, when: str) -> None:
+    """Уведомление о входе в аккаунт с нового IP. Если это не вы — смените пароль."""
+    body = f"""
+    <p style="color:rgba(199,196,215,0.8);line-height:1.6">Здравствуйте, <strong>{name or 'пользователь'}</strong>!</p>
+    <p style="color:rgba(199,196,215,0.8);line-height:1.6">Зафиксирован вход в ваш аккаунт с нового устройства:</p>
+    <ul style="color:rgba(199,196,215,0.8);line-height:1.8">
+      <li>Время: <strong>{when}</strong> (UTC)</li>
+      <li>IP-адрес: <code style="background:#2A2A2A;padding:2px 6px;border-radius:4px">{ip}</code></li>
+    </ul>
+    <p style="color:rgba(199,196,215,0.8);line-height:1.6"><strong>Это были вы?</strong> Тогда ничего делать не нужно.</p>
+    <p style="color:rgba(199,196,215,0.8);line-height:1.6"><strong>Не вы?</strong> Срочно смените пароль и проверьте свои API-ключи:</p>
+    <div style="text-align:center"><a href="{APP_URL}/?openCabinet=1" class="btn">Открыть кабинет</a></div>
+    <p class="note">Уведомление отправляется только при входе с нового IP, чтобы не спамить.</p>"""
+    _send(to, "Вход с нового устройства — AI Студия Че",
+          _base_template("🔔 Новый вход в аккаунт", body))
+
+
 def send_low_balance_alert(to: str, name: str, balance: int, threshold: int) -> None:
     """Уведомление о низком балансе CH."""
     body = f"""

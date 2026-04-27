@@ -143,10 +143,33 @@ def validate_email(email: str) -> str:
     return email
 
 def validate_password(password: str) -> None:
-    if len(password) < 8:
-        raise HTTPException(400, "Пароль должен быть не менее 8 символов")
+    """Политика паролей: длина + минимум 2 разных класса символов.
+    Не запрещаем passphrase'ы (длинные слабее по entropy не становятся), но
+    отсекаем «12345678», «aaaaaaaa», «password», «qwerty12».
+    """
+    if len(password) < 10:
+        raise HTTPException(400, "Пароль должен быть не менее 10 символов")
     if len(password) > 128:
-        raise HTTPException(400, "Пароль слишком длинный")
+        raise HTTPException(400, "Пароль слишком длинный (макс 128)")
+    classes = 0
+    if any(c.islower() for c in password): classes += 1
+    if any(c.isupper() for c in password): classes += 1
+    if any(c.isdigit() for c in password): classes += 1
+    if any(not c.isalnum() for c in password): classes += 1
+    if classes < 2:
+        raise HTTPException(
+            400,
+            "Пароль слишком простой. Используйте минимум 2 типа символов: "
+            "буквы (a-z), заглавные (A-Z), цифры (0-9) или знаки (!@#$%)."
+        )
+    # Топ-список самых распространённых — отсекаем явные «password», «qwerty», «12345678»
+    _COMMON = {
+        "password", "qwerty", "12345678", "123456789", "qwerty123",
+        "1q2w3e4r5t", "abc123456", "password1", "iloveyou1",
+        "admin12345", "letmein123",
+    }
+    if password.lower() in _COMMON:
+        raise HTTPException(400, "Этот пароль слишком распространён, выберите другой")
 
 def validate_upload_filename(filename: str) -> None:
     import os
