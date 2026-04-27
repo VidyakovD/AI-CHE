@@ -6,6 +6,9 @@ After=network.target
 Type=simple
 WorkingDirectory=/root/AI-CHE
 Environment="PYTHONUNBUFFERED=1"
+# uvicorn слушает ТОЛЬКО 127.0.0.1: внешние запросы идут через nginx (HTTPS,
+# CSP, headers). Раньше был --host 0.0.0.0 → API торчал наружу на :8000
+# обходя nginx-уровень защиты.
 ExecStart=/root/AI-CHE/venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --workers 4
 
 # ── Restart policy ─────────────────────────────────────────────────────────
@@ -24,55 +27,20 @@ LimitNOFILE=65536
 StandardOutput=journal
 StandardError=journal
 
-# ── Hardening (sandbox) ────────────────────────────────────────────────────
-# Отдельный пользователь сильно усложняет post-exploitation. Создание:
-#   sudo useradd -r -s /usr/sbin/nologin -d /root/AI-CHE aiche
-#   sudo chown -R aiche:aiche /root/AI-CHE
-# После этого раскомментировать и сделать `systemctl daemon-reload`.
-# (Пока закомментировано чтобы не сломать существующий деплой —
-#  включается отдельным шагом миграции.)
-# User=aiche
-# Group=aiche
+# ── Hardening (минимальный безопасный набор) ───────────────────────────────
+# Полный набор Protect*/Restrict*/SystemCallFilter ломал uvicorn workers
+# (см. инцидент 2026-04-27: ProtectHome=true → ExecStart 203/EXEC, после
+# фикса — workers crash на startup из-за ProtectSystem=strict +
+# MemoryDenyWriteExecute). Включаем только то, что точно не ломает.
+#
+# Полный hardening — отдельным спринтом миграции на User=aiche и /opt/ai-che,
+# с поэтапным включением каждой директивы.
 
 # Запрет escalation привилегий (даже если бинарник setuid'ный)
 NoNewPrivileges=true
 
 # Изолированный /tmp и /var/tmp на каждый запуск процесса
 PrivateTmp=true
-
-# Read-only весь / кроме явно разрешённых путей. ProtectSystem=strict
-# монтирует / / /usr / /boot / /etc как ro.
-ProtectSystem=strict
-
-# /home, /root и /run/user недоступны для чтения процессу
-ProtectHome=true
-
-# Скрыть kernel internals от процесса
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectKernelLogs=true
-ProtectControlGroups=true
-
-# Запрет realtime/SETUID/SYSADMIN/MAC capabilities
-RestrictRealtime=true
-RestrictSUIDSGID=true
-RestrictNamespaces=true
-LockPersonality=true
-MemoryDenyWriteExecute=true
-
-# Сетевые семейства: только IPv4/IPv6 (без AF_UNIX, AF_NETLINK и т.д.)
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-
-# Системные вызовы: только основной набор (отсекает kernel-exploits)
-SystemCallArchitectures=native
-SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources
-
-# Пути к которым процессу нужна запись (БД, аплоады, бэкапы, логи прокси)
-ReadWritePaths=/root/AI-CHE/chat.db /root/AI-CHE/chat.db-wal /root/AI-CHE/chat.db-shm
-ReadWritePaths=/root/AI-CHE/uploads /root/AI-CHE/backups /root/AI-CHE/proxy_debug.log
-
-# Если включаем User=aiche, эти пути должны быть chown'ены на aiche
 
 [Install]
 WantedBy=multi-user.target
