@@ -614,7 +614,10 @@ function render(){
           <div class="flex items-start justify-between gap-2 mb-3">
             <div class="flex-1 min-w-0">
               <p class="font-bold font-headline truncate">${esc(b.name)}</p>
-              <p class="text-xs text-on-dim mt-0.5 truncate">${modelLabels[b.model]||b.model}</p>
+              <p class="text-xs text-on-dim mt-0.5 truncate flex items-center gap-1.5">
+                <span style="display:inline-flex;width:14px;height:14px;flex-shrink:0">${(window.getModelBrandIcon && window.getModelBrandIcon(b.model)) || ''}</span>
+                <span class="truncate">${modelLabels[b.model]||b.model}</span>
+              </p>
             </div>
             <button onclick="event.stopPropagation();deleteBot(${b.id})" class="btn-d text-[10px] py-1 px-2 inline-flex items-center flex-shrink-0" title="Удалить" aria-label="Удалить">${_i('close')}</button>
           </div>

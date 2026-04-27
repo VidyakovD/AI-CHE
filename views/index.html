@@ -215,7 +215,8 @@ body.welcome #inputArea{display:none!important}
       </button>
       <div class="relative" id="modelMenuWrapper">
         <button id="modelMenuBtn" class="flex items-center gap-2 bg-surface2 px-3 py-1.5 rounded-full text-on-surface hover:bg-surface3 transition active:scale-95 border border-outline/20">
-          <span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+          <!-- Brand-иконка текущей модели обновляется в setModel() -->
+          <span id="modelBrandIcon" style="display:inline-flex;align-items:center;width:16px;height:16px"></span>
           <span class="font-headline text-sm font-semibold" id="modelLabel">GPT-4o mini</span>
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px" class="text-on-surface-dim"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41z"/></svg>
         </button>
@@ -913,7 +914,10 @@ function buildModels(){
     const el=document.createElement("div");
     el.dataset.mDrop=m.id;
     el.className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-surface3 transition text-on-surface-dim text-sm";
-    el.innerHTML=`<span style="display:inline-block;width:16px;height:16px;vertical-align:middle">${getSvgIcon(m.icon,16)}</span><span>${m.label}</span>`;
+    // Brand-иконка AI-провайдера (OpenAI/Anthropic/Gemini/Grok/...).
+    // Если getModelBrandIcon вернёт пустоту — fallback на старый material-icon.
+    const brandIcon = (window.getModelBrandIcon && window.getModelBrandIcon(m.id)) || getSvgIcon(m.icon,16);
+    el.innerHTML=`<span style="display:inline-block;width:16px;height:16px;vertical-align:middle">${brandIcon}</span><span>${m.label}</span>`;
     el.onclick=()=>setModel(m.id);
     drop.appendChild(el);
 
@@ -960,6 +964,11 @@ function setModel(id){
   currentModel=id;currentChat=null;currentChatInit=false;
   const m=MODELS.find(x=>x.id===id);
   document.getElementById("modelLabel").textContent=m?.label||id;
+  // Brand-иконка модели в шапке (OpenAI/Anthropic/Gemini/Grok/...)
+  const iconEl = document.getElementById("modelBrandIcon");
+  if (iconEl && window.getModelBrandIcon){
+    iconEl.innerHTML = window.getModelBrandIcon(id);
+  }
   updateModelCostHint();
   document.querySelectorAll("[data-m-drop]").forEach(el=>{
     el.classList.toggle("text-primary",el.dataset.mDrop===id);
