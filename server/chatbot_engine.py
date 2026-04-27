@@ -341,10 +341,16 @@ def _price_keyword_in_text(text: str) -> bool:
 import json as _json_emb
 import math as _math
 import time as _time
+from collections import OrderedDict
+import threading as _threading
 
 _EMBED_MODEL = "text-embedding-3-small"   # 1536 dim, $0.02/1M токенов
-_EMBED_QUERY_CACHE: dict[str, tuple[float, list]] = {}
+# OrderedDict вместо dict — для FIFO eviction вместо clear-всё-при-переполнении.
+# Раньше при >500 записей кэш сбрасывался полностью → thrashing на наплыве.
+_EMBED_QUERY_CACHE: "OrderedDict[str, tuple[float, list]]" = OrderedDict()
 _EMBED_QUERY_TTL = 600   # 10 минут — частые запросы «сколько стоит» дешёвые
+_EMBED_QUERY_MAX = 1000
+_EMBED_QUERY_LOCK = _threading.Lock()
 
 
 def _compute_embedding(text: str) -> list[float] | None:
@@ -373,20 +379,27 @@ def _compute_embedding(text: str) -> list[float] | None:
 
 
 def _cached_query_embedding(query: str) -> list[float] | None:
-    """Кэш на 10 мин — частые «сколько стоит» не плодят повторные API-вызовы."""
+    """Кэш на 10 мин — частые «сколько стоит» не плодят повторные API-вызовы.
+    LRU-eviction (FIFO самого старого), thread-safe — на наплыве запросов
+    кэш не сбрасывается полностью, а вытесняет один элемент за раз."""
     key = (query or "").strip().lower()[:200]
     if not key:
         return None
     now = _time.time()
-    cached = _EMBED_QUERY_CACHE.get(key)
-    if cached and (now - cached[0]) < _EMBED_QUERY_TTL:
-        return cached[1]
+    with _EMBED_QUERY_LOCK:
+        cached = _EMBED_QUERY_CACHE.get(key)
+        if cached and (now - cached[0]) < _EMBED_QUERY_TTL:
+            # LRU touch: переносим в конец как «недавно использованный»
+            _EMBED_QUERY_CACHE.move_to_end(key)
+            return cached[1]
+    # Сетевой вызов вне лока — может занять 100-500мс.
     vec = _compute_embedding(key)
     if vec is not None:
-        # Чистим кэш если разросся
-        if len(_EMBED_QUERY_CACHE) > 500:
-            _EMBED_QUERY_CACHE.clear()
-        _EMBED_QUERY_CACHE[key] = (now, vec)
+        with _EMBED_QUERY_LOCK:
+            _EMBED_QUERY_CACHE[key] = (now, vec)
+            _EMBED_QUERY_CACHE.move_to_end(key)
+            while len(_EMBED_QUERY_CACHE) > _EMBED_QUERY_MAX:
+                _EMBED_QUERY_CACHE.popitem(last=False)
     return vec
 
 

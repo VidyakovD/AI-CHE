@@ -624,48 +624,45 @@ def bot_analytics(bot_id: int, days: int = 30,
     days = max(1, min(int(days or 30), 365))
     since = datetime.utcnow() - timedelta(days=days)
 
-    # Базовые агрегаты по conversation
-    msgs_q = db.query(BotConversationTurn).filter(
-        BotConversationTurn.bot_id == bot_id,
-        BotConversationTurn.created_at >= since,
-    )
-    total_msgs_in = msgs_q.filter(BotConversationTurn.role == "user").count()
-    total_msgs_out = msgs_q.filter(BotConversationTurn.role == "assistant").count()
-    total_dialogs = db.query(func.count(distinct(BotConversationTurn.chat_id))).filter(
-        BotConversationTurn.bot_id == bot_id,
-        BotConversationTurn.created_at >= since,
-    ).scalar() or 0
+    from sqlalchemy import text
+    since_iso = since.isoformat()
 
-    # Записи (заявки)
-    rec_q = db.query(BotRecord).filter(
-        BotRecord.bot_id == bot_id,
-        BotRecord.created_at >= since,
-    )
-    records_total = rec_q.count()
+    # Один SQL вместо трёх отдельных COUNT'ов: msgs_in / msgs_out / dialogs.
+    # SQLite через CASE WHEN — стандартный приём conditional aggregation.
+    agg = db.execute(text(
+        "SELECT "
+        " SUM(CASE WHEN role='user' THEN 1 ELSE 0 END) AS msgs_in, "
+        " SUM(CASE WHEN role='assistant' THEN 1 ELSE 0 END) AS msgs_out, "
+        " COUNT(DISTINCT chat_id) AS dialogs "
+        "FROM bot_conversation_turns "
+        "WHERE bot_id=:bid AND created_at>=:since"
+    ), {"bid": bot_id, "since": since_iso}).fetchone()
+    total_msgs_in = int(agg[0] or 0)
+    total_msgs_out = int(agg[1] or 0)
+    total_dialogs = int(agg[2] or 0)
+
+    # Записи: total + group_by_type одним запросом (плюс отдельный COUNT нам
+    # не нужен — суммируем по типам).
     by_type_rows = db.query(BotRecord.record_type, func.count(BotRecord.id)).filter(
         BotRecord.bot_id == bot_id,
         BotRecord.created_at >= since,
     ).group_by(BotRecord.record_type).all()
     records_by_type = {t: n for t, n in by_type_rows}
+    records_total = sum(records_by_type.values())
 
     conv_rate = round(records_total / total_dialogs * 100, 1) if total_dialogs else 0.0
 
-    # Timeseries по дням — простым GROUP BY DATE() (SQLite поддерживает strftime)
-    ts_msgs = db.execute(
-        func.strftime("%Y-%m-%d", BotConversationTurn.created_at).label("d") and  # noqa
-        None  # ниже сделаем raw
-    )  # placeholder; используем raw SQL ниже
-    from sqlalchemy import text
+    # Timeseries по дням — два SELECT'а оставляем (по разным таблицам)
     ts_rows = list(db.execute(text(
         "SELECT strftime('%Y-%m-%d', created_at) as d, COUNT(DISTINCT chat_id) as dialogs "
         "FROM bot_conversation_turns WHERE bot_id=:bid AND created_at>=:since "
         "GROUP BY d ORDER BY d"
-    ), {"bid": bot_id, "since": since.isoformat()}))
+    ), {"bid": bot_id, "since": since_iso}))
     rec_rows = list(db.execute(text(
         "SELECT strftime('%Y-%m-%d', created_at) as d, COUNT(*) as records "
         "FROM bot_records WHERE bot_id=:bid AND created_at>=:since "
         "GROUP BY d ORDER BY d"
-    ), {"bid": bot_id, "since": since.isoformat()}))
+    ), {"bid": bot_id, "since": since_iso}))
     rec_by_day = {r[0]: r[1] for r in rec_rows}
     timeseries = [{
         "date": r[0],
@@ -673,25 +670,18 @@ def bot_analytics(bot_id: int, days: int = 30,
         "records": rec_by_day.get(r[0], 0),
     } for r in ts_rows]
 
-    # Топ-вопросов: первое сообщение каждого диалога, нормализованное
+    # Топ-вопросов: первое user-сообщение каждого диалога — одним JOIN'ом.
     first_msgs = db.execute(text(
-        "SELECT chat_id, MIN(id) as fid FROM bot_conversation_turns "
-        "WHERE bot_id=:bid AND role='user' AND created_at>=:since "
-        "GROUP BY chat_id"
-    ), {"bid": bot_id, "since": since.isoformat()}).fetchall()
-    fids = [r[1] for r in first_msgs]
+        "SELECT t.content FROM bot_conversation_turns t "
+        "JOIN (SELECT chat_id, MIN(id) AS fid FROM bot_conversation_turns "
+        "      WHERE bot_id=:bid AND role='user' AND created_at>=:since "
+        "      GROUP BY chat_id) j ON t.id = j.fid"
+    ), {"bid": bot_id, "since": since_iso}).fetchall()
     counter: Counter = Counter()
-    if fids:
-        # Достаём content для этих ids
-        from sqlalchemy import select as _sel
-        msg_rows = db.execute(text(
-            f"SELECT content FROM bot_conversation_turns WHERE id IN ({','.join('?' * len(fids))})"
-        ), fids).fetchall() if False else \
-            db.query(BotConversationTurn.content).filter(BotConversationTurn.id.in_(fids)).all()
-        for (content,) in msg_rows:
-            norm = (content or "").strip().lower()[:80]
-            if norm:
-                counter[norm] += 1
+    for (content,) in first_msgs:
+        norm = (content or "").strip().lower()[:80]
+        if norm:
+            counter[norm] += 1
     top_questions = [{"q": q, "count": c} for q, c in counter.most_common(10)]
 
     return {
