@@ -366,3 +366,196 @@ class TestSecretsCrypto:
         # Decrypt должен попробовать новый HKDF, не справится, потом legacy sha256, и расшифровать.
         plain = sc.decrypt(legacy_value)
         assert plain == "old data"
+
+
+# ── User API keys ────────────────────────────────────────────────────────────
+
+class TestUserApiKeys:
+    def test_add_key_encrypts_in_db_and_returns_preview(self):
+        """Ключ должен сохраниться зашифрованным; GET /user/api-keys возвращает
+        masked preview, не plaintext."""
+        from fastapi.testclient import TestClient
+        from server.auth import create_token
+        from server.models import UserApiKey
+        from main import app
+
+        db = SessionLocal()
+        try:
+            u = _make_user(db, "apikey1@test.com", balance=100_000)
+            # Чистим существующие ключи для повторов
+            db.query(UserApiKey).filter_by(user_id=u.id).delete()
+            db.commit()
+            user_id = u.id
+        finally:
+            db.close()
+
+        token = create_token(user_id, "apikey1@test.com")
+        client = TestClient(app)
+        plaintext = "sk-test1234567890ABCDEF"
+        r = client.post("/user/api-keys",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={"provider": "openai", "api_key": plaintext, "label": "main"})
+        assert r.status_code == 200, r.text
+
+        # В БД лежит зашифрованным (не plaintext) — EncryptedString при чтении
+        # сам расшифрует, поэтому смотрим через raw SQL.
+        from sqlalchemy import text as _text
+        db = SessionLocal()
+        try:
+            row = db.execute(
+                _text("SELECT api_key FROM user_api_keys WHERE user_id=:uid"),
+                {"uid": user_id},
+            ).fetchone()
+            assert row is not None
+            stored = row[0]
+            assert stored != plaintext, "Ключ должен быть зашифрован в БД"
+            assert stored.startswith("enc:"), f"Ожидался enc:-префикс, получено {stored[:10]}"
+        finally:
+            db.close()
+
+        # GET /user/api-keys возвращает masked preview
+        r = client.get("/user/api-keys", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        keys = r.json()
+        assert len(keys) == 1
+        assert keys[0]["provider"] == "openai"
+        assert keys[0]["label"] == "main"
+        assert "..." in keys[0]["key_preview"]
+        assert plaintext not in keys[0]["key_preview"]
+
+    def test_short_key_rejected(self):
+        from fastapi.testclient import TestClient
+        from server.auth import create_token
+        from main import app
+
+        db = SessionLocal()
+        try:
+            u = _make_user(db, "apikey2@test.com", balance=100_000)
+            user_id = u.id
+        finally:
+            db.close()
+
+        token = create_token(user_id, "apikey2@test.com")
+        client = TestClient(app)
+        r = client.post("/user/api-keys",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={"provider": "openai", "api_key": "short"})
+        assert r.status_code == 400
+
+    def test_unknown_provider_rejected(self):
+        from fastapi.testclient import TestClient
+        from server.auth import create_token
+        from main import app
+
+        db = SessionLocal()
+        try:
+            u = _make_user(db, "apikey3@test.com", balance=100_000)
+            user_id = u.id
+        finally:
+            db.close()
+
+        token = create_token(user_id, "apikey3@test.com")
+        client = TestClient(app)
+        r = client.post("/user/api-keys",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={"provider": "claude-bogus", "api_key": "sk-1234567890"})
+        assert r.status_code == 400
+
+
+# ── Price list: keyword trigger + embedding fallback ─────────────────────────
+
+class TestBotPriceList:
+    def test_keyword_trigger_present(self):
+        """Без триггера прайс не должен подключаться (защита от удорожания
+        обычных диалогов)."""
+        from server.chatbot_engine import _price_keyword_in_text
+        assert _price_keyword_in_text("Сколько это стоит?") is True
+        assert _price_keyword_in_text("Какая цена?") is True
+        assert _price_keyword_in_text("сколько руб?") is True
+        assert _price_keyword_in_text("Покажи прайс") is True
+        # Без триггера
+        assert _price_keyword_in_text("Привет, как дела?") is False
+        assert _price_keyword_in_text("Расскажи о компании") is False
+        assert _price_keyword_in_text("") is False
+        assert _price_keyword_in_text(None) is False
+
+    def test_substring_fallback_when_no_embeddings(self, monkeypatch):
+        """Если OpenAI embeddings недоступны — fallback на substring matching
+        по словам из вопроса. Должен находить релевантные позиции."""
+        from server.models import ChatBot, BotPriceItem
+        from server.chatbot_engine import _price_context_for_question
+
+        db = SessionLocal()
+        try:
+            u = _make_user(db, "price1@test.com", balance=100_000)
+            # Удалим существующего бота с этим именем
+            for old in db.query(ChatBot).filter_by(user_id=u.id, name="prc").all():
+                db.query(BotPriceItem).filter_by(bot_id=old.id).delete()
+                db.delete(old)
+            db.commit()
+            bot = ChatBot(user_id=u.id, name="prc", model="gpt", workflow_json="{}")
+            db.add(bot); db.commit(); db.refresh(bot)
+            # Заполним прайс БЕЗ embeddings — заставим fallback в substring-режим
+            db.add(BotPriceItem(bot_id=bot.id, name="Стрижка мужская",
+                                price_kop=80000, sort_order=0, is_active=True))
+            db.add(BotPriceItem(bot_id=bot.id, name="Окрашивание волос",
+                                price_kop=350000, sort_order=1, is_active=True))
+            db.add(BotPriceItem(bot_id=bot.id, name="Маникюр гель-лак",
+                                price_kop=180000, sort_order=2, is_active=True))
+            db.commit()
+            bot_obj = db.query(ChatBot).filter_by(id=bot.id).first()
+        finally:
+            db.close()
+
+        # Без триггера — пустая строка (защита от удорожания)
+        ctx = _price_context_for_question(bot_obj, "Привет!")
+        assert ctx == ""
+
+        # С триггером: substring находит «Стрижка»
+        ctx = _price_context_for_question(bot_obj, "Сколько стоит стрижка?")
+        assert "Стрижка" in ctx
+        assert "800 ₽" in ctx  # 80000 коп = 800 ₽
+
+    def test_csv_price_upper_bound(self):
+        """CSV-импорт не должен принимать цены сверх 1 млрд ₽ (защита от 1e10
+        в экспоненциальной нотации)."""
+        from fastapi.testclient import TestClient
+        from server.auth import create_token
+        from server.models import ChatBot, BotPriceItem
+        from main import app
+
+        db = SessionLocal()
+        try:
+            u = _make_user(db, "price2@test.com", balance=100_000)
+            for old in db.query(ChatBot).filter_by(user_id=u.id, name="csv-prc").all():
+                db.query(BotPriceItem).filter_by(bot_id=old.id).delete()
+                db.delete(old)
+            db.commit()
+            bot = ChatBot(user_id=u.id, name="csv-prc", model="gpt", workflow_json="{}")
+            db.add(bot); db.commit(); db.refresh(bot)
+            user_id = u.id
+            bot_id = bot.id
+        finally:
+            db.close()
+
+        token = create_token(user_id, "price2@test.com")
+        client = TestClient(app)
+        # CSV с экспоненциальной нотацией → должна попасть в price_text, не price_kop
+        csv_content = "name;price\nЭкспа;1e10\nНорма;1500\n"
+        r = client.post(f"/chatbots/{bot_id}/price/import-csv",
+                        headers={"Authorization": f"Bearer {token}"},
+                        files={"file": ("p.csv", csv_content.encode("utf-8"), "text/csv")})
+        assert r.status_code == 200, r.text
+
+        db = SessionLocal()
+        try:
+            items = db.query(BotPriceItem).filter_by(bot_id=bot_id, is_active=True).all()
+            by_name = {it.name: it for it in items}
+            assert "Экспа" in by_name
+            # 1e10 → не в price_kop (превышает 1 млрд ₽)
+            assert by_name["Экспа"].price_kop is None
+            assert by_name["Экспа"].price_text  # сохранилось как текст
+            # Норма прошла
+            assert by_name["Норма"].price_kop == 150000  # 1500 ₽ = 150000 коп
+        finally:
+            db.close()
