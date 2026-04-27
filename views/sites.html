@@ -1252,9 +1252,20 @@ function refreshPreview(){
   // кто-то злоумышленно встроит наш iframe внутрь своего сайта, postMessage
   // уйдёт на наш origin, не на их (там просто потеряется без обработки).
   window.__parentOrigin = ${JSON.stringify(window.location.origin)};
-  const TEXT_TAGS=['H1','H2','H3','H4','H5','H6','P','SPAN','A','LI','BUTTON','LABEL','STRONG','EM','DIV'];
+  // Текстовые теги — расширенный список. blockquote/figcaption/td/th — частые в AI-вёрстке.
+  const TEXT_TAGS=['H1','H2','H3','H4','H5','H6','P','SPAN','A','LI','BUTTON','LABEL','STRONG','EM','DIV','BLOCKQUOTE','FIGCAPTION','TD','TH','SMALL','CITE','MARK','SUMMARY','DT','DD'];
   // Top-level "блоки" для AI-правки: семантические разделы и контейнеры верхнего уровня
   const BLOCK_TAGS=['SECTION','HEADER','FOOTER','MAIN','ARTICLE','ASIDE','NAV'];
+  // Иконки: SVG inline + FontAwesome <i class="fa-..."> + lucide
+  function isIcon(el){
+    if(!el || el.nodeType!==1) return false;
+    if(el.tagName==='SVG' || el.tagName==='svg') return true;
+    if(el.tagName==='I'){
+      const cls = el.className && el.className.toString ? el.className.toString() : '';
+      if(/\b(fa-|fas\b|far\b|fab\b|fal\b|bi-|material-icons|icon-|lucide-)/i.test(cls)) return true;
+    }
+    return false;
+  }
   let _blockSeq = 0;
   function tagBlocks(){
     document.querySelectorAll(BLOCK_TAGS.join(',')).forEach(el=>{
@@ -1279,20 +1290,53 @@ function refreshPreview(){
     if(window.__editMode){
       document.querySelectorAll('*').forEach(el=>{
         const tag = el.tagName;
-        // Только "листовые" текстовые элементы
-        const hasOnlyText = [...el.childNodes].every(n=>n.nodeType===3 || (n.nodeType===1 && n.tagName==='BR'));
-        if(TEXT_TAGS.includes(tag) && hasOnlyText && el.textContent.trim()){
-          el.setAttribute('contenteditable','true');
-          el.style.cursor='text';
-          el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.5)');
-          el.addEventListener('mouseleave',()=>el.style.outline='');
+        // Любой текстовый блок с непустым textContent — редактируемый.
+        // Раньше требовали hasOnlyText (только листовые), но это пропускало
+        // <h1>Привет <span>мир</span></h1> и подобные смешанные структуры.
+        // Теперь делаем contenteditable=true на верхнем родителе текста;
+        // дочерние тоже редактируются как часть родителя.
+        if(TEXT_TAGS.includes(tag) && el.textContent && el.textContent.trim()){
+          // Не делаем contenteditable если родитель уже contenteditable
+          // (иначе вложенные contenteditable=false создают баг с курсором).
+          let p = el.parentElement;
+          let parentEditable = false;
+          while(p){
+            if(p.getAttribute && p.getAttribute('contenteditable')==='true'){ parentEditable = true; break; }
+            p = p.parentElement;
+          }
+          if(!parentEditable){
+            el.setAttribute('contenteditable','true');
+            el.style.cursor='text';
+            el.addEventListener('mouseenter',()=>{ if(!el.matches(':focus')) el.style.outline='2px dashed rgba(255,140,66,0.5)'; });
+            el.addEventListener('mouseleave',()=>{ if(!el.matches(':focus')) el.style.outline=''; });
+          }
         }
         if(tag==='IMG'){
           el.style.cursor='pointer';
           el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.7)');
           el.addEventListener('mouseleave',()=>el.style.outline='');
-          el.addEventListener('click',()=>{
+          el.addEventListener('click',(ev)=>{
+            ev.preventDefault(); ev.stopPropagation();
             window.parent.postMessage({type:'site:imgClick',src:el.src,alt:el.alt||''}, window.__parentOrigin);
+          });
+        }
+        // Иконки: SVG / FontAwesome / Lucide — клик открывает «заменить иконку»
+        if(isIcon(el)){
+          el.style.cursor='pointer';
+          el.addEventListener('mouseenter',()=>el.style.outline='2px dashed rgba(255,140,66,0.7)');
+          el.addEventListener('mouseleave',()=>el.style.outline='');
+          el.addEventListener('click',(ev)=>{
+            ev.preventDefault(); ev.stopPropagation();
+            // Уникальный data-edit-icon чтобы parent смог найти и заменить
+            if(!el.dataset.editIcon){
+              el.dataset.editIcon = 'ic_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+            }
+            window.parent.postMessage({
+              type:'site:iconClick',
+              iconId: el.dataset.editIcon,
+              tag: el.tagName.toLowerCase(),
+              outerHtml: el.outerHTML.length < 4000 ? el.outerHTML : el.outerHTML.slice(0,4000),
+            }, window.__parentOrigin);
           });
         }
       });
@@ -1508,7 +1552,7 @@ window.addEventListener('message', e => {
   if(!frame || e.source !== frame.contentWindow) return;
   if(!e.data || typeof e.data !== 'object') return;
   // Доп. защита: тип сообщения должен быть строкой из allow-list
-  const allowedTypes = new Set(['site:htmlChange','site:imgClick','site:blockClick','site:nav']);
+  const allowedTypes = new Set(['site:htmlChange','site:imgClick','site:iconClick','site:blockClick','site:nav']);
   if(!allowedTypes.has(e.data.type)) return;
   if(e.data.type === 'site:htmlChange'){
     if(editMode && typeof e.data.html === 'string'){
@@ -1520,6 +1564,11 @@ window.addEventListener('message', e => {
     if(typeof e.data.src === 'string'){
       selectedImg = e.data.src;
       replaceSelectedImage();
+    }
+  }
+  if(e.data.type === 'site:iconClick'){
+    if(typeof e.data.iconId === 'string' && typeof e.data.outerHtml === 'string'){
+      replaceSelectedIcon(e.data.iconId, e.data.outerHtml);
     }
   }
   if(e.data.type === 'site:blockClick'){
@@ -1572,24 +1621,92 @@ async function replaceSelectedImage(){
       });
       if(!r.ok) throw new Error('Загрузка провалилась');
       const d = await r.json();
-      const newUrl = (API.startsWith('http') ? API : window.location.origin) + d.url;
-      // Заменяем в текущем коде
+      // Cache-bust: добавляем ?v=<ts> чтобы iframe не показал старую закэшированную
+      const cacheBust = '?v=' + Date.now();
+      const relUrl = d.url + cacheBust;
+      const absUrl = (API.startsWith('http') ? API : window.location.origin) + relUrl;
+      // Универсальная замена: ловим и абсолютный URL, и относительный путь, и
+      // в srcset (через запятую). Используем regex-escape от старой URL.
       let code = document.getElementById('codeEditor').value;
-      code = code.split(selectedImg).join(newUrl);
-      // Также учитываем случай без домена
+      const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const candidates = new Set();
+      candidates.add(selectedImg);
       try {
-        const old = new URL(selectedImg).pathname;
-        if(old.startsWith('/uploads/')) code = code.split(old).join(newUrl);
-      } catch(e){}
+        const u = new URL(selectedImg);
+        if(u.pathname) candidates.add(u.pathname);                  // /uploads/x.png
+        if(u.pathname) candidates.add(u.pathname + u.search);        // /uploads/x.png?v=1
+        candidates.add(u.origin + u.pathname);                       // https://aiche.ru/uploads/x.png
+      } catch(e){
+        // selectedImg может быть уже относительным — оставляем как есть
+        if(selectedImg.startsWith('/')) candidates.add(selectedImg);
+      }
+      for(const oldRef of candidates){
+        if(!oldRef) continue;
+        // Заменяем ВСЕ вхождения (split+join вместо replace для глобал-замены без regex-flag)
+        code = code.split(oldRef).join(absUrl);
+      }
+      // Срез ?v=... в srcset тоже надо догнать — после split-замены могло
+      // остаться `xxx.png?v=12345 1x, xxx.png?v=12345 2x` — нормально, оставим.
       document.getElementById('codeEditor').value = code;
       refreshPreview();
       selectedImg = null;
-      // Картинка заменена — фиксируем сразу на сервер чтобы не потерять
-      // даже если юзер закроет вкладку (auto-save с debounce может не успеть).
       await saveCode({silent: true});
     }catch(e){ alert('Ошибка загрузки: '+e.message); }
   };
   input.click();
+}
+
+// Замена иконки. Открывает модалку с вариантами (вставить SVG / FontAwesome /
+// эмодзи / лоад файла-иконки). После выбора — заменяет outerHTML по data-edit-icon.
+async function replaceSelectedIcon(iconId, currentHtml){
+  const choice = prompt(
+    'Заменить иконку. Введи один из вариантов:\n\n' +
+    '• Эмодзи: 🚀 ⭐ ✅ ❤️ 💬 (просто вставь)\n' +
+    '• FontAwesome: fa-bell, fa-rocket, fa-check, fa-heart, fa-star\n' +
+    '• Lucide: lucide-bell, lucide-rocket, lucide-check, lucide-heart\n' +
+    '• Свой SVG: вставь полный <svg>...</svg>\n\n' +
+    'Текущая иконка:\n' + (currentHtml.length > 200 ? currentHtml.slice(0,200)+'…' : currentHtml),
+    ''
+  );
+  if(!choice || !choice.trim()) return;
+  const v = choice.trim();
+  let replacement = '';
+  if(v.startsWith('<svg') && v.includes('</svg>')){
+    // Прямая SVG — вставляем как есть, но добавляем data-edit-icon для повторной правки
+    replacement = v.replace(/<svg/, `<svg data-edit-icon="${iconId}"`);
+  } else if(/^(fa-|fas\b|far\b|fab\b)/.test(v)){
+    // FontAwesome — берём существующие классы FA-стиля и подменяем имя
+    const cls = v.startsWith('fa-') ? 'fas ' + v : v;
+    replacement = `<i class="${cls}" data-edit-icon="${iconId}"></i>`;
+  } else if(/^lucide-/.test(v)){
+    replacement = `<i class="${v}" data-edit-icon="${iconId}"></i>`;
+  } else if(v.length <= 4){
+    // Эмодзи или короткий символ
+    replacement = `<span data-edit-icon="${iconId}">${v}</span>`;
+  } else {
+    alert('Не понял формат иконки. Используй эмодзи, fa-имя, lucide-имя или <svg>...</svg>');
+    return;
+  }
+  try{
+    let code = document.getElementById('codeEditor').value;
+    // Ищем элемент по data-edit-icon в текущем коде
+    const re = new RegExp('<(svg|i|span)[^>]*data-edit-icon=[\'\"]' + iconId + '[\'\"][^>]*>(?:[\\s\\S]*?<\\/\\1>)?', 'i');
+    if(re.test(code)){
+      code = code.replace(re, replacement);
+    } else {
+      // Иконку ещё не сохраняли с data-edit-icon (только что присвоили в iframe).
+      // Делаем простой поиск по совпадению outerHTML.
+      if(code.includes(currentHtml)){
+        code = code.replace(currentHtml, replacement);
+      } else {
+        alert('Не удалось найти иконку в исходнике. Попробуй другую.');
+        return;
+      }
+    }
+    document.getElementById('codeEditor').value = code;
+    refreshPreview();
+    await saveCode({silent: true});
+  }catch(e){ alert('Ошибка замены иконки: '+e.message); }
 }
 
 // ── Host / Download ───────────────────────────────────────────────────────
