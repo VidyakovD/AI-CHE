@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from server.routes.deps import get_db, current_user, optional_user
 from server.models import (
     ProposalProject, ProposalBrand, ChatBot, BotPriceItem,
-    User, Transaction,
+    User, Transaction, ProposalVersion,
 )
 from server.audit_log import log_action
 
@@ -315,16 +315,73 @@ def delete_project(project_id: int, db: Session = Depends(get_db),
 # ── Generate (AI → HTML → PDF) ─────────────────────────────────────────────
 
 
+_MAX_VERSIONS_PER_PROPOSAL = 10  # храним до 10 последних версий
+
+
+def _snapshot_version(db, p: ProposalProject, note: str, cost_kop: int = 0) -> None:
+    """Сохранить текущий HTML/PDF проекта как версию + почистить старые
+    (>10) чтобы не раздувать БД."""
+    if not p.generated_html:
+        return
+    v = ProposalVersion(
+        proposal_id=p.id, user_id=p.user_id,
+        html=p.generated_html, pdf_path=p.generated_pdf,
+        note=note[:200] if note else None, cost_kop=cost_kop or 0,
+    )
+    db.add(v); db.flush()
+    # Cleanup: оставляем только последние _MAX_VERSIONS
+    old = (db.query(ProposalVersion)
+             .filter_by(proposal_id=p.id)
+             .order_by(ProposalVersion.created_at.desc())
+             .offset(_MAX_VERSIONS_PER_PROPOSAL)
+             .all())
+    for o in old:
+        db.delete(o)
+
+
+def _validate_proposal_for_generation(p: ProposalProject) -> None:
+    """Pre-validation перед списанием. Кидает HTTPException с понятным сообщением.
+    Защищает от случаев где AI всё равно бы вернул мусор / откажет, а юзер
+    уже заплатил.
+    """
+    req = (p.client_request or "").strip()
+    notes = (p.extra_notes or "").strip()
+    if not req and not notes:
+        raise HTTPException(400,
+            "Заполните «Запрос клиента» или «Доп. инструкции» — без контекста КП не получится. "
+            "Минимум 30 символов с описанием задачи.")
+    combined = (req or "") + "\n" + (notes or "")
+    if len(combined.strip()) < 30:
+        raise HTTPException(400,
+            "Слишком короткий контекст (минимум 30 символов). Напишите подробнее: "
+            "что нужно клиенту, какие услуги интересуют, какой объём работ.")
+    if len(combined) > 25_000:
+        raise HTTPException(413,
+            "Контекст слишком большой (>25 КБ). Сократите запрос или вынесите детали в чат-беседу.")
+    # client_site_url — если задан, должен быть валидным
+    site = (p.client_site_url or "").strip()
+    if site:
+        if not (site.startswith("http://") or site.startswith("https://")):
+            raise HTTPException(400,
+                f"Сайт клиента должен начинаться с http:// или https:// — получено: {site[:60]}")
+        if " " in site or len(site) > 500:
+            raise HTTPException(400, "URL сайта клиента некорректен")
+
+
 @router.post("/projects/{project_id}/generate")
 def generate_proposal_endpoint(project_id: int, db: Session = Depends(get_db),
                                  user: User = Depends(current_user)):
     """Сгенерировать КП: парсит сайт клиента → промпт Claude → HTML+PDF.
-    Списывает фикс. цену (5 ₽ = 500 коп при перегенерации, 50 ₽ за первый раз)."""
+    Списывает фикс. цену (5 ₽ = 500 коп при перегенерации, 50 ₽ за первый раз).
+
+    Pre-validation: проверяем длину контекста и URL ДО списания, чтобы юзер
+    не платил за заведомо-плохой запрос.
+    """
     p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
-    if not p.client_request and not p.extra_notes:
-        raise HTTPException(400, "Заполните «Запрос клиента» или «Доп. инструкции» — без контекста КП не получится")
+
+    _validate_proposal_for_generation(p)
 
     # Цена: первый раз — 50 ₽, перегенерация — 5 ₽
     is_regen = p.status == "done"
@@ -348,6 +405,8 @@ def generate_proposal_endpoint(project_id: int, db: Session = Depends(get_db),
         p.generated_html = result["html"]
         p.generated_pdf = result["pdf_path"]
         p.status = "done"
+        # Сохраняем версию (после успешной генерации)
+        _snapshot_version(db, p, note="Генерация" if not is_regen else "Перегенерация", cost_kop=cost)
         db.commit()
         log_action("proposal.generated", user_id=user.id,
                    target_type="proposal", target_id=str(p.id),
@@ -401,6 +460,233 @@ def preview_html(project_id: int, db: Session = Depends(get_db),
     if not p.generated_html:
         raise HTTPException(404, "Не сгенерировано")
     return {"html": p.generated_html}
+
+
+# ── Edit HTML manually (бесплатно) + regenerate PDF ─────────────────────────
+
+
+class SaveHtmlBody(BaseModel):
+    html: str
+
+
+@router.post("/projects/{project_id}/save-html")
+def save_proposal_html(project_id: int, body: SaveHtmlBody,
+                        db: Session = Depends(get_db),
+                        user: User = Depends(current_user)):
+    """Сохраняет ручную правку HTML + перегенерирует PDF.
+    Не списывает баланс — это правка, не AI-генерация. Защита от больших
+    payload'ов (макс 500 КБ) и от чужих данных (filter_by user_id).
+    Перед сохранением — простая валидация что это HTML, а не goofy XML/JSON.
+    """
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not body.html or not body.html.strip():
+        raise HTTPException(400, "HTML пустой")
+    if len(body.html) > 500_000:
+        raise HTTPException(413, "HTML слишком большой (макс 500 КБ)")
+    new_html = body.html.strip()
+
+    # Сохраняем + регенерируем PDF
+    from server.proposal_builder import _save_pdf
+    p.generated_html = new_html
+    try:
+        new_pdf_path = _save_pdf(new_html, p.id)
+        # Удаляем старый PDF (если был)
+        if p.generated_pdf and p.generated_pdf != new_pdf_path:
+            try:
+                base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                old = os.path.join(base, p.generated_pdf.lstrip("/"))
+                if os.path.exists(old):
+                    os.unlink(old)
+            except Exception:
+                pass
+        p.generated_pdf = new_pdf_path
+        p.status = "done"
+        _snapshot_version(db, p, note="Ручная правка HTML")
+        db.commit()
+    except Exception as e:
+        log.error(f"[proposal] save-html PDF regen failed: {type(e).__name__}: {e}")
+        # HTML сохранён, но PDF не пересоздался — возвращаем 200 с предупреждением
+        db.commit()
+        raise HTTPException(503, f"HTML сохранён, но PDF не удалось пересобрать: {type(e).__name__}")
+
+    log_action("proposal.html_edited", user_id=user.id,
+               target_type="proposal", target_id=str(p.id),
+               details={"html_size": len(new_html)})
+    return _project_to_dict(p, full=True)
+
+
+# ── AI-правка одной секции (real × 5, без фикс-минимума) ──────────────────
+
+
+class EditSectionBody(BaseModel):
+    section_html: str
+    instruction: str
+
+
+@router.post("/projects/{project_id}/edit-section")
+def edit_section_endpoint(project_id: int, body: EditSectionBody,
+                           db: Session = Depends(get_db),
+                           user: User = Depends(current_user)):
+    """Точечная правка одной секции через AI. Цена = real_tokens × 5
+    (margin из pricing.ai.improve_margin_pct). Защищает от случаев где
+    юзер хочет переписать только один блок и не хочет платить за полный
+    регенерат (5 ₽). Auto-refund при ошибке.
+    """
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.generated_html:
+        raise HTTPException(400, "Сначала сгенерируйте КП")
+    section = (body.section_html or "").strip()
+    instr = (body.instruction or "").strip()
+    if not section or not instr:
+        raise HTTPException(400, "Не указан section_html или instruction")
+    if len(section) > 50_000:
+        raise HTTPException(413, "Секция слишком большая")
+    if len(instr) > 2_000:
+        raise HTTPException(413, "Инструкция слишком длинная")
+    if section not in p.generated_html:
+        raise HTTPException(400, "Этот блок не найден в текущем КП — возможно, КП изменился")
+
+    # User-key для скидки
+    from server.models import UserApiKey
+    uk = db.query(UserApiKey).filter_by(user_id=user.id, provider="anthropic").first()
+    user_key = uk.api_key if uk else None
+
+    # Выполняем edit
+    from server.proposal_builder import edit_section, _build_brand_css, _save_pdf
+    brand = None
+    if p.brand_id:
+        brand = db.query(ProposalBrand).filter_by(
+            id=p.brand_id, user_id=user.id).first()
+    brand_css = _build_brand_css(brand)
+
+    try:
+        result = edit_section(section, instr, brand_css, user_api_key=user_key)
+    except Exception as e:
+        log.error(f"[proposal] edit-section failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, f"AI-правка не удалась: {type(e).__name__}")
+
+    new_section = result["html"]
+    usage = result.get("usage", {}) or {}
+    input_tok = int(usage.get("input_tokens", 0) or 0)
+    output_tok = int(usage.get("output_tokens", 0) or 0)
+
+    # Расчёт цены: реальные токены × margin (ai.improve_margin_pct=500%)
+    # Базовая цена по тарифу claude — берём из ModelPricing fallback.
+    from server.models import ModelPricing
+    from server.pricing import get_price as _gp
+    pricing_row = db.query(ModelPricing).filter_by(model_id="claude").first()
+    if pricing_row and (pricing_row.ch_per_1k_input or pricing_row.ch_per_1k_output):
+        base = (input_tok / 1000.0) * (pricing_row.ch_per_1k_input or 0) + \
+               (output_tok / 1000.0) * (pricing_row.ch_per_1k_output or 0)
+        base = max(int(round(base)), pricing_row.min_ch_per_req or 1)
+    else:
+        base = 5  # минимум 5 коп если pricing неизвестен
+    margin_pct = int(_gp("ai.improve_margin_pct", default=500))
+    cost = max(1, int(round(base * margin_pct / 100)))
+
+    from server.billing import deduct_strict
+    if not deduct_strict(db, user.id, cost):
+        # Не списали → не сохраняем правку
+        raise HTTPException(402, f"Недостаточно средств (нужно ~{cost/100:.2f} ₽)")
+    p.price_kop = (p.price_kop or 0) + cost
+    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+                        description=f"AI-правка КП «{p.name}» ({cost/100:.2f} ₽)"))
+
+    # Заменяем секцию в полном HTML, регенерируем PDF
+    p.generated_html = p.generated_html.replace(section, new_section, 1)
+    try:
+        new_pdf = _save_pdf(p.generated_html, p.id)
+        if p.generated_pdf and p.generated_pdf != new_pdf:
+            try:
+                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                old = os.path.join(base_dir, p.generated_pdf.lstrip("/"))
+                if os.path.exists(old):
+                    os.unlink(old)
+            except Exception:
+                pass
+        p.generated_pdf = new_pdf
+        _snapshot_version(db, p, note="AI-правка блока", cost_kop=cost)
+        db.commit()
+    except Exception as e:
+        log.error(f"[proposal] edit-section PDF regen failed: {type(e).__name__}: {e}")
+        db.commit()
+        raise HTTPException(503, f"AI-правка применена, но PDF не пересобран: {type(e).__name__}")
+
+    log_action("proposal.section_edited", user_id=user.id,
+               target_type="proposal", target_id=str(p.id),
+               details={"cost_kop": cost, "input_tok": input_tok, "output_tok": output_tok})
+    return {**_project_to_dict(p, full=True), "cost_kop": cost,
+            "new_section": new_section}
+
+
+# ── Versioning ─────────────────────────────────────────────────────────────
+
+
+@router.get("/projects/{project_id}/versions")
+def list_versions(project_id: int, db: Session = Depends(get_db),
+                   user: User = Depends(current_user)):
+    """История версий КП (последние 10). Без HTML — только метаданные."""
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    rows = (db.query(ProposalVersion)
+              .filter_by(proposal_id=project_id)
+              .order_by(ProposalVersion.created_at.desc())
+              .limit(_MAX_VERSIONS_PER_PROPOSAL).all())
+    return [{
+        "id": v.id, "note": v.note, "cost_kop": v.cost_kop or 0,
+        "created_at": v.created_at.isoformat() if v.created_at else None,
+        "is_current": (v.html == p.generated_html),
+    } for v in rows]
+
+
+@router.post("/projects/{project_id}/versions/{version_id}/restore")
+def restore_version(project_id: int, version_id: int,
+                     db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
+    """Откатить КП к одной из сохранённых версий. Не списывает баланс.
+    Регенерирует PDF из старого HTML, чтобы файл был свежий."""
+    p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    v = db.query(ProposalVersion).filter_by(id=version_id, proposal_id=project_id,
+                                              user_id=user.id).first()
+    if not v:
+        raise HTTPException(404, "Версия не найдена")
+    if not v.html:
+        raise HTTPException(400, "Версия повреждена (нет HTML)")
+
+    # Перед откатом сохраняем текущее состояние как версию
+    _snapshot_version(db, p, note="Перед откатом")
+
+    p.generated_html = v.html
+    # PDF: если файл старой версии существует — используем; иначе регенерим
+    from server.proposal_builder import _save_pdf
+    try:
+        if v.pdf_path:
+            base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            old_pdf = os.path.join(base, v.pdf_path.lstrip("/"))
+            if os.path.exists(old_pdf):
+                p.generated_pdf = v.pdf_path
+            else:
+                p.generated_pdf = _save_pdf(v.html, p.id)
+        else:
+            p.generated_pdf = _save_pdf(v.html, p.id)
+        p.status = "done"
+        db.commit()
+    except Exception as e:
+        log.error(f"[proposal] restore PDF failed: {type(e).__name__}: {e}")
+        db.commit()
+        raise HTTPException(503, f"HTML восстановлен, но PDF не пересобран: {type(e).__name__}")
+
+    log_action("proposal.version_restored", user_id=user.id,
+               target_type="proposal", target_id=str(p.id),
+               details={"version_id": version_id})
+    return _project_to_dict(p, full=True)
 
 
 # ── Manual send by email ───────────────────────────────────────────────────

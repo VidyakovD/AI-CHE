@@ -143,6 +143,12 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h3 class="font-headline font-bold text-sm">Сгенерированное КП</h3>
         <div class="flex gap-2 flex-wrap">
+          <button id="pAiEditBtn" onclick="toggleAiSectionMode()" class="btn-g text-xs" title="AI-правка по секции — кликни блок в превью">
+            ✨ AI-правка блока
+          </button>
+          <button id="pEditBtn" onclick="toggleEditHtml()" class="btn-g text-xs" title="Ручная правка HTML">
+            ✏️ Редактировать
+          </button>
           <button onclick="openSendEmail()" class="btn-p text-xs py-1.5 px-3" title="Отправить клиенту на email">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
             Отправить по email
@@ -152,8 +158,22 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         </div>
       </div>
       <p id="pSentInfo" class="text-xs text-on-dim hidden mb-2"></p>
+      <!-- Режим превью: iframe с готовым HTML -->
       <div id="pResultIframeWrap" class="rounded-lg overflow-hidden bg-white" style="height:60vh">
         <iframe id="pResultIframe" sandbox="allow-same-origin" class="w-full h-full border-0"></iframe>
+      </div>
+      <!-- Режим правки: textarea + кнопки save/cancel/preview -->
+      <div id="pEditWrap" class="hidden">
+        <div class="flex items-center gap-2 mb-2 flex-wrap">
+          <span class="text-xs text-on-dim">Правь HTML напрямую — после сохранения PDF пересобирается автоматически.</span>
+          <span class="text-xs text-on-dim/70">(Используй классы <code class="text-primary">.kp-section</code>, <code class="text-primary">.kp-hero</code>, <code class="text-primary">.kp-cta</code>)</span>
+        </div>
+        <textarea id="pEditHtml" class="inp font-mono text-xs" rows="20" style="height:50vh;resize:vertical" spellcheck="false"></textarea>
+        <div class="flex items-center gap-2 mt-3 flex-wrap">
+          <button onclick="saveEditedHtml()" class="btn-p text-sm py-2 px-4" id="pSaveHtmlBtn">💾 Сохранить + пересобрать PDF</button>
+          <button onclick="previewEdited()" class="btn-g text-sm">👁 Предпросмотр</button>
+          <button onclick="cancelEditHtml()" class="btn-g text-sm">Отмена</button>
+        </div>
       </div>
     </div>
 
@@ -467,18 +487,192 @@ function updateGenButton(p){
   }
 }
 
+// Текущий HTML (актуальный — обновляется при правке/перегенерации)
+let _currentHtml = '';
+
+// Режим AI-правки секций: при включении в iframe инжектим скрипт,
+// помечающий <section> overlay'ями + кликом, который шлёт parent-у
+// postMessage с outerHTML секции. Аналог aiBlockMode из /sites.html.
+let _aiSectionMode = false;
+
 function showResult(html){
+  _currentHtml = html || '';
   const wrap = document.getElementById('pResult');
   const iframe = document.getElementById('pResultIframe');
-  // srcdoc безопасен — sandbox="allow-same-origin" без allow-scripts
-  // (если в HTML случайно появятся <script> — они не исполнятся)
-  iframe.srcdoc = html;
+  // Если включён режим AI-правки — инжектим overlay-скрипт.
+  // sandbox="allow-same-origin allow-scripts" в этом режиме (XSS-риска нет:
+  // HTML наш собственный, проходил через _wrap_html, без user-input <script>).
+  if(_aiSectionMode){
+    iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
+    iframe.srcdoc = _injectSectionOverlay(_currentHtml);
+  } else {
+    iframe.setAttribute('sandbox', 'allow-same-origin');
+    iframe.srcdoc = _currentHtml;
+  }
   wrap.classList.remove('hidden');
+  // При повторном открытии возвращаемся в режим превью
+  exitEditMode();
+}
+
+function _injectSectionOverlay(html){
+  const parentOrigin = window.location.origin;
+  const inj = `
+<script>
+(function(){
+  var origin = ${JSON.stringify(parentOrigin)};
+  document.querySelectorAll('section').forEach(function(s, i){
+    s.dataset.kpIdx = i;
+    s.style.outline = '2px dashed rgba(255,140,66,0.45)';
+    s.style.cursor = 'pointer';
+    s.style.transition = 'outline .15s';
+    s.addEventListener('mouseenter', function(){ s.style.outline = '2px solid #ff8c42'; });
+    s.addEventListener('mouseleave', function(){ s.style.outline = '2px dashed rgba(255,140,66,0.45)'; });
+    s.addEventListener('click', function(ev){
+      ev.preventDefault(); ev.stopPropagation();
+      window.parent.postMessage({type:'kp:sectionClick', idx: i, html: s.outerHTML}, origin);
+    }, true);
+  });
+})();
+<\/script>`;
+  if(html.indexOf('</body>') !== -1) return html.replace('</body>', inj + '</body>');
+  return html + inj;
+}
+
+function toggleAiSectionMode(){
+  _aiSectionMode = !_aiSectionMode;
+  const btn = document.getElementById('pAiEditBtn');
+  if(btn) btn.textContent = _aiSectionMode ? '✕ Готово' : '✨ AI-правка блока';
+  // Перерендерим iframe чтобы applied/убрать overlay
+  if(_currentHtml){
+    const iframe = document.getElementById('pResultIframe');
+    if(_aiSectionMode){
+      iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
+      iframe.srcdoc = _injectSectionOverlay(_currentHtml);
+    } else {
+      iframe.setAttribute('sandbox', 'allow-same-origin');
+      iframe.srcdoc = _currentHtml;
+    }
+  }
+}
+
+// Слушаем postMessage от iframe
+window.addEventListener('message', async function(e){
+  const iframe = document.getElementById('pResultIframe');
+  if(!iframe || e.source !== iframe.contentWindow) return;
+  if(!e.data || typeof e.data !== 'object') return;
+  if(e.data.type === 'kp:sectionClick' && typeof e.data.html === 'string'){
+    await aiEditSection(e.data.html);
+  }
+});
+
+async function aiEditSection(sectionHtml){
+  // Защита: после выбора отключаем режим (иначе следующий клик опять триггернет)
+  _aiSectionMode = false;
+  const btn = document.getElementById('pAiEditBtn');
+  if(btn) btn.textContent = '✨ AI-правка блока';
+  // Рендерим без overlay — пока юзер вводит инструкцию
+  document.getElementById('pResultIframe').setAttribute('sandbox', 'allow-same-origin');
+  document.getElementById('pResultIframe').srcdoc = _currentHtml;
+
+  const instr = await aiPrompt(
+    'Что изменить в этом блоке? Например: «сделай заголовок крупнее», «добавь срок поставки», «убери последний пункт», «измени тон на более дружелюбный».',
+    '',
+    {title: 'AI-правка блока', okLabel: 'Применить (real × 5)'}
+  );
+  if(!instr || !instr.trim()) return;
+  if(!await aiConfirm(
+    'AI перепишет только этот блок. Стоимость по реальным токенам × 5 (обычно 30-60 коп).',
+    {title: 'Применить правку?', okLabel: 'Применить'}
+  )) return;
+
+  // Блокируем кнопку чтобы не дублировать запросы
+  if(btn) btn.disabled = true;
+  try{
+    const r = await fetch(`${API}/proposals/projects/${currentProjectId}/edit-section`, {
+      method: 'POST', headers: hdrs(), credentials: 'same-origin',
+      body: JSON.stringify({section_html: sectionHtml, instruction: instr.trim()}),
+    });
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
+    showResult(data.generated_html || _currentHtml);
+    const cost = data.cost_kop ? (data.cost_kop / 100).toFixed(2) : '0';
+    await aiAlert(`Блок переписан. Списано ${cost} ₽. PDF пересобран.`, 'success');
+    await loadProjects();
+  }catch(e){
+    await aiAlert(e.message, 'error');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
 }
 
 function hideResult(){
+  _currentHtml = '';
   document.getElementById('pResult').classList.add('hidden');
   document.getElementById('pResultIframe').srcdoc = '';
+  exitEditMode();
+}
+
+function exitEditMode(){
+  document.getElementById('pResultIframeWrap').classList.remove('hidden');
+  document.getElementById('pEditWrap').classList.add('hidden');
+  const btn = document.getElementById('pEditBtn');
+  if(btn) btn.textContent = '✏️ Редактировать';
+}
+
+function toggleEditHtml(){
+  const editWrap = document.getElementById('pEditWrap');
+  const isEditing = !editWrap.classList.contains('hidden');
+  if(isEditing){
+    exitEditMode();
+    return;
+  }
+  document.getElementById('pEditHtml').value = _currentHtml;
+  document.getElementById('pResultIframeWrap').classList.add('hidden');
+  editWrap.classList.remove('hidden');
+  document.getElementById('pEditBtn').textContent = '👁 Превью';
+}
+
+function previewEdited(){
+  const html = document.getElementById('pEditHtml').value;
+  if(!html.trim()){ aiAlert('HTML пустой', 'warn'); return; }
+  document.getElementById('pResultIframe').srcdoc = html;
+  document.getElementById('pResultIframeWrap').classList.remove('hidden');
+  document.getElementById('pEditWrap').classList.add('hidden');
+  document.getElementById('pEditBtn').textContent = '✏️ Редактировать';
+}
+
+function cancelEditHtml(){
+  exitEditMode();
+}
+
+async function saveEditedHtml(){
+  if(!currentProjectId) return;
+  const html = document.getElementById('pEditHtml').value;
+  if(!html.trim()){ await aiAlert('HTML пустой', 'warn'); return; }
+  if(html.length > 500000){
+    await aiAlert('HTML слишком большой (макс 500 КБ). Сократи или обратись в поддержку.', 'warn');
+    return;
+  }
+  const btn = document.getElementById('pSaveHtmlBtn');
+  btn.disabled = true;
+  const oldLabel = btn.textContent;
+  btn.textContent = 'Сохраняю + пересобираю PDF…';
+  try{
+    const r = await fetch(`${API}/proposals/projects/${currentProjectId}/save-html`, {
+      method: 'POST', headers: hdrs(), credentials: 'same-origin',
+      body: JSON.stringify({html}),
+    });
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
+    showResult(data.generated_html || html);
+    await aiAlert('HTML сохранён и PDF пересобран. Можно скачивать или отправлять.', 'success');
+    await loadProjects();
+  }catch(e){
+    await aiAlert(e.message, 'error');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = oldLabel;
+  }
 }
 
 async function generateProposal(){

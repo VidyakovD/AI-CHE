@@ -472,6 +472,33 @@ def generate_proposal(db, project: ProposalProject, user_api_key: str | None = N
     }
 
 
+def edit_section(section_html: str, instruction: str, brand_css: dict,
+                  user_api_key: str | None = None) -> dict:
+    """Точечная правка одной <section> блока КП.
+    Цена: реальные токены × 5 (ai.improve_margin_pct), без фикс-минимума.
+
+    Возвращает {'html': str, 'usage': dict}. ValueError при пустом ответе AI.
+    """
+    prompt = (
+        "Ты редактируешь ОДИН блок коммерческого предложения (HTML <section>). "
+        "Верни обновлённый HTML того же блока — только сам <section>, без обёрток. "
+        "Сохраняй фирменные классы (.kp-section/.kp-hero/.kp-grid/.kp-card/"
+        ".kp-price-table/.kp-cta/.kp-summary). Без markdown-кода, без <html>/<body>. "
+        "Русский язык, без воды.\n\n"
+        f"=== ИНСТРУКЦИЯ ОТ ПОЛЬЗОВАТЕЛЯ ===\n{instruction}\n\n"
+        f"=== ТЕКУЩИЙ БЛОК ===\n{section_html}\n\n"
+        "Верни ТОЛЬКО обновлённый <section>...</section>."
+    )
+    ans = generate_response("claude", [{"role": "user", "content": prompt}],
+                             extra={"max_tokens": 4000}, user_api_key=user_api_key)
+    if not isinstance(ans, dict) or not ans.get("content"):
+        raise ValueError("AI вернул пустой ответ")
+    new_html = _strip_ai_wrappers(ans.get("content", ""))
+    if not new_html:
+        raise ValueError("AI вернул пустой HTML")
+    return {"html": new_html, "usage": ans.get("usage", {}) or {}}
+
+
 def _save_pdf(html: str, project_id: int) -> str:
     """Конвертит HTML в PDF и сохраняет в /uploads/proposals/. Возвращает относительный путь."""
     from server.pdf_builder import html_to_pdf_bytes  # переиспользуем helper

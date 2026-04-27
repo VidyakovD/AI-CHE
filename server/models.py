@@ -813,6 +813,24 @@ class ProposalBrand(Base):
     created_at      = Column(DateTime, default=datetime.utcnow)
 
 
+class ProposalVersion(Base):
+    """История версий сгенерированного КП. Создаётся каждый раз при
+    регенерации / правке секции / правке HTML — чтобы юзер мог откатиться,
+    если новая версия хуже предыдущей. Храним N последних (cleanup в scheduler).
+    """
+    __tablename__ = "proposal_versions"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    proposal_id     = Column(Integer, ForeignKey("proposal_projects.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    html            = Column(Text, nullable=True)
+    pdf_path        = Column(String, nullable=True)
+    note            = Column(String, nullable=True)        # «генерация», «правка блока», «ручная»
+    cost_kop        = Column(Integer, default=0)
+    created_at      = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class ProposalProject(Base):
     """Проект КП (коммерческого предложения).
 
