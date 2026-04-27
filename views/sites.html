@@ -57,9 +57,13 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .img-thumb:hover{opacity:.7}
 /* Preview iframe */
 .preview-frame{width:100%;height:550px;border:none;border-radius:12px;background:#fff}
-/* Адаптивные ширины превью для проверки на разных устройствах */
-.preview-wrap{display:flex;justify-content:center;width:100%;flex:1;overflow:auto}
-.preview-wrap .preview-frame{width:100%;height:100%;min-height:0;transition:width .25s ease;margin:0 auto}
+/* Адаптивные ширины превью для проверки на разных устройствах.
+   ВАЖНО: явный min-height:70vh — flex:1 цепочка через .tab-pane не всегда
+   работает (если родитель сам не получил высоту), iframe сжимался до
+   ~150px. min-height гарантирует адекватный размер превью независимо
+   от flex-context. */
+.preview-wrap{display:flex;justify-content:center;width:100%;flex:1 1 auto;min-height:70vh;overflow:auto}
+.preview-wrap .preview-frame{width:100%;height:100%;min-height:70vh;transition:width .25s ease;margin:0 auto}
 .preview-wrap.vp-mobile  .preview-frame{width:375px}
 .preview-wrap.vp-tablet  .preview-frame{width:768px}
 .preview-wrap.vp-desktop .preview-frame{width:100%}
