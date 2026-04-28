@@ -8,7 +8,7 @@
 <script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
 <style>
 *{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
-*::-webkit-scrollbar{width:4px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+*::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
 body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:100vh}
 .sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
 .sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
@@ -18,24 +18,30 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
 .btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
 .btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.btn-d{background:rgba(255,107,107,0.1);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer}
+.btn-d:hover{background:rgba(255,107,107,0.2)}
 .card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
 .modal-bg.show{display:flex}
-.tab-switch{display:flex;background:#272018;border-radius:10px;padding:3px;gap:2px}
-.tab-sw-btn{flex:1;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .15s;color:#a89880;background:transparent}
-.tab-sw-btn.active{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210}
 .proj-card{cursor:pointer;transition:all .15s;background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:14px;padding:16px}
 .proj-card:hover{border-color:rgba(255,140,66,0.4);transform:translateY(-1px)}
-.type-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:9999px}
-.badge-kp{background:rgba(255,140,66,0.12);color:#ff8c42;border:1px solid rgba(255,140,66,0.2)}
-.badge-pres{background:rgba(99,102,241,0.12);color:#a5b4fc;border:1px solid rgba(99,102,241,0.2)}
-.result-content{font-size:14px;line-height:1.8;white-space:pre-wrap;word-break:break-word}
-.result-content h1,.result-content h2,.result-content h3{font-family:Manrope,sans-serif;font-weight:700;margin:1em 0 0.4em}
-.result-content h1{font-size:20px;color:#ff8c42}
-.result-content h2{font-size:16px;color:#ffb347}
-.profile-field label{display:block;font-size:11px;color:#a89880;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
-.icn{display:inline-flex;align-items:center;vertical-align:-2px;margin-right:4px}
-.icn svg{display:block}
+.status-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:9999px}
+.badge-draft{background:rgba(168,152,128,0.12);color:#a89880;border:1px solid rgba(168,152,128,0.2)}
+.badge-done{background:rgba(34,197,94,0.12);color:#86efac;border:1px solid rgba(34,197,94,0.2)}
+.badge-error{background:rgba(255,107,107,0.12);color:#ff6b6b;border:1px solid rgba(255,107,107,0.2)}
+.field label{display:block;font-size:11px;color:#a89880;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.empty{padding:48px 24px;text-align:center;color:#a89880}
+.scheme-card{cursor:pointer;border:2px solid rgba(74,63,47,0.4);border-radius:10px;padding:12px;transition:all .15s;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px}
+.scheme-card.active{border-color:#ff8c42;background:rgba(255,140,66,0.05)}
+.scheme-preview{width:100%;height:50px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.slide-thumb{aspect-ratio:16/9;border-radius:8px;background:#272018;border:1px solid rgba(74,63,47,0.3);padding:8px;font-size:11px;overflow:hidden;display:flex;flex-direction:column}
+.slide-thumb .num{font-size:9px;color:#a89880;margin-bottom:2px}
+.slide-thumb .ttl{font-weight:700;color:#ffb347;font-size:11px;line-height:1.2;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.slide-thumb .body{flex:1;font-size:9px;color:#a89880;line-height:1.3;overflow:hidden}
+.cost-hint{font-size:11px;color:#a89880;font-style:italic;margin-top:4px}
+.img-thumb{position:relative;width:60px;height:60px;border-radius:6px;overflow:hidden;border:1px solid rgba(74,63,47,0.4)}
+.img-thumb img{width:100%;height:100%;object-fit:cover}
+.img-thumb button{position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.7);color:#fff;border:0;width:18px;height:18px;border-radius:50%;cursor:pointer;font-size:11px;line-height:18px}
 </style>
 <script src="/icons.js" defer></script>
 </head>
@@ -43,564 +49,435 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
 <div class="max-w-6xl mx-auto px-5 py-8">
 
-  <!-- Header -->
-  <div class="flex items-center justify-between mb-6">
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
     <div class="flex items-center gap-4">
       <a href="index.html" class="btn-g text-xs">← Назад</a>
       <div>
         <h1 class="text-2xl font-extrabold font-headline">Презентации <span class="sig-text">с AI</span></h1>
-        <p class="text-sm text-on-dim">Структурированные презентации со слайдами и тезисами</p>
+        <p class="text-sm text-on-dim">Структура, графики, картинки, экспорт PPTX. На основе Claude.</p>
       </div>
     </div>
     <button onclick="openCreate()" class="btn-p">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-      Создать
+      Новая презентация
     </button>
   </div>
 
-  <!-- ── Мои шаблоны (профиль компании) ── -->
-  <div class="card mb-6">
-    <button onclick="toggleProfile()" class="w-full px-6 py-4 flex items-center justify-between text-left">
-      <div class="flex items-center gap-3">
-        <div class="w-8 h-8 sig rounded-lg flex items-center justify-center flex-shrink-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="#141210"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-        </div>
-        <div>
-          <p class="font-headline font-bold text-sm">Мои шаблоны</p>
-          <p class="text-xs text-on-dim">Информация о компании, прайс и стиль — используются при генерации</p>
-        </div>
-      </div>
-      <svg id="profileChevron" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="text-on-dim transition-transform"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
-    </button>
+  <p class="text-xs text-on-dim mb-5">
+    Если ищешь КП — они переехали:
+    <a href="proposals.html" class="text-primary hover:underline">Коммерческие предложения →</a>
+  </p>
 
-    <div id="profilePanel" class="hidden border-t border-outline/15 p-6">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div class="profile-field">
-          <label>Название компании</label>
-          <input id="pf_company" type="text" class="inp" placeholder="ООО «Ромашка»"/>
-        </div>
-        <div class="profile-field">
-          <label>Контакты</label>
-          <input id="pf_contacts" type="text" class="inp" placeholder="+7 999 000-00-00 | site.ru"/>
-        </div>
-        <div class="profile-field md:col-span-2">
-          <label>Чем занимается компания</label>
-          <textarea id="pf_description" rows="2" class="inp resize-none text-sm" placeholder="Производим и поставляем промышленное оборудование с 2010 года..."></textarea>
-        </div>
-        <div class="profile-field md:col-span-2">
-          <label>Услуги и товары</label>
-          <textarea id="pf_services" rows="3" class="inp resize-none text-sm" placeholder="1. Монтаж оборудования — от 50 000 ₽&#10;2. Техническое обслуживание — от 15 000 ₽/мес&#10;..."></textarea>
-        </div>
-        <div class="profile-field md:col-span-2">
-          <label>Прайс-лист</label>
-          <textarea id="pf_prices" rows="3" class="inp resize-none text-sm" placeholder="Базовый пакет — 30 000 ₽&#10;Стандарт — 60 000 ₽&#10;Премиум — 120 000 ₽"></textarea>
-        </div>
-        <div class="profile-field md:col-span-2">
-          <label>Стиль оформления и тон</label>
-          <input id="pf_style" type="text" class="inp" placeholder="Деловой, без воды, с цифрами и фактами. Цвета: тёмно-синий и оранжевый."/>
-        </div>
-      </div>
-      <div class="flex items-center gap-3 mt-5">
-        <button onclick="saveProfile()" class="btn-p">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
-          Сохранить
-        </button>
-        <span id="profileSaved" class="text-xs text-primary hidden">Сохранено ✓</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- КП переехали в отдельный модуль /proposals.html. Здесь только презентации. -->
-  <div class="flex items-center justify-between mb-5">
-    <p class="text-xs text-on-dim">
-      Ищете КП? Они переехали:
-      <a href="proposals.html" class="text-primary hover:underline">Коммерческие предложения →</a>
-    </p>
-    <p class="text-xs text-on-dim hidden md:block" id="tabCount">0 проектов</p>
-  </div>
-  <!-- Скрытые таб-кнопки для совместимости со старым кодом switchTab/currentTab -->
-  <div class="hidden">
-    <button id="tab-kp"></button>
-    <button id="tab-presentation" class="active"></button>
-  </div>
-
-  <!-- Projects grid -->
-  <div id="projectGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
-
-  <!-- Empty state -->
-  <div id="emptyState" class="hidden text-center py-20">
-    <div class="w-16 h-16 rounded-2xl sig flex items-center justify-center mx-auto mb-4">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="#1C1C1C"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6z"/></svg>
-    </div>
-    <h2 class="text-xl font-bold font-headline mb-2">Нет проектов</h2>
-    <p class="text-on-dim text-sm mb-6" id="emptyText">Создайте первое КП — AI сгенерирует профессиональный документ</p>
-    <button onclick="openCreate()" class="btn-p">Создать первый проект</button>
+  <div id="projectsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+  <div id="emptyState" class="card empty hidden">
+    <p class="text-base mb-2">Пока нет презентаций.</p>
+    <p class="text-xs">Нажми «Новая презентация» — заполни тему, аудиторию и количество слайдов.</p>
   </div>
 </div>
 
-<!-- ── Create Modal ── -->
-<div id="createModal" class="modal-bg">
-  <div class="bg-surface rounded-2xl w-full max-w-lg border border-outline/25 shadow-2xl overflow-hidden">
-    <div class="sig px-6 py-4 flex items-center justify-between">
-      <h2 class="font-headline font-bold text-[#1C1C1C] text-lg">Новый проект</h2>
-      <button onclick="closeCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg">✕</button>
+<!-- ── Modal: Создание/редактирование презентации ── -->
+<div id="projectModal" class="modal-bg">
+  <div class="card max-w-3xl w-full mx-auto" style="margin-top:4vh">
+    <div class="flex items-center justify-between p-5 border-b border-outline/15">
+      <h2 id="projectModalTitle" class="font-headline font-bold text-lg">Новая презентация</h2>
+      <button onclick="closeProject()" class="btn-g text-xs">✕</button>
     </div>
-    <div class="p-6 space-y-4">
-      <div>
-        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Тип документа</label>
-        <div class="tab-switch">
-          <button class="tab-sw-btn active" id="create-tab-kp" onclick="setCreateType('kp')">📄 КП</button>
-          <button class="tab-sw-btn" id="create-tab-presentation" onclick="setCreateType('presentation')">📊 Презентация</button>
+    <div class="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+      <div class="field">
+        <label>Название проекта (для тебя)</label>
+        <input id="pNa" type="text" class="inp" placeholder="Презентация продукта для инвесторов"/>
+      </div>
+      <div class="field">
+        <label>Тема презентации <span class="text-error">*</span></label>
+        <input id="pTopic" type="text" class="inp" placeholder="О чём презентация — например «Запуск нового продукта Х»"/>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="field">
+          <label>Целевая аудитория</label>
+          <input id="pAudience" type="text" class="inp" placeholder="Инвесторы / клиенты / команда / партнёры..."/>
+        </div>
+        <div class="field">
+          <label>Количество слайдов: <span id="pSlideCountVal" class="text-primary font-bold">10</span></label>
+          <input id="pSlideCount" type="range" min="3" max="30" value="10" class="w-full"
+                 oninput="document.getElementById('pSlideCountVal').textContent=this.value;_updateCostHint()"/>
         </div>
       </div>
-      <div>
-        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Название</label>
-        <input id="proj_name" type="text" class="inp" placeholder="КП для клиента / Презентация продукта"/>
+      <div class="field">
+        <label>Доп. информация — цифры, факты, тезисы (чем больше — тем точнее результат)</label>
+        <textarea id="pExtra" rows="6" class="inp resize-y text-sm"
+                  placeholder="Например:&#10;— Выручка 50 млн ₽ в 2025 г, рост 40% год-к-году&#10;— Команда из 12 человек, 3 года на рынке&#10;— Клиенты: ВТБ, Сбер, X5 Group&#10;— Уникальность: единственный сервис с XYZ&#10;— Цели на 2026: выйти на 200 млн ₽"
+                  oninput="_updateCostHint()"></textarea>
       </div>
-      <div>
-        <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Описание задачи</label>
-        <textarea id="proj_desc" rows="4" class="inp resize-none text-sm leading-relaxed"
-          placeholder="Для кого делаем? Что хотим донести? Какой результат нужен? Любые детали..."></textarea>
-      </div>
-      <div id="proj_err" class="text-error text-xs hidden"></div>
-      <div class="flex gap-3 pt-1">
-        <button onclick="closeCreate()" class="btn-g flex-1">Отмена</button>
-        <button onclick="saveProject()" class="btn-p flex-1 justify-center" id="saveProjectBtn">Создать и сгенерировать</button>
-      </div>
-    </div>
-  </div>
-</div>
 
-<!-- ── Detail Modal ── -->
-<div id="detailModal" class="modal-bg">
-  <div class="bg-surface rounded-2xl w-full max-w-4xl border border-outline/25 shadow-2xl flex flex-col" style="max-height:92vh">
-    <div class="sig px-6 py-4 flex items-center justify-between flex-shrink-0">
-      <div class="flex items-center gap-3">
-        <h2 class="font-headline font-bold text-[#1C1C1C] text-lg" id="detailTitle">Проект</h2>
-        <span id="detailTypeBadge" class="type-badge badge-kp">КП</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <button onclick="deleteCurrentProject()" class="bg-black/10 hover:bg-black/20 rounded-lg p-1.5 text-[#1C1C1C]/70">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-        </button>
-        <button onclick="closeDetail()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg">✕</button>
-      </div>
-    </div>
-
-    <div class="flex-1 overflow-y-auto p-6 space-y-5 min-h-0">
-      <!-- Status / Generate -->
-      <div id="detailDraft" class="hidden bg-surface2 rounded-xl p-5 border border-outline/20">
-        <p class="text-sm text-on-dim mb-4">AI сгенерирует документ на основе вашего описания, картинок и профиля компании.</p>
-        <div class="mb-4">
-          <label class="block text-xs text-on-dim mb-1.5">Описание задачи</label>
-          <textarea id="detailDesc" rows="3" class="inp resize-none text-sm"></textarea>
+      <!-- Картинки -->
+      <div class="field">
+        <label>Изображения (необязательно — макс 10, до 5 МБ каждое)</label>
+        <div class="flex flex-wrap gap-2 mb-2" id="pImagesPreview"></div>
+        <div class="flex items-center gap-2">
+          <input type="file" id="pImageInput" accept="image/*" multiple class="hidden" onchange="uploadImages(event)"/>
+          <button onclick="document.getElementById('pImageInput').click()" class="btn-g text-sm">📷 Добавить картинки</button>
+          <span class="text-xs text-on-dim">AI распределит их по релевантным слайдам</span>
         </div>
-        <!-- Картинки (логотипы, фото услуг и т.п.) -->
-        <div class="mb-4">
-          <label class="block text-xs text-on-dim mb-1.5">Картинки (опционально — логотип, фото)</label>
-          <div id="presImagesList" class="flex flex-wrap gap-2 mb-2"></div>
-          <input type="file" id="presImageInput" accept="image/*" multiple style="display:none" onchange="uploadPresImages(event)"/>
-          <button type="button" onclick="document.getElementById('presImageInput').click()" class="btn-g text-xs">📎 Загрузить картинку</button>
-        </div>
-        <button onclick="generateCurrent()" class="btn-p" id="genBtn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
-          <span id="genBtnLabel">Сгенерировать</span>
-        </button>
       </div>
 
-      <!-- Generated content -->
-      <div id="detailDone" class="hidden space-y-4">
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <p class="text-sm font-semibold text-primary">Готово</p>
-          <div class="flex gap-2 flex-wrap items-center">
-            <!-- Бот для встраивания виджета на публичную страницу -->
-            <select id="presAttachBotSelect" onchange="attachBotToPres(this.value)" class="inp text-xs py-1" style="min-width:140px" title="Прицепить чат-бот к публичной странице КП">
-              <option value="">🤖 Бот: нет</option>
-            </select>
-            <button onclick="copyContent()" class="btn-g text-xs">Копировать</button>
-            <button onclick="downloadContent()" class="btn-g text-xs">Скачать .txt</button>
-            <button onclick="regenerateCurrent()" class="btn-g text-xs">Правка (5 ₽)</button>
+      <!-- Цветовая схема -->
+      <div class="field">
+        <label>Цветовая схема</label>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="pSchemes">
+          <div class="scheme-card" data-scheme="dark" onclick="selectScheme('dark')">
+            <div class="scheme-preview" style="background:linear-gradient(135deg,#1C1C1C,#272018);color:#ffb347">●●●</div>
+            <div class="text-xs font-bold">Тёмная (Че)</div>
+          </div>
+          <div class="scheme-card" data-scheme="light" onclick="selectScheme('light')">
+            <div class="scheme-preview" style="background:#fafaf7;color:#ff8c42">●●●</div>
+            <div class="text-xs font-bold">Светлая</div>
+          </div>
+          <div class="scheme-card" data-scheme="corp" onclick="selectScheme('corp')">
+            <div class="scheme-preview" style="background:linear-gradient(135deg,#0f172a,#1e293b);color:#3b82f6">●●●</div>
+            <div class="text-xs font-bold">Корп. синий</div>
+          </div>
+          <div class="scheme-card" data-scheme="brand" onclick="selectScheme('brand')">
+            <div class="scheme-preview" style="background:linear-gradient(135deg,#ff8c42,#ffb347);color:#1C1C1C">●●●</div>
+            <div class="text-xs font-bold">Бренд</div>
           </div>
         </div>
-        <div id="detailContent" class="bg-surface2 rounded-xl p-6 border border-outline/15 result-content"></div>
+      </div>
+
+      <!-- Стоимость -->
+      <div class="bg-surface2 rounded-lg p-3 border border-outline/20">
+        <div class="text-sm text-on-dim mb-1">Стоимость генерации:</div>
+        <div id="pCostHint" class="text-base font-bold text-primary">примерно 50-90 ₽</div>
+        <div class="cost-hint">
+          Считается по реальным токенам Claude × 7. Минимум — 50 ₽. При перегенерации списываем по факту.
+        </div>
+      </div>
+    </div>
+
+    <!-- Превью слайдов после генерации -->
+    <div id="pResultBlock" class="hidden border-t border-outline/15 bg-surface2/40 p-5">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h3 class="font-headline font-bold text-sm">Готово · <span id="pResultTitle"></span></h3>
+        <div class="flex gap-2 flex-wrap">
+          <button onclick="downloadPptx()" class="btn-p text-xs py-1.5 px-3">📥 Скачать PPTX</button>
+          <button onclick="openHtmlFullscreen()" class="btn-g text-xs">🎬 Открыть слайды</button>
+        </div>
+      </div>
+      <div id="pResultIframeWrap" class="rounded-lg overflow-hidden bg-black" style="height:55vh">
+        <iframe id="pResultIframe" sandbox="allow-same-origin allow-scripts" class="w-full h-full border-0"></iframe>
+      </div>
+      <p id="pCostInfo" class="text-xs text-on-dim/70 mt-2"></p>
+    </div>
+
+    <div class="flex items-center justify-between gap-3 p-5 border-t border-outline/15 flex-wrap">
+      <button id="pDeleteBtn" onclick="deleteCurrentProject()" class="btn-d text-sm hidden">Удалить</button>
+      <div class="flex gap-2 ml-auto flex-wrap">
+        <button onclick="closeProject()" class="btn-g text-sm">Закрыть</button>
+        <button id="pSaveBtn" onclick="saveProject(false)" class="btn-g text-sm">Сохранить</button>
+        <button id="pGenBtn" onclick="generatePresentation()" class="btn-p text-sm">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
+          <span id="pGenBtnLabel">Сгенерировать</span>
+        </button>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-const API = localStorage.getItem('obs_api') || window.location.origin;
-const authToken = localStorage.getItem('obs_token');
-
-// ── Money helpers (баланс в копейках, 1 ₽ = 100 коп) ─────────────────────
-window.fmtRub = (kop) => {
-  const v = (+(kop||0)) / 100;
-  return v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽';
-};
-window.chToRub = window.fmtRub;
-window.formatCH = window.fmtRub;
-
+const API = '';
 let projects = [];
-// КП теперь в /proposals.html — этот модуль работает только с презентациями
-let currentTab = 'presentation';
-let createType = 'kp';
 let currentProjectId = null;
-let currentProject = null;
+let currentScheme = 'dark';
+let currentImages = [];   // массив URL'ов
 
-function hdrs(extra = {}) {
-  const h = {'Content-Type': 'application/json', ...extra};
-  if (authToken) h['Authorization'] = 'Bearer ' + authToken;
+function authToken(){ return localStorage.getItem('obs_token') || ''; }
+function hdrs(){
+  const h = {'Content-Type':'application/json'};
+  const tok = authToken();
+  if(tok) h['Authorization'] = 'Bearer ' + tok;
   return h;
 }
+function escHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// ── Init ───────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', async () => {
-  if (!authToken) { window.location.href = 'index.html'; return; }
-  await Promise.all([loadProjects(), loadProfile()]);
-});
-
-// ── Profile ────────────────────────────────────────────────────────────────
-async function loadProfile() {
-  try {
-    const r = await fetch(`${API}/presentations/company-profile`, {headers: hdrs()});
-    if (!r.ok) return;
-    const d = await r.json();
-    document.getElementById('pf_company').value     = d.company_name || '';
-    document.getElementById('pf_description').value = d.description  || '';
-    document.getElementById('pf_services').value    = d.services     || '';
-    document.getElementById('pf_prices').value      = d.prices       || '';
-    document.getElementById('pf_style').value       = d.style_notes  || '';
-    document.getElementById('pf_contacts').value    = d.contacts     || '';
-  } catch(e) {}
+async function loadProjects(){
+  try{
+    const r = await fetch(`${API}/presentations/projects`, {headers: hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error(r.status);
+    projects = await r.json();
+    // Фильтруем только реальные презентации (не legacy КП)
+    projects = projects.filter(p => p.doc_type === 'presentation');
+    renderProjects();
+  }catch(e){
+    document.getElementById('projectsGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${e.message}</p>`;
+  }
 }
 
-async function saveProfile() {
-  const body = {
-    company_name: document.getElementById('pf_company').value.trim(),
-    description:  document.getElementById('pf_description').value.trim(),
-    services:     document.getElementById('pf_services').value.trim(),
-    prices:       document.getElementById('pf_prices').value.trim(),
-    style_notes:  document.getElementById('pf_style').value.trim(),
-    contacts:     document.getElementById('pf_contacts').value.trim(),
-  };
-  try {
-    const r = await fetch(`${API}/presentations/company-profile`, {
-      method: 'PUT', headers: hdrs(), body: JSON.stringify(body)
-    });
-    if (r.ok) {
-      const el = document.getElementById('profileSaved');
-      el.classList.remove('hidden');
-      setTimeout(() => el.classList.add('hidden'), 2500);
-    }
-  } catch(e) { await aiAlert('Ошибка сохранения: ' + e.message, 'error'); }
-}
-
-function toggleProfile() {
-  const panel = document.getElementById('profilePanel');
-  const chevron = document.getElementById('profileChevron');
-  panel.classList.toggle('hidden');
-  chevron.style.transform = panel.classList.contains('hidden') ? '' : 'rotate(180deg)';
-}
-
-// ── Projects ───────────────────────────────────────────────────────────────
-async function loadProjects() {
-  try {
-    const r = await fetch(`${API}/presentations/projects`, {headers: hdrs()});
-    if (r.ok) projects = await r.json();
-    render();
-  } catch(e) { projects = []; render(); }
-}
-
-function switchTab(tab) {
-  currentTab = tab;
-  document.getElementById('tab-kp').classList.toggle('active', tab === 'kp');
-  document.getElementById('tab-presentation').classList.toggle('active', tab === 'presentation');
-  render();
-}
-
-function render() {
-  const list = projects.filter(p => p.doc_type === currentTab);
-  const grid = document.getElementById('projectGrid');
+function renderProjects(){
+  const grid = document.getElementById('projectsGrid');
   const empty = document.getElementById('emptyState');
-
-  document.getElementById('tabCount').textContent = list.length + ' проектов';
-  document.getElementById('emptyText').textContent = currentTab === 'kp'
-    ? 'Создайте первое КП — AI сгенерирует профессиональный документ'
-    : 'Создайте первую презентацию — AI подготовит структуру и содержание';
-
-  if (!list.length) {
+  if(!projects.length){
     grid.innerHTML = '';
     empty.classList.remove('hidden');
     return;
   }
   empty.classList.add('hidden');
-  grid.innerHTML = list.map(p => {
-    const date = p.created_at ? new Date(p.created_at).toLocaleDateString('ru-RU') : '—';
-    const statusLabel = p.status === 'done' ? '<span class="text-xs text-primary font-semibold">Готово</span>' : '<span class="text-xs text-on-dim">Черновик</span>';
-    const badge = p.doc_type === 'kp'
-      ? '<span class="type-badge badge-kp">КП</span>'
-      : '<span class="type-badge badge-pres">Презентация</span>';
-    return `<div class="proj-card" onclick="openProject(${p.id})" style="position:relative">
-      <button onclick="event.stopPropagation();deleteProjectFromList(${p.id},'${esc(p.name||'').replace(/'/g,"\\'")}')"
-        class="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 hover:bg-error/20 text-on-dim hover:text-error flex items-center justify-center transition"
-        title="Удалить" style="opacity:.5">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-      </button>
-      <div class="flex items-start justify-between gap-2 mb-3 pr-8">
-        <p class="font-bold font-headline text-sm truncate flex-1">${esc(p.name)}</p>
-        ${badge}
-      </div>
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-on-dim">${date}</span>
-        ${statusLabel}
-      </div>
-    </div>`;
+  grid.innerHTML = projects.map(p => {
+    const badge = p.status === 'done'
+      ? `<span class="status-badge badge-done">✓ Готово</span>`
+      : p.status === 'error'
+        ? `<span class="status-badge badge-error">✕ Ошибка</span>`
+        : `<span class="status-badge badge-draft">Черновик</span>`;
+    const price = p.price_tokens ? `${(p.price_tokens/100).toFixed(0)} ₽` : '';
+    return `
+      <div class="proj-card" onclick="openProject(${p.id})">
+        <div class="flex items-start justify-between gap-2 mb-2">
+          <h3 class="font-headline font-bold text-sm truncate">${escHtml(p.name)}</h3>
+          ${badge}
+        </div>
+        ${p.topic ? `<p class="text-xs text-on-dim mb-1 line-clamp-2">${escHtml(p.topic)}</p>` : ''}
+        <div class="text-xs text-on-dim/70 flex gap-3 mt-2">
+          <span>📊 ${p.slide_count || 10} слайдов</span>
+          ${p.audience ? `<span>· 👥 ${escHtml(p.audience)}</span>` : ''}
+        </div>
+        ${price ? `<div class="text-xs text-on-dim/60 mt-1">${price}</div>` : ''}
+      </div>`;
   }).join('');
 }
 
-// ── Create ─────────────────────────────────────────────────────────────────
-function setCreateType(type) {
-  createType = type;
-  document.getElementById('create-tab-kp').classList.toggle('active', type === 'kp');
-  document.getElementById('create-tab-presentation').classList.toggle('active', type === 'presentation');
+function openCreate(){
+  currentProjectId = null;
+  currentScheme = 'dark';
+  currentImages = [];
+  document.getElementById('projectModalTitle').textContent = 'Новая презентация';
+  ['pNa','pTopic','pAudience','pExtra'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pSlideCount').value = 10;
+  document.getElementById('pSlideCountVal').textContent = '10';
+  document.getElementById('pDeleteBtn').classList.add('hidden');
+  document.getElementById('pResultBlock').classList.add('hidden');
+  document.getElementById('pGenBtnLabel').textContent = 'Сгенерировать';
+  selectScheme('dark');
+  _renderImages();
+  _updateCostHint();
+  document.getElementById('projectModal').classList.add('show');
 }
 
-function openCreate() {
-  document.getElementById('proj_name').value = '';
-  document.getElementById('proj_desc').value = '';
-  document.getElementById('proj_err').classList.add('hidden');
-  setCreateType(currentTab);
-  document.getElementById('createModal').classList.add('show');
-}
-
-function closeCreate() { document.getElementById('createModal').classList.remove('show'); }
-
-async function saveProject() {
-  const name = document.getElementById('proj_name').value.trim();
-  const desc = document.getElementById('proj_desc').value.trim();
-  const err = document.getElementById('proj_err');
-  err.classList.add('hidden');
-  if (!name) { err.textContent = 'Введите название'; err.classList.remove('hidden'); return; }
-
-  const btn = document.getElementById('saveProjectBtn');
-  btn.disabled = true; btn.textContent = 'Создаём...';
-
-  try {
-    const r = await fetch(`${API}/presentations/projects`, {
-      method: 'POST', headers: hdrs(),
-      body: JSON.stringify({name, doc_type: createType, description: desc})
-    });
-    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || 'Ошибка');
-    const data = await r.json();
-    closeCreate();
-    await loadProjects();
-    // Сразу открываем и генерируем
-    await openProject(data.id, desc);
-  } catch(e) {
-    err.textContent = e.message; err.classList.remove('hidden');
+async function openProject(id){
+  const r = await fetch(`${API}/presentations/projects/${id}`, {headers: hdrs(), credentials:'same-origin'});
+  if(!r.ok){ await aiAlert('Не удалось загрузить (' + r.status + ')', 'error'); return; }
+  const p = await r.json();
+  if(p.doc_type === 'kp'){
+    await aiAlert('Это старое КП. Открой новый раздел: /proposals.html', 'info');
+    return;
   }
-  btn.disabled = false; btn.textContent = 'Создать и сгенерировать';
-}
-
-// ── Detail ─────────────────────────────────────────────────────────────────
-async function openProject(id, preDesc) {
-  currentProjectId = id;
-  try {
-    const r = await fetch(`${API}/presentations/projects/${id}`, {headers: hdrs()});
-    if (!r.ok) throw new Error(r.statusText);
-    currentProject = await r.json();
-  } catch(e) { await aiAlert(e.message, 'error'); return; }
-
-  const p = currentProject;
-  document.getElementById('detailTitle').textContent = p.name;
-  document.getElementById('detailTypeBadge').textContent = p.doc_type === 'kp' ? 'КП' : 'Презентация';
-  document.getElementById('detailTypeBadge').className = 'type-badge ' + (p.doc_type === 'kp' ? 'badge-kp' : 'badge-pres');
-
-  const inp = (() => { try { return JSON.parse(p.input_data || '{}'); } catch { return {}; } })();
-  const desc = preDesc || inp.description || '';
-
-  // Цена: КП = 50 ₽, Презентация = 100 ₽
-  const price = p.doc_type === 'presentation' ? '100 ₽' : '50 ₽';
-  document.getElementById('genBtnLabel').textContent = `Сгенерировать (${price})`;
-
-  if (p.status === 'done' && p.generated_content) {
-    document.getElementById('detailDraft').classList.add('hidden');
-    document.getElementById('detailDone').classList.remove('hidden');
-    renderContent(p.generated_content);
-    populatePresAttachBotSelect();
+  currentProjectId = p.id;
+  currentScheme = p.color_scheme || 'dark';
+  currentImages = Array.isArray(p.image_paths) ? p.image_paths : [];
+  document.getElementById('projectModalTitle').textContent = p.name;
+  document.getElementById('pNa').value = p.name || '';
+  document.getElementById('pTopic').value = p.topic || '';
+  document.getElementById('pAudience').value = p.audience || '';
+  document.getElementById('pExtra').value = p.extra_info || '';
+  document.getElementById('pSlideCount').value = p.slide_count || 10;
+  document.getElementById('pSlideCountVal').textContent = p.slide_count || 10;
+  selectScheme(currentScheme);
+  _renderImages();
+  _updateCostHint();
+  document.getElementById('pDeleteBtn').classList.remove('hidden');
+  document.getElementById('pGenBtnLabel').textContent =
+    p.status === 'done' ? 'Перегенерировать' : 'Сгенерировать';
+  if(p.status === 'done' && p.html_preview){
+    showResult(p.html_preview, p.name, p.price_tokens);
   } else {
-    document.getElementById('detailDone').classList.add('hidden');
-    document.getElementById('detailDraft').classList.remove('hidden');
-    document.getElementById('detailDesc').value = desc;
-    renderPresImages();
-    // Если есть описание — сразу генерируем
-    if (desc) setTimeout(() => generateCurrent(), 300);
+    document.getElementById('pResultBlock').classList.add('hidden');
   }
-
-  document.getElementById('detailModal').classList.add('show');
+  document.getElementById('projectModal').classList.add('show');
 }
 
-// ── Картинки в КП/презентации ──────────────────────────────────────────────
-function renderPresImages(){
-  const wrap = document.getElementById('presImagesList');
-  if (!wrap || !currentProject) return;
-  let imgs = [];
-  try { imgs = JSON.parse(currentProject.image_paths || '[]'); } catch {}
-  if (!imgs.length) { wrap.innerHTML = '<p class="text-[10px] text-on-dim/60">Нет картинок</p>'; return; }
-  wrap.innerHTML = imgs.map(url =>
-    `<img src="${url}" alt="" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid rgba(74,63,47,.3)"/>`
-  ).join('');
+function closeProject(){ document.getElementById('projectModal').classList.remove('show'); }
+
+function selectScheme(s){
+  currentScheme = s;
+  document.querySelectorAll('.scheme-card').forEach(c => {
+    c.classList.toggle('active', c.dataset.scheme === s);
+  });
 }
 
-async function uploadPresImages(event){
-  const files = Array.from(event.target.files || []);
-  if (!files.length) return;
-  for (const file of files){
-    const fd = new FormData();
-    fd.append('file', file);
-    try {
-      const r = await fetch(`${API}/upload`, {method:'POST', headers: {Authorization:'Bearer '+authToken}, body: fd});
-      if (!r.ok) throw new Error('upload failed');
-      const d = await r.json();
-      await fetch(`${API}/presentations/projects/${currentProjectId}/attach-image`, {
-        method:'POST', headers: hdrs(), body: JSON.stringify({file_url: d.url})
-      });
-    } catch(e) { console.error('image upload', e); }
+function _renderImages(){
+  const wrap = document.getElementById('pImagesPreview');
+  if(!currentImages.length){
+    wrap.innerHTML = '<p class="text-xs text-on-dim/60">Картинки не добавлены</p>';
+    return;
   }
-  // Перезагрузить проект чтобы увидеть свежий image_paths
-  try {
-    const r = await fetch(`${API}/presentations/projects/${currentProjectId}`, {headers: hdrs()});
-    currentProject = await r.json();
-  } catch {}
-  renderPresImages();
-  event.target.value = '';
+  wrap.innerHTML = currentImages.map((url, i) => `
+    <div class="img-thumb">
+      <img src="${escHtml(url)}" alt=""/>
+      <button onclick="removeImage(${i})">✕</button>
+    </div>
+  `).join('');
 }
 
-// ── Привязка чат-бота ──────────────────────────────────────────────────────
-async function populatePresAttachBotSelect(){
-  const sel = document.getElementById('presAttachBotSelect');
-  if (!sel) return;
-  try {
-    const r = await fetch(`${API}/chatbots`, {headers: hdrs()});
-    if (!r.ok) return;
-    const bots = (await r.json()).filter(b => b.widget_enabled);
-    sel.innerHTML = '<option value="">🤖 Бот: нет</option>' +
-      bots.map(b => `<option value="${b.id}" ${b.id===currentProject.attached_bot_id?'selected':''}>🤖 ${esc(b.name)}</option>`).join('');
-  } catch {}
+function removeImage(i){
+  currentImages.splice(i, 1);
+  _renderImages();
 }
 
-async function attachBotToPres(botId){
-  if (!currentProjectId) return;
-  try {
-    const r = await fetch(`${API}/presentations/projects/${currentProjectId}/attach-bot`, {
-      method:'POST', headers: hdrs(), body: JSON.stringify({bot_id: botId ? +botId : null})
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || 'Ошибка');
-    currentProject.attached_bot_id = botId ? +botId : null;
-  } catch(e) { await aiAlert(e.message, 'error'); }
-}
-
-function closeDetail() { document.getElementById('detailModal').classList.remove('show'); }
-
-function renderContent(text) {
-  // Simple markdown-like rendering
-  const html = esc(text)
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>');
-  document.getElementById('detailContent').innerHTML = html;
-}
-
-async function generateCurrent() {
-  const btn = document.getElementById('genBtn');
-  btn.disabled = true; btn.textContent = 'Генерирую...';
-
-  // Обновляем описание в проекте перед генерацией
-  const desc = document.getElementById('detailDesc')?.value?.trim();
-  if (desc !== undefined) {
-    try {
-      const inp = (() => { try { return JSON.parse(currentProject.input_data || '{}'); } catch { return {}; } })();
-      inp.description = desc;
-      await fetch(`${API}/presentations/projects/${currentProjectId}`, {
-        method: 'PUT', headers: hdrs(),
-        body: JSON.stringify({input_data: JSON.stringify(inp)})
-      }).catch(() => {});
-    } catch {}
+async function uploadImages(ev){
+  const files = Array.from(ev.target.files || []);
+  if(!files.length) return;
+  if(currentImages.length + files.length > 10){
+    await aiAlert('Максимум 10 картинок на презентацию', 'warn');
+    ev.target.value = ''; return;
   }
-
-  try {
-    const r = await fetch(`${API}/presentations/projects/${currentProjectId}/generate`, {
-      method: 'POST', headers: hdrs(), body: JSON.stringify({})
-    });
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      if (r.status === 402) throw new Error('Недостаточно средств (нужно ~5 ₽)');
-      throw new Error(d.detail || 'Ошибка генерации');
+  for(const f of files){
+    if(f.size > 5 * 1024 * 1024){
+      await aiAlert(`Файл ${f.name} больше 5 МБ — пропущен`, 'warn');
+      continue;
     }
-    const data = await r.json();
-    currentProject.status = 'done';
-    currentProject.generated_content = data.generated_content;
-    document.getElementById('detailDraft').classList.add('hidden');
-    document.getElementById('detailDone').classList.remove('hidden');
-    renderContent(data.generated_content);
-    loadProjects();
-  } catch(e) {
-    await aiAlert(e.message, 'error');
+    const fd = new FormData(); fd.append('file', f);
+    const tok = authToken();
+    try{
+      const r = await fetch(`${API}/upload`, {method:'POST',
+        headers:{'Authorization':'Bearer '+tok}, credentials:'same-origin', body: fd});
+      if(!r.ok) throw new Error('Ошибка ' + r.status);
+      const d = await r.json();
+      currentImages.push(d.url);
+    }catch(e){ await aiAlert('Ошибка загрузки: ' + e.message, 'error'); }
   }
-  btn.disabled = false; btn.textContent = 'Сгенерировать (5 ₽)';
+  _renderImages();
+  ev.target.value = '';
 }
 
-async function regenerateCurrent() {
-  document.getElementById('detailDone').classList.add('hidden');
-  document.getElementById('detailDraft').classList.remove('hidden');
-  const inp = (() => { try { return JSON.parse(currentProject.input_data || '{}'); } catch { return {}; } })();
-  document.getElementById('detailDesc').value = inp.description || '';
-  await generateCurrent();
+let _costTimer = null;
+async function _updateCostHint(){
+  if(_costTimer) clearTimeout(_costTimer);
+  const sc = +document.getElementById('pSlideCount').value || 10;
+  const extraLen = document.getElementById('pExtra').value.length;
+  _costTimer = setTimeout(async () => {
+    try{
+      const r = await fetch(`${API}/presentations/estimate-cost`, {
+        method:'POST', headers: hdrs(), credentials:'same-origin',
+        body: JSON.stringify({slide_count: sc, extra_info_len: extraLen}),
+      });
+      if(!r.ok) return;
+      const d = await r.json();
+      document.getElementById('pCostHint').textContent =
+        `примерно ${d.low_rub.toFixed(0)}–${d.high_rub.toFixed(0)} ₽`;
+    }catch(e){}
+  }, 350);
 }
 
-async function deleteCurrentProject() {
-  if (!await aiConfirm('Удалить проект?', {danger: true, okLabel: 'Удалить'})) return;
-  try {
-    await fetch(`${API}/presentations/projects/${currentProjectId}`, {method: 'DELETE', headers: hdrs()});
-    closeDetail();
+async function saveProject(silent){
+  const body = {
+    name: (document.getElementById('pNa').value || document.getElementById('pTopic').value).trim(),
+    doc_type: 'presentation',
+    topic: document.getElementById('pTopic').value.trim() || null,
+    audience: document.getElementById('pAudience').value.trim() || null,
+    slide_count: +document.getElementById('pSlideCount').value || 10,
+    extra_info: document.getElementById('pExtra').value.trim() || null,
+    color_scheme: currentScheme,
+    image_paths: currentImages,
+  };
+  if(!body.name){ await aiAlert('Введите название или тему', 'warn'); return false; }
+  try{
+    if(currentProjectId){
+      await fetch(`${API}/presentations/projects/${currentProjectId}`, {
+        method:'PUT', headers: hdrs(), credentials:'same-origin', body: JSON.stringify(body),
+      });
+    } else {
+      const r = await fetch(`${API}/presentations/projects`, {
+        method:'POST', headers: hdrs(), credentials:'same-origin', body: JSON.stringify(body),
+      });
+      if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || r.status); }
+      const data = await r.json();
+      currentProjectId = data.id;
+      // После создания нужно отправить картинки/extra через PUT
+      if(currentImages.length || body.extra_info){
+        await fetch(`${API}/presentations/projects/${currentProjectId}`, {
+          method:'PUT', headers: hdrs(), credentials:'same-origin', body: JSON.stringify(body),
+        });
+      }
+      document.getElementById('pDeleteBtn').classList.remove('hidden');
+    }
+    if(!silent){ closeProject(); await loadProjects(); }
+    else { loadProjects(); }
+    return true;
+  }catch(e){
+    await aiAlert(e.message, 'error');
+    return false;
+  }
+}
+
+async function generatePresentation(){
+  if(!await saveProject(true)) return;
+  const ok = await aiConfirm(
+    `AI создаст ${document.getElementById('pSlideCountVal').textContent} слайдов с графиками и картинками. Стоимость по реальным токенам × 7.`,
+    {title: 'Сгенерировать презентацию?', okLabel: 'Сгенерировать'}
+  );
+  if(!ok) return;
+  const btn = document.getElementById('pGenBtn');
+  btn.disabled = true;
+  const oldLabel = document.getElementById('pGenBtnLabel').textContent;
+  document.getElementById('pGenBtnLabel').textContent = 'Генерирую…';
+  try{
+    const r = await fetch(`${API}/presentations/projects/${currentProjectId}/generate`,
+                          {method:'POST', headers: hdrs(), credentials:'same-origin'});
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
+    showResult(data.html_preview, data.title, data.cost_kop);
+    document.getElementById('pGenBtnLabel').textContent = 'Перегенерировать';
     await loadProjects();
-  } catch(e) { await aiAlert(e.message, 'error'); }
+  }catch(e){
+    await aiAlert(e.message, 'error');
+    document.getElementById('pGenBtnLabel').textContent = oldLabel;
+  }finally{
+    btn.disabled = false;
+  }
 }
 
-async function deleteProjectFromList(id, name) {
-  if (!await aiConfirm(`Удалить проект «${name}»? Это действие нельзя отменить.`, {danger: true, okLabel: 'Удалить'})) return;
-  try {
-    const r = await fetch(`${API}/presentations/projects/${id}`, {method: 'DELETE', headers: hdrs()});
-    if (!r.ok) throw new Error('Ошибка удаления');
+function showResult(htmlUrl, title, costKop){
+  const wrap = document.getElementById('pResultBlock');
+  wrap.classList.remove('hidden');
+  document.getElementById('pResultTitle').textContent = title || '';
+  // Iframe загружает наш endpoint /preview-html (отдаёт сохранённый HTML файл)
+  document.getElementById('pResultIframe').src = `${API}/presentations/projects/${currentProjectId}/preview-html`;
+  if(costKop){
+    document.getElementById('pCostInfo').textContent = `Списано ${(costKop/100).toFixed(0)} ₽`;
+  }
+}
+
+async function downloadPptx(){
+  if(!currentProjectId) return;
+  try{
+    const r = await fetch(`${API}/presentations/projects/${currentProjectId}/pptx`,
+                          {headers: hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error('Ошибка ' + r.status);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (document.getElementById('pNa').value || 'presentation') + '.pptx';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }catch(e){ await aiAlert(e.message, 'error'); }
+}
+
+function openHtmlFullscreen(){
+  if(!currentProjectId) return;
+  window.open(`${API}/presentations/projects/${currentProjectId}/preview-html`, '_blank', 'noopener');
+}
+
+async function deleteCurrentProject(){
+  if(!currentProjectId) return;
+  if(!await aiConfirm('Удалить эту презентацию?', {danger: true, okLabel: 'Удалить'})) return;
+  try{
+    await fetch(`${API}/presentations/projects/${currentProjectId}`,
+                 {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
+    closeProject();
     await loadProjects();
-  } catch(e) { await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
-function copyContent() {
-  const text = document.getElementById('detailContent').innerText;
-  navigator.clipboard.writeText(text);
-  const btn = event.target.closest('button');
-  const orig = btn.textContent;
-  btn.textContent = 'Скопировано!';
-  setTimeout(() => btn.textContent = orig, 2000);
-}
-
-function downloadContent() {
-  const text = document.getElementById('detailContent').innerText;
-  const name = (currentProject?.name || 'document').replace(/[^a-zA-Zа-яА-Я0-9_-]/g, '_');
-  const blob = new Blob([text], {type: 'text/plain;charset=utf-8'});
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = name + '.txt'; document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(a.href);
-}
-
-function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
-
-document.getElementById('createModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeCreate(); });
-document.getElementById('detailModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDetail(); });
+// Init
+loadProjects();
 </script>
 </body>
 </html>

@@ -14,6 +14,8 @@ yookassa==2.3.0
 python-multipart==0.0.26
 defusedxml==0.7.1
 bleach==6.1.0
+# PPTX-генерация (для модуля презентаций)
+python-pptx==0.6.23
 # PDF-отчёты для бизнес-решений
 # CVE-2025-69534 — XSS в markdown.fenced_code, fix в 3.8.1
 markdown==3.8.1

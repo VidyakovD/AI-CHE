@@ -119,6 +119,16 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("users", "tg_notify_proposals", "BOOLEAN DEFAULT 1"),
     ("users", "tg_notify_records", "BOOLEAN DEFAULT 1"),
     ("users", "tg_notify_errors", "BOOLEAN DEFAULT 1"),
+    # Презентации — переработанный модуль (см. server/presentation_builder.py)
+    ("presentation_projects", "topic", "VARCHAR"),
+    ("presentation_projects", "audience", "VARCHAR"),
+    ("presentation_projects", "slide_count", "INTEGER DEFAULT 10"),
+    ("presentation_projects", "extra_info", "TEXT"),
+    ("presentation_projects", "color_scheme", "VARCHAR DEFAULT 'dark'"),
+    ("presentation_projects", "style_preset", "VARCHAR DEFAULT 'business'"),
+    ("presentation_projects", "slides_json", "TEXT"),
+    ("presentation_projects", "pptx_path", "VARCHAR"),
+    ("presentation_projects", "html_preview", "VARCHAR"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

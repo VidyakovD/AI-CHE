@@ -458,12 +458,23 @@ class PresentationProject(Base):
     user_id           = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     name              = Column(String, nullable=False)
     template_id       = Column(Integer, nullable=True)
-    input_data        = Column(Text, nullable=True)          # JSON введённых данных
-    generated_content = Column(Text, nullable=True)
-    status            = Column(String, default="draft")      # draft / generated / done
-    price_tokens      = Column(Integer, default=0)
+    input_data        = Column(Text, nullable=True)          # JSON введённых данных (legacy)
+    generated_content = Column(Text, nullable=True)          # legacy: текстовый markdown / HTML
+    status            = Column(String, default="draft")      # draft / generated / done / error
+    price_tokens      = Column(Integer, default=0)           # списано (копейки)
     image_paths       = Column(Text, nullable=True)          # JSON массив URL картинок
-    attached_bot_id   = Column(Integer, ForeignKey("chatbots.id"), nullable=True)  # виджет чат-бота
+    attached_bot_id   = Column(Integer, ForeignKey("chatbots.id"), nullable=True)
+    # ── Новые поля для переработанного модуля презентаций ──
+    topic             = Column(String, nullable=True)         # о чём презентация
+    audience          = Column(String, nullable=True)         # для кого (инвесторы, клиенты, команда)
+    slide_count       = Column(Integer, default=10)           # сколько слайдов хочет юзер (5..30)
+    extra_info        = Column(Text, nullable=True)           # доп. контекст (цифры, факты, тезисы)
+    color_scheme      = Column(String, nullable=True, default="dark")  # dark | light | brand | corp
+    style_preset      = Column(String, nullable=True, default="business")
+    # Сгенерированная структура (JSON со слайдами)
+    slides_json       = Column(Text, nullable=True)           # [{title, bullets, image_url, chart}, ...]
+    pptx_path         = Column(String, nullable=True)         # /uploads/presentations/<id>.pptx
+    html_preview      = Column(String, nullable=True)         # /uploads/presentations/<id>.html (для preview)
     created_at        = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", backref="presentation_projects")
