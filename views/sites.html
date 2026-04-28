@@ -779,6 +779,7 @@ async function sendChat(){
       const d = await r.json().catch(()=>({}));
       if(r.status===402){
         addChatMessage('system', 'Недостаточно средств. Пополните баланс в личном кабинете.');
+        if(window.aiNeedTopup) window.aiNeedTopup('Создание сайта стоит 1500-1990 ₽. Пополните баланс, чтобы продолжить.');
         isGenerating = false;
         document.getElementById('chatSendBtn').disabled = false;
         return;

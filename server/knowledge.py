@@ -406,7 +406,9 @@ def _generate_summary(kf_id: int, preview: str):
         "SUMMARY: 2-3 предложения\n"
     )
     try:
-        result = generate_response("gpt", [
+        # Haiku в 3-5× дешевле gpt-4o-mini для простой классификации/сводки.
+        # Это вызывается на каждый upload файла, экономия копится.
+        result = generate_response("claude-haiku", [
             {"role": "system", "content": "Ты индексатор. Отвечай строго по формату."},
             {"role": "user", "content": prompt},
         ], extra={"max_tokens": 200, "temperature": 0})
@@ -455,6 +457,9 @@ def retrieve(owner_type: str, owner_id: int,
 
     db = SessionLocal()
     try:
+        # LIMIT 2000 — защита от полного скана при большой базе. На 2000
+        # чанках (~1 МБ текста) косинус считается за <100мс. При выходе за
+        # лимит юзер увидит чуть менее точный поиск, но не «зависание».
         q = (db.query(KnowledgeChunk, KnowledgeFile)
                .join(KnowledgeFile, KnowledgeChunk.kb_file_id == KnowledgeFile.id)
                .filter(KnowledgeFile.owner_type == owner_type,
@@ -462,7 +467,7 @@ def retrieve(owner_type: str, owner_id: int,
                        (KnowledgeFile.enabled == True) | (KnowledgeFile.enabled.is_(None))))
         if file_ids:
             q = q.filter(KnowledgeFile.id.in_(file_ids))
-        rows = q.all()
+        rows = q.order_by(KnowledgeChunk.id.desc()).limit(2000).all()
     finally:
         db.close()
 

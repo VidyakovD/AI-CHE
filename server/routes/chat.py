@@ -27,10 +27,6 @@ def _idempotency_get(user_id: int, key: str) -> dict | None:
         return None
     now = time.monotonic()
     with _idempotency_lock:
-        # Чистим expired по дороге
-        for k, (ts, _) in list(_idempotency_cache.items()):
-            if now - ts > _IDEMPOTENCY_TTL_SEC:
-                _idempotency_cache.pop(k, None)
         item = _idempotency_cache.get((user_id, key))
         if item and (now - item[0]) <= _IDEMPOTENCY_TTL_SEC:
             return item[1]
@@ -42,6 +38,38 @@ def _idempotency_put(user_id: int, key: str, value: dict) -> None:
         return
     with _idempotency_lock:
         _idempotency_cache[(user_id, key)] = (time.monotonic(), value)
+
+
+def _idempotency_sweep() -> None:
+    """Чистит expired записи из кэша. Вызывается background-таймером.
+    Раньше чистка была lazy (внутри _idempotency_get) — но при долгих простоях
+    кэш растёт без удаления. Теперь раз в минуту проходимся явно."""
+    now = time.monotonic()
+    with _idempotency_lock:
+        expired = [k for k, (ts, _) in _idempotency_cache.items()
+                   if now - ts > _IDEMPOTENCY_TTL_SEC]
+        for k in expired:
+            _idempotency_cache.pop(k, None)
+        # Защита от runaway: жёсткий cap 10k записей. Если больше — сносим
+        # самые старые. Один воркер за день при 60 rps набил бы ~5M, поэтому
+        # без cap кэш может занять ГБ.
+        if len(_idempotency_cache) > 10_000:
+            sorted_items = sorted(_idempotency_cache.items(), key=lambda kv: kv[1][0])
+            for k, _ in sorted_items[:len(_idempotency_cache) - 10_000]:
+                _idempotency_cache.pop(k, None)
+
+
+def _start_idempotency_sweeper():
+    """Запуск фонового таймера. Вызывается из main.py при старте app."""
+    def _loop():
+        while True:
+            time.sleep(60)
+            try:
+                _idempotency_sweep()
+            except Exception:
+                pass
+    t = threading.Thread(target=_loop, name="idem-sweep", daemon=True)
+    t.start()
 
 
 def calculate_cost(model_id: str, input_tokens: int, output_tokens: int, db: Session) -> int:

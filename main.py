@@ -572,4 +572,9 @@ async def startup():
     from server.email_imap import start_imap_watcher
     start_scheduler()
     start_imap_watcher()
+    # In-memory cache sweepers (idempotency in /message + /assistant/ask)
+    from server.routes.chat import _start_idempotency_sweeper
+    from server.routes.assistant import _start_assistant_sweeper
+    _start_idempotency_sweeper()
+    _start_assistant_sweeper()
     log.info("AI Студия Че запущена")

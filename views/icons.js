@@ -196,6 +196,135 @@
   if (!window.esc) window.esc = window.escHtml;
   if (!window.escAttr) window.escAttr = window.escHtml;
 
+  // ── Friendly HTTP errors ─────────────────────────────────────────────────
+  // Превращает технический ответ ({status, detail}) в человеческое сообщение.
+  // Используется во всех местах где ловим ошибки fetch — вместо «Ошибка 422»
+  // или e.message с тех-стеком.
+  const _STATUS_LABELS = {
+    400: 'Проверьте введённые данные',
+    401: 'Войдите в аккаунт, чтобы продолжить',
+    402: 'Недостаточно средств на балансе',
+    403: 'Нет доступа к этому действию',
+    404: 'Не найдено',
+    409: 'Действие уже выполнено',
+    410: 'Истёк срок ссылки или сессии',
+    413: 'Файл слишком большой',
+    422: 'Не все поля заполнены или некорректны',
+    429: 'Слишком много запросов — подождите минуту',
+    500: 'Что-то пошло не так на сервере',
+    502: 'Сервер недоступен — попробуйте через минуту',
+    503: 'Сервис временно недоступен',
+    504: 'Сервер не успел ответить — попробуйте ещё раз',
+  };
+  if (!window.aiHttpError) {
+    /**
+     * @param {number} status
+     * @param {object|string} body — JSON-ответ или строка от .text()
+     * @returns {string} человеческое сообщение
+     */
+    window.aiHttpError = function (status, body) {
+      // Если бек прислал явный detail и он короткий — используем его
+      if (body && typeof body === 'object' && body.detail
+          && typeof body.detail === 'string'
+          && body.detail.length < 200
+          && !/^[A-Z][A-Za-z]*Error/.test(body.detail)) {
+        return body.detail;
+      }
+      // Fallback на стандартный label по коду
+      return _STATUS_LABELS[status] || `Не удалось выполнить (код ${status})`;
+    };
+  }
+  if (!window.aiFetchError) {
+    /**
+     * Хелпер для catch{} блоков. Делает fetch + парсинг + friendly-message.
+     * Использование:
+     *   try { ... } catch (e) { aiAlert(await aiFetchError(e), 'error'); }
+     */
+    window.aiFetchError = async function (errOrResp) {
+      if (errOrResp && typeof errOrResp === 'object' && 'status' in errOrResp) {
+        // Это Response
+        let body = null;
+        try { body = await errOrResp.json(); } catch (_) {}
+        return window.aiHttpError(errOrResp.status, body);
+      }
+      // Это Error (network down, и т.п.)
+      const msg = (errOrResp && errOrResp.message) || '';
+      if (/network|failed to fetch|timeout/i.test(msg)) {
+        return 'Нет связи с сервером. Проверьте интернет.';
+      }
+      return msg || 'Что-то пошло не так. Попробуйте ещё раз.';
+    };
+  }
+
+  // ── Top-up modal ─────────────────────────────────────────────────────────
+  // Красивая модалка «Недостаточно средств» с быстрыми кнопками 500/1000/5000.
+  // Открывается из любого места при ловле HTTP 402, через aiNeedTopup().
+  if (!window.aiNeedTopup) {
+    /**
+     * @param {string|undefined} reasonText — что юзер пытался сделать
+     * @returns {Promise<boolean>} true если юзер нажал «Пополнить», false если отмена
+     */
+    window.aiNeedTopup = function (reasonText) {
+      return new Promise((resolve) => {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;font:14px/1.5 system-ui,sans-serif';
+        const card = document.createElement('div');
+        card.style.cssText = 'background:#1c1c1c;color:#eee;border:1px solid rgba(255,140,66,.3);border-radius:18px;max-width:400px;width:100%;padding:28px;text-align:center';
+        const icon = document.createElement('div');
+        icon.style.cssText = 'font-size:42px;margin-bottom:8px';
+        icon.textContent = '💳';
+        const title = document.createElement('h3');
+        title.style.cssText = 'margin:0 0 6px;font-size:20px;font-weight:700';
+        title.textContent = 'Недостаточно средств';
+        const sub = document.createElement('p');
+        sub.style.cssText = 'margin:0 0 18px;color:#aaa;font-size:13px';
+        sub.textContent = reasonText
+          ? reasonText
+          : 'Пополните баланс, чтобы продолжить. Деньги списываются по факту использования.';
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px';
+        const opts = [
+          { label: '500 ₽', val: 500 },
+          { label: '1 000 ₽', val: 1000 },
+          { label: '5 000 ₽', val: 5000 },
+        ];
+        opts.forEach(o => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.style.cssText = 'background:#252525;border:1px solid rgba(255,255,255,.08);color:#eee;padding:14px 8px;border-radius:12px;font-weight:700;cursor:pointer;font:inherit;transition:background .12s,border-color .12s';
+          b.addEventListener('mouseenter', () => { b.style.borderColor = '#ff8c42'; b.style.background = '#2d2618'; });
+          b.addEventListener('mouseleave', () => { b.style.borderColor = 'rgba(255,255,255,.08)'; b.style.background = '#252525'; });
+          b.textContent = o.label;
+          b.addEventListener('click', () => {
+            wrap.remove();
+            window.location.href = `/?tab=tokens&topup=${o.val}`;
+            resolve(true);
+          });
+          grid.appendChild(b);
+        });
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.style.cssText = 'background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;border:none;padding:12px;border-radius:12px;font-weight:700;cursor:pointer;font:inherit;width:100%;margin-bottom:6px';
+        more.textContent = 'Выбрать сумму →';
+        more.addEventListener('click', () => {
+          wrap.remove();
+          window.location.href = '/?tab=tokens';
+          resolve(true);
+        });
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.style.cssText = 'background:transparent;border:none;color:#888;cursor:pointer;font:inherit;padding:6px;font-size:13px';
+        cancel.textContent = 'Не сейчас';
+        cancel.addEventListener('click', () => { wrap.remove(); resolve(false); });
+        card.appendChild(icon); card.appendChild(title); card.appendChild(sub);
+        card.appendChild(grid); card.appendChild(more); card.appendChild(cancel);
+        wrap.appendChild(card);
+        wrap.addEventListener('click', e => { if (e.target === wrap) { wrap.remove(); resolve(false); } });
+        document.body.appendChild(wrap);
+      });
+    };
+  }
+
   // Маппинг model_id (или подстроки в id) → SVG бренда AI-провайдера.
   // Используется в селекторе модели на главной + аватаре сообщения.
   window.getModelBrandIcon = function(modelId) {

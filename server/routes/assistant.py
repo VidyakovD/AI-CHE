@@ -63,12 +63,32 @@ def _cache_get(uid: int, section: str, msg: str):
 
 def _cache_put(uid: int, section: str, msg: str, value: dict) -> None:
     _ask_cache[(uid, section, msg)] = (time.monotonic(), value)
-    # Лёгкая чистка при росте: ограничиваем общий размер 1024 записями
-    if len(_ask_cache) > 1024:
-        now = time.monotonic()
-        for k, (ts, _) in list(_ask_cache.items()):
-            if now - ts > _ASK_CACHE_TTL:
-                _ask_cache.pop(k, None)
+
+
+def _cache_sweep() -> None:
+    """Фоновая чистка expired + жёсткий cap 2k записей."""
+    now = time.monotonic()
+    expired = [k for k, (ts, _) in list(_ask_cache.items())
+               if now - ts > _ASK_CACHE_TTL]
+    for k in expired:
+        _ask_cache.pop(k, None)
+    if len(_ask_cache) > 2_000:
+        sorted_items = sorted(_ask_cache.items(), key=lambda kv: kv[1][0])
+        for k, _ in sorted_items[:len(_ask_cache) - 2_000]:
+            _ask_cache.pop(k, None)
+
+
+def _start_assistant_sweeper():
+    import threading
+    def _loop():
+        while True:
+            time.sleep(120)
+            try:
+                _cache_sweep()
+            except Exception:
+                pass
+    t = threading.Thread(target=_loop, name="assist-sweep", daemon=True)
+    t.start()
 
 
 _CLASSIFY_PROMPT = """Ты классифицируешь вопрос пользователя B2B AI-платформы.

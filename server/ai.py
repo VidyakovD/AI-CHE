@@ -822,6 +822,7 @@ MODEL_REGISTRY = {
     "gpt-4o":          {"provider": "openai",      "real_model": "gpt-4o"},
     "claude":          {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
     "claude-sonnet":   {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
+    "claude-haiku":    {"provider": "anthropic",   "real_model": "claude-haiku-4-5-20251001"},
     # Премиум-tier для генерации сайтов: лучшее качество кода, дороже в 5×
     # (~$0.30-$0.50 себест за сайт), используется в /sites/...?quality=premium.
     "claude-opus":     {"provider": "anthropic",   "real_model": "claude-opus-4-1-20250805"},
