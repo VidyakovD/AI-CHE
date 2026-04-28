@@ -277,21 +277,27 @@ async def vk_callback(code: str | None = None, state: str | None = None,
     if state_row is None or not state_row.code_verifier:
         log.warning(f"[VK] invalid state: {state!r}")
         return RedirectResponse(f"{APP_URL}/?oauth_error=state")
-    if not VK_CLIENT_ID or not VK_CLIENT_SECRET:
+    if not VK_CLIENT_ID:
         raise HTTPException(503, "VK OAuth не настроен")
     try:
         async with httpx.AsyncClient(timeout=15) as c:
+            # VK ID допускает PKCE-only (без client_secret) — это вариант для
+            # public clients. Если client_secret задан — добавляем для дополнительной
+            # верификации (confidential client).
+            payload = {
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": state_row.code_verifier,
+                "redirect_uri": _redirect_uri("vk"),
+                "client_id": VK_CLIENT_ID,
+                "device_id": device_id or "",
+                "state": state,
+            }
+            if VK_CLIENT_SECRET:
+                payload["client_secret"] = VK_CLIENT_SECRET
             tok = await c.post(
                 "https://id.vk.com/oauth2/auth",
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "code_verifier": state_row.code_verifier,
-                    "redirect_uri": _redirect_uri("vk"),
-                    "client_id": VK_CLIENT_ID,
-                    "device_id": device_id or "",
-                    "state": state,
-                },
+                data=payload,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             tok_data = tok.json()
