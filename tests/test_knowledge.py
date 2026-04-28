@@ -226,6 +226,42 @@ def test_build_context_block_truncates():
 
 # ── Bot vs Agent isolation ───────────────────────────────────────────────
 
+def test_toggle_disabled_file_excluded_from_retrieve(kb_user):
+    """Выключенный файл не должен попадать в retrieve()."""
+    from server.knowledge import retrieve, set_enabled
+    import secrets as _s
+    test_owner_id = 800_000 + _s.randbits(16)
+    db = SessionLocal()
+    try:
+        kf = KnowledgeFile(user_id=kb_user.id, owner_type="agent", owner_id=test_owner_id,
+                           name="toggle.txt", path="/uploads/knowledge/toggle.txt",
+                           chunk_count=1, indexing_status="ready", enabled=True)
+        db.add(kf); db.commit(); db.refresh(kf)
+        import json as _j
+        emb = [1.0] + [0.0] * 1535
+        chunk = KnowledgeChunk(kb_file_id=kf.id, chunk_index=0,
+                               text="секретный факт",
+                               embedding_json=_j.dumps(emb), token_count=5)
+        db.add(chunk); db.commit()
+        kf_id = kf.id
+    finally:
+        db.close()
+    # 1. Включён → retrieve находит
+    with patch("server.knowledge._embed_one", return_value=[1.0] + [0.0] * 1535):
+        r = retrieve(owner_type="agent", owner_id=test_owner_id, query="x", top=3)
+    assert any("секретный факт" in r["text"] for r in r), "Включённый файл должен быть найден"
+    # 2. Выключаем → retrieve не находит
+    set_enabled("agent", test_owner_id, kf_id, False)
+    with patch("server.knowledge._embed_one", return_value=[1.0] + [0.0] * 1535):
+        r2 = retrieve(owner_type="agent", owner_id=test_owner_id, query="x", top=3)
+    assert not any("секретный факт" in r["text"] for r in r2), "Выключенный файл не должен быть найден"
+    # 3. Включаем обратно → снова находим
+    set_enabled("agent", test_owner_id, kf_id, True)
+    with patch("server.knowledge._embed_one", return_value=[1.0] + [0.0] * 1535):
+        r3 = retrieve(owner_type="agent", owner_id=test_owner_id, query="x", top=3)
+    assert any("секретный факт" in r["text"] for r in r3)
+
+
 def test_owner_isolation_bot_not_seen_as_agent(client, kb_headers, kb_bot, kb_agent):
     """Файл загружен боту — не должен быть виден агенту."""
     db = SessionLocal()

@@ -43,8 +43,15 @@
 .ai-kb-item .badge.ok{background:rgba(123,217,104,.15);color:#7bd968}
 .ai-kb-item .badge.idx{background:rgba(255,140,66,.15);color:#ff8c42}
 .ai-kb-item .badge.err{background:rgba(255,107,107,.15);color:#ff6b6b}
+.ai-kb-item .badge.off{background:rgba(120,120,120,.15);color:#888}
+.ai-kb-item.disabled{opacity:.5}
+.ai-kb-item.disabled .nm{text-decoration:line-through}
 .ai-kb-item .del{background:transparent;border:none;color:#777;cursor:pointer;padding:6px;font-size:16px}
 .ai-kb-item .del:hover{color:#ff6b6b}
+.ai-kb-toggle{position:relative;width:36px;height:20px;background:#3a3a3a;border-radius:11px;cursor:pointer;flex-shrink:0;transition:background .2s;border:none;padding:0}
+.ai-kb-toggle::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;background:#fff;border-radius:50%;transition:transform .2s}
+.ai-kb-toggle.on{background:#ff8c42}
+.ai-kb-toggle.on::after{transform:translateX(16px)}
 .ai-kb-empty{padding:24px;text-align:center;color:#777;font-size:13px;font-style:italic}
 
 .ai-kb-search-row{display:flex;gap:8px;margin-bottom:14px}
@@ -224,22 +231,47 @@
         } else {
           list.innerHTML = '';
           files.forEach(f => {
+            const enabled = f.enabled !== false;  // default true
             const item = document.createElement('div');
-            item.className = 'ai-kb-item';
-            const status = f.status === 'ready' ? `<span class="badge ok">✓ ${f.chunk_count} ${_pluralRu(f.chunk_count, 'чанк', 'чанка', 'чанков')}</span>`
-                         : f.status === 'failed' ? `<span class="badge err" title="${_esc(f.error || '')}">⚠ Ошибка</span>`
-                         : `<span class="badge idx">⏳ Индексация...</span>`;
+            item.className = 'ai-kb-item' + (enabled ? '' : ' disabled');
+            let badge;
+            if (!enabled) {
+              badge = `<span class="badge off">выключен</span>`;
+            } else if (f.status === 'ready') {
+              badge = `<span class="badge ok">✓ ${f.chunk_count} ${_pluralRu(f.chunk_count, 'чанк', 'чанка', 'чанков')}</span>`;
+            } else if (f.status === 'failed') {
+              badge = `<span class="badge err" title="${_esc(f.error || '')}">⚠ Ошибка</span>`;
+            } else {
+              badge = `<span class="badge idx">⏳ Индексация...</span>`;
+            }
             item.innerHTML = `
               <div class="nm">
                 <div class="t"></div>
                 <div class="s"></div>
               </div>
-              ${status}
+              ${badge}
+              <button class="ai-kb-toggle ${enabled ? 'on' : ''}" title="${enabled ? 'Выключить (агент перестанет использовать файл)' : 'Включить (агент будет искать в этом файле)'}" data-id="${f.id}"></button>
               <button class="del" title="Удалить" data-id="${f.id}">🗑</button>
             `;
             // Безопасно через textContent
             item.querySelector('.t').textContent = f.name;
             item.querySelector('.s').textContent = `${_fmtSize(f.size)} · ${_fmtDate(f.created_at)}` + (f.tags ? ` · 🏷 ${f.tags}` : '');
+            // Toggle: переключаем enabled
+            item.querySelector('.ai-kb-toggle').addEventListener('click', async (e) => {
+              e.stopPropagation();
+              const tgl = e.currentTarget;
+              const newEnabled = !tgl.classList.contains('on');
+              tgl.classList.toggle('on', newEnabled);  // optimistic
+              try {
+                const r = await fetch(`/knowledge/${f.id}/toggle?owner_type=${encodeURIComponent(ownerType)}&owner_id=${ownerId}&enabled=${newEnabled}`, {
+                  method: 'PATCH', credentials: 'same-origin',
+                });
+                if (!r.ok) throw new Error('toggle failed');
+                loadList();
+              } catch (_) {
+                tgl.classList.toggle('on', !newEnabled);  // rollback
+              }
+            });
             item.querySelector('.del').addEventListener('click', async () => {
               if (!confirm(`Удалить «${f.name}» из базы знаний?`)) return;
               const dr = await fetch(`/knowledge/${f.id}?owner_type=${encodeURIComponent(ownerType)}&owner_id=${ownerId}`, {

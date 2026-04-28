@@ -22,6 +22,7 @@ from server.models import User, ChatBot, AgentConfig, KnowledgeFile
 from server.knowledge import (
     add_file as kb_add_file,
     get_files, delete_file, retrieve, build_context_block,
+    set_enabled,
     MAX_FILE_BYTES, MAX_FILES_PER_OWNER,
 )
 
@@ -158,6 +159,18 @@ def kb_list(owner_type: str, owner_id: int,
             "max_file_mb": MAX_FILE_BYTES // 1024 // 1024,
         },
     }
+
+
+@router.patch("/{file_id}/toggle")
+def kb_toggle(file_id: int, owner_type: str, owner_id: int, enabled: bool,
+              db: Session = Depends(get_db),
+              user: User = Depends(current_user)):
+    """Включить или выключить файл в RAG-поиске.
+    Выключенные файлы хранятся, но не участвуют в retrieve()."""
+    _check_owner(db, user, owner_type, owner_id)
+    if not set_enabled(owner_type, owner_id, file_id, enabled):
+        raise HTTPException(404, "Файл не найден")
+    return {"id": file_id, "enabled": enabled}
 
 
 @router.delete("/{file_id}")

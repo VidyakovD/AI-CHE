@@ -147,6 +147,7 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("knowledge_files", "chunk_count", "INTEGER DEFAULT 0"),
     ("knowledge_files", "indexing_status", "VARCHAR DEFAULT 'pending'"),
     ("knowledge_files", "indexing_error", "TEXT"),
+    ("knowledge_files", "enabled", "BOOLEAN DEFAULT 1"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

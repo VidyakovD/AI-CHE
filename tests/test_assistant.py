@@ -148,6 +148,55 @@ def test_ask_strips_external_links(client, assistant_headers):
     assert r.json()["links"] == []
 
 
+def test_ask_strips_markdown_links_from_answer(client, assistant_headers):
+    """Markdown [label](href) в answer заменяется на просто label —
+    текст становится чистым, ссылки рендерятся отдельным блоком."""
+    def _resp(*_a, **_k):
+        return {"type": "text",
+                "content": "Это в КП — [Открыть КП](/proposals.html). А это [Презентации](/presentations.html).",
+                "input_tokens": 1, "output_tokens": 1}
+    with patch("server.routes.assistant.generate_response", _resp):
+        r = client.post("/assistant/ask",
+                        json={"section": "index.cabinet", "message": "куда идти?"},
+                        headers=assistant_headers)
+    assert r.status_code == 200
+    d = r.json()
+    # Markdown синтаксис убран
+    assert "](/" not in d["answer"]
+    assert "[Открыть" not in d["answer"]
+    # Текст содержит только labels
+    assert "Открыть КП" in d["answer"]
+    assert "Презентации" in d["answer"]
+    # Ссылки структурированы
+    hrefs = [l["href"] for l in d["links"]]
+    assert "/proposals.html" in hrefs
+    assert "/presentations.html" in hrefs
+
+
+def test_ask_dedupes_repeat_links(client, assistant_headers):
+    """Если AI указал одну и ту же ссылку дважды — links[] не дублирует."""
+    def _resp(*_a, **_k):
+        return {"type": "text",
+                "content": "Жми [Открыть КП](/proposals.html) или [КП](/proposals.html).",
+                "input_tokens": 1, "output_tokens": 1}
+    with patch("server.routes.assistant.generate_response", _resp):
+        r = client.post("/assistant/ask",
+                        json={"section": "index.cabinet", "message": "?"},
+                        headers=assistant_headers)
+    hrefs = [l["href"] for l in r.json()["links"]]
+    assert hrefs.count("/proposals.html") == 1
+
+
+def test_prompts_have_extended_content():
+    """После расширения каждый prompt должен быть существенно длиннее baseline."""
+    from server.assistant_prompts import SECTION_PROMPTS, build_system_prompt
+    for sec, p in SECTION_PROMPTS.items():
+        assert len(p) > 600, f"{sec}: prompt too short ({len(p)} chars)"
+    full = build_system_prompt("proposals.projects")
+    assert "[Открыть КП](/proposals.html)" in full
+    assert "СТРОГО" in full
+
+
 def test_ask_caches_repeat_questions(client, assistant_headers):
     calls = {"n": 0}
     def _counting(*_a, **_k):

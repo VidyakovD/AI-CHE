@@ -553,10 +553,12 @@
 #ai-assistant-bubble{width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;background:#1C1C1C;color:#fff;box-shadow:0 6px 22px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;transition:transform .15s;padding:0;overflow:hidden;border:2px solid rgba(255,140,66,.55)}
 #ai-assistant-bubble:hover{transform:scale(1.07);border-color:#ff8c42}
 #ai-assistant-bubble img{width:42px;height:42px;object-fit:contain;display:block}
-#ai-assistant-panel{position:absolute;right:0;bottom:64px;width:360px;max-width:calc(100vw - 24px);height:520px;max-height:calc(100vh - 96px);background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.25);display:none;flex-direction:column;overflow:hidden;border:1px solid rgba(0,0,0,.08)}
+#ai-assistant-panel{position:absolute;right:0;bottom:64px;width:360px;max-width:calc(100vw - 24px);height:520px;max-height:calc(100vh - 96px);min-width:280px;min-height:340px;background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.25);display:none;flex-direction:column;overflow:hidden;border:1px solid rgba(0,0,0,.08)}
 #ai-assistant-panel.open{display:flex}
-#ai-assistant-panel.dragging{transition:none;user-select:none;opacity:.92}
+#ai-assistant-panel.dragging,#ai-assistant-panel.resizing{transition:none;user-select:none;opacity:.95}
 #ai-assistant-panel.detached{position:fixed;right:auto;bottom:auto}
+#ai-assistant-resize{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;z-index:5;background:linear-gradient(135deg,transparent 0%,transparent 50%,rgba(255,140,66,.4) 50%,rgba(255,140,66,.4) 60%,transparent 60%,transparent 70%,rgba(255,140,66,.4) 70%,rgba(255,140,66,.4) 80%,transparent 80%);border-bottom-right-radius:16px;touch-action:none}
+#ai-assistant-resize:hover{background:linear-gradient(135deg,transparent 0%,transparent 50%,#ff8c42 50%,#ff8c42 60%,transparent 60%,transparent 70%,#ff8c42 70%,#ff8c42 80%,transparent 80%)}
 #ai-assistant-hdr{padding:10px 14px;background:#1C1C1C;color:#fff;display:flex;align-items:center;justify-content:space-between;font-weight:600;cursor:grab;touch-action:none;user-select:none;border-bottom:1px solid rgba(255,140,66,.2)}
 #ai-assistant-hdr-logo{width:28px;height:28px;border-radius:50%;background:#0f0f0f;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:8px}
 #ai-assistant-hdr-logo img{width:22px;height:22px;object-fit:contain}
@@ -572,9 +574,11 @@
 .ai-msg.user{background:#FFB300;color:#fff;margin-left:auto;border-bottom-right-radius:4px}
 .ai-msg.bot{background:#fff;color:#1a1a1a;border:1px solid #eee;border-bottom-left-radius:4px}
 .ai-msg.bot a{color:#FF6F00;text-decoration:underline}
-.ai-msg .lnks{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}
-.ai-msg .lnks a{display:inline-block;padding:4px 9px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:12px;text-decoration:none;color:#9a3412}
-.ai-msg .lnks a:hover{background:#ffedd5}
+.ai-msg .lnks{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+.ai-msg .lnks a{display:inline-flex;align-items:center;gap:5px;padding:7px 11px;background:linear-gradient(135deg,#FFB300,#FF6F00);border:none;border-radius:10px;font-size:12px;font-weight:600;text-decoration:none;color:#fff;box-shadow:0 2px 6px rgba(255,140,66,.25);transition:transform .12s,box-shadow .12s}
+.ai-msg .lnks a:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(255,140,66,.35)}
+.ai-msg .lnks a:active{transform:translateY(0)}
+.ai-msg .lnks a::after{content:"→";font-weight:700;opacity:.9;margin-left:1px}
 .ai-msg.err{background:#fff1f1;color:#9b1a1a;border:1px solid #fecaca}
 .ai-msg.thinking{font-style:italic;color:#888}
 #ai-assistant-inp-wrap{padding:10px;background:#fff;border-top:1px solid #eee;display:flex;gap:6px}
@@ -615,6 +619,7 @@
     <textarea id="ai-assistant-inp" rows="1" placeholder="Спросите про этот раздел…" maxlength="600"></textarea>
     <button id="ai-assistant-send" disabled>↑</button>
   </div>
+  <div id="ai-assistant-resize" title="Потяните, чтобы изменить размер" aria-label="Изменить размер"></div>
 </div>
 <button id="ai-assistant-bubble" type="button" aria-label="Открыть AI-помощника">
   <img src="/logo-192.png" alt="AI Студия Че" width="42" height="42"/>
@@ -687,11 +692,32 @@
       });
     }
 
-    // ── Drag the panel by header ───────────────────────────────────────────
-    // Сохранённую позицию помним между сессиями: localStorage, общий для всех
-    // секций, ключ привязан к origin'у (не section'у), потому что юзер скорее
-    // ожидает что окно будет в одном и том же месте на любой странице.
+    // ── Drag + resize окна помощника ──────────────────────────────────────
+    // Позиция и размер помнятся между сессиями через localStorage. Ключи —
+    // на origin (не section'у), чтобы окно было «там же» на любой странице.
     const POS_KEY = 'ai-assistant:pos';
+    const SIZE_KEY = 'ai-assistant:size';
+
+    const MIN_W = 280, MIN_H = 340;
+    const _maxW = () => window.innerWidth - 8;
+    const _maxH = () => window.innerHeight - 8;
+
+    function _applySize(w, h) {
+      const cw = Math.min(_maxW(), Math.max(MIN_W, w));
+      const ch = Math.min(_maxH(), Math.max(MIN_H, h));
+      panel.style.width = cw + 'px';
+      panel.style.height = ch + 'px';
+    }
+
+    function _loadSavedSize() {
+      try {
+        const raw = localStorage.getItem(SIZE_KEY);
+        if (!raw) return null;
+        const s = JSON.parse(raw);
+        if (typeof s.w === 'number' && typeof s.h === 'number') return s;
+      } catch (_) {}
+      return null;
+    }
 
     function _clampPos(left, top) {
       const w = panel.offsetWidth || 360;
@@ -719,7 +745,12 @@
       panel.style.top = '';
       panel.style.right = '';
       panel.style.bottom = '';
-      try { localStorage.removeItem(POS_KEY); } catch (_) {}
+      panel.style.width = '';
+      panel.style.height = '';
+      try {
+        localStorage.removeItem(POS_KEY);
+        localStorage.removeItem(SIZE_KEY);
+      } catch (_) {}
     }
 
     function _loadSavedPos() {
@@ -736,8 +767,10 @@
       if (open == null) open = !panel.classList.contains('open');
       panel.classList.toggle('open', open);
       if (open) {
-        // Применяем сохранённую позицию (если есть) при каждом открытии —
+        // Применяем сохранённую позицию и размер при каждом открытии —
         // viewport мог измениться, заодно clamp по новым размерам.
+        const savedSize = _loadSavedSize();
+        if (savedSize) _applySize(savedSize.w, savedSize.h);
         const saved = _loadSavedPos();
         if (saved) _applyPos(saved.left, saved.top);
         if (!msgs.children.length) _initialGreeting();
@@ -814,6 +847,46 @@
         }));
       } catch (_) {}
     });
+
+    // ── Resize: ручка в правом нижнем углу ────────────────────────────────
+    const resizeHandle = root.querySelector('#ai-assistant-resize');
+    let _rs = null;  // {pointerId, startX, startY, baseW, baseH}
+    if (resizeHandle) {
+      resizeHandle.addEventListener('pointerdown', (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.stopPropagation();  // не путаем с drag header
+        e.preventDefault();
+        const rect = panel.getBoundingClientRect();
+        _rs = {
+          pointerId: e.pointerId,
+          startX: e.clientX, startY: e.clientY,
+          baseW: rect.width, baseH: rect.height,
+        };
+        panel.classList.add('resizing');
+        try { resizeHandle.setPointerCapture(e.pointerId); } catch (_) {}
+      });
+      resizeHandle.addEventListener('pointermove', (e) => {
+        if (!_rs || e.pointerId !== _rs.pointerId) return;
+        const dw = e.clientX - _rs.startX;
+        const dh = e.clientY - _rs.startY;
+        _applySize(_rs.baseW + dw, _rs.baseH + dh);
+      });
+      function _endResize(e) {
+        if (!_rs) return;
+        if (e && e.pointerId !== _rs.pointerId) return;
+        _rs = null;
+        panel.classList.remove('resizing');
+        try { resizeHandle.releasePointerCapture(e.pointerId); } catch (_) {}
+        const rect = panel.getBoundingClientRect();
+        try {
+          localStorage.setItem(SIZE_KEY, JSON.stringify({
+            w: Math.round(rect.width), h: Math.round(rect.height),
+          }));
+        } catch (_) {}
+      }
+      resizeHandle.addEventListener('pointerup', _endResize);
+      resizeHandle.addEventListener('pointercancel', _endResize);
+    }
 
     inp.addEventListener('input', () => {
       sendBtn.disabled = !inp.value.trim();

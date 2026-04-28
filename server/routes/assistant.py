@@ -110,17 +110,26 @@ def assistant_ask(req: AssistantAskReq,
         text = "Не получилось сгенерировать ответ. Попробуйте переформулировать вопрос."
 
     # Парсим markdown-ссылки [label](href) → структурированный список.
-    # Фронт может рендерить их кнопками или просто как ссылки.
+    # В тексте ответа заменяем «[label](href)» на просто «label», чтобы юзер
+    # видел чистый текст, а ссылки рендерились отдельным блоком кнопок-чипов
+    # снизу сообщения.
     import re
     links = []
-    for m in re.finditer(r"\[([^\]]{1,80})\]\(([^)]{1,200})\)", text):
+    seen_hrefs = set()
+    def _link_repl(m):
+        label = m.group(1).strip()
         href = m.group(2).strip()
-        # Только относительные ссылки внутри сайта — внешние режем (анти-фишинг
-        # на случай prompt injection: AI могла подставить evil-link).
-        if href.startswith(("/", "#")) and len(links) < 8:
-            links.append({"label": m.group(1).strip(), "href": href})
+        # Только относительные ссылки внутри сайта — внешние режем (анти-фишинг:
+        # AI могла подставить evil-link через prompt injection).
+        if href.startswith(("/", "#")) and href not in seen_hrefs and len(links) < 6:
+            seen_hrefs.add(href)
+            links.append({"label": label, "href": href})
+        return label
+    cleaned_text = re.sub(r"\[([^\]]{1,80})\]\(([^)]{1,200})\)", _link_repl, text)
+    # Также схлопываем тройные пробелы / переносы строки если AI наделал
+    cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text).strip()
 
-    result = {"answer": text, "links": links, "section": section}
+    result = {"answer": cleaned_text, "links": links, "section": section}
     _cache_put(user.id, section, message, result)
 
     try:

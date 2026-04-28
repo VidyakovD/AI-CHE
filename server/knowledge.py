@@ -458,7 +458,8 @@ def retrieve(owner_type: str, owner_id: int,
         q = (db.query(KnowledgeChunk, KnowledgeFile)
                .join(KnowledgeFile, KnowledgeChunk.kb_file_id == KnowledgeFile.id)
                .filter(KnowledgeFile.owner_type == owner_type,
-                       KnowledgeFile.owner_id == owner_id))
+                       KnowledgeFile.owner_id == owner_id,
+                       (KnowledgeFile.enabled == True) | (KnowledgeFile.enabled.is_(None))))
         if file_ids:
             q = q.filter(KnowledgeFile.id.in_(file_ids))
         rows = q.all()
@@ -582,6 +583,9 @@ def _file_dict(kf_id: int) -> Dict:
 
 
 def _kf_dict(kf: KnowledgeFile) -> Dict:
+    enabled = kf.enabled
+    if enabled is None:
+        enabled = True
     return {
         "id": kf.id,
         "name": kf.name,
@@ -594,8 +598,25 @@ def _kf_dict(kf: KnowledgeFile) -> Dict:
         "chunk_count": kf.chunk_count or 0,
         "status": kf.indexing_status or "pending",
         "error": kf.indexing_error,
+        "enabled": bool(enabled),
         "created_at": kf.created_at.isoformat() if kf.created_at else None,
     }
+
+
+def set_enabled(owner_type: str, owner_id: int, file_id: int, enabled: bool) -> bool:
+    """Включить / выключить файл. Выключенные не участвуют в retrieve."""
+    db = SessionLocal()
+    try:
+        kf = (db.query(KnowledgeFile)
+                .filter_by(id=file_id, owner_type=owner_type, owner_id=owner_id)
+                .first())
+        if not kf:
+            return False
+        kf.enabled = bool(enabled)
+        db.commit()
+        return True
+    finally:
+        db.close()
 
 
 # ── Legacy API для существующих нод бота ─────────────────────────────────────

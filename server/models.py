@@ -618,6 +618,7 @@ class KnowledgeFile(Base):
     chunk_count  = Column(Integer, default=0)                  # сколько чанков создано
     indexing_status = Column(String, default="pending")        # pending | indexing | ready | failed
     indexing_error  = Column(Text, nullable=True)
+    enabled      = Column(Boolean, default=True)               # участвует ли в retrieve
     created_at   = Column(DateTime, default=datetime.utcnow)
 
 
