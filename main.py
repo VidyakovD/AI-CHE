@@ -34,6 +34,7 @@ from server.routes.proposals import router as proposals_router
 from server.routes.assistant import router as assistant_router
 from server.routes.qr_login import router as qr_login_router
 from server.routes.mobile import router as mobile_router
+from server.routes.knowledge import router as knowledge_router
 
 load_dotenv()
 
@@ -302,6 +303,7 @@ app.include_router(proposals_router)
 app.include_router(assistant_router)
 app.include_router(qr_login_router)
 app.include_router(mobile_router)
+app.include_router(knowledge_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -330,6 +332,16 @@ def serve_icons():
     """
     return FileResponse(
         os.path.join(_BASE, "icons.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "public, max-age=60, must-revalidate"},
+    )
+
+
+@app.get("/knowledge-ui.js", include_in_schema=False)
+def serve_knowledge_ui():
+    """Общая модалка управления RAG-базой знаний (для агентов и ботов)."""
+    return FileResponse(
+        os.path.join(_BASE, "knowledge-ui.js"),
         media_type="application/javascript",
         headers={"Cache-Control": "public, max-age=60, must-revalidate"},
     )

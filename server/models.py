@@ -590,21 +590,54 @@ class WorkflowStore(Base):
 
 
 class KnowledgeFile(Base):
-    """Файл в базе знаний бота: metadata + summary + facts для RAG."""
+    """Файл в базе знаний агента или чат-бота.
+
+    Модель универсальная: owner_type='bot'|'agent', owner_id — id владельца.
+    user_id обязателен (для проверки доступа и storage-биллинга).
+
+    Текст файла режется на чанки (KnowledgeChunk), каждый чанк имеет embedding
+    для семантического поиска. summary/facts — короткое описание для UI и
+    как fallback на TF-search до индексации embedding'ов (или для legacy).
+    """
     __tablename__ = "knowledge_files"
 
     id           = Column(Integer, primary_key=True)
-    bot_id       = Column(Integer, index=True, nullable=False)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True)
+    owner_type   = Column(String, default="bot", index=True)   # "bot" | "agent"
+    owner_id     = Column(Integer, index=True, nullable=True)  # bot.id ИЛИ agent_config.id
+    bot_id       = Column(Integer, index=True, nullable=True)  # legacy — оставлен для совместимости
     name         = Column(String, nullable=False)
-    path         = Column(String, nullable=False)     # /uploads/...
+    path         = Column(String, nullable=False)              # /uploads/...
     mime         = Column(String, nullable=True)
     size         = Column(Integer, default=0)
-    description  = Column(String, nullable=True)      # одна строка
-    tags         = Column(String, nullable=True)      # через запятую
-    summary      = Column(Text, nullable=True)        # 2-4 предложения
-    facts        = Column(Text, nullable=True)        # через "; "
-    content_text = Column(Text, nullable=True)        # полный текст (для fulltext search)
+    description  = Column(String, nullable=True)               # одна строка
+    tags         = Column(String, nullable=True)               # через запятую
+    summary      = Column(Text, nullable=True)                 # 2-4 предложения для UI
+    facts        = Column(Text, nullable=True)                 # через "; "
+    content_text = Column(Text, nullable=True)                 # полный текст (legacy)
+    chunk_count  = Column(Integer, default=0)                  # сколько чанков создано
+    indexing_status = Column(String, default="pending")        # pending | indexing | ready | failed
+    indexing_error  = Column(Text, nullable=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+class KnowledgeChunk(Base):
+    """Один кусок текста из KnowledgeFile с embedding-вектором.
+
+    text — собственно текст для подмешивания в prompt.
+    embedding_json — JSON-список float[1536] (text-embedding-3-small) или
+                     float[3072] (text-embedding-3-large), для cosine search.
+    token_count — приблизительная оценка через tiktoken (для биллинга).
+    """
+    __tablename__ = "knowledge_chunks"
+
+    id            = Column(Integer, primary_key=True)
+    kb_file_id    = Column(Integer, ForeignKey("knowledge_files.id", ondelete="CASCADE"), index=True, nullable=False)
+    chunk_index   = Column(Integer, default=0)
+    text          = Column(Text, nullable=False)
+    embedding_json= Column(Text, nullable=True)
+    token_count   = Column(Integer, default=0)
+    created_at    = Column(DateTime, default=datetime.utcnow)
 
 
 class AdminAuditLog(Base):

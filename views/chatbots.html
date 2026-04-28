@@ -60,6 +60,7 @@ select.inp option{background:#272018;color:#f0e6d8}
 .help-block code{background:rgba(255,255,255,.05);padding:1px 5px;border-radius:4px;font-size:10px}
 </style>
 <script src="/icons.js" defer></script>
+<script src="/knowledge-ui.js" defer></script>
 </head>
 <body class="dark" data-assistant-section="chatbots" data-assistant-label="чат-боты">
 <div class="max-w-5xl mx-auto px-5 py-8">
@@ -845,6 +846,7 @@ function render(){
             <button onclick="openRecords(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Заявки и записи" aria-label="Записи">${_i('clipboard')}</button>
             <button onclick="openBotAssets(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Лидмагниты и файлы бота" aria-label="Файлы">${_i('image')}</button>
             <button onclick="openBotPrice(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Прайс-лист бота" aria-label="Прайс">₽</button>
+            <button onclick="event.stopPropagation();openBotKnowledge(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="База знаний — загрузите PDF/XLSX/DOCX, бот будет искать в них при ответах" aria-label="База знаний">📚</button>
             <button onclick="showSummary(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Пересказ диалогов" aria-label="Пересказ">${_i('chat')}</button>
           </div>
         </div>
@@ -1270,6 +1272,14 @@ async function pauseBot(id){
     await loadBots();
     toast('Бот на паузе', 'info');
   }catch(e){ toast(_friendlyErr(e, e.status), 'error'); }
+}
+
+function openBotKnowledge(id, name){
+  if (!window.aiOpenKnowledge) {
+    aiAlert('UI базы знаний не загружен. Обновите страницу.', 'error');
+    return;
+  }
+  window.aiOpenKnowledge({ ownerType: 'bot', ownerId: id, ownerName: name || `Бот #${id}` });
 }
 
 async function deleteBot(id){

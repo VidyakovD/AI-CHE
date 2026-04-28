@@ -93,6 +93,10 @@ RULES = {
     "/mobile/feed":              (60,  60),
     "/mobile/voice/parse":       (30,  60),
     "/mobile/voice/transcribe":  (15, 300),
+    # Knowledge: загрузка дорогая (embeddings-вызов в фоне). Не пускаем спам.
+    "/knowledge/upload":          (15,  300),
+    "/knowledge/search":          (60,  60),
+    "/knowledge":                 (60,  60),
 }
 
 _TRUSTED_PROXIES = {p.strip() for p in os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1").split(",") if p.strip()}

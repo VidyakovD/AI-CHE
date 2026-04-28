@@ -140,6 +140,13 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("presentation_projects", "pdf_path", "VARCHAR"),
     # VK ID OAuth: PKCE code_verifier хранится между /start и /callback.
     ("oauth_states", "code_verifier", "VARCHAR"),
+    # RAG knowledge: универсальная привязка (bot/agent) + статус индексации
+    ("knowledge_files", "user_id", "INTEGER"),
+    ("knowledge_files", "owner_type", "VARCHAR DEFAULT 'bot'"),
+    ("knowledge_files", "owner_id", "INTEGER"),
+    ("knowledge_files", "chunk_count", "INTEGER DEFAULT 0"),
+    ("knowledge_files", "indexing_status", "VARCHAR DEFAULT 'pending'"),
+    ("knowledge_files", "indexing_error", "TEXT"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен
@@ -191,3 +198,60 @@ def apply_lightweight_migrations():
                 conn.commit()
             except Exception as e:
                 log.warning(f"migration: index {name}: {e}")
+        # Special migration: knowledge_files.bot_id was NOT NULL (legacy для ботов).
+        # Теперь поддерживаем агентов через owner_type/owner_id, и для агента
+        # bot_id=NULL. SQLite ALTER не умеет менять NULL/NOT NULL — пересоздаём
+        # таблицу. Идемпотентно: проверяем pragma и работаем только если NOT NULL.
+        try:
+            rows = list(conn.execute(text("PRAGMA table_info(knowledge_files)")))
+            for row in rows:
+                # row = (cid, name, type, notnull, dflt_value, pk)
+                if row[1] == "bot_id" and int(row[3]) == 1:
+                    log.info("migration: recreating knowledge_files to allow NULL bot_id")
+                    conn.execute(text("PRAGMA foreign_keys = OFF"))
+                    conn.execute(text("""
+                        CREATE TABLE knowledge_files_new (
+                            id INTEGER PRIMARY KEY,
+                            user_id INTEGER,
+                            owner_type VARCHAR DEFAULT 'bot',
+                            owner_id INTEGER,
+                            bot_id INTEGER,
+                            name VARCHAR NOT NULL,
+                            path VARCHAR NOT NULL,
+                            mime VARCHAR,
+                            size INTEGER DEFAULT 0,
+                            description VARCHAR,
+                            tags VARCHAR,
+                            summary TEXT,
+                            facts TEXT,
+                            content_text TEXT,
+                            chunk_count INTEGER DEFAULT 0,
+                            indexing_status VARCHAR DEFAULT 'pending',
+                            indexing_error TEXT,
+                            created_at DATETIME
+                        )
+                    """))
+                    # Копируем существующие записи; outpost_type/owner_id для них = ('bot', bot_id)
+                    existing_cols = [r[1] for r in rows]
+                    common = [c for c in
+                              ("id","user_id","bot_id","name","path","mime","size",
+                               "description","tags","summary","facts","content_text",
+                               "chunk_count","indexing_status","indexing_error","created_at")
+                              if c in existing_cols]
+                    cols_csv = ", ".join(common)
+                    conn.execute(text(
+                        f"INSERT INTO knowledge_files_new ({cols_csv}, owner_type, owner_id) "
+                        f"SELECT {cols_csv}, 'bot', bot_id FROM knowledge_files"
+                    ))
+                    conn.execute(text("DROP TABLE knowledge_files"))
+                    conn.execute(text("ALTER TABLE knowledge_files_new RENAME TO knowledge_files"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_knowledge_files_user_id ON knowledge_files(user_id)"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_knowledge_files_owner_type ON knowledge_files(owner_type)"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_knowledge_files_owner_id ON knowledge_files(owner_id)"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_knowledge_files_bot_id ON knowledge_files(bot_id)"))
+                    conn.execute(text("PRAGMA foreign_keys = ON"))
+                    conn.commit()
+                    log.info("migration: knowledge_files.bot_id is now NULLable")
+                    break
+        except Exception as e:
+            log.warning(f"migration: knowledge_files relax-bot_id failed: {e}")

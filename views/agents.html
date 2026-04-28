@@ -6,6 +6,8 @@
 <title>AI Студия Che — Конструктор агентов</title>
 <script src="https://cdn.tailwindcss.com/3.4.0"></script>
 <script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#141210","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
+<script src="/icons.js" defer></script>
+<script src="/knowledge-ui.js" defer></script>
 <style>
 *{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,.2) transparent}
 *::-webkit-scrollbar{width:4px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,.25);border-radius:999px}
@@ -1150,6 +1152,10 @@ function renderAgents() {
             title="Создать TG-бота — он начнёт отвечать клиентам 24/7">
             🤖 В Telegram
           </button>
+          <button onclick="openKnowledge(${a.id}, '${(a.name||'').replace(/'/g,"\\\\'")}')"
+            class="btn-g text-xs py-1 px-2" title="База знаний — загрузите файлы (прайс, инфа о компании). Агент будет искать в них при работе.">
+            📚
+          </button>
           <button onclick="openAgent(${a.id})"
             class="btn-g text-xs py-1 px-2" title="Редактировать в мастере">
             ✏️
@@ -1383,6 +1389,14 @@ async function deleteAgent(id) {
   if (!await aiConfirm('Удалить этого агента? Все настройки будут потеряны.', {danger: true, okLabel: 'Удалить'})) return;
   await fetch(`${API}/agent/config/${id}`, {method:'DELETE', headers:hdrs()});
   await loadAgents();
+}
+
+function openKnowledge(id, name) {
+  if (!window.aiOpenKnowledge) {
+    aiAlert('UI базы знаний не загружен. Обновите страницу.', 'error');
+    return;
+  }
+  window.aiOpenKnowledge({ ownerType: 'agent', ownerId: id, ownerName: name || `Агент #${id}` });
 }
 
 function openAgent(id) {

@@ -780,6 +780,24 @@ async def agent_worker(queue: asyncio.PriorityQueue):
                             + f"\n\n=== НАСТРОЙКИ БИЗНЕСА ПОЛЬЗОВАТЕЛЯ ===\n{cfg_lines}"
                             + "\n\nЭти настройки приоритетны. Используй их при выполнении всех шагов."
                         )
+
+                # RAG: подмешиваем релевантные чанки из базы знаний агента, если
+                # в context передан agent_config_id. Найденное добавляется в
+                # system prompt — модель учитывает «факты пользователя» при
+                # выполнении шагов.
+                ag_cfg_id = pt.context.get("agent_config_id")
+                if ag_cfg_id:
+                    try:
+                        from server.knowledge import retrieve, build_context_block
+                        results = retrieve(owner_type="agent", owner_id=int(ag_cfg_id),
+                                           query=pt.goal, top=5)
+                        if results:
+                            kb_block = build_context_block(results, max_chars=6000)
+                            base_prompt = (base_prompt or "") + "\n\n" + kb_block
+                            log.info(f"[Worker] KB: добавлено {len(results)} чанков для agent_config={ag_cfg_id}")
+                    except Exception as e:
+                        log.warning(f"[Worker] KB retrieve failed: {type(e).__name__}: {e}")
+
                 await run_agent(
                     pt.task_id, pt.goal, pt.context,
                     orchestrator=orch,

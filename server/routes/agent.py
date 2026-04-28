@@ -83,6 +83,9 @@ async def agent_run(
                     ctx["block_configs"] = saved_settings["block_configs"]
             except Exception:
                 pass
+        # Прокидываем agent_config_id в context — agent_runner подмешает чанки
+        # из базы знаний этого агента в system prompt перед ReAct loop'ом.
+        ctx["agent_config_id"] = req.agent_config_id
 
     if user_api_key:
         ctx["user_api_key"] = user_api_key
