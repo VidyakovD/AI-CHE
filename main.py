@@ -32,6 +32,7 @@ from server.routes.webhook import router as webhook_router
 from server.routes.widget import router as widget_router
 from server.routes.proposals import router as proposals_router
 from server.routes.assistant import router as assistant_router
+from server.routes.qr_login import router as qr_login_router
 
 load_dotenv()
 
@@ -298,6 +299,7 @@ app.include_router(public_router)
 app.include_router(assets_router)
 app.include_router(proposals_router)
 app.include_router(assistant_router)
+app.include_router(qr_login_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -397,6 +399,14 @@ def serve_favicon():
         media_type="image/png",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+@app.get("/qr/{token}", include_in_schema=False)
+def serve_qr_confirm(token: str):
+    """Страница подтверждения QR-логина (для мобильного скана).
+    Сама страница без auth — внутри JS проверяет авторизацию и рисует
+    кнопки «Подтвердить» / «Отмена»."""
+    return FileResponse(os.path.join(_BASE, "qr_confirm.html"), headers=_NO_CACHE)
 
 
 @app.get("/", include_in_schema=False)

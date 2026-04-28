@@ -389,6 +389,33 @@ body.welcome #inputArea{display:none!important}
           <span>ВКонтакте</span>
         </a>
       </div>
+      <button onclick="openQrLoginModal()" type="button" class="w-full mt-2 py-2.5 px-3 rounded-xl bg-surface2 hover:bg-surface3 border border-outline/30 hover:border-primary/40 flex items-center justify-center gap-2 text-sm transition">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm14 0h2v2h-2v-2zm-6 0h2v2h-2v-2zm4 2h2v2h-2v-2zm-4 2h2v2h-2v-2zm4 0h2v2h-2v-2zm2-4h2v2h-2v-2zm-2-2h2v2h-2v-2zm-6-6h2v2h-2V5z"/></svg>
+        <span>Войти по QR-коду со смартфона</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- QR-login modal -->
+<div id="qrLoginModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="qrLoginTitle">
+  <div class="bg-surface rounded-2xl p-7 w-full max-w-md shadow-2xl border border-outline/25 mx-4">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-xl font-bold font-headline" id="qrLoginTitle">Вход по QR-коду</h2>
+      <button onclick="closeQrLoginModal()" class="w-8 h-8 rounded-full bg-surface2 flex items-center justify-center hover:bg-surface3 transition" aria-label="Закрыть">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div id="qrLoginBody" class="space-y-4">
+      <div class="text-sm text-on-surface-dim leading-relaxed">
+        Откройте AI Студию Че на смартфоне (где вы уже авторизованы), запустите камеру и наведите на этот QR-код. На телефоне появится кнопка «Подтвердить вход».
+      </div>
+      <div class="bg-white rounded-2xl p-4 flex items-center justify-center" style="min-height:240px">
+        <img id="qrLoginImage" src="" alt="QR-код" style="width:220px;height:220px;display:none"/>
+        <div id="qrLoginSpinner" class="text-on-surface-dim text-sm">Готовим QR-код…</div>
+      </div>
+      <div id="qrLoginStatus" class="text-center text-sm text-on-surface-dim">Ожидаем подтверждения со смартфона…</div>
+      <button onclick="qrLoginRefresh()" id="qrLoginRefreshBtn" type="button" class="w-full py-2.5 px-3 rounded-xl bg-surface2 hover:bg-surface3 border border-outline/30 text-sm transition" style="display:none">Обновить QR</button>
     </div>
   </div>
 </div>
@@ -3142,6 +3169,91 @@ function openM(id){
 function closeM(id){document.getElementById(id).classList.add("hidden");}
 function switchM(a,b){closeM(a);openM(b);}
 function openTerms(){openM('termsModal');}
+
+// ── QR-логин: показ QR + опрос статуса ─────────────────────────────────
+let _qrLoginPoll = null;
+let _qrLoginExpire = null;
+let _qrLoginToken = null;
+
+async function openQrLoginModal(){
+  closeM('loginModal');
+  openM('qrLoginModal');
+  await qrLoginRefresh();
+}
+
+function closeQrLoginModal(){
+  if(_qrLoginPoll){ clearInterval(_qrLoginPoll); _qrLoginPoll = null; }
+  if(_qrLoginExpire){ clearTimeout(_qrLoginExpire); _qrLoginExpire = null; }
+  closeM('qrLoginModal');
+}
+
+async function qrLoginRefresh(){
+  const img = document.getElementById('qrLoginImage');
+  const sp  = document.getElementById('qrLoginSpinner');
+  const st  = document.getElementById('qrLoginStatus');
+  const rfb = document.getElementById('qrLoginRefreshBtn');
+  img.style.display = 'none';
+  sp.style.display = '';
+  sp.textContent = 'Готовим QR-код…';
+  st.textContent = 'Ожидаем подтверждения со смартфона…';
+  rfb.style.display = 'none';
+  if(_qrLoginPoll){ clearInterval(_qrLoginPoll); _qrLoginPoll = null; }
+  if(_qrLoginExpire){ clearTimeout(_qrLoginExpire); _qrLoginExpire = null; }
+  let init;
+  try {
+    const r = await fetch('/qr-login/init', {method:'POST', credentials:'same-origin'});
+    init = await r.json();
+  } catch(e){
+    sp.textContent = 'Ошибка сети';
+    return;
+  }
+  _qrLoginToken = init.token;
+  img.src = '/qr-login/image/' + encodeURIComponent(init.token) + '.png?t=' + Date.now();
+  img.onload = () => { sp.style.display = 'none'; img.style.display = ''; };
+  img.onerror = () => { sp.textContent = 'Не удалось получить QR'; };
+  // Polling статуса каждые 1.5 сек
+  _qrLoginPoll = setInterval(() => qrLoginPoll(init.token), 1500);
+  // Авто-обновление перед истечением
+  _qrLoginExpire = setTimeout(() => {
+    if(_qrLoginPoll){ clearInterval(_qrLoginPoll); _qrLoginPoll = null; }
+    st.textContent = 'QR-код истёк';
+    rfb.style.display = '';
+  }, (init.expires_in || 120) * 1000);
+}
+
+async function qrLoginPoll(token){
+  let r;
+  try {
+    r = await fetch('/qr-login/poll/' + encodeURIComponent(token), {credentials: 'same-origin'});
+  } catch(e){ return; }
+  if(!r.ok) return;
+  const d = await r.json();
+  const st = document.getElementById('qrLoginStatus');
+  if(d.status === 'pending') return;
+  if(_qrLoginPoll){ clearInterval(_qrLoginPoll); _qrLoginPoll = null; }
+  if(_qrLoginExpire){ clearTimeout(_qrLoginExpire); _qrLoginExpire = null; }
+  if(d.status === 'approved' && d.access){
+    st.textContent = 'Вход выполнен. Загружаем...';
+    // Cookies уже стоят (set_auth_cookies на бэке) — просто перезагружаем
+    setTimeout(() => window.location.reload(), 400);
+    return;
+  }
+  if(d.status === 'expired'){
+    st.textContent = 'QR-код истёк';
+    document.getElementById('qrLoginRefreshBtn').style.display = '';
+    return;
+  }
+  if(d.status === 'cancelled'){
+    st.textContent = 'Вход отменён со смартфона';
+    document.getElementById('qrLoginRefreshBtn').style.display = '';
+    return;
+  }
+  if(d.status === 'consumed'){
+    // Кто-то уже забрал — просто перезагрузим, может cookies стоят
+    setTimeout(() => window.location.reload(), 200);
+  }
+}
+
 function acceptTerms(){document.getElementById('rg_agree').checked=true;closeM('termsModal');}
 async function api(path){
   const h={};if(authToken)h["Authorization"]="Bearer "+authToken;

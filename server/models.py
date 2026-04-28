@@ -99,6 +99,31 @@ class OAuthState(Base):
     created_at    = Column(DateTime, default=datetime.utcnow)
 
 
+class QrLoginSession(Base):
+    """
+    QR-логин: один экран показывает QR с токеном, другой (мобильный) сканирует
+    его и подтверждает вход. Десктоп polls'ит/слушает WS до approval.
+
+    status: pending → approved (юзер подтвердил с мобилки) или cancelled.
+    После approved токены отдаются ОДИН раз через /qr-login/poll и сессия
+    помечается consumed=True.
+    """
+    __tablename__ = "qr_login_sessions"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    token         = Column(String, unique=True, index=True, nullable=False)
+    status        = Column(String, default="pending")  # pending | approved | cancelled
+    user_id       = Column(Integer, ForeignKey("users.id"), nullable=True)
+    consumed      = Column(Boolean, default=False)  # десктоп уже забрал токены
+    init_ip       = Column(String, nullable=True)
+    init_ua       = Column(String, nullable=True)
+    approve_ip    = Column(String, nullable=True)
+    approve_ua    = Column(String, nullable=True)
+    expires_at    = Column(DateTime, nullable=False)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    approved_at   = Column(DateTime, nullable=True)
+
+
 class PricingConfig(Base):
     """
     Динамические цены, изменяемые через админку без редеплоя.

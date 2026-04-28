@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ru" data-assistant-section="index.cabinet" data-assistant-label="QR-вход">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Подтверждение входа · AI Студия Че</title>
+<script src="https://cdn.tailwindcss.com" defer></script>
+<script src="/icons.js" defer></script>
+<style>
+  body{background:#0f0f0f;color:#eee;font-family:system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;margin:0}
+  .card{background:#1c1c1c;border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:28px;max-width:420px;width:100%;text-align:center}
+  .logo{width:64px;height:64px;margin:0 auto 16px;display:block}
+  h1{margin:0 0 8px;font-size:22px;font-weight:700}
+  .sub{color:#aaa;font-size:14px;margin-bottom:18px}
+  .meta{background:#0f0f0f;border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:12px 14px;font-size:13px;color:#bbb;margin:14px 0;text-align:left}
+  .meta b{color:#fff}
+  .btn{display:block;width:100%;border:none;padding:14px;border-radius:14px;font-weight:700;cursor:pointer;font-size:15px;margin-top:10px;font-family:inherit}
+  .btn-primary{background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff}
+  .btn-primary:hover{filter:brightness(1.1)}
+  .btn-secondary{background:transparent;border:1px solid rgba(255,255,255,.15);color:#bbb}
+  .btn-secondary:hover{background:rgba(255,255,255,.04)}
+  .status-icon{font-size:48px;margin-bottom:12px}
+  .err{color:#ff6b6b}
+  .ok{color:#7bd968}
+  .timer{font-size:12px;color:#777;margin-top:14px}
+  .auth-prompt{font-size:13px;color:#bbb;margin:14px 0;line-height:1.5}
+  .auth-prompt a{color:#ff8c42;text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="card">
+  <img src="/logo-192.png" alt="AI Студия Че" class="logo">
+  <div id="content">
+    <div class="status-icon">⏳</div>
+    <h1>Проверяем QR-код...</h1>
+    <div class="sub">Секунду</div>
+  </div>
+</div>
+
+<script>
+(async function(){
+  const path = window.location.pathname; // /qr/<token>
+  const token = path.split('/qr/')[1] || '';
+  const content = document.getElementById('content');
+
+  if(!token || token.length < 16){
+    return render(`
+      <div class="status-icon err">❌</div>
+      <h1>Неверная ссылка</h1>
+      <div class="sub">QR-код повреждён или ссылка скопирована не полностью.</div>
+    `);
+  }
+
+  function render(html){ content.innerHTML = html; }
+
+  // Сразу подтянем инфу о сессии
+  let info;
+  try {
+    const r = await fetch('/qr-login/info/' + encodeURIComponent(token), {credentials: 'same-origin'});
+    info = await r.json();
+  } catch(e) {
+    return render(`<div class="status-icon err">⚠️</div><h1>Нет связи с сервером</h1>`);
+  }
+
+  if(info.status === 'expired'){
+    return render(`
+      <div class="status-icon err">⏰</div>
+      <h1>QR-код истёк</h1>
+      <div class="sub">Обновите страницу входа на компьютере и отсканируйте новый код.</div>
+    `);
+  }
+  if(info.status === 'cancelled'){
+    return render(`
+      <div class="status-icon">🚫</div>
+      <h1>Вход отменён</h1>
+      <div class="sub">Эта QR-сессия уже была отменена.</div>
+    `);
+  }
+  if(info.status === 'approved'){
+    return render(`
+      <div class="status-icon ok">✓</div>
+      <h1>Уже подтверждено</h1>
+      <div class="sub">Вернитесь к компьютеру — там должно произойти автоматический вход.</div>
+    `);
+  }
+
+  // Проверяем — авторизован ли юзер на этом устройстве
+  let me = null;
+  try {
+    const r = await fetch('/auth/me', {credentials: 'same-origin'});
+    if(r.ok) me = (await r.json()).user || null;
+  } catch(_) {}
+
+  if(!me){
+    // Не залогинен — показываем кнопку «Войти», после возврат сюда
+    const back = encodeURIComponent(window.location.pathname);
+    return render(`
+      <div class="status-icon">🔐</div>
+      <h1>Подтвердите вход</h1>
+      <div class="auth-prompt">
+        Чтобы войти на компьютере, сначала войдите в свой аккаунт здесь — на телефоне.
+      </div>
+      <a href="/?next=${back}" class="btn btn-primary" style="text-decoration:none;display:block;line-height:1">Войти на этом устройстве</a>
+    `);
+  }
+
+  // Залогинен — показываем кнопки подтверждения
+  function fmtSecs(s){ return s > 0 ? `${s} сек.` : 'истекает'; }
+
+  let secsLeft = Math.max(0, info.expires_in || 0);
+  render(`
+    <div class="status-icon">📲</div>
+    <h1>Подтвердить вход на ПК?</h1>
+    <div class="sub">Аккаунт: <b style="color:#fff">${escapeHtml(me.email)}</b></div>
+    <div class="meta">
+      <div>Откуда вход: <b>${escapeHtml(info.from || '—')}</b></div>
+      <div style="margin-top:6px">Срок действия: <b id="qr-timer">${fmtSecs(secsLeft)}</b></div>
+    </div>
+    <button class="btn btn-primary" id="approve">Подтвердить вход</button>
+    <button class="btn btn-secondary" id="cancel">Отклонить</button>
+    <div class="timer">Подтверждайте, только если вы сами сейчас входите в систему с компьютера.</div>
+  `);
+
+  const tmr = setInterval(() => {
+    secsLeft -= 1;
+    const el = document.getElementById('qr-timer');
+    if(el) el.textContent = fmtSecs(secsLeft);
+    if(secsLeft <= 0){
+      clearInterval(tmr);
+      render(`<div class="status-icon err">⏰</div><h1>QR-код истёк</h1>`);
+    }
+  }, 1000);
+
+  document.getElementById('approve').onclick = async () => {
+    clearInterval(tmr);
+    render(`<div class="status-icon">⏳</div><h1>Подтверждаем...</h1>`);
+    try {
+      const r = await fetch('/qr-login/approve/' + encodeURIComponent(token), {
+        method: 'POST', credentials: 'same-origin',
+      });
+      if(!r.ok){
+        const d = await r.json().catch(()=>({detail: 'Ошибка'}));
+        return render(`
+          <div class="status-icon err">⚠️</div>
+          <h1>Не получилось</h1>
+          <div class="sub">${escapeHtml(d.detail || 'Попробуйте ещё раз')}</div>
+        `);
+      }
+      render(`
+        <div class="status-icon ok">✓</div>
+        <h1>Готово</h1>
+        <div class="sub">Можно вернуться к компьютеру — там произошёл вход.</div>
+      `);
+    } catch(e) {
+      render(`<div class="status-icon err">⚠️</div><h1>Сеть недоступна</h1>`);
+    }
+  };
+
+  document.getElementById('cancel').onclick = async () => {
+    clearInterval(tmr);
+    try {
+      await fetch('/qr-login/cancel/' + encodeURIComponent(token), {
+        method: 'POST', credentials: 'same-origin',
+      });
+    } catch(_){}
+    render(`<div class="status-icon">🚫</div><h1>Вход отменён</h1><div class="sub">Можете закрыть эту вкладку.</div>`);
+  };
+
+  function escapeHtml(s){
+    return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+})();
+</script>
+</body>
+</html>
