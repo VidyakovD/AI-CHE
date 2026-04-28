@@ -807,9 +807,24 @@
         m.links.forEach(l => {
           const a = document.createElement('a');
           a.textContent = l.label || l.href;
-          a.href = l.href;
-          // Если ссылка ведёт на хэш текущей страницы — не открываем в новой вкладке
-          if (!l.href.startsWith('#')) a.target = '_self';
+          // Если у ссылки есть _selector — это CTA-кнопка приветствия:
+          // не переходим, а кликаем по селектору на странице (открывает модалку
+          // создания, переключает вкладку и т.д.). После клика — закрываем bubble.
+          if (l._selector) {
+            a.href = '#';
+            a.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              const target = document.querySelector(l._selector);
+              if (target) {
+                _toggle(false);
+                target.click();
+              }
+            });
+          } else {
+            a.href = l.href;
+            // Если ссылка ведёт на хэш текущей страницы — не открываем в новой вкладке
+            if (!l.href.startsWith('#')) a.target = '_self';
+          }
           lnks.appendChild(a);
         });
         div.appendChild(lnks);
@@ -857,10 +872,56 @@
         history.forEach(_renderMsg);
         return;
       }
+      // Специфичное приветствие из _HINTS по pathname раздела.
+      // Содержит человеческое описание + CTA-кнопку (создать КП / выбрать
+      // шаблон / запустить роль). Если для текущего pathname нет — общий fallback.
+      const hints = window.__AI_WELCOME_HINTS || {};
+      const path = window.location.pathname;
+      const hint = hints[path]
+                  || (path === '/m' ? hints['/mobile.html'] : null)
+                  || null;
+      if (hint) {
+        const links = [];
+        // Кнопка действия — реализуем через ссылку с особой схемой ai-cta:
+        // в _renderMsg обрабатываем как обычную ссылку, но при клике вызываем
+        // handler. Ниже `ctaSelector` ищется в DOM.
+        if (hint.ctaSelector) {
+          links.push({ label: hint.cta, href: '#__ai_cta__', _selector: hint.ctaSelector });
+        } else if (hint.ctaHref) {
+          links.push({ label: hint.cta, href: hint.ctaHref });
+        }
+        _renderMsg({
+          role: 'bot',
+          text: hint.title + ' — ' + hint.text,
+          links: links,
+        });
+        return;
+      }
       _renderMsg({
         role: 'bot',
         text: 'Привет! Я подскажу по этому разделу. Спросите что-нибудь — например, как создать или что значит та или иная кнопка.',
       });
+    }
+
+    // Авто-открытие панели при первом заходе на раздел (один раз, флаг в
+    // localStorage). Юзер сразу видит «верблюда с приветствием», а не
+    // отдельную плашку — единое окно общения с маскотом.
+    function _autoOpenIfFirstVisit() {
+      const hints = window.__AI_WELCOME_HINTS || {};
+      const path = window.location.pathname;
+      const hint = hints[path] || (path === '/m' ? hints['/mobile.html'] : null);
+      if (!hint) return;
+      const flagKey = 'ai-welcome-' + hint.key;
+      try {
+        if (localStorage.getItem(flagKey) === '1') return;
+      } catch (_) {}
+      // Откладываем чуть — даём странице отрисоваться.
+      setTimeout(() => {
+        try { localStorage.setItem(flagKey, '1'); } catch (_) {}
+        if (!panel.classList.contains('open')) {
+          _toggle(true);
+        }
+      }, 800);
     }
 
     // ── Drag + resize окна помощника ──────────────────────────────────────
@@ -1124,6 +1185,10 @@
         inp.focus();
       }
     }
+
+    // Авто-открыть панель при первом заходе на раздел — окно общения с
+    // верблюдом сразу видно, без отдельной плашки.
+    _autoOpenIfFirstVisit();
   }
 
   // Инициализация после загрузки DOM (включая body с data-assistant-section)
@@ -1190,91 +1255,10 @@
     },
   };
 
-  function _showWelcomeHint() {
-    if (!document.body) return;
-    const path = window.location.pathname;
-    const hint = _HINTS[path] || _HINTS[path === '/m' ? '/mobile.html' : null];
-    if (!hint) return;
-    const flagKey = 'ai-welcome-' + hint.key;
-    try {
-      if (localStorage.getItem(flagKey) === '1') return;
-    } catch (_) {}
-    if (document.getElementById('ai-welcome-hint')) return;
-
-    const css = `
-#ai-welcome-hint{position:fixed;left:18px;bottom:90px;z-index:99996;max-width:340px;font:14px/1.5 system-ui,-apple-system,sans-serif;animation:aiwhFade .35s ease-out}
-@keyframes aiwhFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-#ai-welcome-hint .row{display:flex;gap:10px;align-items:flex-end}
-#ai-welcome-hint .av{width:64px;height:64px;border-radius:50%;background:#1c1c1c;border:2px solid rgba(255,140,66,.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 14px rgba(0,0,0,.35)}
-#ai-welcome-hint .av img{width:48px;height:48px;object-fit:contain}
-#ai-welcome-hint .bub{background:#1c1c1c;color:#eee;border:1px solid rgba(255,140,66,.3);border-radius:14px 14px 14px 4px;padding:14px 16px;box-shadow:0 8px 24px rgba(0,0,0,.4);position:relative}
-#ai-welcome-hint .bub::before{content:"";position:absolute;left:-8px;bottom:14px;width:10px;height:10px;background:#1c1c1c;border-left:1px solid rgba(255,140,66,.3);border-bottom:1px solid rgba(255,140,66,.3);transform:rotate(45deg)}
-#ai-welcome-hint .ttl{font-weight:700;color:#fff;margin-bottom:4px;font-size:15px}
-#ai-welcome-hint .txt{color:#ccc;margin-bottom:12px;font-size:13px}
-#ai-welcome-hint .acts{display:flex;gap:6px;align-items:center}
-#ai-welcome-hint .cta{background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;border:none;padding:8px 14px;border-radius:10px;font-weight:700;cursor:pointer;font:inherit;font-size:13px;text-decoration:none;display:inline-block}
-#ai-welcome-hint .cta:hover{filter:brightness(1.08)}
-#ai-welcome-hint .x{background:transparent;border:none;color:#888;cursor:pointer;font-size:12px;padding:6px 10px}
-#ai-welcome-hint .x:hover{color:#fff}
-@media (max-width:768px){
-  #ai-welcome-hint{left:12px;right:12px;bottom:80px;max-width:none}
-  #ai-welcome-hint .av{width:54px;height:54px}
-  #ai-welcome-hint .av img{width:40px;height:40px}
-}
-`;
-    const styleEl = document.createElement('style');
-    styleEl.textContent = css;
-    document.head.appendChild(styleEl);
-
-    const root = document.createElement('div');
-    root.id = 'ai-welcome-hint';
-    root.innerHTML = `
-      <div class="row">
-        <div class="av"><img src="/logo-192.png" alt="" /></div>
-        <div class="bub">
-          <div class="ttl"></div>
-          <div class="txt"></div>
-          <div class="acts">
-            <a class="cta" href="#" id="aiwhCta"></a>
-            <button class="x" id="aiwhClose">Скрыть</button>
-          </div>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(root);
-    root.querySelector('.ttl').textContent = hint.title;
-    root.querySelector('.txt').textContent = hint.text;
-    const cta = root.querySelector('#aiwhCta');
-    cta.textContent = hint.cta;
-    cta.addEventListener('click', (e) => {
-      e.preventDefault();
-      try { localStorage.setItem(flagKey, '1'); } catch (_) {}
-      // Если задан селектор — пробуем кликнуть его
-      if (hint.ctaSelector) {
-        const target = document.querySelector(hint.ctaSelector);
-        if (target) {
-          root.remove();
-          target.click();
-          return;
-        }
-      }
-      if (hint.ctaHref) {
-        window.location.href = hint.ctaHref;
-        return;
-      }
-      root.remove();
-    });
-    root.querySelector('#aiwhClose').addEventListener('click', () => {
-      try { localStorage.setItem(flagKey, '1'); } catch (_) {}
-      root.remove();
-    });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _showWelcomeHint);
-  } else {
-    setTimeout(_showWelcomeHint, 600);
-  }
+  // Welcome-приветствие теперь идёт ВНУТРИ окна помощника (см. _initAssistant
+  // → _initialGreeting). Один маскот, одно окно общения. Словарь _HINTS
+  // используется там для специфичного приветствия и кнопки действия.
+  window.__AI_WELCOME_HINTS = _HINTS;
 
   // ── Mobile-banner: предложение открыть лайт-режим ────────────────────────
   // Показывается один раз на узких экранах. Юзер может закрыть → больше не

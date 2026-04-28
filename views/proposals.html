@@ -137,16 +137,23 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
-          <label>Бренд (оформление)</label>
+          <label>Бренд (оформление) <span title="Бренд = шапка PDF: лого, цвета, реквизиты, шрифт. Создаётся один раз — потом используется во всех КП. Открыть: вкладка «Оформление»." style="cursor:help;color:var(--md-sys-color-primary)">ⓘ</span></label>
           <select id="pBrand" class="inp"></select>
+          <div class="text-xs text-on-dim/60 mt-1">
+            Нет нужного? <a class="text-primary cursor-pointer hover:underline" onclick="switchTab('brands')">Создать бренд →</a>
+          </div>
         </div>
         <div class="field">
-          <label>Прайс-лист</label>
+          <label>Прайс-лист <span title="Прайс-лист = ваши услуги с ценами в формате CSV или ручного ввода. AI вставит позиции в секцию «Стоимость» КП. Открыть: вкладка «Прайсы»." style="cursor:help;color:var(--md-sys-color-primary)">ⓘ</span></label>
           <select id="pPriceList" class="inp"></select>
+          <div class="text-xs text-on-dim/60 mt-1">
+            Где взять? <a class="text-primary cursor-pointer hover:underline" onclick="switchTab('prices')">Создать прайс-лист →</a>
+            или импортировать CSV
+          </div>
         </div>
       </div>
       <div class="field">
-        <label class="text-xs text-on-dim/70">Бот (опционально, fallback для прайса если нет основного)</label>
+        <label class="text-xs text-on-dim/70">Если прайс-лист не указан — используется прайс этого бота (опционально)</label>
         <select id="pBot" class="inp"></select>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

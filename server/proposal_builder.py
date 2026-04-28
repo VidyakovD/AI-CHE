@@ -795,12 +795,15 @@ _BASE_TEMPLATE = """<!DOCTYPE html>
   h1, h2, h3 {{ font-family: {font}; }}
   p {{ margin: 0 0 6pt; }}
   strong {{ color: {primary}; }}
-  .kp-header {{ display: table; width: 100%; margin-bottom: 14pt; }}
-  .kp-header .logo {{ display: table-cell; width: 90pt; vertical-align: middle; }}
-  .kp-header .logo img {{ max-width: 80pt; max-height: 60pt; }}
-  .kp-header .meta {{ display: table-cell; vertical-align: middle; text-align: right;
-                      font-size: 9pt; color: #666; }}
-  .kp-header .meta .valid {{ color: {primary}; font-weight: 600; }}
+  /* Header через native <table> — xhtml2pdf теряет display:table-cell в некоторых пресетах */
+  table.kp-header {{ width: 100%; border-collapse: collapse; margin-bottom: 14pt; }}
+  table.kp-header td {{ vertical-align: middle; padding: 0; }}
+  table.kp-header td.logo {{ width: 90pt; }}
+  table.kp-header td.logo img {{ max-width: 80pt; max-height: 60pt; }}
+  table.kp-header td.meta {{ text-align: right; font-size: 9pt; color: #666; }}
+  table.kp-header td.meta .valid {{ color: {primary}; font-weight: 600; }}
+  table.kp-header td.meta strong {{ color: #222; font-size: 11pt; }}
+  table.kp-header td.meta .meta-line {{ display: block; line-height: 1.4; }}
   .kp-section {{ margin-bottom: 12pt; }}
   .kp-grid {{ display: table; width: 100%; border-collapse: separate; border-spacing: 6pt 0; margin: 6pt 0; }}
   .kp-card {{ display: table-cell; padding: 10pt; vertical-align: top; border-radius: 4pt; }}
@@ -821,14 +824,14 @@ _BASE_TEMPLATE = """<!DOCTYPE html>
   /* ── Пресет «{preset_name}» — переопределяет цвета/типографику/hero/cta ── */
   {preset_css}
 </style></head><body>
-<div class="kp-header">
-  <div class="logo">{logo_html}</div>
-  <div class="meta">
+<table class="kp-header"><tr>
+  <td class="logo">{logo_html}</td>
+  <td class="meta">
     {company_html}
-    <div>Дата: {today}</div>
-    <div class="valid">КП действует до: {valid_until}</div>
-  </div>
-</div>
+    <span class="meta-line">Дата: {today}</span>
+    <span class="meta-line valid">КП действует до: {valid_until}</span>
+  </td>
+</tr></table>
 {ai_content}
 {signature_html}
 <div class="kp-footer">
@@ -854,7 +857,7 @@ def _wrap_html(brand_css: dict, ai_html: str, project: ProposalProject) -> str:
         logo_html = f'<img src="{_html_escape(logo_url)}" alt=""/>'
     company_html = ""
     if brand_css.get("company"):
-        company_html = f'<div><strong>{_html_escape(brand_css["company"])}</strong></div>'
+        company_html = f'<span class="meta-line"><strong>{_html_escape(brand_css["company"])}</strong></span>'
     footer_lines = []
     if brand_css.get("contacts"):
         footer_lines.append(_html_escape(brand_css["contacts"]).replace("\n", "<br/>"))
