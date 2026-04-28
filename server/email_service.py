@@ -63,21 +63,26 @@ def _send(to: str, subject: str, html: str) -> None:
 # ── templates ─────────────────────────────────────────────────────────────────
 
 def _base_template(title: str, body: str) -> str:
+    logo_url = f"{APP_URL.rstrip('/')}/logo-email-128.png"
     return f"""
 <!DOCTYPE html><html><head><meta charset="utf-8"/>
 <style>
   body{{margin:0;padding:0;background:#131313;font-family:'Inter',Arial,sans-serif;color:#E5E2E1}}
   .wrap{{max-width:520px;margin:40px auto;background:#1C1B1B;border-radius:16px;overflow:hidden;border:1px solid rgba(70,69,84,0.3)}}
-  .header{{background:linear-gradient(135deg,#c0c1ff,#ddb7ff);padding:32px;text-align:center}}
-  .header h1{{margin:0;font-size:22px;font-weight:800;color:#0d0096;letter-spacing:-0.5px}}
+  .header{{background:#0f0f0f;padding:28px 32px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.06)}}
+  .header img{{display:inline-block;height:64px;width:auto;vertical-align:middle}}
+  .header .brand{{display:inline-block;margin-left:14px;font-size:18px;font-weight:800;color:#fff;letter-spacing:-0.3px;vertical-align:middle}}
   .body{{padding:32px}}
-  .code{{display:inline-block;background:#2A2A2A;border:1px solid rgba(192,193,255,0.3);border-radius:12px;padding:16px 32px;font-size:32px;font-weight:800;letter-spacing:8px;color:#c0c1ff;margin:24px 0}}
-  .btn{{display:inline-block;background:linear-gradient(135deg,#c0c1ff,#ddb7ff);color:#0d0096;font-weight:700;font-size:15px;padding:14px 32px;border-radius:12px;text-decoration:none;margin:16px 0}}
+  .code{{display:inline-block;background:#2A2A2A;border:1px solid rgba(255,140,66,0.3);border-radius:12px;padding:16px 32px;font-size:32px;font-weight:800;letter-spacing:8px;color:#ff8c42;margin:24px 0}}
+  .btn{{display:inline-block;background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;font-weight:700;font-size:15px;padding:14px 32px;border-radius:12px;text-decoration:none;margin:16px 0}}
   .note{{font-size:12px;color:rgba(199,196,215,0.5);margin-top:24px;line-height:1.6}}
   .footer{{padding:20px 32px;border-top:1px solid rgba(70,69,84,0.2);font-size:11px;color:rgba(199,196,215,0.4);text-align:center}}
 </style></head><body>
 <div class="wrap">
-  <div class="header"><h1>🤖 AI Студия Че</h1></div>
+  <div class="header">
+    <img src="{logo_url}" alt="AI Студия Че" width="64" height="64"/>
+    <span class="brand">AI Студия Че</span>
+  </div>
   <div class="body">
     <h2 style="margin:0 0 8px;font-size:20px;font-weight:700">{title}</h2>
     {body}

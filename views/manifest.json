@@ -16,12 +16,9 @@
   "dir": "ltr",
   "categories": ["business", "productivity"],
   "icons": [
-    {
-      "src": "/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    {"src": "/logo-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/logo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/logo-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
   ],
   "shortcuts": [
     {
@@ -29,28 +26,28 @@
       "short_name": "Чат",
       "description": "Открыть AI-чат",
       "url": "/?tab=chat",
-      "icons": [{"src": "/icon.svg", "sizes": "96x96"}]
+      "icons": [{"src": "/logo-192.png", "sizes": "192x192", "type": "image/png"}]
     },
     {
       "name": "Чат-боты",
       "short_name": "Боты",
       "description": "Управление ботами",
       "url": "/chatbots.html",
-      "icons": [{"src": "/icon.svg", "sizes": "96x96"}]
+      "icons": [{"src": "/logo-192.png", "sizes": "192x192", "type": "image/png"}]
     },
     {
       "name": "Коммерческие предложения",
       "short_name": "КП",
       "description": "Создать КП",
       "url": "/proposals.html",
-      "icons": [{"src": "/icon.svg", "sizes": "96x96"}]
+      "icons": [{"src": "/logo-192.png", "sizes": "192x192", "type": "image/png"}]
     },
     {
       "name": "Сайты",
       "short_name": "Сайты",
       "description": "Конструктор сайтов",
       "url": "/sites.html",
-      "icons": [{"src": "/icon.svg", "sizes": "96x96"}]
+      "icons": [{"src": "/logo-192.png", "sizes": "192x192", "type": "image/png"}]
     }
   ]
 }

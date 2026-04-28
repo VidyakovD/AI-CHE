@@ -364,6 +364,9 @@ def serve_sw():
 
 @app.get("/icon.svg", include_in_schema=False)
 def serve_icon():
+    """Legacy — раньше PWA-иконкой был SVG. Сейчас бренд-лого PNG-набор
+    отдаётся через /logo-*.png. Оставлен для обратной совместимости со
+    старыми SW-кэшами и закладками."""
     return FileResponse(
         os.path.join(_BASE, "icon.svg"),
         media_type="image/svg+xml",
@@ -371,14 +374,27 @@ def serve_icon():
     )
 
 
+# Бренд-лого: набор разных размеров с прозрачным фоном.
+@app.get("/logo-{variant}.png", include_in_schema=False)
+def serve_logo(variant: str):
+    """Раздача брендовых иконок: 32, 192, 512, maskable-512, email-128."""
+    allowed = {"32", "192", "512", "maskable-512", "email-128"}
+    if variant not in allowed:
+        raise HTTPException(404)
+    return FileResponse(
+        os.path.join(_BASE, f"logo-{variant}.png"),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 def serve_favicon():
-    """Браузеры запрашивают favicon.ico по умолчанию. Отдаём ту же SVG —
-    современные браузеры её принимают через Content-Type. Старые — увидят
-    404, что не критично."""
+    """Браузер запрашивает favicon.ico по умолчанию. Отдаём 32×32 PNG —
+    все современные браузеры принимают через Content-Type."""
     return FileResponse(
-        os.path.join(_BASE, "icon.svg"),
-        media_type="image/svg+xml",
+        os.path.join(_BASE, "favicon.png"),
+        media_type="image/png",
         headers={"Cache-Control": "public, max-age=86400"},
     )
 

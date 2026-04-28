@@ -253,10 +253,14 @@
     var theme = document.createElement('meta');
     theme.name = 'theme-color'; theme.content = '#ff8c42';
     document.head.appendChild(theme);
-    // iOS-специфичные теги для «На экран Домой»
+    // iOS-специфичные теги для «На экран Домой» — PNG (Safari не принимает SVG)
     var apple = document.createElement('link');
-    apple.rel = 'apple-touch-icon'; apple.href = '/icon.svg';
+    apple.rel = 'apple-touch-icon'; apple.href = '/logo-192.png';
     document.head.appendChild(apple);
+    var apple512 = document.createElement('link');
+    apple512.rel = 'apple-touch-icon'; apple512.sizes = '512x512';
+    apple512.href = '/logo-512.png';
+    document.head.appendChild(apple512);
     var capable = document.createElement('meta');
     capable.name = 'apple-mobile-web-app-capable'; capable.content = 'yes';
     document.head.appendChild(capable);
@@ -546,14 +550,16 @@
     // ── Стили ──
     const css = `
 #ai-assistant-root{position:fixed;right:18px;bottom:18px;z-index:99998;font:13px/1.45 system-ui,-apple-system,sans-serif;color:#1a1a1a}
-#ai-assistant-bubble{width:54px;height:54px;border-radius:50%;border:none;cursor:pointer;background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;box-shadow:0 6px 22px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;transition:transform .15s}
-#ai-assistant-bubble:hover{transform:scale(1.06)}
-#ai-assistant-bubble svg{width:26px;height:26px;fill:currentColor}
+#ai-assistant-bubble{width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;background:#1C1C1C;color:#fff;box-shadow:0 6px 22px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;transition:transform .15s;padding:0;overflow:hidden;border:2px solid rgba(255,140,66,.55)}
+#ai-assistant-bubble:hover{transform:scale(1.07);border-color:#ff8c42}
+#ai-assistant-bubble img{width:42px;height:42px;object-fit:contain;display:block}
 #ai-assistant-panel{position:absolute;right:0;bottom:64px;width:360px;max-width:calc(100vw - 24px);height:520px;max-height:calc(100vh - 96px);background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.25);display:none;flex-direction:column;overflow:hidden;border:1px solid rgba(0,0,0,.08)}
 #ai-assistant-panel.open{display:flex}
 #ai-assistant-panel.dragging{transition:none;user-select:none;opacity:.92}
 #ai-assistant-panel.detached{position:fixed;right:auto;bottom:auto}
-#ai-assistant-hdr{padding:12px 14px;background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;display:flex;align-items:center;justify-content:space-between;font-weight:600;cursor:grab;touch-action:none;user-select:none}
+#ai-assistant-hdr{padding:10px 14px;background:#1C1C1C;color:#fff;display:flex;align-items:center;justify-content:space-between;font-weight:600;cursor:grab;touch-action:none;user-select:none;border-bottom:1px solid rgba(255,140,66,.2)}
+#ai-assistant-hdr-logo{width:28px;height:28px;border-radius:50%;background:#0f0f0f;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:8px}
+#ai-assistant-hdr-logo img{width:22px;height:22px;object-fit:contain}
 #ai-assistant-hdr:active{cursor:grabbing}
 #ai-assistant-hdr small{display:block;font-weight:400;opacity:.85;font-size:11px;margin-top:2px}
 #ai-assistant-hdr-grip{display:inline-flex;flex-direction:column;gap:2px;margin-right:8px;opacity:.7}
@@ -596,6 +602,7 @@
   <div id="ai-assistant-hdr" title="Перетащите за этот заголовок, чтобы переместить окно">
     <div style="display:flex;align-items:center;min-width:0;flex:1">
       <span id="ai-assistant-hdr-grip" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span id="ai-assistant-hdr-logo" aria-hidden="true"><img src="/logo-192.png" alt=""/></span>
       <div style="min-width:0">AI-помощник<small id="ai-assistant-section-label"></small></div>
     </div>
     <div style="display:flex;align-items:center;flex-shrink:0">
@@ -610,7 +617,7 @@
   </div>
 </div>
 <button id="ai-assistant-bubble" type="button" aria-label="Открыть AI-помощника">
-  <svg viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6 2 11c0 2.7 1.4 5.1 3.6 6.7L4 22l4.6-1.5c1 .3 2.2.5 3.4.5 5.5 0 10-4 10-9s-4.5-10-10-10zm-1 13.5h-2v-2h2v2zm2.5-6.1-.9 1c-.7.7-1.1 1.3-1.1 2.6h-2v-.5c0-1 .4-1.9 1.1-2.6l1.2-1.2c.4-.3.6-.8.6-1.4 0-1.1-.9-2-2-2s-2 .9-2 2H6c0-2.2 1.8-4 4-4s4 1.8 4 4c0 .9-.4 1.7-.9 2.2z"/></svg>
+  <img src="/logo-192.png" alt="AI Студия Че" width="42" height="42"/>
 </button>
 `;
     document.body.appendChild(root);
