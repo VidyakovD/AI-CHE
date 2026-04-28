@@ -45,32 +45,47 @@ def _redirect_uri(provider: str) -> str:
     return f"{APP_URL}/auth/oauth/{provider}/callback"
 
 
-def _issue_state(db: Session, provider: str) -> str:
-    """Сгенерировать одноразовый CSRF-state, сохранить в БД, вернуть."""
+def _issue_state(db: Session, provider: str, code_verifier: str | None = None) -> str:
+    """Сгенерировать одноразовый CSRF-state, сохранить в БД, вернуть.
+    code_verifier — для PKCE (нужно VK ID); для Google не передаётся.
+    """
     state = uuid.uuid4().hex
     db.add(OAuthState(
         state=state, provider=provider,
+        code_verifier=code_verifier,
         expires_at=datetime.utcnow() + timedelta(seconds=_STATE_TTL_SEC),
     ))
     db.commit()
     return state
 
 
-def _consume_state(db: Session, provider: str, state: str | None) -> bool:
+def _consume_state(db: Session, provider: str, state: str | None) -> OAuthState | None:
     """
     Проверить state-параметр и пометить как использованный.
-    True если state валидный, False иначе.
+    Возвращает строку OAuthState (с code_verifier) или None.
     """
     if not state or not isinstance(state, str) or len(state) != 32:
-        return False
+        return None
     row = db.query(OAuthState).filter_by(
         state=state, provider=provider, used=False,
     ).first()
     if not row or row.expires_at < datetime.utcnow():
-        return False
+        return None
     row.used = True
     db.commit()
-    return True
+    return row
+
+
+def _pkce_pair() -> tuple[str, str]:
+    """Сгенерировать PKCE (code_verifier, code_challenge).
+    code_verifier — random URL-safe строка 43-128 символов.
+    code_challenge — base64url(sha256(verifier)) без padding.
+    """
+    import secrets, hashlib, base64
+    verifier = secrets.token_urlsafe(64)[:96]
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return verifier, challenge
 
 
 def _login_or_create(db: Session, email: str, name: str, provider: str, sub: str) -> User:
@@ -191,7 +206,7 @@ async def google_callback(code: str | None = None, state: str | None = None,
                           db: Session = Depends(get_db)):
     if error or not code:
         return RedirectResponse(f"{APP_URL}/?oauth_error={error or 'no_code'}")
-    if not _consume_state(db, "google", state):
+    if _consume_state(db, "google", state) is None:
         log.warning(f"[Google] invalid state: {state!r}")
         return RedirectResponse(f"{APP_URL}/?oauth_error=state")
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
@@ -229,65 +244,82 @@ async def google_callback(code: str | None = None, state: str | None = None,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  VK (OAuth 2.0 classic)
+#  VK ID (новый OAuth от VK с PKCE — заменил классический oauth.vk.com в 2024)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/vk/start")
 def vk_start(db: Session = Depends(get_db)):
     if not VK_CLIENT_ID:
         raise HTTPException(503, "VK OAuth не настроен")
-    state = _issue_state(db, "vk")
+    verifier, challenge = _pkce_pair()
+    state = _issue_state(db, "vk", code_verifier=verifier)
     params = urllib.parse.urlencode({
+        "response_type": "code",
         "client_id": VK_CLIENT_ID,
         "redirect_uri": _redirect_uri("vk"),
-        "response_type": "code",
-        "scope": "email",
-        "v": "5.131",
         "state": state,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "scope": "email",
+        "prompt": "login",
     })
-    return RedirectResponse(f"https://oauth.vk.com/authorize?{params}")
+    return RedirectResponse(f"https://id.vk.com/authorize?{params}")
 
 
 @router.get("/vk/callback")
 async def vk_callback(code: str | None = None, state: str | None = None,
+                      device_id: str | None = None,
                       error: str | None = None,
                       db: Session = Depends(get_db)):
     if error or not code:
         return RedirectResponse(f"{APP_URL}/?oauth_error={error or 'no_code'}")
-    if not _consume_state(db, "vk", state):
+    state_row = _consume_state(db, "vk", state)
+    if state_row is None or not state_row.code_verifier:
         log.warning(f"[VK] invalid state: {state!r}")
         return RedirectResponse(f"{APP_URL}/?oauth_error=state")
     if not VK_CLIENT_ID or not VK_CLIENT_SECRET:
         raise HTTPException(503, "VK OAuth не настроен")
     try:
         async with httpx.AsyncClient(timeout=15) as c:
-            tok = await c.get("https://oauth.vk.com/access_token", params={
-                "client_id": VK_CLIENT_ID,
-                "client_secret": VK_CLIENT_SECRET,
-                "redirect_uri": _redirect_uri("vk"),
-                "code": code,
-            })
+            tok = await c.post(
+                "https://id.vk.com/oauth2/auth",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "code_verifier": state_row.code_verifier,
+                    "redirect_uri": _redirect_uri("vk"),
+                    "client_id": VK_CLIENT_ID,
+                    "device_id": device_id or "",
+                    "state": state,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
             tok_data = tok.json()
             access_token = tok_data.get("access_token")
             user_id = tok_data.get("user_id")
-            email = tok_data.get("email", "")
-            if not access_token or not user_id:
-                # Не логируем tok_data целиком — там может быть access_token при частичном ответе.
-                log.error(f"[VK] token exchange failed: error={tok_data.get('error')!r}")
+            if not access_token:
+                log.error(f"[VK ID] token exchange failed: error={tok_data.get('error')!r} desc={tok_data.get('error_description')!r}")
                 return RedirectResponse(f"{APP_URL}/?oauth_error=token")
-            # Имя через users.get
-            info = await c.get("https://api.vk.com/method/users.get", params={
-                "user_ids": user_id, "fields": "first_name,last_name",
-                "access_token": access_token, "v": "5.131",
-            })
-            arr = info.json().get("response") or []
-            name = ""
-            if arr:
-                u0 = arr[0]
-                name = f"{u0.get('first_name','')} {u0.get('last_name','')}".strip()
+            # Профиль через VK ID user_info
+            info = await c.post(
+                "https://id.vk.com/oauth2/user_info",
+                data={"access_token": access_token, "client_id": VK_CLIENT_ID},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            info_data = info.json()
+            u = info_data.get("user") or {}
+            if not user_id:
+                user_id = u.get("user_id") or u.get("id")
+            email = u.get("email") or ""
+            first = u.get("first_name") or ""
+            last = u.get("last_name") or ""
+            name = f"{first} {last}".strip()
     except Exception as e:
-        log.error(f"[VK] callback exception: {type(e).__name__}")
+        log.error(f"[VK ID] callback exception: {type(e).__name__}: {e}")
         return RedirectResponse(f"{APP_URL}/?oauth_error=exchange")
+
+    if not user_id:
+        return RedirectResponse(f"{APP_URL}/?oauth_error=no_user")
 
     user = _login_or_create(db, email, name, "vk", str(user_id))
     return _frontend_redirect(db, user)

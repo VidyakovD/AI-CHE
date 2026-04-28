@@ -138,6 +138,8 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("presentation_projects", "client_site_ctx", "TEXT"),
     ("presentation_projects", "custom_charts", "TEXT"),
     ("presentation_projects", "pdf_path", "VARCHAR"),
+    # VK ID OAuth: PKCE code_verifier хранится между /start и /callback.
+    ("oauth_states", "code_verifier", "VARCHAR"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

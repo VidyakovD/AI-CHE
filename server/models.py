@@ -84,15 +84,19 @@ class OAuthState(Base):
     """
     CSRF-state параметр для OAuth флоу. Создаётся в /start, потребляется в /callback.
     Отдельная таблица т.к. user_id неизвестен до завершения флоу.
+
+    code_verifier — для PKCE (нужно VK ID). У Google не используется (None).
+    Хранится только до consume_state, потом строка помечается used=True.
     """
     __tablename__ = "oauth_states"
 
-    id         = Column(Integer, primary_key=True, index=True)
-    state      = Column(String, unique=True, index=True, nullable=False)
-    provider   = Column(String, nullable=False)   # "google" | "vk"
-    used       = Column(Boolean, default=False)
-    expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id            = Column(Integer, primary_key=True, index=True)
+    state         = Column(String, unique=True, index=True, nullable=False)
+    provider      = Column(String, nullable=False)   # "google" | "vk"
+    code_verifier = Column(String, nullable=True)
+    used          = Column(Boolean, default=False)
+    expires_at    = Column(DateTime, nullable=False)
+    created_at    = Column(DateTime, default=datetime.utcnow)
 
 
 class PricingConfig(Base):
