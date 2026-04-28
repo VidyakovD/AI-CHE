@@ -237,8 +237,11 @@ TOKEN_COST = {
     "grok-3-mini":              300,
     "grok-3":                   800,
     # ── Картинки (фикс-цена за 1 картинку, в копейках) ──────────────────────
-    "dall-e-3":                1500,   # 15 ₽ — себест $0.04 ≈ 3.6 ₽
-    "gpt-image-1":             1500,   # 15 ₽ — себест $0.04-0.06 ≈ 4-6 ₽
+    # ВАЖНО: эти цены посчитаны под HD/high quality (по умолчанию ai.py теперь
+    # ставит quality=hd для DALL-E и quality=high для gpt-image-1 — чтобы
+    # картинки реально были чёткие, а не «говно»).
+    "dall-e-3":                3000,   # 30 ₽ — HD себест $0.08 ≈ 7.2 ₽ (margin ≈4×)
+    "gpt-image-1":             6000,   # 60 ₽ — high себест $0.19 ≈ 17 ₽ (margin ≈3.5×)
     # Imagen 4: себест $0.02-$0.06 → продаём с маржой 4-5×.
     "nano-v1":                 1000,                                  # legacy alias = imagen-4-fast
     "imagen-4.0-fast-generate-001":   1000,   # 10 ₽ (себест $0.02 ≈ 1.8₽)
@@ -1221,9 +1224,8 @@ def openai_image_response(model: str, messages: list, extra: dict = None) -> dic
                             "model": real_model,
                             "image": open_files if len(open_files) > 1 else open_files[0],
                             "prompt": prompt, "n": 1, "size": size,
+                            "quality": quality or "high",  # high по умолчанию — чёткие правки
                         }
-                        if quality:
-                            edit_params["quality"] = quality
                         resp = client.images.edit(**edit_params)
                     finally:
                         for f in open_files:
@@ -1238,9 +1240,16 @@ def openai_image_response(model: str, messages: list, extra: dict = None) -> dic
             # ── Path B: обычная генерация ──
             params = {"model": real_model, "prompt": prompt, "n": 1, "size": size}
             if real_model == "dall-e-3":
-                params["style"] = extra.get("style", "vivid")
-                params["quality"] = quality or "standard"
+                # natural реалистичнее vivid (vivid сильно стилизует, не подходит
+                # для бизнес-картинок). HD по умолчанию — себест +50%, но картинка
+                # значительно чётче.
+                params["style"] = extra.get("style", "natural")
+                params["quality"] = quality or "hd"
                 params["response_format"] = "url"
+            elif real_model == "gpt-image-1":
+                # gpt-image-1: low / medium / high / auto. Дефолт high — лучшее
+                # качество для бизнес-задач. low дёшево, но размывает мелкие детали.
+                params["quality"] = quality or "high"
             else:
                 if quality:
                     params["quality"] = quality
