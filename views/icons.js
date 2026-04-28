@@ -888,4 +888,52 @@
   } else {
     _initAssistant();
   }
+
+  // ── Mobile-banner: предложение открыть лайт-режим ────────────────────────
+  // Показывается один раз на узких экранах. Юзер может закрыть → больше не
+  // приходит. Не показывается на самой /mobile.html, /qr/* и /terms.html.
+  function _showMobileBanner() {
+    if (!document.body) return;
+    var path = window.location.pathname;
+    if (path === '/mobile.html' || path === '/m'
+        || path.indexOf('/qr/') === 0
+        || path === '/terms.html') return;
+    if (window.innerWidth >= 768) return;
+    try {
+      if (localStorage.getItem('ai-mobile-banner-dismissed') === '1') return;
+    } catch (_) {}
+    if (document.getElementById('ai-mobile-banner')) return;
+
+    var css = '#ai-mobile-banner{position:fixed;left:12px;right:12px;bottom:84px;z-index:99997;'
+      + 'background:#1c1c1c;border:1px solid rgba(255,140,66,.4);border-radius:14px;padding:12px 14px;'
+      + 'box-shadow:0 6px 24px rgba(0,0,0,.4);display:flex;align-items:center;gap:10px;'
+      + 'font:13px/1.4 system-ui,-apple-system,sans-serif;color:#eee}'
+      + '#ai-mobile-banner img{width:32px;height:32px;flex-shrink:0}'
+      + '#ai-mobile-banner .b-text{flex:1;min-width:0}'
+      + '#ai-mobile-banner .b-title{font-weight:700;color:#fff;font-size:13px}'
+      + '#ai-mobile-banner .b-sub{color:#aaa;font-size:11px;margin-top:1px}'
+      + '#ai-mobile-banner a.b-go{background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;'
+      + 'padding:7px 11px;border-radius:9px;text-decoration:none;font-weight:700;font-size:12px;flex-shrink:0}'
+      + '#ai-mobile-banner button.b-x{background:transparent;border:none;color:#777;font-size:18px;cursor:pointer;padding:0 4px;line-height:1}';
+    var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+
+    var b = document.createElement('div');
+    b.id = 'ai-mobile-banner';
+    b.innerHTML = '<img src="/logo-192.png" alt=""/>'
+      + '<div class="b-text"><div class="b-title">Удобнее на телефоне?</div>'
+      + '<div class="b-sub">Лайт-режим: лента + голос + быстрый доступ</div></div>'
+      + '<a href="/mobile.html" class="b-go">Открыть</a>'
+      + '<button class="b-x" type="button" aria-label="Скрыть">&times;</button>';
+    document.body.appendChild(b);
+    b.querySelector('.b-x').addEventListener('click', function(){
+      try { localStorage.setItem('ai-mobile-banner-dismissed', '1'); } catch (_) {}
+      b.remove();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _showMobileBanner);
+  } else {
+    _showMobileBanner();
+  }
 })();

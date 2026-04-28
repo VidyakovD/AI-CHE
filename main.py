@@ -33,6 +33,7 @@ from server.routes.widget import router as widget_router
 from server.routes.proposals import router as proposals_router
 from server.routes.assistant import router as assistant_router
 from server.routes.qr_login import router as qr_login_router
+from server.routes.mobile import router as mobile_router
 
 load_dotenv()
 
@@ -300,6 +301,7 @@ app.include_router(assets_router)
 app.include_router(proposals_router)
 app.include_router(assistant_router)
 app.include_router(qr_login_router)
+app.include_router(mobile_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -407,6 +409,18 @@ def serve_qr_confirm(token: str):
     Сама страница без auth — внутри JS проверяет авторизацию и рисует
     кнопки «Подтвердить» / «Отмена»."""
     return FileResponse(os.path.join(_BASE, "qr_confirm.html"), headers=_NO_CACHE)
+
+
+@app.get("/mobile.html", include_in_schema=False)
+def serve_mobile():
+    """Лайт-режим: компактный дашборд для смартфонов с голосовым управлением."""
+    return FileResponse(os.path.join(_BASE, "mobile.html"), headers=_NO_CACHE)
+
+
+@app.get("/m", include_in_schema=False)
+def serve_mobile_short():
+    """Короткий алиас для лайт-режима."""
+    return FileResponse(os.path.join(_BASE, "mobile.html"), headers=_NO_CACHE)
 
 
 @app.get("/", include_in_schema=False)

@@ -89,6 +89,10 @@ RULES = {
     "/qr-login/init":            (10,  60),
     "/qr-login/poll":            (300, 60),   # одна страница может пушить 80, плюс параллельные сессии
     "/qr-login/approve":         (30,  60),
+    # Mobile: лента и голос. Голос — дороже (Whisper-вызов), отдельный лимит.
+    "/mobile/feed":              (60,  60),
+    "/mobile/voice/parse":       (30,  60),
+    "/mobile/voice/transcribe":  (15, 300),
 }
 
 _TRUSTED_PROXIES = {p.strip() for p in os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1").split(",") if p.strip()}

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ru" data-assistant-section="index.cabinet" data-assistant-label="Лайт-режим">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>AI Студия Че · Лайт</title>
+<script src="/icons.js" defer></script>
+<style>
+  *,*:before,*:after{box-sizing:border-box}
+  body{margin:0;background:#0d0d0d;color:#eee;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.45;min-height:100vh;padding-bottom:84px;-webkit-tap-highlight-color:transparent}
+  body.standalone{padding-top:env(safe-area-inset-top)}
+  a{color:inherit;text-decoration:none}
+  button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
+
+  /* Header */
+  .hdr{display:flex;align-items:center;gap:10px;padding:14px 16px;background:#0d0d0d;border-bottom:1px solid rgba(255,255,255,.05);position:sticky;top:0;z-index:10}
+  .hdr-logo{width:36px;height:36px;border-radius:50%;background:#1c1c1c;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid rgba(255,140,66,.3)}
+  .hdr-logo img{width:28px;height:28px;object-fit:contain}
+  .hdr-bal{flex:1;text-align:right}
+  .hdr-bal-rub{font-size:18px;font-weight:700;color:#ff8c42}
+  .hdr-bal-label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px}
+  .hdr-avatar{width:36px;height:36px;border-radius:50%;background:#1c1c1c;display:flex;align-items:center;justify-content:center;font-weight:700;color:#bbb}
+  .hdr-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+
+  /* Voice button */
+  .voice{margin:24px 16px 16px;text-align:center}
+  .voice-btn{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 8px 28px rgba(255,140,66,.35);transition:transform .15s,box-shadow .15s}
+  .voice-btn:active{transform:scale(.95)}
+  .voice-btn.listening{animation:pulse 1.2s ease-in-out infinite;box-shadow:0 0 0 0 rgba(255,140,66,.5)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,140,66,.5)}70%{box-shadow:0 0 0 22px rgba(255,140,66,0)}100%{box-shadow:0 0 0 0 rgba(255,140,66,0)}}
+  .voice-btn svg{width:46px;height:46px;fill:currentColor}
+  .voice-hint{margin-top:12px;font-size:13px;color:#999;min-height:18px}
+  .voice-text{margin-top:8px;font-size:14px;color:#ddd;font-style:italic;min-height:20px}
+
+  /* Quick actions grid */
+  .quick{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 16px;margin-bottom:18px}
+  .qa{background:#1c1c1c;border:1px solid rgba(255,255,255,.05);border-radius:14px;padding:12px 8px;text-align:center;transition:background .15s}
+  .qa:active{background:#252525}
+  .qa-icon{font-size:22px;margin-bottom:6px}
+  .qa-label{font-size:11px;color:#bbb;line-height:1.2}
+
+  /* Section */
+  .sect{padding:0 16px;margin-bottom:14px}
+  .sect-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .sect-h h2{margin:0;font-size:13px;font-weight:600;color:#999;text-transform:uppercase;letter-spacing:.5px}
+  .sect-h a{font-size:13px;color:#ff8c42}
+
+  /* Feed items */
+  .feed-item{display:flex;align-items:center;gap:12px;background:#1c1c1c;border:1px solid rgba(255,255,255,.05);border-radius:14px;padding:12px 14px;margin-bottom:8px;transition:background .15s}
+  .feed-item:active{background:#252525}
+  .feed-icon{width:38px;height:38px;border-radius:10px;background:#252525;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+  .feed-body{flex:1;min-width:0}
+  .feed-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .feed-sub{font-size:12px;color:#888;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .feed-ts{font-size:10px;color:#666;flex-shrink:0;margin-left:6px}
+  .feed-empty{text-align:center;padding:30px 16px;color:#666;font-size:13px}
+
+  /* Bottom nav */
+  .bnav{position:fixed;bottom:0;left:0;right:0;background:#0d0d0d;border-top:1px solid rgba(255,255,255,.06);display:flex;padding:8px 0 calc(8px + env(safe-area-inset-bottom));z-index:20}
+  .bnav a{flex:1;text-align:center;padding:6px 0;color:#777;font-size:10px}
+  .bnav a.active{color:#ff8c42}
+  .bnav-icon{font-size:22px;display:block;margin-bottom:2px}
+
+  /* Modal */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:flex-end;z-index:50}
+  .modal.open{display:flex}
+  .modal-card{background:#1c1c1c;border-radius:24px 24px 0 0;width:100%;padding:20px;max-height:80vh;overflow-y:auto;animation:slideUp .25s ease-out}
+  @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  .modal h3{margin:0 0 12px;font-size:18px}
+
+  .err{color:#ff6b6b;font-size:13px;text-align:center;margin-top:8px}
+  .btn-prim{display:block;width:100%;padding:14px;border-radius:14px;background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;font-weight:700;text-align:center;margin-top:10px}
+  .btn-sec{display:block;width:100%;padding:14px;border-radius:14px;background:#252525;color:#bbb;text-align:center;margin-top:8px}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-logo"><img src="/logo-192.png" alt="AI Студия Че"/></div>
+  <div class="hdr-bal">
+    <div class="hdr-bal-rub" id="balanceRub">— ₽</div>
+    <div class="hdr-bal-label">баланс</div>
+  </div>
+  <a href="/?tab=settings" class="hdr-avatar" id="userAvatar">?</a>
+</header>
+
+<div class="voice">
+  <button class="voice-btn" id="voiceBtn" aria-label="Голосовая команда">
+    <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg>
+  </button>
+  <div class="voice-hint" id="voiceHint">Нажмите и скажите команду</div>
+  <div class="voice-text" id="voiceText"></div>
+</div>
+
+<div class="quick">
+  <button class="qa" onclick="goNav('/')"><div class="qa-icon">💬</div><div class="qa-label">Чат с ИИ</div></button>
+  <button class="qa" onclick="goNav('/proposals.html')"><div class="qa-icon">📄</div><div class="qa-label">КП</div></button>
+  <button class="qa" onclick="goNav('/presentations.html')"><div class="qa-icon">🎯</div><div class="qa-label">Презентации</div></button>
+  <button class="qa" onclick="goNav('/sites.html')"><div class="qa-icon">🌐</div><div class="qa-label">Сайты</div></button>
+  <button class="qa" onclick="goNav('/chatbots.html')"><div class="qa-icon">🤖</div><div class="qa-label">Боты</div></button>
+  <button class="qa" onclick="goNav('/agents.html')"><div class="qa-icon">⚡</div><div class="qa-label">Агенты</div></button>
+</div>
+
+<section class="sect">
+  <div class="sect-h">
+    <h2>События</h2>
+    <a id="refreshFeed" href="#">Обновить</a>
+  </div>
+  <div id="feed"><div class="feed-empty">Загружаем...</div></div>
+</section>
+
+<nav class="bnav">
+  <a href="/mobile.html" class="active"><span class="bnav-icon">🏠</span>Главная</a>
+  <a href="/"><span class="bnav-icon">💬</span>Чат</a>
+  <a href="/proposals.html"><span class="bnav-icon">📄</span>КП</a>
+  <a href="/?tab=tokens"><span class="bnav-icon">💰</span>Баланс</a>
+</nav>
+
+<div id="askModal" class="modal" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <h3 id="askTitle">Команда</h3>
+    <div id="askBody"></div>
+    <button class="btn-sec" onclick="closeAsk()">Закрыть</button>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+function escHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── Standalone PWA detection
+if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches){
+  document.body.classList.add('standalone');
+}
+
+// ── Auth-check + load summary + feed ──────────────────────────────────────
+async function loadAll(){
+  // Auth
+  let me;
+  try {
+    const r = await fetch('/auth/me', {credentials: 'same-origin'});
+    if(!r.ok){ window.location.href = '/?next=' + encodeURIComponent('/mobile.html'); return; }
+    me = (await r.json()).user;
+  } catch(e){
+    document.getElementById('feed').innerHTML = '<div class="feed-empty">Нет связи с сервером</div>';
+    return;
+  }
+  await loadFeed();
+}
+
+async function loadFeed(){
+  document.getElementById('feed').innerHTML = '<div class="feed-empty">Загружаем...</div>';
+  try {
+    const r = await fetch('/mobile/feed', {credentials: 'same-origin'});
+    if(!r.ok){ throw new Error('feed http ' + r.status); }
+    const d = await r.json();
+    // header
+    document.getElementById('balanceRub').textContent = (d.summary.balance_rub || 0).toFixed(0) + ' ₽';
+    if(d.summary.user){
+      const av = document.getElementById('userAvatar');
+      if(d.summary.user.avatar_url){
+        av.innerHTML = `<img src="${escHtml(d.summary.user.avatar_url)}" alt="">`;
+      } else {
+        av.textContent = (d.summary.user.name || d.summary.user.email || '?')[0].toUpperCase();
+      }
+    }
+    if(d.summary.low_balance){
+      document.getElementById('balanceRub').style.color = '#ff6b6b';
+    }
+    // feed
+    const feed = document.getElementById('feed');
+    if(!d.events || !d.events.length){
+      feed.innerHTML = '<div class="feed-empty">Пока пусто. Здесь появятся новые заявки, ответы клиентов и платежи.</div>';
+      return;
+    }
+    feed.innerHTML = d.events.map(e => `
+      <a class="feed-item" href="${escHtml(e.url)}">
+        <div class="feed-icon">${escHtml(e.icon || '•')}</div>
+        <div class="feed-body">
+          <div class="feed-title">${escHtml(e.title)}</div>
+          <div class="feed-sub">${escHtml(e.label)} · ${escHtml(e.subtitle)}</div>
+        </div>
+        <div class="feed-ts">${fmtTs(e.ts)}</div>
+      </a>
+    `).join('');
+  } catch(e){
+    document.getElementById('feed').innerHTML = `<div class="feed-empty">Ошибка: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function fmtTs(iso){
+  if(!iso) return '';
+  const d = new Date(iso); const now = new Date();
+  const diff = (now - d) / 1000;
+  if(diff < 60) return 'сейчас';
+  if(diff < 3600) return Math.floor(diff/60) + ' мин';
+  if(diff < 86400) return Math.floor(diff/3600) + ' ч';
+  if(diff < 86400*7) return Math.floor(diff/86400) + ' дн';
+  return d.toLocaleDateString('ru-RU', {day:'numeric',month:'short'});
+}
+
+document.getElementById('refreshFeed').onclick = (e) => { e.preventDefault(); loadFeed(); };
+
+function goNav(url){ window.location.href = url; }
+
+// ── Голос ────────────────────────────────────────────────────────────────
+const voiceBtn = document.getElementById('voiceBtn');
+const voiceHint = document.getElementById('voiceHint');
+const voiceText = document.getElementById('voiceText');
+
+let recognition = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let useNativeAPI = false;
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if(SR){
+  useNativeAPI = true;
+  recognition = new SR();
+  recognition.lang = 'ru-RU';
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+  recognition.continuous = false;
+
+  recognition.onresult = (e) => {
+    const txt = Array.from(e.results).map(r => r[0].transcript).join('');
+    voiceText.textContent = txt;
+    if(e.results[e.results.length - 1].isFinal){
+      stopListening();
+      handleCommand(txt);
+    }
+  };
+  recognition.onerror = (e) => {
+    stopListening();
+    voiceHint.textContent = 'Ошибка: ' + (e.error || 'нет звука');
+    setTimeout(() => voiceHint.textContent = 'Нажмите и скажите команду', 2000);
+  };
+  recognition.onend = () => stopListening();
+}
+
+let listening = false;
+function startListening(){
+  if(listening) return;
+  listening = true;
+  voiceText.textContent = '';
+  voiceHint.textContent = 'Слушаю...';
+  voiceBtn.classList.add('listening');
+  if(useNativeAPI){
+    try { recognition.start(); }
+    catch(e){ stopListening(); voiceHint.textContent = 'Не удалось включить микрофон'; }
+  } else {
+    startMediaRecorder();
+  }
+}
+
+function stopListening(){
+  listening = false;
+  voiceBtn.classList.remove('listening');
+  if(useNativeAPI){
+    try { recognition.stop(); } catch(_){}
+  } else if(mediaRecorder && mediaRecorder.state === 'recording'){
+    mediaRecorder.stop();
+  }
+}
+
+voiceBtn.addEventListener('click', () => {
+  if(listening) stopListening(); else startListening();
+});
+
+// Fallback через MediaRecorder + Whisper
+async function startMediaRecorder(){
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      voiceHint.textContent = 'Распознаю...';
+      const blob = new Blob(recordedChunks, {type: 'audio/webm'});
+      const fd = new FormData();
+      fd.append('audio', blob, 'voice.webm');
+      try {
+        const r = await fetch('/mobile/voice/transcribe', {method:'POST', body:fd, credentials:'same-origin'});
+        if(!r.ok){ voiceHint.textContent = 'Ошибка распознавания'; return; }
+        const d = await r.json();
+        voiceText.textContent = d.text;
+        handleCommand(d.text);
+      } catch(e){ voiceHint.textContent = 'Сеть недоступна'; }
+    };
+    mediaRecorder.start();
+    // Авто-стоп через 7 сек
+    setTimeout(() => { if(mediaRecorder.state === 'recording') stopListening(); }, 7000);
+  } catch(e){
+    voiceHint.textContent = 'Микрофон заблокирован';
+    listening = false;
+    voiceBtn.classList.remove('listening');
+  }
+}
+
+// ── AI-парсер команды → действие ─────────────────────────────────────────
+async function handleCommand(text){
+  if(!text || !text.trim()){ voiceHint.textContent = 'Не услышал. Повторите.'; return; }
+  voiceHint.textContent = 'Обрабатываю...';
+  try {
+    const r = await fetch('/mobile/voice/parse', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      body: JSON.stringify({text}),
+    });
+    if(!r.ok){ voiceHint.textContent = 'Ошибка: ' + r.status; return; }
+    const d = await r.json();
+    voiceHint.textContent = '✓ ' + describeAction(d.action);
+    setTimeout(() => voiceHint.textContent = 'Нажмите и скажите команду', 2500);
+    routeAction(d);
+  } catch(e){ voiceHint.textContent = 'Сеть недоступна'; }
+}
+
+const ACTIONS_NAV = {
+  open_chat:          '/',
+  open_proposals:     '/proposals.html',
+  create_proposal:    '/proposals.html#create',
+  open_presentations: '/presentations.html',
+  open_sites:         '/sites.html',
+  open_chatbots:      '/chatbots.html',
+  open_agents:        '/agents.html',
+  open_solutions:     '/#solutions',
+  balance:            '/?tab=tokens',
+  topup:              '/?tab=tokens',
+  feed:               '/mobile.html',
+};
+
+function describeAction(a){
+  return ({
+    open_chat: 'Чат',
+    open_proposals: 'КП',
+    open_proposal: 'Найти КП',
+    create_proposal: 'Новое КП',
+    open_presentations: 'Презентации',
+    open_sites: 'Сайты',
+    open_chatbots: 'Боты',
+    open_agents: 'Агенты',
+    open_solutions: 'Бизнес-решения',
+    balance: 'Баланс',
+    topup: 'Пополнение',
+    feed: 'Лента',
+    ask: 'Спросить ИИ',
+    unknown: 'Не понял',
+  })[a] || a;
+}
+
+function routeAction(d){
+  if(d.action in ACTIONS_NAV){
+    setTimeout(() => window.location.href = ACTIONS_NAV[d.action], 600);
+    return;
+  }
+  if(d.action === 'open_proposal'){
+    setTimeout(() => window.location.href = '/proposals.html?q=' + encodeURIComponent(d.query || ''), 600);
+    return;
+  }
+  if(d.action === 'ask'){
+    setTimeout(() => window.location.href = '/?ask=' + encodeURIComponent(d.query || ''), 600);
+    return;
+  }
+}
+
+function closeAsk(){ document.getElementById('askModal').classList.remove('open'); }
+
+// ── Boot ─────────────────────────────────────────────────────────────────
+loadAll();
+// Авто-обновление ленты раз в 60 сек
+setInterval(() => {
+  if(document.visibilityState === 'visible') loadFeed();
+}, 60000);
+</script>
+</body>
+</html>
