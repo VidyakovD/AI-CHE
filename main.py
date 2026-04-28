@@ -324,6 +324,58 @@ def serve_icons():
     )
 
 
+# ── PWA: manifest, service worker, icon ───────────────────────────────────
+# После регистрации SW + manifest + theme-color сайт можно установить
+# «как приложение» на iOS, Android, Windows, Mac, Linux. На десктопе
+# работает install-prompt в Chrome/Edge, на iOS — через Share → "На экран Домой".
+
+@app.get("/manifest.json", include_in_schema=False)
+def serve_manifest():
+    return FileResponse(
+        os.path.join(_BASE, "manifest.json"),
+        media_type="application/manifest+json",
+        # Манифест меняется редко — кэшируем на час, при изменении PWA-инфры
+        # достаточно поднять CACHE_VERSION в sw.js (там уже наш кэш-механизм).
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/sw.js", include_in_schema=False)
+def serve_sw():
+    """Service Worker — регистрация на корне сайта.
+    ВАЖНО: scope SW определяется его расположением. Раздаём с /, чтобы
+    он контролировал всё приложение."""
+    return FileResponse(
+        os.path.join(_BASE, "sw.js"),
+        media_type="application/javascript",
+        # SW сам обновляется при изменении байтов — браузер сравнивает.
+        # Поэтому no-store не нужен, но max-age=0 чтобы ловить обновления.
+        headers={"Cache-Control": "public, max-age=0, must-revalidate",
+                 "Service-Worker-Allowed": "/"},
+    )
+
+
+@app.get("/icon.svg", include_in_schema=False)
+def serve_icon():
+    return FileResponse(
+        os.path.join(_BASE, "icon.svg"),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def serve_favicon():
+    """Браузеры запрашивают favicon.ico по умолчанию. Отдаём ту же SVG —
+    современные браузеры её принимают через Content-Type. Старые — увидят
+    404, что не критично."""
+    return FileResponse(
+        os.path.join(_BASE, "icon.svg"),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @app.get("/", include_in_schema=False)
 def serve_root():
     return _html("index.html")

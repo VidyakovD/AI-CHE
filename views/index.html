@@ -2,8 +2,57 @@
 <html class="dark" lang="ru">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <title>AI Студия Че</title>
+<!-- PWA: window-controls-overlay даёт возможность кастомизировать тулбар окна
+     в standalone-режиме (Windows/Mac Chrome+Edge). См. css ниже @media -->
+<meta name="theme-color" content="#ff8c42"/>
+<style>
+/* ── Desktop standalone «прикольный» режим ────────────────────────────────
+   Активируется только когда приложение запущено КАК ПРИЛОЖЕНИЕ
+   (display:standalone) — не в обычной вкладке браузера. Здесь добавляем:
+   • безопасные отступы для window-controls-overlay (родная панель окна)
+   • особый header bar с draggable region
+   • подсветку «вы в нативном режиме» */
+@media (display-mode: standalone), (display-mode: minimal-ui), (display-mode: window-controls-overlay) {
+  body { padding-top: env(titlebar-area-height, 0); }
+  /* Делаем шапку перетаскиваемой как в нативных приложениях */
+  .app-titlebar {
+    -webkit-app-region: drag;
+    app-region: drag;
+    height: env(titlebar-area-height, 32px);
+    background: linear-gradient(135deg, #1C1C1C, #2a1f15);
+    border-bottom: 1px solid rgba(255,140,66,0.15);
+    display: flex;
+    align-items: center;
+    padding: 0 12px 0 env(titlebar-area-x, 12px);
+    color: #ff8c42;
+    font-family: Manrope, sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+  }
+  .app-titlebar button, .app-titlebar a {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+  /* Скрываем titlebar в браузере */
+  .app-titlebar.standalone-only { display: flex; }
+}
+@media not all and (display-mode: standalone) {
+  .app-titlebar.standalone-only { display: none !important; }
+}
+/* Standalone-индикатор в подвале сайдбара */
+.standalone-badge { display: none; }
+@media (display-mode: standalone), (display-mode: window-controls-overlay) {
+  .standalone-badge { display: inline-flex; }
+}
+</style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet"/>
@@ -137,6 +186,12 @@ body.welcome #inputArea{display:none!important}
 <script src="/icons.js" defer></script>
 </head>
 <body class="bg-background text-on-surface font-body welcome">
+<!-- Draggable titlebar — виден ТОЛЬКО в standalone режиме (PWA на Mac/Win) -->
+<div class="app-titlebar standalone-only">
+  <span style="font-size:14px;margin-right:8px">🤖</span>
+  <span>AI Студия Че</span>
+  <span style="margin-left:auto;font-size:11px;opacity:0.6;font-weight:500">Desktop App</span>
+</div>
 
 <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════════ -->
 <aside id="appSidebar" class="fixed left-0 top-0 z-40 p-4 h-screen w-68 flex-col hidden lg:flex bg-surface border-r border-outline/20 shadow-2xl overflow-hidden" style="width:272px">
@@ -522,6 +577,7 @@ body.welcome #inputArea{display:none!important}
       <button onclick="cabTab('apikeys')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="apikeys">Свои API</button>
       <button onclick="cabTab('referral')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="referral">Реферал</button>
       <button onclick="cabTab('settings')" class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="settings">Настройки</button>
+      <button onclick="cabTab('install')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="install">📲 Приложение</button>
       <button onclick="cabTab('support')"  class="cab-tab flex-1 py-3 text-xs font-medium text-on-surface-dim hover:text-primary transition whitespace-nowrap px-2" data-tab="support">Поддержка</button>
     </div>
     <div id="cabContent" class="p-6 min-h-52"></div>
@@ -1560,6 +1616,69 @@ function cabTab(tab){
   if(tab==="referral") renderReferralTab(el);
   if(tab==="settings") renderSettingsTab(el);
   if(tab==="support")  renderSupportTab(el);
+  if(tab==="install")  renderInstallTab(el);
+}
+
+// PWA: «Установить приложение» — кросс-платформенный гайд
+function renderInstallTab(el){
+  const isStandalone = (typeof window.aiIsInstalled === 'function') && window.aiIsInstalled();
+  const canPrompt = (typeof window.aiCanInstall === 'function') && window.aiCanInstall() && !isStandalone;
+  const ua = (navigator.userAgent || '').toLowerCase();
+  const isiOS = /iphone|ipad|ipod/.test(ua);
+  const isAndroid = /android/.test(ua);
+  const isMac = /macintosh|mac os/.test(ua);
+  const isWin = /windows/.test(ua);
+
+  const status = isStandalone
+    ? '<div class="bg-primary/15 border border-primary/30 rounded-xl p-4 mb-5"><div class="text-sm font-bold text-primary mb-1">✓ Установлено</div><div class="text-xs text-on-surface-dim">Сейчас вы используете приложение в standalone-режиме.</div></div>'
+    : '';
+
+  el.innerHTML = `
+    ${status}
+    <p class="text-sm text-on-surface-dim mb-5">
+      AI Студия Че — это полноценное приложение. Работает на телефоне, планшете и компьютере без скачивания из магазинов:
+      просто добавьте на рабочий стол / главный экран — иконка появится как у обычной программы.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+      <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
+        <div class="text-xs uppercase tracking-wider text-on-surface-dim/70 mb-2">📱 Телефон</div>
+        <div class="text-sm font-headline font-bold mb-2">Один тап до иконки</div>
+        <ul class="text-xs text-on-surface-dim space-y-1.5 list-disc pl-4">
+          <li><strong>iPhone:</strong> Поделиться (квадрат со стрелкой) → На экран Домой</li>
+          <li><strong>Android:</strong> Меню браузера → Установить приложение</li>
+          <li>Откроется в полноэкранном режиме без лишних кнопок браузера</li>
+        </ul>
+      </div>
+      <div class="bg-surface2 rounded-xl p-4 border border-outline/20">
+        <div class="text-xs uppercase tracking-wider text-on-surface-dim/70 mb-2">💻 Компьютер</div>
+        <div class="text-sm font-headline font-bold mb-2">Как нативная программа</div>
+        <ul class="text-xs text-on-surface-dim space-y-1.5 list-disc pl-4">
+          <li><strong>Chrome / Edge:</strong> Иконка «+» в адресной строке справа</li>
+          <li><strong>Mac:</strong> Появится в Applications, можно закрепить в Dock</li>
+          <li><strong>Windows:</strong> Закрепится в меню Пуск и на рабочем столе</li>
+        </ul>
+      </div>
+    </div>
+
+    ${canPrompt
+      ? `<button onclick="aiShowInstall()" class="bg-gradient-to-r from-primary to-secondary text-white font-bold py-3 px-6 rounded-xl hover:opacity-90 transition w-full md:w-auto">📲 Установить сейчас</button>`
+      : (isStandalone
+          ? `<p class="text-xs text-on-surface-dim/70">Уже установлено — отлично!</p>`
+          : `<button onclick="aiShowInstall()" class="bg-surface2 border border-outline/30 hover:border-primary text-on-surface font-bold py-3 px-6 rounded-xl transition w-full md:w-auto">📲 Показать инструкцию для моего устройства</button>`)
+    }
+
+    <div class="mt-6 bg-surface2 rounded-xl p-4 border border-outline/20">
+      <div class="text-sm font-headline font-bold mb-2">🤖 Управление через Telegram</div>
+      <p class="text-xs text-on-surface-dim mb-3">
+        Привяжи свой Telegram — получай уведомления о новых заявках/КП, отвечай быстрыми кнопками,
+        управляй агентами без открытия сайта. Работает на любом телефоне без установки чего-либо.
+      </p>
+      <button onclick="cabTab('settings')" class="bg-surface3 hover:border-primary border border-outline/30 text-on-surface text-xs py-2 px-4 rounded-lg transition">
+        Привязать Telegram →
+      </button>
+    </div>
+  `;
 }
 
 // Helper для openMyApiKeys() — вызывается из chatbots.html модалки.
@@ -2067,6 +2186,13 @@ function copyRef(code){
 async function renderSettingsTab(el){
   const thr = cabinetData?.user?.low_balance_threshold_rub ?? 10;
   el.innerHTML=`<div class="space-y-6">
+    <!-- Telegram-бот управления -->
+    <div id="s_tg_block">
+      <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">🤖 Telegram-бот управления</p>
+      <p class="text-xs text-on-dim mb-3">Привяжи Telegram чтобы получать уведомления о новых КП, заявках от ботов и быстро управлять воронкой прямо из чата с ботом.</p>
+      <div id="s_tg_status" class="text-xs text-on-dim">Загрузка…</div>
+    </div>
+
     <div>
       <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Уведомления о низком балансе</p>
       <p class="text-xs text-on-dim mb-2">Пришлём email когда останется меньше <b>N ₽</b>. Установите <b>0</b>, чтобы отключить.</p>
@@ -2120,6 +2246,8 @@ async function renderSettingsTab(el){
     </div>
   </div>`;
   setupCodes(".em-code-cell");
+  // Подгружаем статус привязки TG
+  _renderTgLinkStatus();
   window.applyPromoCabinet=async function(){
     const code=document.getElementById("s_promo")?.value.trim();
     const msg=document.getElementById("s_promo_msg");if(!code||!msg)return;
@@ -2130,6 +2258,104 @@ async function renderSettingsTab(el){
     catch(e){msg.textContent="❌ "+(e.message||"Ошибка");msg.style.color="#ff6b6b";}
   };
 }
+// ── Telegram management bot binding ─────────────────────────────────────
+async function _renderTgLinkStatus(){
+  const wrap = document.getElementById('s_tg_status');
+  if(!wrap) return;
+  let status;
+  try{
+    status = await api('/user/tg-link/status');
+  }catch(e){
+    wrap.innerHTML = `<p class="text-error text-xs">Ошибка: ${esc(e.message)}</p>`;
+    return;
+  }
+  if(!status.bot_configured){
+    wrap.innerHTML = `<div class="bg-surface2 border border-outline/20 rounded-lg p-3 text-xs">
+      <p class="text-on-dim">Telegram-бот пока не настроен на сервере.</p>
+      <p class="text-on-dim/70 mt-1">Чтобы включить — задайте в .env: <code>TG_MGMT_BOT_TOKEN</code>, <code>TG_MGMT_BOT_USERNAME</code>.</p>
+    </div>`;
+    return;
+  }
+  if(status.linked){
+    wrap.innerHTML = `
+      <div class="bg-primary/10 border border-primary/30 rounded-lg p-3 mb-3">
+        <p class="text-sm"><strong>✓ Привязано:</strong> ${status.tg_username ? '@'+esc(status.tg_username) : 'Telegram-аккаунт'}</p>
+        <p class="text-xs text-on-dim mt-1">Получаешь push-уведомления и можешь управлять КП через бота.</p>
+      </div>
+      <div class="space-y-2 mb-3">
+        <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" id="s_tg_n_proposals" ${status.notify_proposals?'checked':''} onchange="_saveTgNotify()"/>
+          <span>Уведомлять о КП (отправка/ответ клиента)</span>
+        </label>
+        <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" id="s_tg_n_records" ${status.notify_records?'checked':''} onchange="_saveTgNotify()"/>
+          <span>Уведомлять о новых заявках от ботов</span>
+        </label>
+        <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" id="s_tg_n_errors" ${status.notify_errors?'checked':''} onchange="_saveTgNotify()"/>
+          <span>Уведомлять об ошибках/возвратах</span>
+        </label>
+      </div>
+      <button onclick="_unlinkTg()" class="btn-g text-xs">🔓 Отвязать</button>`;
+  } else {
+    wrap.innerHTML = `
+      <p class="text-xs text-on-dim mb-3">Нажми «Получить код», открой бота и вставь код.</p>
+      <button onclick="_genTgLinkCode()" class="btn-p text-sm py-2 px-4">📲 Получить код привязки</button>
+      <div id="s_tg_code_wrap" class="hidden mt-3"></div>`;
+  }
+}
+
+async function _genTgLinkCode(){
+  try{
+    const r = await apiPost('/user/tg-link/code', {});
+    const wrap = document.getElementById('s_tg_code_wrap');
+    if(!wrap) return;
+    wrap.classList.remove('hidden');
+    const link = r.deep_link
+      ? `<a href="${esc(r.deep_link)}" target="_blank" rel="noopener" class="text-primary hover:underline">Открыть бота с автопривязкой →</a>`
+      : '<span class="text-on-dim">Бот: настройте TG_MGMT_BOT_USERNAME в env</span>';
+    wrap.innerHTML = `
+      <div class="bg-surface2 border border-primary/30 rounded-lg p-3">
+        <p class="text-xs text-on-dim mb-2">Код действует 10 минут. В боте отправь:</p>
+        <p class="font-mono text-2xl font-bold text-primary text-center my-3 letter-spacing-wide">/link ${esc(r.code)}</p>
+        <p class="text-xs">${link}</p>
+        <button onclick="_copyTgCode('${esc(r.code)}')" class="btn-g text-xs mt-3">📋 Скопировать команду</button>
+      </div>
+      <button onclick="_renderTgLinkStatus()" class="btn-g text-xs mt-2">🔄 Обновить статус</button>`;
+  }catch(e){ aiAlert(e.message, 'error'); }
+}
+
+async function _copyTgCode(code){
+  try{
+    await navigator.clipboard.writeText('/link ' + code);
+    await aiAlert('Скопировано — вставь в боте', 'success');
+  }catch(e){ aiAlert('Не удалось скопировать. Скопируй вручную команду /link XXXXXX', 'warn'); }
+}
+
+async function _unlinkTg(){
+  if(!await aiConfirm('Отвязать Telegram? Уведомления перестанут приходить.', {danger: true, okLabel: 'Отвязать'})) return;
+  try{
+    await apiPost('/user/tg-link/unlink', {});
+    await _renderTgLinkStatus();
+  }catch(e){ aiAlert(e.message, 'error'); }
+}
+
+async function _saveTgNotify(){
+  const body = {
+    notify_proposals: document.getElementById('s_tg_n_proposals').checked,
+    notify_records: document.getElementById('s_tg_n_records').checked,
+    notify_errors: document.getElementById('s_tg_n_errors').checked,
+  };
+  try{
+    const tok = localStorage.getItem('obs_token');
+    await fetch(API+'/user/tg-link/notifications', {
+      method:'PUT', headers: {'Content-Type':'application/json',
+        ...(tok ? {'Authorization': 'Bearer '+tok} : {})},
+      credentials: 'same-origin', body: JSON.stringify(body),
+    });
+  }catch(e){ aiAlert(e.message, 'error'); }
+}
+
 async function doChangePass(){
   const old=document.getElementById("s_oldp").value;
   const nw=document.getElementById("s_newp").value;

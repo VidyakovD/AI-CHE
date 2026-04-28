@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff8c42"/>
+      <stop offset="100%" stop-color="#ffb347"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1C1C1C"/>
+      <stop offset="100%" stop-color="#2a1f15"/>
+    </linearGradient>
+  </defs>
+  <!-- Скруглённый фон для maskable icon -->
+  <rect width="512" height="512" rx="96" ry="96" fill="url(#bg)"/>
+  <!-- Стилизованная Ч с акцентным штрихом -->
+  <g transform="translate(112, 88)">
+    <path d="M48 0 L48 144 Q48 184 88 184 L208 184 L208 312 Q208 336 232 336 L256 336 L256 0 L208 0 L208 136 L88 136 L88 0 Z"
+          fill="url(#g)"/>
+    <!-- Декоративная точка-акцент -->
+    <circle cx="270" cy="40" r="12" fill="#ffb347" opacity="0.85"/>
+  </g>
+</svg>

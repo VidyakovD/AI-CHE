@@ -49,6 +49,14 @@ class User(Base):
     # Уведомления о входе с нового IP (security alert).
     last_login_ip    = Column(String, nullable=True)
     last_login_at    = Column(DateTime, nullable=True)
+    # Привязка Telegram-аккаунта (для TG-бота управления + push)
+    tg_user_id       = Column(String, unique=True, nullable=True, index=True)
+    tg_username      = Column(String, nullable=True)
+    tg_link_code     = Column(String, nullable=True, index=True)        # одноразовый код привязки
+    tg_link_expires  = Column(DateTime, nullable=True)
+    tg_notify_proposals = Column(Boolean, default=True)   # уведомлять о новых КП
+    tg_notify_records   = Column(Boolean, default=True)   # о новых заявках
+    tg_notify_errors    = Column(Boolean, default=True)   # об ошибках/refund'ах
     created_at       = Column(DateTime, default=datetime.utcnow)
 
     messages      = relationship("Message",      back_populates="user")

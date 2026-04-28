@@ -1,4 +1,4 @@
-import csv, io, logging
+import os, csv, io, logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -313,3 +313,67 @@ def feature_vote(body: FeatureVoteBody, user: User = Depends(current_user)):
         details={"feature": feat},
     )
     return {"status": "ok", "feature": feat}
+
+
+# ── Telegram management bot binding ──────────────────────────────────────
+
+
+@router.get("/tg-link/status")
+def tg_link_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Статус привязки TG к юзеру + конфигурация бота на сервере."""
+    from server.tg_management import is_configured
+    u = db.query(User).filter_by(id=user.id).first()
+    return {
+        "bot_configured": is_configured(),
+        "bot_username": os.getenv("TG_MGMT_BOT_USERNAME", "").strip().lstrip("@") or None,
+        "linked": bool(u and u.tg_user_id),
+        "tg_username": (u.tg_username if u and u.tg_username else None),
+        "notify_proposals": bool(getattr(u, "tg_notify_proposals", True)),
+        "notify_records": bool(getattr(u, "tg_notify_records", True)),
+        "notify_errors": bool(getattr(u, "tg_notify_errors", True)),
+    }
+
+
+@router.post("/tg-link/code")
+def tg_link_code(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Сгенерировать одноразовый код для привязки. Юзер вводит его в боте
+    командой /link XXXXXX — после этого аккаунт связан."""
+    from server.tg_management import generate_link_code, is_configured
+    if not is_configured():
+        raise HTTPException(503, "Telegram-бот управления не настроен")
+    code = generate_link_code(db, user.id)
+    bot_username = os.getenv("TG_MGMT_BOT_USERNAME", "").strip().lstrip("@")
+    deep_link = (f"https://t.me/{bot_username}?start=LINK_{code}"
+                  if bot_username else None)
+    return {"code": code, "deep_link": deep_link, "expires_in_minutes": 10}
+
+
+@router.post("/tg-link/unlink")
+def tg_link_unlink(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from server.tg_management import unlink
+    unlink(db, user.id)
+    return {"status": "unlinked"}
+
+
+class TgNotifyToggleBody(BaseModel):
+    notify_proposals: bool | None = None
+    notify_records: bool | None = None
+    notify_errors: bool | None = None
+
+
+@router.put("/tg-link/notifications")
+def tg_link_notifications(body: TgNotifyToggleBody,
+                           user: User = Depends(current_user),
+                           db: Session = Depends(get_db)):
+    """Управление флагами подписки на push'и."""
+    u = db.query(User).filter_by(id=user.id).first()
+    if not u:
+        raise HTTPException(404, "Пользователь не найден")
+    if body.notify_proposals is not None:
+        u.tg_notify_proposals = bool(body.notify_proposals)
+    if body.notify_records is not None:
+        u.tg_notify_records = bool(body.notify_records)
+    if body.notify_errors is not None:
+        u.tg_notify_errors = bool(body.notify_errors)
+    db.commit()
+    return {"status": "ok"}

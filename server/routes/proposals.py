@@ -907,6 +907,20 @@ def send_proposal_email(project_id: int, body: SendEmailBody,
     log_action("proposal.manual_sent", user_id=user.id,
                target_type="proposal", target_id=str(p.id),
                details={"to": to[:50], "msgid": (msgid or "")[:80]})
+    # TG-push (если юзер привязал mgmt-бот)
+    try:
+        from server.tg_management import notify_user
+        notify_user(
+            user.id,
+            f"📨 <b>КП отправлено</b>\nКлиент: {to}\nПроект: {p.name[:80]}",
+            kind="proposals",
+            reply_markup={"inline_keyboard": [[
+                {"text": "✅ Выиграно", "callback_data": f"proposal:{p.id}:won"},
+                {"text": "❌ Отказ", "callback_data": f"proposal:{p.id}:lost"},
+            ]]},
+        )
+    except Exception:
+        pass
     return {"status": "sent", "to": to, "sent_at": p.sent_at.isoformat()}
 
 

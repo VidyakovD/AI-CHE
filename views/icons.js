@@ -228,6 +228,114 @@
     _mo.observe(document.documentElement, {childList: true, subtree: true});
   } catch (e) { /* no-op */ }
 
+  // ── PWA boot: регистрация SW + manifest + install-prompt ─────────────────
+  // Делает страницу «устанавливаемой как приложение» на iOS/Android/Windows/Mac.
+  // Вставляем <link rel="manifest"> и <meta theme-color> программно — чтобы
+  // не плодить копипасту в каждом HTML.
+  function _ensurePwaTags(){
+    if (document.querySelector('link[rel="manifest"]')) return;
+    var link = document.createElement('link');
+    link.rel = 'manifest'; link.href = '/manifest.json';
+    document.head.appendChild(link);
+    var theme = document.createElement('meta');
+    theme.name = 'theme-color'; theme.content = '#ff8c42';
+    document.head.appendChild(theme);
+    // iOS-специфичные теги для «На экран Домой»
+    var apple = document.createElement('link');
+    apple.rel = 'apple-touch-icon'; apple.href = '/icon.svg';
+    document.head.appendChild(apple);
+    var capable = document.createElement('meta');
+    capable.name = 'apple-mobile-web-app-capable'; capable.content = 'yes';
+    document.head.appendChild(capable);
+    var status = document.createElement('meta');
+    status.name = 'apple-mobile-web-app-status-bar-style'; status.content = 'black-translucent';
+    document.head.appendChild(status);
+    var titleApp = document.createElement('meta');
+    titleApp.name = 'apple-mobile-web-app-title'; titleApp.content = 'AI Че';
+    document.head.appendChild(titleApp);
+  }
+  _ensurePwaTags();
+
+  // SW регистрируем на /sw.js — контролирует всё приложение (scope=/)
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/sw.js', {scope: '/'})
+        .catch(function(){ /* offline — не критично, регистрируется при следующем заходе */ });
+    });
+  }
+
+  // Перехват install-prompt (Chrome/Edge desktop+Android). Откладываем
+  // показ — даём юзеру возможность поставить через нашу кнопку.
+  var _deferredInstall = null;
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault();
+    _deferredInstall = e;
+    _markInstallable();
+  });
+  window.addEventListener('appinstalled', function(){
+    _deferredInstall = null;
+    _markInstallable(false);
+  });
+
+  function _isStandalone(){
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+           window.navigator.standalone === true;  // iOS
+  }
+
+  function _platform(){
+    var ua = (navigator.userAgent || '').toLowerCase();
+    if (/iphone|ipad|ipod/.test(ua)) return 'ios';
+    if (/android/.test(ua)) return 'android';
+    if (/macintosh|mac os/.test(ua)) return 'mac';
+    if (/windows/.test(ua)) return 'windows';
+    return 'other';
+  }
+
+  function _markInstallable(can){
+    // Внешним кодом можно проверить через window.aiCanInstall()
+    window.__aiInstallable = (can !== false);
+  }
+  window.aiCanInstall = function(){
+    return !!_deferredInstall || !_isStandalone();
+  };
+  window.aiIsInstalled = _isStandalone;
+
+  // Показывает модалку с инструкцией «как установить» — учитывает платформу.
+  // Возвращает Promise (resolve когда юзер закрыл/установил).
+  window.aiShowInstall = async function(){
+    if (_isStandalone()){
+      if (window.aiAlert) await window.aiAlert('Приложение уже установлено и запущено в этом режиме.', 'success');
+      return;
+    }
+    // Native install-prompt доступен — используем его (лучший UX)
+    if (_deferredInstall){
+      try {
+        _deferredInstall.prompt();
+        var choice = await _deferredInstall.userChoice;
+        _deferredInstall = null;
+        if (choice && choice.outcome === 'accepted'){
+          if (window.aiAlert) await window.aiAlert('Готово! Приложение появилось на рабочем столе.', 'success');
+        }
+        return;
+      } catch(e){ /* fallthrough */ }
+    }
+    // Fallback: модалка с инструкцией под платформу
+    var p = _platform();
+    var inst = '';
+    if (p === 'ios'){
+      inst = 'На iPhone/iPad:\n1. Нажми кнопку «Поделиться» внизу экрана (квадрат со стрелкой ↑)\n2. Прокрути и выбери «На экран Домой»\n3. Нажми «Добавить» — иконка появится как у обычного приложения';
+    } else if (p === 'android'){
+      inst = 'На Android:\n1. Открой меню браузера (три точки сверху ⋮)\n2. Выбери «Установить приложение» или «Добавить на главный экран»\n3. Подтверди — иконка появится в списке приложений';
+    } else if (p === 'mac'){
+      inst = 'На Mac (Chrome / Edge):\n1. Открой меню браузера (⋮ или •••)\n2. Найди пункт «Установить AI Студия Че…»\n3. Подтверди — приложение появится в Applications\n\nВ Safari пока без установки — добавь в закладки.';
+    } else if (p === 'windows'){
+      inst = 'На Windows (Chrome / Edge):\n1. Нажми на иконку «+» в адресной строке справа\n2. Или открой меню (⋮) → «Установить AI Студия Че»\n3. Иконка появится на рабочем столе и в меню Пуск';
+    } else {
+      inst = 'Открой меню браузера и найди пункт «Установить» / «Добавить на главный экран». Если такого пункта нет — браузер не поддерживает PWA, попробуй Chrome или Edge.';
+    }
+    if (window.aiAlert) await window.aiAlert(inst, 'info');
+  };
+
   // ── Custom modals: confirm/alert/prompt в стиле «Че» ──────────────────────
   // Заменяет браузерные diaогли (которые выглядят как window.alert) на
   // фирменные модалки с темным фоном, оранжевыми кнопками. Возвращают

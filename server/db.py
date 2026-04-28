@@ -111,6 +111,14 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("proposal_brands", "tone", "VARCHAR DEFAULT 'business'"),
     ("proposal_brands", "intro_phrase", "VARCHAR"),
     ("proposal_brands", "cta_phrase", "VARCHAR"),
+    # Telegram-бот управления (привязка юзера)
+    ("users", "tg_user_id", "VARCHAR"),
+    ("users", "tg_username", "VARCHAR"),
+    ("users", "tg_link_code", "VARCHAR"),
+    ("users", "tg_link_expires", "DATETIME"),
+    ("users", "tg_notify_proposals", "BOOLEAN DEFAULT 1"),
+    ("users", "tg_notify_records", "BOOLEAN DEFAULT 1"),
+    ("users", "tg_notify_errors", "BOOLEAN DEFAULT 1"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

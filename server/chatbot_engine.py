@@ -1467,6 +1467,18 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                 _db.add(rec); _db.commit(); _db.refresh(rec)
                 ctx["last_record_id"] = rec.id
                 log.info(f"[save_record] bot={ctx['bot'].id} type={rec_type} id={rec.id}")
+                # TG-push (если включён) — отдельно от owner_tg_chat_id
+                try:
+                    from server.tg_management import notify_user as _tg_notify
+                    name = ctx.get("customer_name") or ctx.get("user_name") or "(без имени)"
+                    contact = ctx.get("customer_phone") or ctx.get("customer_email") or ""
+                    _tg_notify(
+                        ctx["bot"].user_id,
+                        f"📥 <b>Новая {rec_type}</b>\nБот: {ctx['bot'].name}\nКлиент: {name}\n{contact}",
+                        kind="records",
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             log.error(f"[save_record] failed: {e}")
             return f"⚠ Не удалось сохранить заявку. Попробуйте ещё раз."
@@ -1696,6 +1708,20 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                         if (_proj.crm_stage or "new") in ("new", "draft"):
                             _proj.crm_stage = "sent"
                         _db2.commit()
+                # TG-push: уведомление владельца что авто-КП ушло
+                try:
+                    from server.tg_management import notify_user as _tg_notify
+                    _tg_notify(
+                        bot.user_id,
+                        f"🤖 <b>Авто-КП отправлено</b>\nКлиент: {client_email}\nЗапрос: {(subject_in or '')[:80]}",
+                        kind="proposals",
+                        reply_markup={"inline_keyboard": [[
+                            {"text": "✅ Выиграно", "callback_data": f"proposal:{project_id}:won"},
+                            {"text": "❌ Отказ", "callback_data": f"proposal:{project_id}:lost"},
+                        ]]},
+                    )
+                except Exception:
+                    pass
                 from server.audit_log import log_action as _la
                 _la("proposal.auto_sent", user_id=bot.user_id,
                     target_type="proposal", target_id=str(project_id),

@@ -1,0 +1,56 @@
+{
+  "name": "AI Студия Че",
+  "short_name": "AI Че",
+  "description": "B2B AI-платформа: чат-боты, сайты, КП, агенты — всё в одном месте",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
+  "edge_side_panel": {
+    "preferred_width": 480
+  },
+  "orientation": "any",
+  "theme_color": "#ff8c42",
+  "background_color": "#1C1C1C",
+  "lang": "ru",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Чат с AI",
+      "short_name": "Чат",
+      "description": "Открыть AI-чат",
+      "url": "/?tab=chat",
+      "icons": [{"src": "/icon.svg", "sizes": "96x96"}]
+    },
+    {
+      "name": "Чат-боты",
+      "short_name": "Боты",
+      "description": "Управление ботами",
+      "url": "/chatbots.html",
+      "icons": [{"src": "/icon.svg", "sizes": "96x96"}]
+    },
+    {
+      "name": "Коммерческие предложения",
+      "short_name": "КП",
+      "description": "Создать КП",
+      "url": "/proposals.html",
+      "icons": [{"src": "/icon.svg", "sizes": "96x96"}]
+    },
+    {
+      "name": "Сайты",
+      "short_name": "Сайты",
+      "description": "Конструктор сайтов",
+      "url": "/sites.html",
+      "icons": [{"src": "/icon.svg", "sizes": "96x96"}]
+    }
+  ]
+}
