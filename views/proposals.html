@@ -431,6 +431,55 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <input id="bAddress" type="text" class="inp" placeholder="г. Москва, ул. ..."/>
       </div>
 
+      <!-- ── Глубокая персонализация (используется AI при генерации) ── -->
+      <div class="border-t border-outline/15 pt-4 mt-4">
+        <h3 class="font-headline font-bold text-sm mb-3">
+          Персонализация AI
+          <span class="text-xs text-on-dim font-normal ml-1">— подаётся в Claude при генерации КП</span>
+        </h3>
+      </div>
+
+      <div class="field">
+        <label>Слоган / позиционирование (опц.)</label>
+        <input id="bTagline" type="text" class="inp" maxlength="200" placeholder="Промышленные решения с 2010 года"/>
+        <p class="text-xs text-on-dim mt-1">Появится в шапке КП мелким текстом над заголовком.</p>
+      </div>
+
+      <div class="field">
+        <label>Тон коммуникации</label>
+        <select id="bTone" class="inp">
+          <option value="business">Деловой — по делу, цифры и факты</option>
+          <option value="friendly">Дружелюбный — просто и человечно</option>
+          <option value="premium">Премиум — статусно и лаконично</option>
+          <option value="tech">Технический — детально, со спецификой</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Ключевые УТП (по строке)</label>
+        <textarea id="bUsp" rows="3" class="inp resize-none text-sm" maxlength="2000"
+                  placeholder="10 лет на рынке&#10;200+ реализованных проектов&#10;Гарантия результата по договору&#10;Свой завод — без посредников"></textarea>
+        <p class="text-xs text-on-dim mt-1">Будут учтены в блоке «Что мы предлагаем» / «Понимание задачи».</p>
+      </div>
+
+      <div class="field">
+        <label>Гарантии (по строке)</label>
+        <textarea id="bGuarantees" rows="3" class="inp resize-none text-sm" maxlength="2000"
+                  placeholder="Гарантия 24 месяца&#10;Договор по 44-ФЗ / 223-ФЗ&#10;Возврат денег при срыве сроков"></textarea>
+        <p class="text-xs text-on-dim mt-1">Появятся отдельным блоком «Гарантии» в каждом КП — стабильно, без AI-вариаций.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="field">
+          <label>Шаблон приветствия (опц.)</label>
+          <input id="bIntroPhrase" type="text" class="inp" maxlength="200" placeholder="Здравствуйте, рады знакомству!"/>
+        </div>
+        <div class="field">
+          <label>Шаблон призыва (опц.)</label>
+          <input id="bCtaPhrase" type="text" class="inp" maxlength="200" placeholder="Готовы обсудить детали — позвоните или напишите."/>
+        </div>
+      </div>
+
       <div class="field">
         <label>Факсимиле подписи (опц.)</label>
         <div class="flex items-center gap-3">
@@ -1317,16 +1366,25 @@ async function openBrandModal(id){
     setLogoPreview(b.logo_url || '');
     document.getElementById('bSigUrl').value = b.signature_url || '';
     setSignaturePreview(b.signature_url || '');
+    // Расширенная персонализация
+    document.getElementById('bTagline').value = b.tagline || '';
+    document.getElementById('bTone').value = b.tone || 'business';
+    document.getElementById('bUsp').value = b.usp_list || '';
+    document.getElementById('bGuarantees').value = b.guarantees || '';
+    document.getElementById('bIntroPhrase').value = b.intro_phrase || '';
+    document.getElementById('bCtaPhrase').value = b.cta_phrase || '';
     document.getElementById('bDeleteBtn').classList.remove('hidden');
   } else {
     currentBrandId = null;
     document.getElementById('brandModalTitle').textContent = 'Новый бренд';
-    ['bName','bCompany','bLogoUrl','bContacts','bInn','bAddress','bSigUrl'].forEach(id => document.getElementById(id).value = '');
+    ['bName','bCompany','bLogoUrl','bContacts','bInn','bAddress','bSigUrl',
+     'bTagline','bUsp','bGuarantees','bIntroPhrase','bCtaPhrase'].forEach(id => document.getElementById(id).value = '');
     syncColor('bPrimary','#ff8c42');
     syncColor('bAccent','#ffb347');
     syncColor('bSecondary','#1C1C1C');
     document.getElementById('bFont').value = 'Inter';
     document.getElementById('bPreset').value = 'minimal';
+    document.getElementById('bTone').value = 'business';
     document.getElementById('bDefault').checked = false;
     setLogoPreview('');
     setSignaturePreview('');
@@ -1437,6 +1495,12 @@ async function saveBrand(){
     inn: document.getElementById('bInn').value.trim() || null,
     address: document.getElementById('bAddress').value.trim() || null,
     signature_url: document.getElementById('bSigUrl').value.trim() || null,
+    tagline: document.getElementById('bTagline').value.trim() || null,
+    tone: document.getElementById('bTone').value || 'business',
+    usp_list: document.getElementById('bUsp').value.trim() || null,
+    guarantees: document.getElementById('bGuarantees').value.trim() || null,
+    intro_phrase: document.getElementById('bIntroPhrase').value.trim() || null,
+    cta_phrase: document.getElementById('bCtaPhrase').value.trim() || null,
     is_default: document.getElementById('bDefault').checked,
   };
   if(!body.name){ await aiAlert('Введите название бренда', 'warn'); return; }

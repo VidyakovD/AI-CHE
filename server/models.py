@@ -808,6 +808,14 @@ class ProposalBrand(Base):
     address         = Column(Text, nullable=True)
     # Подпись (URL загруженной картинки факсимиле, опционально)
     signature_url   = Column(String, nullable=True)
+    # ── Расширенная персонализация (используется в Claude prompt v3) ──
+    tagline         = Column(String, nullable=True)        # «Промышленные решения с 2010 года»
+    usp_list        = Column(Text, nullable=True)          # УТП по строке: «10 лет на рынке\n200+ проектов\n…»
+    guarantees      = Column(Text, nullable=True)          # «Гарантия 2 года\nДоговор\n…»
+    tone            = Column(String, nullable=True, default="business")
+    # business | friendly | premium | tech (для подбора лексики)
+    intro_phrase    = Column(String, nullable=True)        # Шаблон обращения к клиенту
+    cta_phrase      = Column(String, nullable=True)        # Призыв к действию по умолчанию
     # Дефолтный — используется если в проекте КП не выбран бренд
     is_default      = Column(Boolean, default=False)
     created_at      = Column(DateTime, default=datetime.utcnow)

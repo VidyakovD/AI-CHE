@@ -37,6 +37,7 @@ _FONT_WHITELIST = {
     "Source Sans Pro", "Raleway", "Nunito",
 }
 _PRESET_WHITELIST = {"minimal", "classic", "bold", "compact"}
+_TONE_WHITELIST = {"business", "friendly", "premium", "tech"}
 
 
 def _validate_hex(c: str | None, default: str) -> str:
@@ -65,6 +66,13 @@ class BrandBody(BaseModel):
     address: str | None = None
     signature_url: str | None = None
     is_default: bool | None = False
+    # Расширенная персонализация (для глубокого AI-контекста)
+    tagline: str | None = None
+    usp_list: str | None = None
+    guarantees: str | None = None
+    tone: str | None = "business"
+    intro_phrase: str | None = None
+    cta_phrase: str | None = None
 
 
 def _brand_to_dict(b: ProposalBrand) -> dict:
@@ -76,6 +84,9 @@ def _brand_to_dict(b: ProposalBrand) -> dict:
         "style_preset": b.style_preset,
         "contacts": b.contacts, "inn": b.inn, "address": b.address,
         "signature_url": b.signature_url,
+        "tagline": b.tagline, "usp_list": b.usp_list,
+        "guarantees": b.guarantees, "tone": b.tone or "business",
+        "intro_phrase": b.intro_phrase, "cta_phrase": b.cta_phrase,
         "is_default": bool(b.is_default),
         "created_at": b.created_at.isoformat() if b.created_at else None,
     }
@@ -108,6 +119,8 @@ def create_brand(body: BrandBody, db: Session = Depends(get_db),
         db.query(ProposalBrand).filter_by(user_id=user.id, is_default=True) \
           .update({"is_default": False})
 
+    if body.tone and body.tone not in _TONE_WHITELIST:
+        raise HTTPException(400, f"Tone должен быть из {_TONE_WHITELIST}")
     b = ProposalBrand(
         user_id=user.id,
         name=body.name.strip()[:100],
@@ -120,6 +133,12 @@ def create_brand(body: BrandBody, db: Session = Depends(get_db),
         inn=(body.inn or "")[:20] or None,
         address=(body.address or "")[:500] or None,
         signature_url=body.signature_url,
+        tagline=(body.tagline or "")[:200] or None,
+        usp_list=(body.usp_list or "")[:2000] or None,
+        guarantees=(body.guarantees or "")[:2000] or None,
+        tone=body.tone or "business",
+        intro_phrase=(body.intro_phrase or "")[:200] or None,
+        cta_phrase=(body.cta_phrase or "")[:200] or None,
         is_default=bool(body.is_default),
     )
     db.add(b); db.commit(); db.refresh(b)
@@ -151,6 +170,13 @@ def update_brand(brand_id: int, body: BrandBody,
     b.inn = (body.inn or "")[:20] or None
     b.address = (body.address or "")[:500] or None
     b.signature_url = body.signature_url
+    if body.tone and body.tone in _TONE_WHITELIST:
+        b.tone = body.tone
+    b.tagline = (body.tagline or "")[:200] or None
+    b.usp_list = (body.usp_list or "")[:2000] or None
+    b.guarantees = (body.guarantees or "")[:2000] or None
+    b.intro_phrase = (body.intro_phrase or "")[:200] or None
+    b.cta_phrase = (body.cta_phrase or "")[:200] or None
     if body.is_default and not b.is_default:
         db.query(ProposalBrand).filter_by(user_id=user.id, is_default=True) \
           .update({"is_default": False})

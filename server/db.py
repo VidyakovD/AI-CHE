@@ -104,6 +104,13 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # КП собственный прайс-лист (вместо подтягивания из ChatBot.BotPriceItem).
     # Новые таблицы proposal_price_lists/items создаются Base.metadata.create_all.
     ("proposal_projects", "price_list_id", "INTEGER"),
+    # КП: расширенная персонализация бренда
+    ("proposal_brands", "tagline", "VARCHAR"),
+    ("proposal_brands", "usp_list", "TEXT"),
+    ("proposal_brands", "guarantees", "TEXT"),
+    ("proposal_brands", "tone", "VARCHAR DEFAULT 'business'"),
+    ("proposal_brands", "intro_phrase", "VARCHAR"),
+    ("proposal_brands", "cta_phrase", "VARCHAR"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен
