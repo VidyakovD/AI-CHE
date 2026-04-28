@@ -469,12 +469,23 @@ class PresentationProject(Base):
     audience          = Column(String, nullable=True)         # для кого (инвесторы, клиенты, команда)
     slide_count       = Column(Integer, default=10)           # сколько слайдов хочет юзер (5..30)
     extra_info        = Column(Text, nullable=True)           # доп. контекст (цифры, факты, тезисы)
-    color_scheme      = Column(String, nullable=True, default="dark")  # dark | light | brand | corp
+    color_scheme      = Column(String, nullable=True, default="dark")  # legacy: dark|light|brand|corp
     style_preset      = Column(String, nullable=True, default="business")
+    # ── Кастомные цвета (ручной выбор юзера, приоритетнее color_scheme) ──
+    bg_color          = Column(String, nullable=True)         # #1C1C1C
+    text_color        = Column(String, nullable=True)         # #f0e6d8
+    accent_color      = Column(String, nullable=True)         # #ff8c42
+    title_color       = Column(String, nullable=True)         # #ffb347
+    # ── Стиль клиента (URL сайта для парсинга стилистики) ──
+    client_site_url   = Column(String, nullable=True)         # https://client.com
+    client_site_ctx   = Column(Text, nullable=True)           # извлечённый текст с сайта
+    # ── Custom charts/диаграммы (юзер задаёт явно, не через extra_info) ──
+    custom_charts     = Column(Text, nullable=True)           # JSON массив графиков
     # Сгенерированная структура (JSON со слайдами)
-    slides_json       = Column(Text, nullable=True)           # [{title, bullets, image_url, chart}, ...]
-    pptx_path         = Column(String, nullable=True)         # /uploads/presentations/<id>.pptx
-    html_preview      = Column(String, nullable=True)         # /uploads/presentations/<id>.html (для preview)
+    slides_json       = Column(Text, nullable=True)
+    pptx_path         = Column(String, nullable=True)
+    html_preview      = Column(String, nullable=True)
+    pdf_path          = Column(String, nullable=True)         # PDF экспорт
     created_at        = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", backref="presentation_projects")

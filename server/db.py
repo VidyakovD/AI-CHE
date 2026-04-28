@@ -129,6 +129,15 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("presentation_projects", "slides_json", "TEXT"),
     ("presentation_projects", "pptx_path", "VARCHAR"),
     ("presentation_projects", "html_preview", "VARCHAR"),
+    # Презентации v2 — кастомные цвета, сайт клиента, графики, PDF
+    ("presentation_projects", "bg_color", "VARCHAR"),
+    ("presentation_projects", "text_color", "VARCHAR"),
+    ("presentation_projects", "accent_color", "VARCHAR"),
+    ("presentation_projects", "title_color", "VARCHAR"),
+    ("presentation_projects", "client_site_url", "VARCHAR"),
+    ("presentation_projects", "client_site_ctx", "TEXT"),
+    ("presentation_projects", "custom_charts", "TEXT"),
+    ("presentation_projects", "pdf_path", "VARCHAR"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

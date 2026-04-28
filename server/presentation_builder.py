@@ -61,6 +61,83 @@ def _resolve_colors(scheme: str | None) -> dict:
     return _COLOR_SCHEMES.get(scheme or "dark", _COLOR_SCHEMES["dark"])
 
 
+def _is_hex(s: str | None) -> bool:
+    if not s:
+        return False
+    s = s.strip()
+    if not s.startswith("#"):
+        return False
+    h = s[1:]
+    return len(h) in (3, 6) and all(c in "0123456789abcdefABCDEF" for c in h)
+
+
+def _resolve_colors_for_project(p: PresentationProject) -> dict:
+    """Главная функция выбора цветов: кастомные > бренд клиента > пресет."""
+    # 1) Если есть свои hex'ы — приоритет
+    if (p.bg_color and _is_hex(p.bg_color)) or (p.accent_color and _is_hex(p.accent_color)):
+        return _build_custom_palette(
+            bg=p.bg_color or "#1C1C1C",
+            text=p.text_color or "#f0e6d8",
+            accent=p.accent_color or "#ff8c42",
+            title=p.title_color or (p.accent_color or "#ffb347"),
+        )
+    # 2) Готовый пресет
+    return _resolve_colors(p.color_scheme)
+
+
+def _build_custom_palette(bg: str, text: str, accent: str, title: str) -> dict:
+    """Собрать палитру из 4 пользовательских цветов."""
+    # accent2 — на 15% светлее accent (для градиентов)
+    accent2 = _lighten_hex(accent, 0.15) or accent
+    # panel — на 5-7% светлее/темнее bg (контраст для карточек)
+    panel = _shift_hex(bg, 0.07)
+    muted = _shift_hex(text, -0.35)
+    return {
+        "bg": bg, "panel": panel or bg, "text": text,
+        "accent": accent, "accent2": accent2,
+        "muted": muted or text, "title_color": title,
+    }
+
+
+def _hex_to_rgb_tuple(h: str) -> tuple[int, int, int]:
+    h = h.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _rgb_to_hex(r: int, g: int, b: int) -> str:
+    return f"#{max(0, min(255, r)):02x}{max(0, min(255, g)):02x}{max(0, min(255, b)):02x}"
+
+
+def _lighten_hex(hex_color: str, factor: float) -> str:
+    """Осветлить (factor>0) или затемнить (factor<0) HEX-цвет."""
+    if not _is_hex(hex_color):
+        return hex_color
+    r, g, b = _hex_to_rgb_tuple(hex_color)
+    if factor > 0:
+        r = int(r + (255 - r) * factor)
+        g = int(g + (255 - g) * factor)
+        b = int(b + (255 - b) * factor)
+    else:
+        r = int(r * (1 + factor))
+        g = int(g * (1 + factor))
+        b = int(b * (1 + factor))
+    return _rgb_to_hex(r, g, b)
+
+
+def _shift_hex(hex_color: str, factor: float) -> str:
+    """Сдвинуть hex в светлую/тёмную сторону относительно его яркости.
+    Для тёмных цветов осветляем, для светлых — затемняем."""
+    if not _is_hex(hex_color):
+        return hex_color
+    r, g, b = _hex_to_rgb_tuple(hex_color)
+    luminosity = (r + g + b) / 3
+    is_dark = luminosity < 128
+    f = abs(factor) if is_dark else -abs(factor)
+    return _lighten_hex(hex_color, f)
+
+
 # ── Pre-validation ────────────────────────────────────────────────────────
 
 
@@ -79,51 +156,77 @@ def validate_presentation(p: PresentationProject) -> None:
 # ── Цена ──────────────────────────────────────────────────────────────────
 
 
-def estimate_cost_kop(slide_count: int, extra_info_len: int = 0) -> tuple[int, int]:
-    """Грубая оценка стоимости ДО генерации (для UI «примерно X ₽»).
-    Возвращает (low, high) в копейках.
-
-    Эмпирика: один слайд ~ 200 input + 300 output токенов на Claude.
-    Цена Claude Sonnet ~ 3 коп/1k input + 15 коп/1k output (это в pricing БД).
-    Плюс margin × 7. Для 10 слайдов ≈ 50-90 ₽.
+def _claude_rates_kop_per_1k(db=None) -> tuple[float, float]:
+    """Ставки Claude в копейках за 1000 токенов (input, output).
+    Берём из ModelPricing если есть, иначе fallback по официальным ценам
+    Anthropic Sonnet × текущий курс USD/RUB.
     """
-    # Input tokens: 800 базовых + 80 на слайд + 0.4 за символ extra_info
-    input_t = 800 + slide_count * 80 + int(extra_info_len * 0.4)
-    output_t = slide_count * 350     # ~350 токенов на слайд в JSON
+    if db is not None:
+        try:
+            from server.models import ModelPricing
+            row = db.query(ModelPricing).filter_by(model_id="claude").first()
+            if row and (row.ch_per_1k_input or row.ch_per_1k_output):
+                return (float(row.ch_per_1k_input or 0),
+                        float(row.ch_per_1k_output or 0))
+        except Exception:
+            pass
+    # Fallback: Sonnet 4 = $3 / $15 за 1M токенов = $0.003 / $0.015 за 1k.
+    # При курсе ~95 ₽/$ → 0.285 ₽/1k input, 1.425 ₽/1k output.
+    # В копейках: 28.5 / 142.5
+    return 28.5, 142.5
 
-    # Базовые ставки Claude Sonnet (за 1000 токенов в копейках)
-    base_in_per_k = 3
-    base_out_per_k = 15
-    base_cost = (input_t / 1000) * base_in_per_k + (output_t / 1000) * base_out_per_k
-    # Margin × 7
-    cost = max(int(round(base_cost * 7)), 5000)  # минимум 50 ₽
-    # Возвращаем диапазон ±25%
-    return int(cost * 0.85), int(cost * 1.25)
+
+def estimate_cost_kop(slide_count: int, extra_info_len: int = 0,
+                      images_count: int = 0, has_site: bool = False,
+                      db=None) -> tuple[int, int]:
+    """Оценка стоимости ДО генерации (для UI «≈ X-Y ₽»).
+    Внутри: токены Claude × margin (по умолчанию ×7 — pricing.presentation.margin_pct=700).
+    Это маржа сервиса — юзеру в UI не показываем как «×7», только итог.
+
+    Динамика: больше слайдов → больше output → дороже. Картинки дороже из-за vision.
+    """
+    from server.pricing import get_price as _gp
+    in_per_k, out_per_k = _claude_rates_kop_per_1k(db)
+    input_t = 1000 + slide_count * 100 + int(extra_info_len * 0.4)
+    if images_count:
+        input_t += images_count * 1500   # vision-картинки дороже
+    if has_site:
+        input_t += 800
+    output_t = slide_count * 420
+    base = (input_t / 1000) * in_per_k + (output_t / 1000) * out_per_k
+    margin_pct = int(_gp("presentation.margin_pct", default=700))
+    cost = max(int(round(base * margin_pct / 100)), 1)
+    return int(cost * 0.85), int(cost * 1.15)
 
 
 def calc_actual_cost_kop(usage: dict, db) -> int:
-    """Реальная стоимость по факту использованных токенов × margin 7."""
-    from server.models import ModelPricing
+    """Реальная стоимость по фактическим токенам Claude × margin
+    (presentation.margin_pct=700 по умолчанию).
+    Маржа — внутреннее правило сервиса, в UI не светится."""
     from server.pricing import get_price as _gp
+    in_per_k, out_per_k = _claude_rates_kop_per_1k(db)
     input_t = int(usage.get("input_tokens", 0) or 0)
     output_t = int(usage.get("output_tokens", 0) or 0)
-    pricing = db.query(ModelPricing).filter_by(model_id="claude").first()
-    if pricing and (pricing.ch_per_1k_input or pricing.ch_per_1k_output):
-        base = (input_t / 1000) * (pricing.ch_per_1k_input or 0) + \
-               (output_t / 1000) * (pricing.ch_per_1k_output or 0)
-        base = max(int(round(base)), pricing.min_ch_per_req or 1)
-    else:
-        base = 100  # fallback 1 ₽
-    margin = int(_gp("presentation.margin_pct", default=700))
-    min_cost = int(_gp("presentation.min_cost_kop", default=5000))   # 50 ₽
-    return max(int(round(base * margin / 100)), min_cost)
+    base = (input_t / 1000) * in_per_k + (output_t / 1000) * out_per_k
+    margin_pct = int(_gp("presentation.margin_pct", default=700))
+    return max(int(round(base * margin_pct / 100)), 1)
 
 
 # ── Claude prompt v1 (JSON-first) ─────────────────────────────────────────
 
 
-def _claude_prompt(p: PresentationProject, image_urls: list[str]) -> str:
-    """Промпт. AI возвращает JSON: список слайдов."""
+def _claude_prompt(p: PresentationProject, image_urls: list[str],
+                    image_descriptions: list[str] | None = None,
+                    site_ctx: str = "",
+                    custom_charts: list[dict] | None = None) -> str:
+    """Промпт. AI возвращает JSON: список слайдов.
+
+    Параметры:
+    - image_urls — URL картинок (попадают в image_idx)
+    - image_descriptions — что AI vision увидел на картинках (опц.)
+    - site_ctx — текст с сайта клиента (для подбора стиля/тона)
+    - custom_charts — графики, явно заданные юзером (с данными)
+    """
     sc = int(p.slide_count or 10)
     audience = (p.audience or "").strip() or "(не указано)"
     topic = (p.topic or p.name or "").strip()
@@ -187,14 +290,87 @@ def _claude_prompt(p: PresentationProject, image_urls: list[str]) -> str:
             "У тебя есть картинки (по индексам). Распредели их по слайдам через image_idx:",
         ]
         for i, u in enumerate(image_urls):
-            parts.append(f"  [{i}] {u[:120]}")
+            desc = ""
+            if image_descriptions and i < len(image_descriptions):
+                desc = " — " + (image_descriptions[i] or "")[:200]
+            parts.append(f"  [{i}] {u[:80]}{desc}")
         parts.append("Используй только релевантные слайды. Для type=title часто кладут лого/обложку.")
+        parts.append("Если на картинке есть текст/график/диаграмма — упомяни это в bullets соответствующего слайда.")
+    if site_ctx:
+        parts += [
+            "",
+            "=== СТИЛЬ И ТОН КЛИЕНТА (с его сайта — учти при выборе формулировок и тематики) ===",
+            site_ctx[:4000],
+            "Подбери тон и лексику под ИХ бренд, а не нашу платформу. "
+            "Если на сайте корпоративный официальный язык — используй его. "
+            "Если стартаповский/энергичный — поддержи стиль.",
+        ]
+    if custom_charts:
+        parts += [
+            "",
+            "=== ЯВНЫЕ ГРАФИКИ ОТ ПОЛЬЗОВАТЕЛЯ (используй ТОЧНО эти данные) ===",
+        ]
+        for i, ch in enumerate(custom_charts[:10]):
+            kind = ch.get("kind") or "bar"
+            labels = ch.get("labels") or []
+            values = ch.get("values") or []
+            title = ch.get("title") or f"График {i+1}"
+            parts.append(f"  [{i}] {title} ({kind}): {list(zip(labels, values))}")
+        parts.append("Эти графики — ОБЯЗАТЕЛЬНО включи в презентацию (отдельные slides type=chart с этими данными).")
     parts += [
         "",
         f"Сегодня: {datetime.utcnow().strftime('%d.%m.%Y')}.",
         "ВЕРНИ ТОЛЬКО ВАЛИДНЫЙ JSON. БЕЗ ОБЪЯСНЕНИЙ. БЕЗ ОБЁРТКИ.",
     ]
     return "\n".join(parts)
+
+
+# ── Vision: краткое описание фото через Claude ─────────────────────────
+
+
+def describe_image_via_claude(image_url: str, user_api_key: str | None = None) -> str:
+    """Прокидываем картинку в Claude vision и просим описать одной строкой:
+    что на ней изображено + если есть текст/цифры/график — какие.
+    Используется для (1) контекста при генерации слайдов, (2) проверки
+    что картинка не мусор. Возвращает '' при ошибке."""
+    if not image_url:
+        return ""
+    full_url = image_url
+    if image_url.startswith("/"):
+        app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+        full_url = app_url + image_url
+    try:
+        # Анторопический формат: content = list[{type:'image', source:{type:'url', url:...}}, ...]
+        result = generate_response("claude", [{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "url", "url": full_url}},
+                {"type": "text", "text":
+                    "Опиши кратко (1 предложение, до 150 символов): что изображено? "
+                    "Если есть значимый текст/цифры/график — упомяни. Без пред-обычной фразы «На картинке...»."},
+            ],
+        }], extra={"max_tokens": 200, "model": "claude-haiku-4"}, user_api_key=user_api_key)
+        if isinstance(result, dict):
+            return str(result.get("content", "") or "")[:300].strip()
+    except Exception as e:
+        log.warning(f"[vision] image describe failed: {type(e).__name__}: {e}")
+    return ""
+
+
+def parse_client_site_for_style(url: str) -> tuple[str, dict]:
+    """Парсит сайт клиента для:
+    1) Текстового контекста (подбор тона, лексики, темы)
+    2) Доминирующих цветов (опц., через CSS-сниффинг — пока упрощённо)
+
+    Возвращает (text_ctx, dominant_colors_dict).
+    """
+    try:
+        from server.proposal_builder import parse_client_site as _parse_pp
+        ctx = _parse_pp(url)
+        return (ctx or ""), {}
+    except Exception as e:
+        log.warning(f"[client-site] parse failed: {type(e).__name__}: {e}")
+        return "", {}
 
 
 def _parse_json(content: str) -> dict | None:
@@ -217,8 +393,12 @@ def _parse_json(content: str) -> dict | None:
 
 
 def _render_html_preview(data: dict, scheme: str) -> str:
+    """Совместимость: рендер по имени scheme."""
+    return _render_html_preview_inner(data, _resolve_colors(scheme))
+
+
+def _render_html_preview_inner(data: dict, c: dict) -> str:
     """Карусель слайдов для превью на сайте (с навигацией стрелками + точками)."""
-    c = _resolve_colors(scheme)
     title = data.get("title", "Презентация")
     subtitle = data.get("subtitle", "")
     slides = data.get("slides") or []
@@ -488,18 +668,20 @@ def _html_safe(s) -> str:
 
 
 def build_pptx(data: dict, scheme: str = "dark", out_path: str = None) -> str:
-    """Сборка .pptx через python-pptx. Возвращает путь к файлу."""
+    """Совместимость: сборка PPTX по имени scheme."""
+    return build_pptx_with_palette(data, _resolve_colors(scheme), out_path)
+
+
+def build_pptx_with_palette(data: dict, c: dict, out_path: str = None) -> str:
+    """Сборка .pptx через python-pptx с явной палитрой. Возвращает путь."""
     try:
         from pptx import Presentation
-        from pptx.util import Inches, Pt, Emu
-        from pptx.dgm.color import RGBColor  # noqa
+        from pptx.util import Inches, Pt
+        from pptx.dml.color import RGBColor
     except Exception:
-        # python-pptx иногда импортируется немного иначе
         from pptx import Presentation  # type: ignore
         from pptx.util import Inches, Pt
         from pptx.dml.color import RGBColor
-
-    c = _resolve_colors(scheme)
     def hex_to_rgb(h):
         h = h.lstrip("#")
         return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
@@ -699,17 +881,61 @@ def _add_remote_image(slide, url: str, prs) -> None:
 
 def generate_presentation(db, project: PresentationProject, image_urls: list[str] | None = None,
                            user_api_key: str | None = None) -> dict:
-    """Pipeline: AI → JSON → HTML preview + PPTX. Возвращает {data, html_path, pptx_path, usage}."""
+    """Pipeline:
+       1. (опц.) Парсим сайт клиента → текст-контекст + цвета
+       2. (опц.) Vision-описания всех фото (Claude Haiku)
+       3. (опц.) Достаём custom_charts от юзера
+       4. AI → JSON со слайдами (с учётом всего контекста)
+       5. Маппинг image_idx → image_urls
+       6. HTML preview + PPTX
+
+    Возвращает {data, html_path, pptx_path, pdf_path, usage}.
+    """
     image_urls = image_urls or []
-    prompt = _claude_prompt(project, image_urls)
-    log.info(f"[presentation] gen project={project.id} slides={project.slide_count}")
+
+    # 1) Сайт клиента (если задан)
+    site_ctx = ""
+    if project.client_site_url and project.client_site_url.strip():
+        # Кэш: не парсим повторно если есть client_site_ctx
+        if project.client_site_ctx:
+            site_ctx = project.client_site_ctx
+        else:
+            site_ctx, _palette = parse_client_site_for_style(project.client_site_url.strip())
+            if site_ctx:
+                project.client_site_ctx = site_ctx
+
+    # 2) Vision: описания картинок (только если их немного — экономим)
+    image_descriptions: list[str] = []
+    if image_urls and len(image_urls) <= 8:
+        for url in image_urls:
+            desc = describe_image_via_claude(url, user_api_key)
+            image_descriptions.append(desc)
+            log.info(f"[vision] {url[:60]} → {desc[:80]}")
+
+    # 3) Custom charts от юзера
+    custom_charts: list[dict] = []
+    if project.custom_charts:
+        try:
+            cc = json.loads(project.custom_charts)
+            if isinstance(cc, list):
+                custom_charts = cc[:10]
+        except Exception:
+            pass
+
+    # 4) Главный prompt → AI
+    prompt = _claude_prompt(project, image_urls,
+                             image_descriptions=image_descriptions,
+                             site_ctx=site_ctx,
+                             custom_charts=custom_charts)
+    log.info(f"[presentation] gen project={project.id} slides={project.slide_count} "
+             f"images={len(image_urls)} site={bool(site_ctx)} charts={len(custom_charts)}")
     ans = generate_response("claude", [{"role": "user", "content": prompt}],
-                             extra={"max_tokens": 8000}, user_api_key=user_api_key)
+                             extra={"max_tokens": 12000}, user_api_key=user_api_key)
     if not isinstance(ans, dict) or not ans.get("content"):
         raise ValueError("AI вернул пустой ответ")
     data = _parse_json(ans.get("content", ""))
     if not data or not data.get("slides"):
-        raise ValueError("AI вернул не-JSON / без слайдов. Попробуйте упростить тему.")
+        raise ValueError("AI вернул не-JSON / без слайдов. Попробуйте упростить тему или уменьшить число слайдов.")
 
     # Маппинг image_idx → image_urls
     for s in data.get("slides", []):
@@ -718,33 +944,118 @@ def generate_presentation(db, project: PresentationProject, image_urls: list[str
             if 0 <= idx < len(image_urls):
                 s["image_url"] = image_urls[idx]
 
-    # Сохраняем артефакты
+    # Если юзер задал custom_charts — ОБЯЗАТЕЛЬНО прокинем их в финальный JSON
+    # (страховка на случай если AI забыл их включить)
+    if custom_charts:
+        existing_charts = sum(1 for s in data.get("slides", [])
+                              if isinstance(s, dict) and (s.get("type") or "") == "chart")
+        if existing_charts < len(custom_charts):
+            # Добавляем недостающие графики после первой content-секции
+            insert_pos = 2
+            for ch in custom_charts:
+                data["slides"].insert(insert_pos, {
+                    "type": "chart",
+                    "title": ch.get("title") or "Данные",
+                    "subtitle": ch.get("subtitle") or "",
+                    "chart": {
+                        "kind": (ch.get("kind") or "bar").lower(),
+                        "labels": ch.get("labels") or [],
+                        "values": ch.get("values") or [],
+                        "caption": ch.get("caption") or "",
+                    },
+                })
+                insert_pos += 1
+
+    # Палитра — кастомная или пресет
+    palette = _resolve_colors_for_project(project)
+
+    # 5) Сохраняем артефакты
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out_dir = os.path.join(base, "uploads", "presentations")
     os.makedirs(out_dir, exist_ok=True)
     ts = int(datetime.utcnow().timestamp())
 
     # HTML preview
-    html = _render_html_preview(data, project.color_scheme or "dark")
+    html = _render_html_preview_with_palette(data, palette)
     html_name = f"pres_{project.id}_{ts}.html"
-    html_path_abs = os.path.join(out_dir, html_name)
-    with open(html_path_abs, "w", encoding="utf-8") as f:
+    with open(os.path.join(out_dir, html_name), "w", encoding="utf-8") as f:
         f.write(html)
     html_rel = f"/uploads/presentations/{html_name}"
 
     # PPTX
+    pptx_rel = None
     pptx_name = f"pres_{project.id}_{ts}.pptx"
     pptx_path_abs = os.path.join(out_dir, pptx_name)
     try:
-        build_pptx(data, project.color_scheme or "dark", pptx_path_abs)
+        build_pptx_with_palette(data, palette, pptx_path_abs)
         pptx_rel = f"/uploads/presentations/{pptx_name}"
     except Exception as e:
         log.error(f"[presentation] PPTX build failed: {type(e).__name__}: {e}")
-        pptx_rel = None
+
+    # PDF (опц., через xhtml2pdf — может не сработать на сложных слайдах)
+    pdf_rel = None
+    try:
+        from server.pdf_builder import html_to_pdf_bytes
+        # Для PDF используем упрощённый «один-слайд-на-страницу» рендер
+        pdf_html = _render_pdf_html(data, palette)
+        pdf_bytes = html_to_pdf_bytes(pdf_html)
+        pdf_name = f"pres_{project.id}_{ts}.pdf"
+        with open(os.path.join(out_dir, pdf_name), "wb") as f:
+            f.write(pdf_bytes)
+        pdf_rel = f"/uploads/presentations/{pdf_name}"
+    except Exception as e:
+        log.warning(f"[presentation] PDF build skipped: {type(e).__name__}: {e}")
 
     return {
         "data": data,
         "html_path": html_rel,
         "pptx_path": pptx_rel,
+        "pdf_path": pdf_rel,
         "usage": ans.get("usage", {}) or {},
     }
+
+
+def _render_html_preview_with_palette(data: dict, palette: dict) -> str:
+    """Враппер для нового _render_html_preview с явной палитрой
+    (вместо имени schemeы)."""
+    return _render_html_preview_inner(data, palette)
+
+
+def _render_pdf_html(data: dict, palette: dict) -> str:
+    """HTML-вариант для печати в PDF: каждый слайд на A4-странице."""
+    p = palette
+    slides = data.get("slides") or []
+    parts = [f"""<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"/>
+<style>
+@page {{ size: A4 landscape; margin: 0; }}
+body {{ margin: 0; font-family: 'Liberation Sans', Inter, sans-serif;
+        background: {p['bg']}; color: {p['text']}; }}
+.slide {{ page-break-after: always; padding: 32pt 40pt; min-height: 90vh;
+          background: {p['bg']}; box-sizing: border-box; }}
+h1 {{ color: {p['title_color']}; font-size: 36pt; margin: 0 0 16pt; line-height: 1.2; }}
+h2 {{ color: {p['title_color']}; font-size: 26pt; margin: 0 0 12pt; }}
+h3 {{ color: {p['accent']}; font-size: 18pt; }}
+ul {{ font-size: 16pt; line-height: 1.6; padding-left: 28pt; }}
+li {{ margin-bottom: 8pt; }}
+.subtitle {{ font-size: 18pt; color: {p['muted']}; }}
+.cta {{ background: {p['accent']}; color: #fff; padding: 24pt; border-radius: 6pt; text-align: center; }}
+</style></head><body>"""]
+    esc = _html_safe
+    for s in slides:
+        typ = (s.get("type") or "content").lower()
+        cls = "slide " + typ
+        title = esc(s.get("title", ""))
+        sub = esc(s.get("subtitle", ""))
+        bullets = s.get("bullets") if isinstance(s.get("bullets"), list) else []
+        parts.append(f'<div class="{cls}">')
+        if typ in ("title", "section", "cta"):
+            parts.append(f'<h1>{title}</h1>')
+        else:
+            parts.append(f'<h2>{title}</h2>')
+        if sub:
+            parts.append(f'<div class="subtitle">{sub}</div>')
+        if bullets:
+            parts.append('<ul>' + "".join(f'<li>{esc(b)}</li>' for b in bullets) + '</ul>')
+        parts.append('</div>')
+    parts.append('</body></html>')
+    return "".join(parts)

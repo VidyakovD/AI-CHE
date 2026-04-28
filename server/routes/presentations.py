@@ -161,8 +161,112 @@ def get_presentation_project(project_id: int, db: Session = Depends(get_db),
             "color_scheme": p.color_scheme or "dark",
             "style_preset": p.style_preset or "business",
             "html_preview": p.html_preview, "pptx_path": p.pptx_path,
+            "pdf_path": p.pdf_path,
             "has_slides": bool(p.slides_json),
+            # v2: кастомные цвета и сайт клиента
+            "bg_color": p.bg_color, "text_color": p.text_color,
+            "accent_color": p.accent_color, "title_color": p.title_color,
+            "client_site_url": p.client_site_url,
+            "custom_charts": json.loads(p.custom_charts) if p.custom_charts else [],
             "created_at": p.created_at.isoformat() if p.created_at else None}
+
+
+# ── ТЗ-визард: AI помогает составить бриф для презентации ────────────────
+
+
+class BriefAssistBody(BaseModel):
+    rough_idea: str               # «что хочу — в свободной форме»
+    audience: str | None = None
+    slide_count: int | None = 10
+
+
+@router.post("/presentations/brief-assist")
+def brief_assist(body: BriefAssistBody, db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    """AI-ассистент: юзер пишет грубую идею → AI возвращает структурированный
+    бриф (тема + аудитория + ключевые тезисы + предложенное число слайдов).
+    Стоимость = реальные токены Claude Haiku (это короткий вызов, дёшево)."""
+    if not body.rough_idea or len(body.rough_idea.strip()) < 10:
+        raise HTTPException(400, "Опиши идею хотя бы кратко (10+ символов)")
+    sc = max(3, min(30, int(body.slide_count or 10)))
+    audience = (body.audience or "(не указано)").strip()
+    prompt = (
+        "Помоги юзеру оформить бриф презентации. На вход — грубая идея.\n"
+        "Верни СТРОГИЙ JSON:\n"
+        "{\n"
+        '  "topic": "Чёткая тема — 1 предложение",\n'
+        '  "audience": "Уточнённая ЦА",\n'
+        '  "extra_info": "Структурированный бриф: 5-10 буллетов по фактам, цифрам, тезисам.\\n"\n'
+        '                "Что показать на каждом слайде. Без воды.",\n'
+        '  "suggested_slide_count": 10,\n'
+        '  "structure_hint": ["Слайд 1: Обложка / тема", "Слайд 2: Проблема", "..."],\n'
+        '  "questions": ["Уточняющий вопрос 1 (если идея неполная)", "Вопрос 2", "..."]\n'
+        "}\n\n"
+        "Без markdown. Без пояснений. Только JSON.\n\n"
+        f"=== ИДЕЯ ОТ ПОЛЬЗОВАТЕЛЯ ===\n{body.rough_idea[:5000]}\n\n"
+        f"=== ЦА (если указана) ===\n{audience}\n\n"
+        f"=== ЖЕЛАЕМОЕ КОЛ-ВО СЛАЙДОВ ===\n{sc}\n"
+    )
+    from server.ai import generate_response
+    from server.models import UserApiKey
+    uk = db.query(UserApiKey).filter_by(user_id=user.id, provider="anthropic").first()
+    user_key = uk.api_key if uk else None
+    try:
+        ans = generate_response("claude", [{"role": "user", "content": prompt}],
+                                  extra={"max_tokens": 2000, "model": "claude-haiku-4"},
+                                  user_api_key=user_key)
+    except Exception as e:
+        log.error(f"[brief-assist] AI failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, "AI недоступен — попробуйте позже")
+    if not isinstance(ans, dict) or not ans.get("content"):
+        raise HTTPException(503, "AI вернул пустой ответ")
+    # Парсим JSON
+    import re as _re
+    s = ans.get("content", "").strip()
+    s = _re.sub(r"^```(?:json)?\s*", "", s, flags=_re.IGNORECASE)
+    s = _re.sub(r"\s*```\s*$", "", s)
+    m = _re.search(r"\{[\s\S]*\}", s)
+    data = {}
+    if m:
+        try: data = json.loads(m.group(0))
+        except Exception: pass
+    if not data:
+        raise HTTPException(503, "AI ответил неструктурированно — попробуй ещё раз")
+    # Списываем по факту токенов (без margin — как у генерации)
+    from server.presentation_builder import calc_actual_cost_kop
+    cost = calc_actual_cost_kop(ans.get("usage") or {}, db)
+    cost = max(cost, 1)
+    from server.billing import deduct_strict
+    if not deduct_strict(db, user.id, cost):
+        # Бриф — мелочь, но всё-таки уважаем баланс
+        raise HTTPException(402, f"Недостаточно средств (нужно ~{cost/100:.2f} ₽)")
+    db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
+                       description=f"AI-бриф презентации ({cost/100:.2f} ₽)"))
+    db.commit()
+    data["cost_kop"] = cost
+    return data
+
+
+# ── PDF download ─────────────────────────────────────────────────────────
+
+
+@router.get("/presentations/projects/{project_id}/pdf")
+def download_pdf(project_id: int, db: Session = Depends(get_db),
+                  user=Depends(current_user)):
+    from fastapi.responses import FileResponse
+    p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.pdf_path:
+        raise HTTPException(404, "PDF не сгенерирован")
+    import os as _os, re as _re
+    base = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+    abs_path = _os.path.join(base, p.pdf_path.lstrip("/"))
+    if not _os.path.exists(abs_path):
+        raise HTTPException(404, "PDF файл недоступен")
+    safe = _re.sub(r"[^\w\-]", "_", p.name or "presentation")[:40]
+    return FileResponse(abs_path, media_type="application/pdf",
+                         filename=f"{safe}.pdf")
 
 
 class AttachBotBody(BaseModel):
@@ -244,6 +348,52 @@ def update_presentation_project(project_id: int, body: dict,
             p.image_paths = json.dumps(body["image_paths"][:20], ensure_ascii=False)
         elif body["image_paths"] is None:
             p.image_paths = None
+    # ── v2: кастомные цвета (color picker) ──
+    import re as _re_hex
+    _hex_re = _re_hex.compile(r'^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$')
+    for fld in ("bg_color", "text_color", "accent_color", "title_color"):
+        if fld in body:
+            v = body[fld]
+            if v is None or (isinstance(v, str) and v.strip() == ""):
+                setattr(p, fld, None)
+            elif isinstance(v, str) and _hex_re.match(v.strip()):
+                setattr(p, fld, v.strip())
+    # ── v2: URL сайта клиента ──
+    if "client_site_url" in body:
+        v = (body["client_site_url"] or "").strip()
+        if v and (v.startswith("http://") or v.startswith("https://")):
+            if v != (p.client_site_url or ""):
+                p.client_site_url = v[:500]
+                p.client_site_ctx = None  # сброс кэша
+        elif not v:
+            p.client_site_url = None
+            p.client_site_ctx = None
+    # ── v2: custom charts (явные графики юзера) ──
+    if "custom_charts" in body:
+        cc = body["custom_charts"]
+        if isinstance(cc, list):
+            cleaned = []
+            for ch in cc[:10]:
+                if not isinstance(ch, dict):
+                    continue
+                kind = (ch.get("kind") or "bar").lower()
+                if kind not in ("bar", "line", "pie"):
+                    kind = "bar"
+                labels = [str(x)[:50] for x in (ch.get("labels") or [])][:30]
+                values = []
+                for v in (ch.get("values") or [])[:30]:
+                    try: values.append(float(v))
+                    except Exception: values.append(0.0)
+                if labels and values and len(labels) == len(values):
+                    cleaned.append({
+                        "kind": kind, "labels": labels, "values": values,
+                        "title": (ch.get("title") or "")[:100],
+                        "subtitle": (ch.get("subtitle") or "")[:200],
+                        "caption": (ch.get("caption") or "")[:100],
+                    })
+            p.custom_charts = json.dumps(cleaned, ensure_ascii=False) if cleaned else None
+        elif cc is None:
+            p.custom_charts = None
     db.commit()
     return {"status": "ok"}
 
@@ -376,15 +526,24 @@ def generate_presentation(project_id: int, body: dict = None,
 def estimate_cost_endpoint(body: dict, db: Session = Depends(get_db),
                             user=Depends(current_user)):
     """Прикидка стоимости ДО генерации (для UI «примерно X ₽»).
-    body: {slide_count: int, extra_info_len: int}"""
+    body: {
+      slide_count: int,
+      extra_info_len: int,
+      images_count: int,         # картинки → vision (дорого)
+      has_site: bool,            # URL клиента → парсинг
+    }"""
     from server.presentation_builder import estimate_cost_kop
-    sc = int((body or {}).get("slide_count") or 10)
-    extra_len = int((body or {}).get("extra_info_len") or 0)
-    sc = max(3, min(40, sc))
-    low, high = estimate_cost_kop(sc, extra_len)
+    b = body or {}
+    sc = max(3, min(40, int(b.get("slide_count") or 10)))
+    extra_len = int(b.get("extra_info_len") or 0)
+    images_count = max(0, min(20, int(b.get("images_count") or 0)))
+    has_site = bool(b.get("has_site"))
+    low, high = estimate_cost_kop(sc, extra_len, images_count, has_site, db)
     return {
         "low_kop": low, "high_kop": high,
-        "low_rub": round(low / 100, 0), "high_rub": round(high / 100, 0),
+        # Не округляем до целых рублей — на маленьких суммах теряется точность
+        "low_rub": round(low / 100, 2),
+        "high_rub": round(high / 100, 2),
     }
 
 

@@ -31,17 +31,17 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 .badge-error{background:rgba(255,107,107,0.12);color:#ff6b6b;border:1px solid rgba(255,107,107,0.2)}
 .field label{display:block;font-size:11px;color:#a89880;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
 .empty{padding:48px 24px;text-align:center;color:#a89880}
-.scheme-card{cursor:pointer;border:2px solid rgba(74,63,47,0.4);border-radius:10px;padding:12px;transition:all .15s;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px}
+.scheme-card{cursor:pointer;border:2px solid rgba(74,63,47,0.4);border-radius:10px;padding:8px;transition:all .15s;text-align:center}
 .scheme-card.active{border-color:#ff8c42;background:rgba(255,140,66,0.05)}
-.scheme-preview{width:100%;height:50px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:18px}
-.slide-thumb{aspect-ratio:16/9;border-radius:8px;background:#272018;border:1px solid rgba(74,63,47,0.3);padding:8px;font-size:11px;overflow:hidden;display:flex;flex-direction:column}
-.slide-thumb .num{font-size:9px;color:#a89880;margin-bottom:2px}
-.slide-thumb .ttl{font-weight:700;color:#ffb347;font-size:11px;line-height:1.2;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.slide-thumb .body{flex:1;font-size:9px;color:#a89880;line-height:1.3;overflow:hidden}
+.scheme-preview{width:100%;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
 .cost-hint{font-size:11px;color:#a89880;font-style:italic;margin-top:4px}
 .img-thumb{position:relative;width:60px;height:60px;border-radius:6px;overflow:hidden;border:1px solid rgba(74,63,47,0.4)}
 .img-thumb img{width:100%;height:100%;object-fit:cover}
 .img-thumb button{position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.7);color:#fff;border:0;width:18px;height:18px;border-radius:50%;cursor:pointer;font-size:11px;line-height:18px}
+.color-row{display:flex;align-items:center;gap:6px}
+.color-row input[type="color"]{width:36px;height:36px;border:1px solid rgba(74,63,47,0.5);border-radius:8px;cursor:pointer;padding:0;background:transparent}
+.color-row input[type="text"]{flex:1;padding:8px 10px;font-family:monospace;font-size:12px}
+.chart-row{background:#272018;border:1px solid rgba(74,63,47,0.4);border-radius:10px;padding:10px;margin-bottom:8px}
 </style>
 <script src="/icons.js" defer></script>
 </head>
@@ -54,7 +54,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <a href="index.html" class="btn-g text-xs">← Назад</a>
       <div>
         <h1 class="text-2xl font-extrabold font-headline">Презентации <span class="sig-text">с AI</span></h1>
-        <p class="text-sm text-on-dim">Структура, графики, картинки, экспорт PPTX. На основе Claude.</p>
+        <p class="text-sm text-on-dim">Стиль под клиента, графики, экспорт PPTX/PDF/HTML</p>
       </div>
     </div>
     <button onclick="openCreate()" class="btn-p">
@@ -71,95 +71,152 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   <div id="projectsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
   <div id="emptyState" class="card empty hidden">
     <p class="text-base mb-2">Пока нет презентаций.</p>
-    <p class="text-xs">Нажми «Новая презентация» — заполни тему, аудиторию и количество слайдов.</p>
+    <p class="text-xs">Нажми «Новая презентация» — заполни тему, аудиторию и выбери цвета.</p>
   </div>
 </div>
 
-<!-- ── Modal: Создание/редактирование презентации ── -->
+<!-- ── Modal: Создание/редактирование ── -->
 <div id="projectModal" class="modal-bg">
-  <div class="card max-w-3xl w-full mx-auto" style="margin-top:4vh">
+  <div class="card max-w-3xl w-full mx-auto" style="margin-top:3vh">
     <div class="flex items-center justify-between p-5 border-b border-outline/15">
       <h2 id="projectModalTitle" class="font-headline font-bold text-lg">Новая презентация</h2>
       <button onclick="closeProject()" class="btn-g text-xs">✕</button>
     </div>
-    <div class="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+    <div class="p-5 space-y-4 max-h-[78vh] overflow-y-auto">
+      <!-- Базовое -->
       <div class="field">
-        <label>Название проекта (для тебя)</label>
-        <input id="pNa" type="text" class="inp" placeholder="Презентация продукта для инвесторов"/>
+        <label>Название проекта</label>
+        <input id="pNa" type="text" class="inp" placeholder="Презентация для клиента X"/>
       </div>
       <div class="field">
-        <label>Тема презентации <span class="text-error">*</span></label>
-        <input id="pTopic" type="text" class="inp" placeholder="О чём презентация — например «Запуск нового продукта Х»"/>
+        <label>Тема <span class="text-error">*</span></label>
+        <input id="pTopic" type="text" class="inp" placeholder="О чём — например «Запуск нового продукта»"/>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
           <label>Целевая аудитория</label>
-          <input id="pAudience" type="text" class="inp" placeholder="Инвесторы / клиенты / команда / партнёры..."/>
+          <input id="pAudience" type="text" class="inp" placeholder="Инвесторы / клиенты / команда"/>
         </div>
         <div class="field">
-          <label>Количество слайдов: <span id="pSlideCountVal" class="text-primary font-bold">10</span></label>
+          <label>Слайдов: <span id="pSlideCountVal" class="text-primary font-bold">10</span></label>
           <input id="pSlideCount" type="range" min="3" max="30" value="10" class="w-full"
                  oninput="document.getElementById('pSlideCountVal').textContent=this.value;_updateCostHint()"/>
         </div>
       </div>
+
+      <!-- ТЗ-визард -->
+      <div class="bg-primary/10 border border-primary/30 rounded-lg p-3">
+        <div class="flex items-start justify-between gap-2 flex-wrap">
+          <div class="flex-1">
+            <div class="text-sm font-headline font-bold mb-1">✨ Помоги составить ТЗ</div>
+            <div class="text-xs text-on-dim">Опиши идею в свободной форме — AI оформит структурированный бриф.</div>
+          </div>
+          <button onclick="openBriefAssistant()" class="btn-g text-xs">Открыть мастер</button>
+        </div>
+      </div>
+
       <div class="field">
-        <label>Доп. информация — цифры, факты, тезисы (чем больше — тем точнее результат)</label>
+        <label>Доп. информация — цифры, факты, тезисы</label>
         <textarea id="pExtra" rows="6" class="inp resize-y text-sm"
-                  placeholder="Например:&#10;— Выручка 50 млн ₽ в 2025 г, рост 40% год-к-году&#10;— Команда из 12 человек, 3 года на рынке&#10;— Клиенты: ВТБ, Сбер, X5 Group&#10;— Уникальность: единственный сервис с XYZ&#10;— Цели на 2026: выйти на 200 млн ₽"
+                  placeholder="Например:&#10;— Выручка 50 млн ₽ в 2025 г, рост 40% год-к-году&#10;— Команда 12 человек, 3 года на рынке&#10;— Клиенты: ВТБ, Сбер, X5&#10;— Цели на 2026: 200 млн ₽"
                   oninput="_updateCostHint()"></textarea>
+      </div>
+
+      <!-- Сайт клиента -->
+      <div class="field">
+        <label>URL сайта клиента (опц.)</label>
+        <input id="pClientSite" type="url" class="inp" placeholder="https://client.com — AI прочитает, подберёт стиль"
+               oninput="_updateCostHint()"/>
+        <p class="text-xs text-on-dim/70 mt-1">AI считает сайт и подберёт тон/формулировки под их бренд.</p>
       </div>
 
       <!-- Картинки -->
       <div class="field">
-        <label>Изображения (необязательно — макс 10, до 5 МБ каждое)</label>
+        <label>Изображения — макс 10, до 5 МБ. AI распознает что на них (vision).</label>
         <div class="flex flex-wrap gap-2 mb-2" id="pImagesPreview"></div>
         <div class="flex items-center gap-2">
           <input type="file" id="pImageInput" accept="image/*" multiple class="hidden" onchange="uploadImages(event)"/>
-          <button onclick="document.getElementById('pImageInput').click()" class="btn-g text-sm">📷 Добавить картинки</button>
-          <span class="text-xs text-on-dim">AI распределит их по релевантным слайдам</span>
+          <button onclick="document.getElementById('pImageInput').click()" class="btn-g text-sm">📷 Добавить</button>
+          <span class="text-xs text-on-dim">AI распознает что на них</span>
         </div>
       </div>
 
-      <!-- Цветовая схема -->
+      <!-- Графики -->
       <div class="field">
-        <label>Цветовая схема</label>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="pSchemes">
-          <div class="scheme-card" data-scheme="dark" onclick="selectScheme('dark')">
-            <div class="scheme-preview" style="background:linear-gradient(135deg,#1C1C1C,#272018);color:#ffb347">●●●</div>
-            <div class="text-xs font-bold">Тёмная (Че)</div>
+        <label>Графики с твоими данными (опц.)</label>
+        <div id="pChartsList"></div>
+        <button onclick="addChart()" class="btn-g text-sm">📊 Добавить график</button>
+        <p class="text-xs text-on-dim/70 mt-1">Точные данные — AI вставит график с этими цифрами в нужный слайд.</p>
+      </div>
+
+      <!-- Цвета: пресеты + color picker -->
+      <div class="field">
+        <label>Цвета</label>
+        <div class="flex flex-wrap gap-2 mb-3">
+          <button class="scheme-card" data-scheme="dark" onclick="applyPreset('dark')" type="button">
+            <div class="scheme-preview" style="background:linear-gradient(135deg,#1C1C1C,#272018);color:#ffb347">Тёмная</div>
+          </button>
+          <button class="scheme-card" data-scheme="light" onclick="applyPreset('light')" type="button">
+            <div class="scheme-preview" style="background:#fafaf7;color:#ff8c42">Светлая</div>
+          </button>
+          <button class="scheme-card" data-scheme="corp" onclick="applyPreset('corp')" type="button">
+            <div class="scheme-preview" style="background:linear-gradient(135deg,#0f172a,#1e293b);color:#3b82f6">Корп</div>
+          </button>
+          <button class="scheme-card" data-scheme="white" onclick="applyPreset('white')" type="button">
+            <div class="scheme-preview" style="background:#fff;color:#000">Белая</div>
+          </button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <p class="text-[10px] text-on-dim uppercase tracking-wider mb-1">Фон</p>
+            <div class="color-row">
+              <input type="color" id="pBgColor" value="#1C1C1C" oninput="_syncColor('pBgColor')"/>
+              <input type="text" id="pBgColorHex" class="inp" value="#1C1C1C" oninput="_syncColor('pBgColor',true)"/>
+            </div>
           </div>
-          <div class="scheme-card" data-scheme="light" onclick="selectScheme('light')">
-            <div class="scheme-preview" style="background:#fafaf7;color:#ff8c42">●●●</div>
-            <div class="text-xs font-bold">Светлая</div>
+          <div>
+            <p class="text-[10px] text-on-dim uppercase tracking-wider mb-1">Акцент</p>
+            <div class="color-row">
+              <input type="color" id="pAccentColor" value="#ff8c42" oninput="_syncColor('pAccentColor')"/>
+              <input type="text" id="pAccentColorHex" class="inp" value="#ff8c42" oninput="_syncColor('pAccentColor',true)"/>
+            </div>
           </div>
-          <div class="scheme-card" data-scheme="corp" onclick="selectScheme('corp')">
-            <div class="scheme-preview" style="background:linear-gradient(135deg,#0f172a,#1e293b);color:#3b82f6">●●●</div>
-            <div class="text-xs font-bold">Корп. синий</div>
+          <div>
+            <p class="text-[10px] text-on-dim uppercase tracking-wider mb-1">Заголовки</p>
+            <div class="color-row">
+              <input type="color" id="pTitleColor" value="#ffb347" oninput="_syncColor('pTitleColor')"/>
+              <input type="text" id="pTitleColorHex" class="inp" value="#ffb347" oninput="_syncColor('pTitleColor',true)"/>
+            </div>
           </div>
-          <div class="scheme-card" data-scheme="brand" onclick="selectScheme('brand')">
-            <div class="scheme-preview" style="background:linear-gradient(135deg,#ff8c42,#ffb347);color:#1C1C1C">●●●</div>
-            <div class="text-xs font-bold">Бренд</div>
+          <div>
+            <p class="text-[10px] text-on-dim uppercase tracking-wider mb-1">Текст</p>
+            <div class="color-row">
+              <input type="color" id="pTextColor" value="#f0e6d8" oninput="_syncColor('pTextColor')"/>
+              <input type="text" id="pTextColorHex" class="inp" value="#f0e6d8" oninput="_syncColor('pTextColor',true)"/>
+            </div>
           </div>
         </div>
+        <p class="text-xs text-on-dim/70 mt-2">Любые цвета. Если задал URL сайта клиента — AI учтёт его стиль в формулировках.</p>
       </div>
 
       <!-- Стоимость -->
       <div class="bg-surface2 rounded-lg p-3 border border-outline/20">
         <div class="text-sm text-on-dim mb-1">Стоимость генерации:</div>
-        <div id="pCostHint" class="text-base font-bold text-primary">примерно 50-90 ₽</div>
+        <div id="pCostHint" class="text-base font-bold text-primary">~</div>
         <div class="cost-hint">
-          Считается по реальным токенам Claude × 7. Минимум — 50 ₽. При перегенерации списываем по факту.
+          Зависит от объёма: больше слайдов / контекста / картинок — дороже. Списываем по факту.
         </div>
       </div>
     </div>
 
-    <!-- Превью слайдов после генерации -->
+    <!-- Превью -->
     <div id="pResultBlock" class="hidden border-t border-outline/15 bg-surface2/40 p-5">
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h3 class="font-headline font-bold text-sm">Готово · <span id="pResultTitle"></span></h3>
         <div class="flex gap-2 flex-wrap">
-          <button onclick="downloadPptx()" class="btn-p text-xs py-1.5 px-3">📥 Скачать PPTX</button>
-          <button onclick="openHtmlFullscreen()" class="btn-g text-xs">🎬 Открыть слайды</button>
+          <button onclick="downloadPptx()" class="btn-p text-xs py-1.5 px-3">📥 PPTX</button>
+          <button onclick="downloadPdf()" class="btn-g text-xs">📄 PDF</button>
+          <button onclick="openHtmlFullscreen()" class="btn-g text-xs">🎬 HTML-слайды</button>
         </div>
       </div>
       <div id="pResultIframeWrap" class="rounded-lg overflow-hidden bg-black" style="height:55vh">
@@ -182,12 +239,37 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
   </div>
 </div>
 
+<!-- ── Modal: Brief assistant ── -->
+<div id="briefModal" class="modal-bg">
+  <div class="card max-w-xl w-full mx-auto" style="margin-top:8vh">
+    <div class="flex items-center justify-between p-5 border-b border-outline/15">
+      <h2 class="font-headline font-bold text-lg">✨ AI-помощник по ТЗ</h2>
+      <button onclick="closeBriefAssistant()" class="btn-g text-xs">✕</button>
+    </div>
+    <div class="p-5 space-y-3">
+      <p class="text-xs text-on-dim">Опиши идею простыми словами. AI оформит структурированный бриф и подскажет какое количество слайдов лучше.</p>
+      <textarea id="bRoughIdea" rows="6" class="inp resize-y"
+                placeholder="Например: Хочу презу для инвесторов, чтобы показать что мой стартап растёт. Выручка удвоилась, открыли филиалы в 3 городах, нужно поднять раунд в 50 млн на масштабирование."></textarea>
+      <div class="flex gap-2 justify-end">
+        <button onclick="closeBriefAssistant()" class="btn-g text-sm">Отмена</button>
+        <button id="bAssistBtn" onclick="runBriefAssist()" class="btn-p text-sm">Получить бриф</button>
+      </div>
+      <div id="bResult" class="hidden mt-3 p-3 bg-primary/10 rounded-lg border border-primary/30">
+        <p class="text-xs font-bold text-primary mb-2">Предложенный бриф:</p>
+        <div id="bResultContent" class="text-sm space-y-2"></div>
+        <button onclick="applyBrief()" class="btn-p text-sm mt-3 w-full">Применить → форма</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '';
 let projects = [];
 let currentProjectId = null;
-let currentScheme = 'dark';
-let currentImages = [];   // массив URL'ов
+let currentImages = [];
+let currentCharts = [];
+let _briefData = null;
 
 function authToken(){ return localStorage.getItem('obs_token') || ''; }
 function hdrs(){
@@ -196,14 +278,13 @@ function hdrs(){
   if(tok) h['Authorization'] = 'Bearer ' + tok;
   return h;
 }
-function escHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 async function loadProjects(){
   try{
-    const r = await fetch(`${API}/presentations/projects`, {headers: hdrs(), credentials:'same-origin'});
+    const r = await fetch(`${API}/presentations/projects`, {headers:hdrs(), credentials:'same-origin'});
     if(!r.ok) throw new Error(r.status);
     projects = await r.json();
-    // Фильтруем только реальные презентации (не legacy КП)
     projects = projects.filter(p => p.doc_type === 'presentation');
     renderProjects();
   }catch(e){
@@ -214,78 +295,116 @@ async function loadProjects(){
 function renderProjects(){
   const grid = document.getElementById('projectsGrid');
   const empty = document.getElementById('emptyState');
-  if(!projects.length){
-    grid.innerHTML = '';
-    empty.classList.remove('hidden');
-    return;
-  }
+  if(!projects.length){ grid.innerHTML=''; empty.classList.remove('hidden'); return; }
   empty.classList.add('hidden');
   grid.innerHTML = projects.map(p => {
-    const badge = p.status === 'done'
-      ? `<span class="status-badge badge-done">✓ Готово</span>`
-      : p.status === 'error'
-        ? `<span class="status-badge badge-error">✕ Ошибка</span>`
-        : `<span class="status-badge badge-draft">Черновик</span>`;
-    const price = p.price_tokens ? `${(p.price_tokens/100).toFixed(0)} ₽` : '';
-    return `
-      <div class="proj-card" onclick="openProject(${p.id})">
-        <div class="flex items-start justify-between gap-2 mb-2">
-          <h3 class="font-headline font-bold text-sm truncate">${escHtml(p.name)}</h3>
-          ${badge}
-        </div>
-        ${p.topic ? `<p class="text-xs text-on-dim mb-1 line-clamp-2">${escHtml(p.topic)}</p>` : ''}
-        <div class="text-xs text-on-dim/70 flex gap-3 mt-2">
-          <span>📊 ${p.slide_count || 10} слайдов</span>
-          ${p.audience ? `<span>· 👥 ${escHtml(p.audience)}</span>` : ''}
-        </div>
-        ${price ? `<div class="text-xs text-on-dim/60 mt-1">${price}</div>` : ''}
-      </div>`;
+    const badge = p.status==='done' ? `<span class="status-badge badge-done">✓ Готово</span>`
+      : p.status==='error' ? `<span class="status-badge badge-error">✕ Ошибка</span>`
+      : `<span class="status-badge badge-draft">Черновик</span>`;
+    const price = p.price_tokens ? `${(p.price_tokens/100).toFixed(2)} ₽` : '';
+    return `<div class="proj-card" onclick="openProject(${p.id})">
+      <div class="flex items-start justify-between gap-2 mb-2">
+        <h3 class="font-headline font-bold text-sm truncate">${escHtml(p.name)}</h3>
+        ${badge}
+      </div>
+      ${p.topic ? `<p class="text-xs text-on-dim mb-1 line-clamp-2">${escHtml(p.topic)}</p>` : ''}
+      <div class="text-xs text-on-dim/70 flex gap-3 mt-2">
+        <span>📊 ${p.slide_count||10} сл.</span>
+        ${p.audience ? `<span>· 👥 ${escHtml(p.audience)}</span>` : ''}
+      </div>
+      ${price ? `<div class="text-xs text-on-dim/60 mt-1">${price}</div>` : ''}
+    </div>`;
   }).join('');
+}
+
+const _PRESETS = {
+  dark:  {bg:'#1C1C1C', accent:'#ff8c42', title:'#ffb347', text:'#f0e6d8'},
+  light: {bg:'#fafaf7', accent:'#ff8c42', title:'#1e293b', text:'#1a1a1a'},
+  corp:  {bg:'#0f172a', accent:'#3b82f6', title:'#60a5fa', text:'#e2e8f0'},
+  white: {bg:'#ffffff', accent:'#000000', title:'#111111', text:'#222222'},
+};
+function applyPreset(name){
+  const p = _PRESETS[name]; if(!p) return;
+  document.querySelectorAll('.scheme-card').forEach(c => c.classList.toggle('active', c.dataset.scheme === name));
+  _setHexInput('pBgColor', p.bg);
+  _setHexInput('pAccentColor', p.accent);
+  _setHexInput('pTitleColor', p.title);
+  _setHexInput('pTextColor', p.text);
+  _updateCostHint();
+}
+
+function _setHexInput(id, val){
+  document.getElementById(id).value = val;
+  document.getElementById(id+'Hex').value = val;
+}
+
+function _syncColor(id, fromHex){
+  const colorEl = document.getElementById(id);
+  const hexEl = document.getElementById(id+'Hex');
+  if(fromHex){
+    const v = (hexEl.value || '').trim();
+    if(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v)){
+      colorEl.value = v;
+    }
+  } else {
+    hexEl.value = colorEl.value;
+  }
+  // Сброс активного preset (юзер кастомизирует)
+  document.querySelectorAll('.scheme-card').forEach(c => c.classList.remove('active'));
 }
 
 function openCreate(){
   currentProjectId = null;
-  currentScheme = 'dark';
   currentImages = [];
+  currentCharts = [];
+  _briefData = null;
   document.getElementById('projectModalTitle').textContent = 'Новая презентация';
-  ['pNa','pTopic','pAudience','pExtra'].forEach(id => document.getElementById(id).value = '');
+  ['pNa','pTopic','pAudience','pExtra','pClientSite'].forEach(id => document.getElementById(id).value='');
   document.getElementById('pSlideCount').value = 10;
   document.getElementById('pSlideCountVal').textContent = '10';
   document.getElementById('pDeleteBtn').classList.add('hidden');
   document.getElementById('pResultBlock').classList.add('hidden');
   document.getElementById('pGenBtnLabel').textContent = 'Сгенерировать';
-  selectScheme('dark');
+  applyPreset('dark');
   _renderImages();
+  _renderCharts();
   _updateCostHint();
   document.getElementById('projectModal').classList.add('show');
 }
 
 async function openProject(id){
-  const r = await fetch(`${API}/presentations/projects/${id}`, {headers: hdrs(), credentials:'same-origin'});
-  if(!r.ok){ await aiAlert('Не удалось загрузить (' + r.status + ')', 'error'); return; }
+  const r = await fetch(`${API}/presentations/projects/${id}`, {headers:hdrs(), credentials:'same-origin'});
+  if(!r.ok){ await aiAlert('Ошибка ' + r.status, 'error'); return; }
   const p = await r.json();
-  if(p.doc_type === 'kp'){
-    await aiAlert('Это старое КП. Открой новый раздел: /proposals.html', 'info');
-    return;
-  }
+  if(p.doc_type === 'kp'){ await aiAlert('Это старое КП. Открой /proposals.html', 'info'); return; }
   currentProjectId = p.id;
-  currentScheme = p.color_scheme || 'dark';
   currentImages = Array.isArray(p.image_paths) ? p.image_paths : [];
+  currentCharts = Array.isArray(p.custom_charts) ? p.custom_charts : [];
   document.getElementById('projectModalTitle').textContent = p.name;
   document.getElementById('pNa').value = p.name || '';
   document.getElementById('pTopic').value = p.topic || '';
   document.getElementById('pAudience').value = p.audience || '';
   document.getElementById('pExtra').value = p.extra_info || '';
+  document.getElementById('pClientSite').value = p.client_site_url || '';
   document.getElementById('pSlideCount').value = p.slide_count || 10;
   document.getElementById('pSlideCountVal').textContent = p.slide_count || 10;
-  selectScheme(currentScheme);
+  // Цвета: кастомные если есть, иначе пресет
+  if(p.bg_color || p.accent_color){
+    _setHexInput('pBgColor', p.bg_color || '#1C1C1C');
+    _setHexInput('pAccentColor', p.accent_color || '#ff8c42');
+    _setHexInput('pTitleColor', p.title_color || '#ffb347');
+    _setHexInput('pTextColor', p.text_color || '#f0e6d8');
+    document.querySelectorAll('.scheme-card').forEach(c=>c.classList.remove('active'));
+  } else {
+    applyPreset(p.color_scheme || 'dark');
+  }
   _renderImages();
+  _renderCharts();
   _updateCostHint();
   document.getElementById('pDeleteBtn').classList.remove('hidden');
-  document.getElementById('pGenBtnLabel').textContent =
-    p.status === 'done' ? 'Перегенерировать' : 'Сгенерировать';
-  if(p.status === 'done' && p.html_preview){
-    showResult(p.html_preview, p.name, p.price_tokens);
+  document.getElementById('pGenBtnLabel').textContent = p.status==='done' ? 'Перегенерировать' : 'Сгенерировать';
+  if(p.status==='done' && p.html_preview){
+    showResult(p.name, p.price_tokens, p.pdf_path);
   } else {
     document.getElementById('pResultBlock').classList.add('hidden');
   }
@@ -294,73 +413,84 @@ async function openProject(id){
 
 function closeProject(){ document.getElementById('projectModal').classList.remove('show'); }
 
-function selectScheme(s){
-  currentScheme = s;
-  document.querySelectorAll('.scheme-card').forEach(c => {
-    c.classList.toggle('active', c.dataset.scheme === s);
-  });
-}
-
 function _renderImages(){
   const wrap = document.getElementById('pImagesPreview');
-  if(!currentImages.length){
-    wrap.innerHTML = '<p class="text-xs text-on-dim/60">Картинки не добавлены</p>';
-    return;
-  }
-  wrap.innerHTML = currentImages.map((url, i) => `
-    <div class="img-thumb">
-      <img src="${escHtml(url)}" alt=""/>
-      <button onclick="removeImage(${i})">✕</button>
-    </div>
-  `).join('');
+  if(!currentImages.length){ wrap.innerHTML = '<p class="text-xs text-on-dim/60">Картинки не добавлены</p>'; return; }
+  wrap.innerHTML = currentImages.map((url,i) =>
+    `<div class="img-thumb"><img src="${escHtml(url)}" alt=""/><button onclick="removeImage(${i})">✕</button></div>`
+  ).join('');
 }
-
-function removeImage(i){
-  currentImages.splice(i, 1);
-  _renderImages();
-}
+function removeImage(i){ currentImages.splice(i,1); _renderImages(); _updateCostHint(); }
 
 async function uploadImages(ev){
-  const files = Array.from(ev.target.files || []);
-  if(!files.length) return;
+  const files = Array.from(ev.target.files||[]);
   if(currentImages.length + files.length > 10){
-    await aiAlert('Максимум 10 картинок на презентацию', 'warn');
-    ev.target.value = ''; return;
+    await aiAlert('Максимум 10 картинок', 'warn'); ev.target.value=''; return;
   }
   for(const f of files){
-    if(f.size > 5 * 1024 * 1024){
-      await aiAlert(`Файл ${f.name} больше 5 МБ — пропущен`, 'warn');
-      continue;
-    }
+    if(f.size > 5*1024*1024){ await aiAlert(`${f.name} больше 5 МБ — пропуск`, 'warn'); continue; }
     const fd = new FormData(); fd.append('file', f);
-    const tok = authToken();
     try{
-      const r = await fetch(`${API}/upload`, {method:'POST',
-        headers:{'Authorization':'Bearer '+tok}, credentials:'same-origin', body: fd});
-      if(!r.ok) throw new Error('Ошибка ' + r.status);
-      const d = await r.json();
-      currentImages.push(d.url);
-    }catch(e){ await aiAlert('Ошибка загрузки: ' + e.message, 'error'); }
+      const r = await fetch(`${API}/upload`, {method:'POST', headers:{'Authorization':'Bearer '+authToken()},
+        credentials:'same-origin', body:fd});
+      if(!r.ok) throw new Error(r.status);
+      const d = await r.json(); currentImages.push(d.url);
+    }catch(e){ await aiAlert('Ошибка: '+e.message, 'error'); }
   }
-  _renderImages();
+  _renderImages(); _updateCostHint();
   ev.target.value = '';
 }
 
+// ── Графики ──
+function _renderCharts(){
+  const wrap = document.getElementById('pChartsList');
+  if(!currentCharts.length){ wrap.innerHTML = ''; return; }
+  wrap.innerHTML = currentCharts.map((ch, i) => {
+    const labels = (ch.labels||[]).join(', ');
+    const values = (ch.values||[]).join(', ');
+    return `<div class="chart-row" data-idx="${i}">
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+        <input type="text" class="inp md:col-span-3" placeholder="Название" value="${escHtml(ch.title||'')}"
+               onchange="currentCharts[${i}].title=this.value"/>
+        <select class="inp md:col-span-2" onchange="currentCharts[${i}].kind=this.value">
+          <option value="bar"${ch.kind==='bar'?' selected':''}>Bar</option>
+          <option value="line"${ch.kind==='line'?' selected':''}>Line</option>
+          <option value="pie"${ch.kind==='pie'?' selected':''}>Pie</option>
+        </select>
+        <input type="text" class="inp md:col-span-3" placeholder="Метки через ;" value="${escHtml(labels)}"
+               onchange="currentCharts[${i}].labels=this.value.split(';').map(s=>s.trim()).filter(Boolean)"/>
+        <input type="text" class="inp md:col-span-3" placeholder="Значения через ;" value="${escHtml(values)}"
+               onchange="currentCharts[${i}].values=this.value.split(';').map(s=>parseFloat(s.trim())).filter(v=>!isNaN(v))"/>
+        <button onclick="removeChart(${i})" class="btn-d text-xs md:col-span-1">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function addChart(){
+  currentCharts.push({kind:'bar',title:'',labels:['Q1','Q2','Q3'],values:[100,150,200]});
+  _renderCharts();
+}
+function removeChart(i){ currentCharts.splice(i,1); _renderCharts(); }
+
+// ── Динамическая стоимость ──
 let _costTimer = null;
-async function _updateCostHint(){
+function _updateCostHint(){
   if(_costTimer) clearTimeout(_costTimer);
   const sc = +document.getElementById('pSlideCount').value || 10;
   const extraLen = document.getElementById('pExtra').value.length;
+  const imagesCount = currentImages.length;
+  const hasSite = !!document.getElementById('pClientSite').value.trim();
   _costTimer = setTimeout(async () => {
     try{
       const r = await fetch(`${API}/presentations/estimate-cost`, {
-        method:'POST', headers: hdrs(), credentials:'same-origin',
-        body: JSON.stringify({slide_count: sc, extra_info_len: extraLen}),
+        method:'POST', headers:hdrs(), credentials:'same-origin',
+        body:JSON.stringify({slide_count:sc, extra_info_len:extraLen, images_count:imagesCount, has_site:hasSite}),
       });
       if(!r.ok) return;
       const d = await r.json();
+      const fmt = v => v < 1 ? v.toFixed(2) : v.toFixed(0);
       document.getElementById('pCostHint').textContent =
-        `примерно ${d.low_rub.toFixed(0)}–${d.high_rub.toFixed(0)} ₽`;
+        `≈ ${fmt(d.low_rub)}–${fmt(d.high_rub)} ₽`;
     }catch(e){}
   }, 350);
 }
@@ -373,44 +503,42 @@ async function saveProject(silent){
     audience: document.getElementById('pAudience').value.trim() || null,
     slide_count: +document.getElementById('pSlideCount').value || 10,
     extra_info: document.getElementById('pExtra').value.trim() || null,
-    color_scheme: currentScheme,
     image_paths: currentImages,
+    client_site_url: document.getElementById('pClientSite').value.trim() || null,
+    bg_color: document.getElementById('pBgColorHex').value.trim(),
+    accent_color: document.getElementById('pAccentColorHex').value.trim(),
+    title_color: document.getElementById('pTitleColorHex').value.trim(),
+    text_color: document.getElementById('pTextColorHex').value.trim(),
+    color_scheme: 'custom',
+    custom_charts: currentCharts.filter(c => c.labels && c.values && c.labels.length === c.values.length),
   };
-  if(!body.name){ await aiAlert('Введите название или тему', 'warn'); return false; }
+  if(!body.name){ await aiAlert('Введи название или тему','warn'); return false; }
   try{
     if(currentProjectId){
-      await fetch(`${API}/presentations/projects/${currentProjectId}`, {
-        method:'PUT', headers: hdrs(), credentials:'same-origin', body: JSON.stringify(body),
-      });
+      await fetch(`${API}/presentations/projects/${currentProjectId}`,
+                  {method:'PUT', headers:hdrs(), credentials:'same-origin', body:JSON.stringify(body)});
     } else {
-      const r = await fetch(`${API}/presentations/projects`, {
-        method:'POST', headers: hdrs(), credentials:'same-origin', body: JSON.stringify(body),
-      });
-      if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || r.status); }
+      const r = await fetch(`${API}/presentations/projects`,
+                  {method:'POST', headers:hdrs(), credentials:'same-origin', body:JSON.stringify(body)});
+      if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||r.status); }
       const data = await r.json();
       currentProjectId = data.id;
-      // После создания нужно отправить картинки/extra через PUT
-      if(currentImages.length || body.extra_info){
-        await fetch(`${API}/presentations/projects/${currentProjectId}`, {
-          method:'PUT', headers: hdrs(), credentials:'same-origin', body: JSON.stringify(body),
-        });
-      }
+      // После создания — апдейт с цветами/графиками
+      await fetch(`${API}/presentations/projects/${currentProjectId}`,
+                  {method:'PUT', headers:hdrs(), credentials:'same-origin', body:JSON.stringify(body)});
       document.getElementById('pDeleteBtn').classList.remove('hidden');
     }
     if(!silent){ closeProject(); await loadProjects(); }
     else { loadProjects(); }
     return true;
-  }catch(e){
-    await aiAlert(e.message, 'error');
-    return false;
-  }
+  }catch(e){ await aiAlert(e.message,'error'); return false; }
 }
 
 async function generatePresentation(){
   if(!await saveProject(true)) return;
   const ok = await aiConfirm(
-    `AI создаст ${document.getElementById('pSlideCountVal').textContent} слайдов с графиками и картинками. Стоимость по реальным токенам × 7.`,
-    {title: 'Сгенерировать презентацию?', okLabel: 'Сгенерировать'}
+    `AI создаст ${document.getElementById('pSlideCountVal').textContent} слайдов под твои цвета и стиль клиента. Стоимость списывается по факту реальных токенов.`,
+    {title:'Сгенерировать?', okLabel:'Сгенерировать'}
   );
   if(!ok) return;
   const btn = document.getElementById('pGenBtn');
@@ -419,45 +547,63 @@ async function generatePresentation(){
   document.getElementById('pGenBtnLabel').textContent = 'Генерирую…';
   try{
     const r = await fetch(`${API}/presentations/projects/${currentProjectId}/generate`,
-                          {method:'POST', headers: hdrs(), credentials:'same-origin'});
+                          {method:'POST', headers:hdrs(), credentials:'same-origin'});
     const data = await r.json();
-    if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
-    showResult(data.html_preview, data.title, data.cost_kop);
+    if(!r.ok) throw new Error(data.detail || r.status);
+    showResult(data.title, data.cost_kop, data.pdf_path);
     document.getElementById('pGenBtnLabel').textContent = 'Перегенерировать';
     await loadProjects();
   }catch(e){
-    await aiAlert(e.message, 'error');
+    await aiAlert(e.message,'error');
     document.getElementById('pGenBtnLabel').textContent = oldLabel;
-  }finally{
-    btn.disabled = false;
-  }
+  }finally{ btn.disabled = false; }
 }
 
-function showResult(htmlUrl, title, costKop){
+let _hasPdf = false;
+function showResult(title, costKop, pdfPath){
   const wrap = document.getElementById('pResultBlock');
   wrap.classList.remove('hidden');
   document.getElementById('pResultTitle').textContent = title || '';
-  // Iframe загружает наш endpoint /preview-html (отдаёт сохранённый HTML файл)
   document.getElementById('pResultIframe').src = `${API}/presentations/projects/${currentProjectId}/preview-html`;
   if(costKop){
-    document.getElementById('pCostInfo').textContent = `Списано ${(costKop/100).toFixed(0)} ₽`;
+    const rub = costKop < 100 ? (costKop/100).toFixed(2) : (costKop/100).toFixed(0);
+    document.getElementById('pCostInfo').textContent = `Списано ${rub} ₽`;
   }
+  _hasPdf = !!pdfPath;
 }
 
 async function downloadPptx(){
   if(!currentProjectId) return;
   try{
     const r = await fetch(`${API}/presentations/projects/${currentProjectId}/pptx`,
-                          {headers: hdrs(), credentials:'same-origin'});
-    if(!r.ok) throw new Error('Ошибка ' + r.status);
+                          {headers:hdrs(), credentials:'same-origin'});
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail||r.status);
+    }
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = (document.getElementById('pNa').value || 'presentation') + '.pptx';
+    const a = document.createElement('a'); a.href=url;
+    a.download = (document.getElementById('pNa').value||'presentation') + '.pptx';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlert('PPTX: '+e.message,'error'); }
+}
+
+async function downloadPdf(){
+  if(!currentProjectId) return;
+  if(!_hasPdf){ await aiAlert('PDF не собрался — попробуйте перегенерировать','warn'); return; }
+  try{
+    const r = await fetch(`${API}/presentations/projects/${currentProjectId}/pdf`,
+                          {headers:hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error(r.status);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url;
+    a.download = (document.getElementById('pNa').value||'presentation') + '.pdf';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }catch(e){ await aiAlert('PDF: '+e.message,'error'); }
 }
 
 function openHtmlFullscreen(){
@@ -467,16 +613,70 @@ function openHtmlFullscreen(){
 
 async function deleteCurrentProject(){
   if(!currentProjectId) return;
-  if(!await aiConfirm('Удалить эту презентацию?', {danger: true, okLabel: 'Удалить'})) return;
+  if(!await aiConfirm('Удалить эту презентацию?', {danger:true, okLabel:'Удалить'})) return;
   try{
     await fetch(`${API}/presentations/projects/${currentProjectId}`,
-                 {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
-    closeProject();
-    await loadProjects();
-  }catch(e){ await aiAlert(e.message, 'error'); }
+                {method:'DELETE', headers:hdrs(), credentials:'same-origin'});
+    closeProject(); await loadProjects();
+  }catch(e){ await aiAlert(e.message,'error'); }
 }
 
-// Init
+// ── Brief Assistant ──
+function openBriefAssistant(){
+  document.getElementById('bRoughIdea').value = document.getElementById('pTopic').value || '';
+  document.getElementById('bResult').classList.add('hidden');
+  document.getElementById('briefModal').classList.add('show');
+}
+function closeBriefAssistant(){ document.getElementById('briefModal').classList.remove('show'); }
+
+async function runBriefAssist(){
+  const idea = document.getElementById('bRoughIdea').value.trim();
+  if(idea.length < 10){ await aiAlert('Минимум 10 символов','warn'); return; }
+  const audience = document.getElementById('pAudience').value.trim() || null;
+  const sc = +document.getElementById('pSlideCount').value || 10;
+  const btn = document.getElementById('bAssistBtn');
+  btn.disabled = true; btn.textContent = 'Думаю…';
+  try{
+    const r = await fetch(`${API}/presentations/brief-assist`, {
+      method:'POST', headers:hdrs(), credentials:'same-origin',
+      body:JSON.stringify({rough_idea:idea, audience, slide_count:sc}),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail||r.status);
+    _briefData = d;
+    const struct = (d.structure_hint||[]).map(s=>`<li>${escHtml(s)}</li>`).join('');
+    const questions = (d.questions||[]).map(q=>`<li class="text-on-dim">${escHtml(q)}</li>`).join('');
+    document.getElementById('bResultContent').innerHTML = `
+      <div><strong class="text-primary">Тема:</strong> ${escHtml(d.topic||'')}</div>
+      <div><strong class="text-primary">ЦА:</strong> ${escHtml(d.audience||'')}</div>
+      <div><strong class="text-primary">Слайдов:</strong> ${d.suggested_slide_count||10}</div>
+      <details class="mt-2"><summary class="cursor-pointer text-xs text-on-dim">Структура слайдов</summary>
+        <ol class="text-xs mt-1 pl-4">${struct}</ol></details>
+      ${questions ? `<details class="mt-2"><summary class="cursor-pointer text-xs text-on-dim">Уточняющие вопросы</summary>
+        <ul class="text-xs mt-1 pl-4">${questions}</ul></details>` : ''}
+      <details class="mt-2" open><summary class="cursor-pointer text-xs text-on-dim">Бриф (extra_info)</summary>
+        <pre class="text-xs mt-1 whitespace-pre-wrap font-mono p-2 bg-bg rounded">${escHtml(d.extra_info||'')}</pre></details>
+      <p class="text-xs text-on-dim/70 mt-2">Списано ${(d.cost_kop/100).toFixed(2)} ₽</p>
+    `;
+    document.getElementById('bResult').classList.remove('hidden');
+  }catch(e){ await aiAlert(e.message,'error'); }
+  finally{ btn.disabled = false; btn.textContent = 'Получить бриф'; }
+}
+
+function applyBrief(){
+  if(!_briefData) return;
+  if(_briefData.topic) document.getElementById('pTopic').value = _briefData.topic;
+  if(_briefData.audience) document.getElementById('pAudience').value = _briefData.audience;
+  if(_briefData.extra_info) document.getElementById('pExtra').value = _briefData.extra_info;
+  if(_briefData.suggested_slide_count){
+    const sc = Math.max(3, Math.min(30, _briefData.suggested_slide_count));
+    document.getElementById('pSlideCount').value = sc;
+    document.getElementById('pSlideCountVal').textContent = sc;
+  }
+  closeBriefAssistant();
+  _updateCostHint();
+}
+
 loadProjects();
 </script>
 </body>
