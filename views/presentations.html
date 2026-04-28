@@ -214,9 +214,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h3 class="font-headline font-bold text-sm">Готово · <span id="pResultTitle"></span></h3>
         <div class="flex gap-2 flex-wrap">
-          <button onclick="downloadPptx()" class="btn-p text-xs py-1.5 px-3">📥 PPTX</button>
-          <button onclick="downloadPdf()" class="btn-g text-xs">📄 PDF</button>
-          <button onclick="openHtmlFullscreen()" class="btn-g text-xs">🎬 HTML-слайды</button>
+          <button onclick="downloadPptx()" class="btn-p text-xs py-1.5 px-3" title="Скачать PowerPoint-файл (.pptx) для редактирования в PowerPoint / Keynote">📥 PPTX</button>
+          <button onclick="downloadPdf()" class="btn-g text-xs" title="Скачать PDF (для печати или просмотра без PowerPoint)">📄 PDF</button>
+          <button onclick="downloadHtml()" class="btn-g text-xs" title="Скачать HTML-файл с презентацией (откроется в любом браузере)">🌐 HTML файл</button>
+          <button onclick="openHtmlFullscreen()" class="btn-g text-xs" title="Открыть в полноэкранном режиме в новой вкладке">🎬 Просмотр</button>
         </div>
       </div>
       <div id="pResultIframeWrap" class="rounded-lg overflow-hidden bg-black" style="height:55vh">
@@ -609,6 +610,21 @@ async function downloadPdf(){
 function openHtmlFullscreen(){
   if(!currentProjectId) return;
   window.open(`${API}/presentations/projects/${currentProjectId}/preview-html`, '_blank', 'noopener');
+}
+
+async function downloadHtml(){
+  if(!currentProjectId) return;
+  try{
+    const r = await fetch(`${API}/presentations/projects/${currentProjectId}/download-html`,
+                          {headers:hdrs(), credentials:'same-origin'});
+    if(!r.ok) throw new Error(r.status);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url;
+    a.download = (document.getElementById('pNa').value||'presentation') + '.html';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }catch(e){ await aiAlert('HTML: '+e.message,'error'); }
 }
 
 async function deleteCurrentProject(){

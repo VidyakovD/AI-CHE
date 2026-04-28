@@ -232,13 +232,13 @@ def brief_assist(body: BriefAssistBody, db: Session = Depends(get_db),
         except Exception: pass
     if not data:
         raise HTTPException(503, "AI ответил неструктурированно — попробуй ещё раз")
-    # Списываем по факту токенов (без margin — как у генерации)
+    # Списываем real × 3 (помощник по ТЗ — это полезный сервис, не убыточный).
+    # На уровне дешёвой Haiku-модели real ~10-20 коп → юзер платит 30-60 коп.
     from server.presentation_builder import calc_actual_cost_kop
-    cost = calc_actual_cost_kop(ans.get("usage") or {}, db)
-    cost = max(cost, 1)
+    real_cost = calc_actual_cost_kop(ans.get("usage") or {}, db)
+    cost = max(real_cost * 3, 100)  # минимум 1 ₽ за вызов брифа
     from server.billing import deduct_strict
     if not deduct_strict(db, user.id, cost):
-        # Бриф — мелочь, но всё-таки уважаем баланс
         raise HTTPException(402, f"Недостаточно средств (нужно ~{cost/100:.2f} ₽)")
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
                        description=f"AI-бриф презентации ({cost/100:.2f} ₽)"))
@@ -511,6 +511,7 @@ def generate_presentation(project_id: int, body: dict = None,
     p.slides_json = json.dumps(result["data"], ensure_ascii=False)
     p.html_preview = result.get("html_path")
     p.pptx_path = result.get("pptx_path")
+    p.pdf_path = result.get("pdf_path")  # ← ранее пропускалось → PDF никогда не сохранялся
     p.status = "done"
     db.commit()
     return {
@@ -518,6 +519,7 @@ def generate_presentation(project_id: int, body: dict = None,
         "slide_count": len((result["data"].get("slides") or [])),
         "html_preview": p.html_preview,
         "pptx_path": p.pptx_path,
+        "pdf_path": p.pdf_path,
         "title": (result["data"].get("title") or p.name),
     }
 
@@ -571,7 +573,7 @@ def download_pptx(project_id: int, db: Session = Depends(get_db),
 @router.get("/presentations/projects/{project_id}/preview-html")
 def preview_html(project_id: int, db: Session = Depends(get_db),
                   user=Depends(current_user)):
-    """HTML-карусель для встраивания в iframe."""
+    """HTML-карусель для встраивания в iframe (просмотр в браузере)."""
     from fastapi.responses import FileResponse
     p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
@@ -584,3 +586,25 @@ def preview_html(project_id: int, db: Session = Depends(get_db),
     if not _os.path.exists(abs_path):
         raise HTTPException(404, "Файл превью удалён")
     return FileResponse(abs_path, media_type="text/html")
+
+
+@router.get("/presentations/projects/{project_id}/download-html")
+def download_html(project_id: int, db: Session = Depends(get_db),
+                  user=Depends(current_user)):
+    """Скачать HTML-презентацию как файл (с Content-Disposition: attachment).
+    Юзер кликает «Скачать HTML» → файл сохраняется на компьютер, а не
+    открывается в браузере (как preview-html)."""
+    from fastapi.responses import FileResponse
+    p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.html_preview:
+        raise HTTPException(404, "HTML не сгенерирован — нажмите «Сгенерировать»")
+    import os as _os, re as _re
+    base = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+    abs_path = _os.path.join(base, p.html_preview.lstrip("/"))
+    if not _os.path.exists(abs_path):
+        raise HTTPException(404, "Файл удалён — пересоздайте презентацию")
+    safe = _re.sub(r"[^\w\-]", "_", p.name or "presentation")[:40]
+    return FileResponse(abs_path, media_type="text/html",
+                        filename=f"{safe}.html")

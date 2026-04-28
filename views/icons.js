@@ -1133,6 +1133,149 @@
     _initAssistant();
   }
 
+  // ── Welcome hints: бренд-маскот приветствует на каждой странице ─────────
+  // При ПЕРВОМ заходе на страницу появляется speech-bubble от лого с
+  // человеческим объяснением и кнопкой быстрого действия. Запоминается в
+  // localStorage чтобы не повторяться. Юзер всегда может вызвать снова
+  // через помощника или кнопку «?» в шапке.
+  const _HINTS = {
+    '/': {
+      key: 'index',
+      title: 'Привет!',
+      text: 'Я помогу разобраться. Можешь поспрашивать меня — я подскажу. Или сразу начнём с чата с ИИ — пиши вопрос внизу страницы.',
+      cta: 'Понятно, начну',
+      ctaHref: null,
+    },
+    '/proposals.html': {
+      key: 'proposals',
+      title: 'Создаём первое КП?',
+      text: 'Здесь ты делаешь персональные коммерческие предложения для клиентов. AI сам напишет текст, ты заполняешь шапку с реквизитами и прайс — получаешь PDF и публичную ссылку.',
+      cta: 'Сделать КП →',
+      ctaSelector: 'button[onclick*="openCreate"], #createBtn, [data-action="create-proposal"]',
+    },
+    '/presentations.html': {
+      key: 'presentations',
+      title: 'Презентация за 60 секунд',
+      text: 'Опиши тему — AI соберёт слайды с графиками, картинками, спикерскими заметками. Скачаешь в PPTX или PDF, можно править в PowerPoint.',
+      cta: 'Создать презентацию →',
+      ctaSelector: '#newProjectBtn, [data-action="create-presentation"]',
+    },
+    '/sites.html': {
+      key: 'sites',
+      title: 'Сайт под ключ',
+      text: 'Опишешь что нужно (или загрузишь ТЗ) — получишь готовый HTML с deploy в один клик. Фикс-цена: 1 500 ₽ или 1 990 ₽ за премиум-качество.',
+      cta: 'Начать новый сайт →',
+      ctaSelector: '[data-action="create-site"], #newSiteBtn',
+    },
+    '/chatbots.html': {
+      key: 'chatbots',
+      title: 'Бот для клиентов',
+      text: 'Соберём бота для Telegram, VK, Avito или MAX. Есть 7 готовых шаблонов (лидген / FAQ / запись / квиз и т.д.) — за 1 клик. Или AI-конструктор по описанию.',
+      cta: 'Выбрать шаблон →',
+      ctaSelector: '[data-action="new-bot"], #newBotBtn',
+    },
+    '/agents.html': {
+      key: 'agents',
+      title: 'AI-агент для внутренних задач',
+      text: 'Это не клиентский бот. Агент — твой личный помощник: юрист, копирайтер, аналитик, продажник. Запусти готовую роль за 2 минуты или собери свою.',
+      cta: 'Открыть библиотеку →',
+      ctaSelector: '#tab-library, [data-tab="library"]',
+    },
+    '/mobile.html': {
+      key: 'mobile',
+      title: 'Лайт-режим',
+      text: 'Здесь компактная панель: лента событий, быстрые кнопки, голосовая команда (большая жёлтая снизу). Удобно проверять «что нового» с телефона.',
+      cta: 'Понятно',
+      ctaHref: null,
+    },
+  };
+
+  function _showWelcomeHint() {
+    if (!document.body) return;
+    const path = window.location.pathname;
+    const hint = _HINTS[path] || _HINTS[path === '/m' ? '/mobile.html' : null];
+    if (!hint) return;
+    const flagKey = 'ai-welcome-' + hint.key;
+    try {
+      if (localStorage.getItem(flagKey) === '1') return;
+    } catch (_) {}
+    if (document.getElementById('ai-welcome-hint')) return;
+
+    const css = `
+#ai-welcome-hint{position:fixed;left:18px;bottom:90px;z-index:99996;max-width:340px;font:14px/1.5 system-ui,-apple-system,sans-serif;animation:aiwhFade .35s ease-out}
+@keyframes aiwhFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+#ai-welcome-hint .row{display:flex;gap:10px;align-items:flex-end}
+#ai-welcome-hint .av{width:64px;height:64px;border-radius:50%;background:#1c1c1c;border:2px solid rgba(255,140,66,.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+#ai-welcome-hint .av img{width:48px;height:48px;object-fit:contain}
+#ai-welcome-hint .bub{background:#1c1c1c;color:#eee;border:1px solid rgba(255,140,66,.3);border-radius:14px 14px 14px 4px;padding:14px 16px;box-shadow:0 8px 24px rgba(0,0,0,.4);position:relative}
+#ai-welcome-hint .bub::before{content:"";position:absolute;left:-8px;bottom:14px;width:10px;height:10px;background:#1c1c1c;border-left:1px solid rgba(255,140,66,.3);border-bottom:1px solid rgba(255,140,66,.3);transform:rotate(45deg)}
+#ai-welcome-hint .ttl{font-weight:700;color:#fff;margin-bottom:4px;font-size:15px}
+#ai-welcome-hint .txt{color:#ccc;margin-bottom:12px;font-size:13px}
+#ai-welcome-hint .acts{display:flex;gap:6px;align-items:center}
+#ai-welcome-hint .cta{background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;border:none;padding:8px 14px;border-radius:10px;font-weight:700;cursor:pointer;font:inherit;font-size:13px;text-decoration:none;display:inline-block}
+#ai-welcome-hint .cta:hover{filter:brightness(1.08)}
+#ai-welcome-hint .x{background:transparent;border:none;color:#888;cursor:pointer;font-size:12px;padding:6px 10px}
+#ai-welcome-hint .x:hover{color:#fff}
+@media (max-width:768px){
+  #ai-welcome-hint{left:12px;right:12px;bottom:80px;max-width:none}
+  #ai-welcome-hint .av{width:54px;height:54px}
+  #ai-welcome-hint .av img{width:40px;height:40px}
+}
+`;
+    const styleEl = document.createElement('style');
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+
+    const root = document.createElement('div');
+    root.id = 'ai-welcome-hint';
+    root.innerHTML = `
+      <div class="row">
+        <div class="av"><img src="/logo-192.png" alt="" /></div>
+        <div class="bub">
+          <div class="ttl"></div>
+          <div class="txt"></div>
+          <div class="acts">
+            <a class="cta" href="#" id="aiwhCta"></a>
+            <button class="x" id="aiwhClose">Скрыть</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(root);
+    root.querySelector('.ttl').textContent = hint.title;
+    root.querySelector('.txt').textContent = hint.text;
+    const cta = root.querySelector('#aiwhCta');
+    cta.textContent = hint.cta;
+    cta.addEventListener('click', (e) => {
+      e.preventDefault();
+      try { localStorage.setItem(flagKey, '1'); } catch (_) {}
+      // Если задан селектор — пробуем кликнуть его
+      if (hint.ctaSelector) {
+        const target = document.querySelector(hint.ctaSelector);
+        if (target) {
+          root.remove();
+          target.click();
+          return;
+        }
+      }
+      if (hint.ctaHref) {
+        window.location.href = hint.ctaHref;
+        return;
+      }
+      root.remove();
+    });
+    root.querySelector('#aiwhClose').addEventListener('click', () => {
+      try { localStorage.setItem(flagKey, '1'); } catch (_) {}
+      root.remove();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _showWelcomeHint);
+  } else {
+    setTimeout(_showWelcomeHint, 600);
+  }
+
   // ── Mobile-banner: предложение открыть лайт-режим ────────────────────────
   // Показывается один раз на узких экранах. Юзер может закрыть → больше не
   // приходит. Не показывается на самой /mobile.html, /qr/* и /terms.html.

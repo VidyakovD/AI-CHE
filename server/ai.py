@@ -819,6 +819,7 @@ def _last_text(messages: list) -> str:
 
 MODEL_REGISTRY = {
     "gpt":             {"provider": "openai",      "real_model": "gpt-4o-mini"},
+    "gpt-4o-mini":     {"provider": "openai",      "real_model": "gpt-4o-mini"},  # alias — UI агентов/ботов использует это имя напрямую
     "gpt-4o":          {"provider": "openai",      "real_model": "gpt-4o"},
     "claude":          {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
     "claude-sonnet":   {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
