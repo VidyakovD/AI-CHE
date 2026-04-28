@@ -268,6 +268,119 @@ def admin_stats(user: User = Depends(current_user), db: Session = Depends(get_db
     }
 
 
+@router.get("/assistant/issues")
+def admin_assistant_issues(
+    days: int = 30, classification: str = "complaint,confusion,idea",
+    include_resolved: bool = False,
+    user: User = Depends(current_user), db: Session = Depends(get_db),
+):
+    """Агрегированные «боли» юзеров из помощника.
+
+    Возвращает кластеры похожих сообщений (cosine similarity по embedding'у)
+    с count и примерами. Для использования владельцем платформы (или
+    Claude в чате с разработчиком — чтобы предлагать план фиксов).
+    """
+    require_admin(user)
+    from datetime import datetime, timedelta
+    from server.models import AssistantFeedback
+    import json as _json
+    import math as _math
+
+    since = datetime.utcnow() - timedelta(days=days)
+    classes = [c.strip() for c in classification.split(",") if c.strip()]
+    q = (db.query(AssistantFeedback)
+           .filter(AssistantFeedback.created_at >= since,
+                   AssistantFeedback.classification.in_(classes)))
+    if not include_resolved:
+        q = q.filter(AssistantFeedback.is_resolved == False)
+    rows = q.order_by(AssistantFeedback.created_at.desc()).limit(2000).all()
+
+    # Кластеризация по cosine similarity на embedding'ах. Threshold 0.78 —
+    # вопросы про «как создать КП» и «где найти КП» сольются в один кейс.
+    THRESHOLD = 0.78
+
+    def _cosine(a, b):
+        if not a or not b: return 0.0
+        dot = na = nb = 0.0
+        for x, y in zip(a, b):
+            dot += x * y; na += x * x; nb += y * y
+        if na == 0 or nb == 0: return 0.0
+        return dot / (_math.sqrt(na) * _math.sqrt(nb))
+
+    clusters: list[dict] = []
+    for r in rows:
+        emb = None
+        if r.embedding_json:
+            try:
+                emb = _json.loads(r.embedding_json)
+            except Exception:
+                emb = None
+        # Пробуем вписать в существующий кластер
+        placed = False
+        for c in clusters:
+            if c["_emb"] and emb and _cosine(c["_emb"], emb) >= THRESHOLD:
+                c["count"] += 1
+                if len(c["examples"]) < 5:
+                    c["examples"].append({
+                        "id": r.id, "section": r.section, "message": r.message[:200],
+                        "user_mark": r.user_mark, "created_at": r.created_at.isoformat(),
+                    })
+                if r.classification == "complaint":
+                    c["complaints"] += 1
+                placed = True
+                break
+        if not placed:
+            clusters.append({
+                "_emb": emb,
+                "classification": r.classification,
+                "section": r.section,
+                "count": 1,
+                "complaints": 1 if r.classification == "complaint" else 0,
+                "examples": [{
+                    "id": r.id, "section": r.section, "message": r.message[:200],
+                    "user_mark": r.user_mark, "created_at": r.created_at.isoformat(),
+                }],
+            })
+
+    # Сортируем кластеры: complaint идут раньше (×2 веса), внутри по count
+    for c in clusters:
+        c.pop("_emb", None)
+        c["score"] = c["count"] * (2 if c["classification"] == "complaint" else 1)
+    clusters.sort(key=lambda x: x["score"], reverse=True)
+
+    # Сводная статистика
+    by_class: dict[str, int] = {}
+    by_section: dict[str, int] = {}
+    for r in rows:
+        by_class[r.classification] = by_class.get(r.classification, 0) + 1
+        by_section[r.section or "?"] = by_section.get(r.section or "?", 0) + 1
+
+    return {
+        "since": since.isoformat(),
+        "total_messages": len(rows),
+        "by_class": by_class,
+        "by_section": by_section,
+        "clusters": clusters[:50],
+    }
+
+
+@router.post("/assistant/issues/{feedback_id}/resolve")
+def admin_resolve_issue(feedback_id: int, note: str = "",
+                        user: User = Depends(current_user),
+                        db: Session = Depends(get_db)):
+    """Пометить запись фидбека как решённую (с заметкой)."""
+    require_admin(user)
+    from server.models import AssistantFeedback
+    fb = db.query(AssistantFeedback).filter_by(id=feedback_id).first()
+    if not fb:
+        from fastapi import HTTPException
+        raise HTTPException(404, "Запись не найдена")
+    fb.is_resolved = True
+    fb.resolved_note = (note or "")[:500]
+    db.commit()
+    return {"ok": True, "id": feedback_id}
+
+
 @router.get("/usage")
 def admin_usage_stats(days: int = 30, user: User = Depends(current_user),
                       db: Session = Depends(get_db)):

@@ -99,6 +99,34 @@ class OAuthState(Base):
     created_at    = Column(DateTime, default=datetime.utcnow)
 
 
+class AssistantFeedback(Base):
+    """
+    Запись каждого вопроса к контекстному помощнику + автоклассификация
+    через AI на типы: question / confusion / complaint / idea / praise.
+
+    Используется владельцем платформы (или Claude в чате с разработчиком)
+    для понимания болей юзеров: какие вопросы повторяются, что непонятно,
+    какие функции просят добавить.
+
+    Похожие вопросы кластеризуются по embedding'у — top-N жалоб одного типа
+    показываются в admin-панели как один кейс с count и примерами.
+    """
+    __tablename__ = "assistant_feedback"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    section         = Column(String, nullable=True, index=True)
+    message         = Column(Text, nullable=False)              # вопрос юзера
+    ai_answer       = Column(Text, nullable=True)               # краткий ответ помощника (обрезанный)
+    classification  = Column(String, default="question", index=True)  # question | confusion | complaint | idea | praise
+    confidence      = Column(Integer, default=0)                # 0..100, уверенность классификатора
+    user_mark       = Column(String, nullable=True)             # None | up | down | idea (явная оценка юзера)
+    embedding_json  = Column(Text, nullable=True)               # для кластеризации похожих
+    is_resolved     = Column(Boolean, default=False, index=True)
+    resolved_note   = Column(Text, nullable=True)               # пометка владельца «исправлено в коммите X»
+    created_at      = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class QrLoginSession(Base):
     """
     QR-логин: один экран показывает QR с токеном, другой (мобильный) сканирует

@@ -187,6 +187,94 @@ def test_ask_dedupes_repeat_links(client, assistant_headers):
     assert hrefs.count("/proposals.html") == 1
 
 
+def test_ask_returns_feedback_id_and_creates_record(client, assistant_headers):
+    """Каждый /ask создаёт запись AssistantFeedback и возвращает её id."""
+    from server.db import SessionLocal
+    from server.models import AssistantFeedback
+    with patch("server.routes.assistant.generate_response", _mock_ai_response):
+        r = client.post("/assistant/ask",
+                        json={"section": "proposals.projects",
+                              "message": "как создать кп для нового клиента"},
+                        headers=assistant_headers)
+    assert r.status_code == 200
+    fid = r.json().get("feedback_id")
+    assert isinstance(fid, int) and fid > 0
+    db = SessionLocal()
+    try:
+        fb = db.query(AssistantFeedback).filter_by(id=fid).first()
+        assert fb is not None
+        assert fb.section == "proposals.projects"
+        assert "новый" in fb.message.lower() or "клиент" in fb.message.lower()
+    finally:
+        db.close()
+
+
+def test_feedback_mark_thumbs_up(client, assistant_headers):
+    with patch("server.routes.assistant.generate_response", _mock_ai_response):
+        r = client.post("/assistant/ask",
+                        json={"section": "proposals.projects", "message": "нечто"},
+                        headers=assistant_headers)
+    fid = r.json()["feedback_id"]
+    r2 = client.post("/assistant/feedback",
+                     json={"feedback_id": fid, "mark": "up"},
+                     headers=assistant_headers)
+    assert r2.status_code == 200
+    assert r2.json()["user_mark"] == "up"
+
+
+def test_feedback_idea_promotes_classification(client, assistant_headers):
+    """Если юзер пометил «💡 идея» — классификация принудительно идёт в idea."""
+    with patch("server.routes.assistant.generate_response", _mock_ai_response):
+        r = client.post("/assistant/ask",
+                        json={"section": "proposals.projects",
+                              "message": "хочу новую функцию"},
+                        headers=assistant_headers)
+    fid = r.json()["feedback_id"]
+    client.post("/assistant/feedback",
+                json={"feedback_id": fid, "mark": "idea"},
+                headers=assistant_headers)
+    from server.db import SessionLocal
+    from server.models import AssistantFeedback
+    db = SessionLocal()
+    try:
+        fb = db.query(AssistantFeedback).filter_by(id=fid).first()
+        assert fb.classification == "idea"
+        assert fb.user_mark == "idea"
+    finally:
+        db.close()
+
+
+def test_feedback_invalid_mark_rejected(client, assistant_headers):
+    r = client.post("/assistant/feedback",
+                    json={"feedback_id": 1, "mark": "evil"},
+                    headers=assistant_headers)
+    assert r.status_code == 422
+
+
+def test_feedback_someone_elses_record_404(client, assistant_headers):
+    """Юзер не может голосовать за чужие записи."""
+    from server.db import SessionLocal
+    from server.models import AssistantFeedback, User
+    import uuid
+    db = SessionLocal()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        other = User(email=f"other_fb_{suffix}@test.com", password_hash=_FAKE_BCRYPT,
+                     name="other", tokens_balance=0, is_active=True, is_verified=True,
+                     agreed_to_terms=True, referral_code=f"OTH{suffix[:5]}".upper())
+        db.add(other); db.commit(); db.refresh(other)
+        fb = AssistantFeedback(user_id=other.id, message="чужое",
+                               classification="question", confidence=50)
+        db.add(fb); db.commit(); db.refresh(fb)
+        fid = fb.id
+    finally:
+        db.close()
+    r = client.post("/assistant/feedback",
+                    json={"feedback_id": fid, "mark": "up"},
+                    headers=assistant_headers)
+    assert r.status_code == 404
+
+
 def test_prompts_have_extended_content():
     """После расширения каждый prompt должен быть существенно длиннее baseline."""
     from server.assistant_prompts import SECTION_PROMPTS, build_system_prompt
@@ -198,6 +286,8 @@ def test_prompts_have_extended_content():
 
 
 def test_ask_caches_repeat_questions(client, assistant_headers):
+    """Кэш: повторный вопрос НЕ должен делать новых AI-вызовов.
+    Первый /ask делает 2 вызова (ответ + фоновая классификация), второй — 0."""
     calls = {"n": 0}
     def _counting(*_a, **_k):
         calls["n"] += 1
@@ -207,11 +297,13 @@ def test_ask_caches_repeat_questions(client, assistant_headers):
         r1 = client.post("/assistant/ask",
                          json={"section": "sites", "message": "одинаковый вопрос"},
                          headers=assistant_headers)
+        n_after_first = calls["n"]
         r2 = client.post("/assistant/ask",
                          json={"section": "sites", "message": "одинаковый вопрос"},
                          headers=assistant_headers)
     assert r1.status_code == r2.status_code == 200
-    assert calls["n"] == 1, "повторный вопрос должен возвращаться из кэша"
+    # Второй вызов не должен увеличить count — попал в кэш.
+    assert calls["n"] == n_after_first, "повторный вопрос должен идти из кэша"
     assert r1.json()["answer"] == r2.json()["answer"]
 
 

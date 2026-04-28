@@ -574,6 +574,15 @@
 .ai-msg.user{background:#FFB300;color:#fff;margin-left:auto;border-bottom-right-radius:4px}
 .ai-msg.bot{background:#fff;color:#1a1a1a;border:1px solid #eee;border-bottom-left-radius:4px}
 .ai-msg.bot a{color:#FF6F00;text-decoration:underline}
+.ai-msg .fb{margin-top:8px;display:flex;gap:4px;opacity:.55;transition:opacity .2s}
+.ai-msg:hover .fb,.ai-msg .fb:focus-within{opacity:1}
+.ai-msg .fb-btn{background:transparent;border:1px solid rgba(0,0,0,.08);border-radius:8px;padding:3px 7px;font-size:13px;cursor:pointer;line-height:1;transition:background .15s,border-color .15s}
+.ai-msg .fb-btn:hover{background:rgba(255,140,66,.08);border-color:rgba(255,140,66,.4)}
+.ai-msg .fb-btn.active{background:rgba(255,140,66,.18);border-color:#ff8c42}
+@media (prefers-color-scheme:dark){
+  .ai-msg .fb-btn{border-color:rgba(255,255,255,.1)}
+  .ai-msg .fb-btn:hover{background:rgba(255,140,66,.15)}
+}
 .ai-msg .lnks{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
 .ai-msg .lnks a{display:inline-flex;align-items:center;gap:5px;padding:7px 11px;background:linear-gradient(135deg,#FFB300,#FF6F00);border:none;border-radius:10px;font-size:12px;font-weight:600;text-decoration:none;color:#fff;box-shadow:0 2px 6px rgba(255,140,66,.25);transition:transform .12s,box-shadow .12s}
 .ai-msg .lnks a:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(255,140,66,.35)}
@@ -675,6 +684,39 @@
           lnks.appendChild(a);
         });
         div.appendChild(lnks);
+      }
+      // Кнопки оценки 👍/👎/💡 — только у ботовых сообщений с feedback_id
+      if (m.role === 'bot' && m.feedback_id && m.kind !== 'err') {
+        const fbWrap = document.createElement('div');
+        fbWrap.className = 'fb';
+        const _btn = (mark, glyph, title) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'fb-btn';
+          b.dataset.mark = mark;
+          b.title = title;
+          b.textContent = glyph;
+          b.addEventListener('click', async () => {
+            const wasActive = b.classList.contains('active');
+            // Снимаем все
+            fbWrap.querySelectorAll('.fb-btn').forEach(x => x.classList.remove('active'));
+            const newMark = wasActive ? 'clear' : mark;
+            if (!wasActive) b.classList.add('active');
+            try {
+              await fetch('/assistant/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ feedback_id: m.feedback_id, mark: newMark }),
+              });
+            } catch (_) {}
+          });
+          return b;
+        };
+        fbWrap.appendChild(_btn('up', '👍', 'Полезно'));
+        fbWrap.appendChild(_btn('down', '👎', 'Не помогло'));
+        fbWrap.appendChild(_btn('idea', '💡', 'У меня идея — добавьте функцию'));
+        div.appendChild(fbWrap);
       }
       msgs.appendChild(div);
       msgs.scrollTop = msgs.scrollHeight;
@@ -940,7 +982,7 @@
           return;
         }
         const data = await r.json();
-        const botMsg = { role: 'bot', text: data.answer || '', links: data.links || [] };
+        const botMsg = { role: 'bot', text: data.answer || '', links: data.links || [], feedback_id: data.feedback_id };
         _renderMsg(botMsg);
         history.push(botMsg);
         _saveHistory();
