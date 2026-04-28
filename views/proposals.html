@@ -156,6 +156,28 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
         <label class="text-xs text-on-dim/70">Если прайс-лист не указан — используется прайс этого бота (опционально)</label>
         <select id="pBot" class="inp"></select>
       </div>
+      <div class="field">
+        <label>Стиль шапки <span title="Внешний вид верхней части PDF: лого + реквизиты можно расположить классически (лого слева), баннером (цветная полоса), по центру или минимально (только текст)" style="cursor:help;color:var(--md-sys-color-primary)">ⓘ</span></label>
+        <div id="pHeaderLayout" class="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <button type="button" data-layout="classic" onclick="setHeaderLayout('classic')" class="header-pick text-xs py-2 px-2 rounded-lg border border-outline/30 hover:border-primary transition active:scale-95">
+            <div class="font-bold mb-0.5">Классика</div>
+            <div class="text-[10px] text-on-dim">Лого слева · реквизиты справа</div>
+          </button>
+          <button type="button" data-layout="banner" onclick="setHeaderLayout('banner')" class="header-pick text-xs py-2 px-2 rounded-lg border border-outline/30 hover:border-primary transition active:scale-95">
+            <div class="font-bold mb-0.5">Баннер</div>
+            <div class="text-[10px] text-on-dim">Цветная полоса с лого</div>
+          </button>
+          <button type="button" data-layout="centered" onclick="setHeaderLayout('centered')" class="header-pick text-xs py-2 px-2 rounded-lg border border-outline/30 hover:border-primary transition active:scale-95">
+            <div class="font-bold mb-0.5">По центру</div>
+            <div class="text-[10px] text-on-dim">Лого + название по центру</div>
+          </button>
+          <button type="button" data-layout="minimal" onclick="setHeaderLayout('minimal')" class="header-pick text-xs py-2 px-2 rounded-lg border border-outline/30 hover:border-primary transition active:scale-95">
+            <div class="font-bold mb-0.5">Минимал</div>
+            <div class="text-[10px] text-on-dim">Только текст, тонкая полоса</div>
+          </button>
+        </div>
+        <input type="hidden" id="pHeaderLayoutVal" value="classic"/>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
           <label>Имя клиента</label>
@@ -665,6 +687,16 @@ async function quickStage(id, stage){
   }catch(e){ await aiAlert(e.message, 'error'); }
 }
 
+function setHeaderLayout(layout){
+  document.getElementById('pHeaderLayoutVal').value = layout;
+  document.querySelectorAll('#pHeaderLayout .header-pick').forEach(b => {
+    const active = b.dataset.layout === layout;
+    b.classList.toggle('border-primary', active);
+    b.classList.toggle('bg-primary/10', active);
+    b.classList.toggle('border-outline/30', !active);
+  });
+}
+
 function openCreate(){
   currentProjectId = null;
   document.getElementById('projectModalTitle').textContent = 'Новое КП';
@@ -672,6 +704,7 @@ function openCreate(){
   document.getElementById('pBrand').value = '';
   document.getElementById('pBot').value = '';
   if(document.getElementById('pPriceList')) document.getElementById('pPriceList').value = '';
+  setHeaderLayout('classic');
   document.getElementById('pDeleteBtn').classList.add('hidden');
   populateBrandSelect();
   populateBotSelect();
@@ -701,6 +734,7 @@ async function openProject(id){
   if(document.getElementById('pPriceList')){
     document.getElementById('pPriceList').value = p.price_list_id || '';
   }
+  setHeaderLayout(p.header_layout || 'classic');
   document.getElementById('pDeleteBtn').classList.remove('hidden');
   document.getElementById('projectModal').classList.add('show');
   // Обновляем кнопку генерации и превью результата
@@ -1271,6 +1305,7 @@ async function saveProject(silent){
     client_request: document.getElementById('pClientReq').value.trim() || null,
     client_site_url: document.getElementById('pClientSite').value.trim() || null,
     extra_notes: document.getElementById('pNotes').value.trim() || null,
+    header_layout: document.getElementById('pHeaderLayoutVal').value || 'classic',
   };
   if(!body.name){ await aiAlert('Введите название КП', 'warn'); return false; }
   const url = currentProjectId

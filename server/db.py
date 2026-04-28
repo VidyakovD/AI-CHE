@@ -148,6 +148,8 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("knowledge_files", "indexing_status", "VARCHAR DEFAULT 'pending'"),
     ("knowledge_files", "indexing_error", "TEXT"),
     ("knowledge_files", "enabled", "BOOLEAN DEFAULT 1"),
+    # КП: конструктор шапки (4 стиля)
+    ("proposal_projects", "header_layout", "VARCHAR DEFAULT 'classic'"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

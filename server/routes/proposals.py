@@ -211,6 +211,7 @@ class ProposalCreateBody(BaseModel):
     client_request: str | None = None
     client_site_url: str | None = None
     extra_notes: str | None = None
+    header_layout: str | None = None  # classic | banner | centered | minimal
 
 
 def _project_to_dict(p: ProposalProject, full: bool = False) -> dict:
@@ -230,6 +231,7 @@ def _project_to_dict(p: ProposalProject, full: bool = False) -> dict:
         "public_token": p.public_token,
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }
+    base["header_layout"] = getattr(p, "header_layout", None) or "classic"
     if full:
         base.update({
             "client_request": p.client_request,
@@ -307,6 +309,9 @@ def create_project(body: ProposalCreateBody, db: Session = Depends(get_db),
             id=body.price_list_id, user_id=user.id).first()
         if not pl:
             raise HTTPException(404, "Прайс-лист не найден")
+    layout = (body.header_layout or "classic").strip().lower()
+    if layout not in ("classic", "banner", "centered", "minimal"):
+        layout = "classic"
     p = ProposalProject(
         user_id=user.id,
         name=body.name.strip()[:200],
@@ -317,6 +322,7 @@ def create_project(body: ProposalCreateBody, db: Session = Depends(get_db),
         client_request=(body.client_request or "")[:20000] or None,
         client_site_url=(body.client_site_url or "")[:500] or None,
         extra_notes=(body.extra_notes or "")[:5000] or None,
+        header_layout=layout,
         status="draft",
     )
     db.add(p); db.commit(); db.refresh(p)
@@ -371,6 +377,10 @@ def update_project(project_id: int, body: ProposalCreateBody,
         p.client_site_url = (body.client_site_url or "")[:500] or None
     if body.extra_notes is not None:
         p.extra_notes = (body.extra_notes or "")[:5000] or None
+    if body.header_layout is not None:
+        layout = (body.header_layout or "classic").strip().lower()
+        if layout in ("classic", "banner", "centered", "minimal"):
+            p.header_layout = layout
     db.commit(); db.refresh(p)
     return _project_to_dict(p, full=True)
 

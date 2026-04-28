@@ -1041,4 +1041,7 @@ class ProposalProject(Base):
     won_at          = Column(DateTime, nullable=True)
     lost_at         = Column(DateTime, nullable=True)
     public_token    = Column(String, unique=True, nullable=True, index=True)  # для публичной ссылки
+    # Стиль шапки PDF/HTML: classic | banner | centered | minimal
+    # Юзер выбирает при создании КП. Default — classic (как было раньше).
+    header_layout   = Column(String, default="classic")
     created_at      = Column(DateTime, default=datetime.utcnow)

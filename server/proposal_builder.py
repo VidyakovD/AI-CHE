@@ -795,7 +795,8 @@ _BASE_TEMPLATE = """<!DOCTYPE html>
   h1, h2, h3 {{ font-family: {font}; }}
   p {{ margin: 0 0 6pt; }}
   strong {{ color: {primary}; }}
-  /* Header через native <table> — xhtml2pdf теряет display:table-cell в некоторых пресетах */
+  /* ═══ Шапки (header layouts) — через native <table> для xhtml2pdf ═══ */
+  /* classic: лого слева, реквизиты + дата справа */
   table.kp-header {{ width: 100%; border-collapse: collapse; margin-bottom: 14pt; }}
   table.kp-header td {{ vertical-align: middle; padding: 0; }}
   table.kp-header td.logo {{ width: 90pt; }}
@@ -804,6 +805,32 @@ _BASE_TEMPLATE = """<!DOCTYPE html>
   table.kp-header td.meta .valid {{ color: {primary}; font-weight: 600; }}
   table.kp-header td.meta strong {{ color: #222; font-size: 11pt; }}
   table.kp-header td.meta .meta-line {{ display: block; line-height: 1.4; }}
+  /* banner: цветная полоса с лого+названием на ширину страницы */
+  .kp-header-banner {{ background: {primary}; color: #fff; padding: 14pt 18pt;
+                        margin: -2pt -2pt 14pt -2pt; border-radius: 4pt; }}
+  .kp-header-banner table {{ width: 100%; border-collapse: collapse; }}
+  .kp-header-banner td {{ vertical-align: middle; color: #fff; }}
+  .kp-header-banner td.logo {{ width: 80pt; }}
+  .kp-header-banner td.logo img {{ max-width: 70pt; max-height: 56pt;
+                                    background: #fff; padding: 4pt; border-radius: 4pt; }}
+  .kp-header-banner .b-title {{ font-size: 16pt; font-weight: 700; margin: 0; }}
+  .kp-header-banner .b-sub {{ font-size: 10pt; opacity: 0.9; margin-top: 2pt; }}
+  /* centered: лого + название + дата по центру с разделительной линией */
+  .kp-header-centered {{ text-align: center; padding-bottom: 12pt;
+                          border-bottom: 2pt solid {primary}; margin-bottom: 14pt; }}
+  .kp-header-centered img {{ max-width: 90pt; max-height: 70pt; margin-bottom: 6pt; }}
+  .kp-header-centered .c-company {{ font-size: 13pt; font-weight: 700; color: #222; }}
+  .kp-header-centered .c-meta {{ font-size: 9pt; color: #666; margin-top: 4pt; }}
+  .kp-header-centered .c-meta .valid {{ color: {primary}; font-weight: 600; }}
+  /* minimal: тонкая полоса снизу, только текст без лого */
+  .kp-header-minimal {{ padding: 0 0 10pt; margin-bottom: 14pt;
+                         border-bottom: 1pt solid #ddd; }}
+  .kp-header-minimal table {{ width: 100%; border-collapse: collapse; }}
+  .kp-header-minimal td {{ vertical-align: bottom; padding: 0; }}
+  .kp-header-minimal td.title {{ font-size: 18pt; font-weight: 700; color: #222; }}
+  .kp-header-minimal td.meta {{ text-align: right; font-size: 9pt; color: #888;
+                                  vertical-align: bottom; }}
+  .kp-header-minimal td.meta .valid {{ color: {primary}; font-weight: 600; }}
   .kp-section {{ margin-bottom: 12pt; }}
   .kp-grid {{ display: table; width: 100%; border-collapse: separate; border-spacing: 6pt 0; margin: 6pt 0; }}
   .kp-card {{ display: table-cell; padding: 10pt; vertical-align: top; border-radius: 4pt; }}
@@ -824,20 +851,77 @@ _BASE_TEMPLATE = """<!DOCTYPE html>
   /* ── Пресет «{preset_name}» — переопределяет цвета/типографику/hero/cta ── */
   {preset_css}
 </style></head><body>
-<table class="kp-header"><tr>
-  <td class="logo">{logo_html}</td>
-  <td class="meta">
-    {company_html}
-    <span class="meta-line">Дата: {today}</span>
-    <span class="meta-line valid">КП действует до: {valid_until}</span>
-  </td>
-</tr></table>
+{header_html}
 {ai_content}
 {signature_html}
 <div class="kp-footer">
   {footer_html}
 </div>
 </body></html>"""
+
+
+HEADER_LAYOUTS = ("classic", "banner", "centered", "minimal")
+
+
+def _render_header_html(layout: str, brand_css: dict, project: ProposalProject,
+                        today: str, valid_until: str,
+                        logo_html: str, company_html: str) -> str:
+    """Рендерит шапку КП в выбранном стиле.
+
+    layout ∈ {classic, banner, centered, minimal}.
+    Все варианты используют только native <table>, чтобы стабильно
+    рендериться через xhtml2pdf.
+    """
+    layout = (layout or "classic").lower()
+    if layout not in HEADER_LAYOUTS:
+        layout = "classic"
+    company = brand_css.get("company") or ""
+    if layout == "classic":
+        return (
+            '<table class="kp-header"><tr>'
+            f'<td class="logo">{logo_html}</td>'
+            '<td class="meta">'
+            f'{company_html}'
+            f'<span class="meta-line">Дата: {today}</span>'
+            f'<span class="meta-line valid">КП действует до: {valid_until}</span>'
+            '</td></tr></table>'
+        )
+    if layout == "banner":
+        title = "Коммерческое предложение"
+        if project.client_name:
+            title += " для " + _html_escape(project.client_name)
+        return (
+            '<div class="kp-header-banner"><table><tr>'
+            f'<td class="logo">{logo_html or ""}</td>'
+            '<td>'
+            f'<div class="b-title">{title}</div>'
+            f'<div class="b-sub">'
+            f'{(_html_escape(company) + " · ") if company else ""}'
+            f'Дата: {today} · действует до: {valid_until}'
+            '</div>'
+            '</td></tr></table></div>'
+        )
+    if layout == "centered":
+        company_block = f'<div class="c-company">{_html_escape(company)}</div>' if company else ""
+        return (
+            '<div class="kp-header-centered">'
+            f'{logo_html or ""}'
+            f'{company_block}'
+            f'<div class="c-meta">Дата: {today} · '
+            f'<span class="valid">действует до: {valid_until}</span></div>'
+            '</div>'
+        )
+    # minimal
+    title = "Коммерческое предложение"
+    return (
+        '<div class="kp-header-minimal"><table><tr>'
+        f'<td class="title">{title}</td>'
+        '<td class="meta">'
+        f'{(_html_escape(company) + "<br/>") if company else ""}'
+        f'{today}<br/>'
+        f'<span class="valid">действует до: {valid_until}</span>'
+        '</td></tr></table></div>'
+    )
 
 
 def _wrap_html(brand_css: dict, ai_html: str, project: ProposalProject) -> str:
@@ -894,12 +978,17 @@ def _wrap_html(brand_css: dict, ai_html: str, project: ProposalProject) -> str:
                    .replace("{accent}", brand_css["accent"])
                    .replace("{secondary}", brand_css["secondary"]))
 
+    layout = getattr(project, "header_layout", None) or "classic"
+    header_html = _render_header_html(
+        layout, brand_css, project, today, valid_until, logo_html, company_html,
+    )
+
     return _BASE_TEMPLATE.format(
         title=_html_escape(title), font=brand_css["font"],
         primary=brand_css["primary"], accent=brand_css["accent"],
         secondary=brand_css["secondary"],
         preset_name=_html_escape(preset_name), preset_css=preset_css,
-        logo_html=logo_html, company_html=company_html,
+        header_html=header_html,
         today=today, valid_until=valid_until,
         ai_content=ai_html, footer_html=footer_html,
         signature_html=signature_html,
