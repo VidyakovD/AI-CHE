@@ -167,12 +167,21 @@ def send_message(req: MessageRequest,
 
     # Idempotency: повторный запрос с тем же ключом возвращает кэшированный
     # ответ и НЕ списывает баланс повторно. Защита от двойного клика.
-    # Ключ ограничиваем до 80 символов и отбрасываем пустоту.
+    # Если клиент не прислал ключ — выводим стабильный авто-ключ из (chat_id,
+    # модель, content-hash) с окном 30 секунд. Это закрывает кейс двойного
+    # клика / network retry даже если фронт забыл поставить заголовок.
     _idem_key = (idempotency_key or "").strip()[:80]
-    if _idem_key:
-        cached = _idempotency_get(user.id, _idem_key)
-        if cached is not None:
-            return cached
+    if not _idem_key:
+        import hashlib
+        _msg_for_hash = (req.message or "")[:2000]
+        _files_for_hash = ",".join(sorted(req.file_urls or [req.file_url] if req.file_url else []))
+        _bucket = int(time.time() // 30)  # окно 30 сек
+        _idem_key = "auto:" + hashlib.sha256(
+            f"{req.chat_id}|{req.model}|{_bucket}|{_msg_for_hash}|{_files_for_hash}".encode()
+        ).hexdigest()[:32]
+    cached = _idempotency_get(user.id, _idem_key)
+    if cached is not None:
+        return cached
 
     # Предварительная блокировка: списываем минимум, чтобы отсечь пустые балансы
     min_cost = 1
@@ -369,17 +378,8 @@ def upload_file(file: UploadFile = File(...), user=Depends(optional_user)):
     # SVG / XML — бьются по содержимому (script, foreignObject, on*=, javascript:).
     # Браузер выполнит JS внутри SVG если открыть его как <img src> или <object>.
     if ext == ".svg" or detected == "svg":
-        try:
-            text_lower = data[:65536].decode("utf-8", errors="ignore").lower()
-        except Exception:
-            text_lower = ""
-        _SVG_BAD = (
-            "<script", "</script", "<foreignobject", "javascript:",
-            " onload=", " onerror=", " onclick=", " onmouseover=",
-            " onfocus=", " onblur=", " onanimation", " ontoggle=",
-        )
-        if any(b in text_lower for b in _SVG_BAD):
-            raise HTTPException(400, "SVG содержит исполняемый код (script/on-handler) — отклонено")
+        from server.security import sanitize_svg_or_raise
+        sanitize_svg_or_raise(data)
 
     fid  = str(uuid.uuid4())
     # Sanitize filename: убираем спецсимволы, оставляем только ASCII + . _ -

@@ -81,6 +81,9 @@ RULES = {
     "/user/transactions.csv":    (10, 300),    # тяжёлый CSV-экспорт
     "/user/support/refund":      (3,  3600),   # 3 заявки в час
     "/user/support/delete-data": (3,  3600),
+    # Контекстный помощник по разделам — глобальный лимит на IP против DoS.
+    # На юзера ещё 60 / 12ч проверяется отдельно в /assistant/ask.
+    "/assistant/":               (120, 60),
 }
 
 _TRUSTED_PROXIES = {p.strip() for p in os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1").split(",") if p.strip()}
@@ -176,6 +179,32 @@ def validate_upload_filename(filename: str) -> None:
     ext = os.path.splitext(filename or "")[1].lower()
     if ext not in ALLOWED_UPLOAD_EXT:
         raise HTTPException(400, f"Тип файла не разрешён. Допустимы: {', '.join(ALLOWED_UPLOAD_EXT)}")
+
+
+# SVG-санитайзер: SVG-файл может содержать <script>, on*-handlers и javascript:-URI,
+# которые выполнятся в браузере при рендере как <img>/<object> или прямом открытии.
+# Поскольку у нас есть public-эндпоинт /assets/public/{token}, это потенциальный XSS.
+_SVG_BAD_TOKENS = (
+    "<script", "</script", "<foreignobject", "javascript:",
+    " onload=", " onerror=", " onclick=", " onmouseover=",
+    " onfocus=", " onblur=", " onanimation", " ontoggle=",
+    " onbegin=", " onend=", " onrepeat=", " onactivate=",
+    " onloadstart=", " onloadend=", " onpointer", " onmessage=",
+    "<iframe", "<embed", "<object",
+)
+
+def sanitize_svg_or_raise(data: bytes) -> None:
+    """
+    Бьёт по содержимому SVG/XML на наличие исполняемого кода.
+    Поднимает HTTPException 400, если найдены опасные токены.
+    Используется в /upload и /assets/upload.
+    """
+    try:
+        text_lower = data[:65536].decode("utf-8", errors="ignore").lower()
+    except Exception:
+        text_lower = ""
+    if any(tok in text_lower for tok in _SVG_BAD_TOKENS):
+        raise HTTPException(400, "SVG содержит исполняемый код (script/on-handler/iframe) — отклонено")
 
 # ── admin check ───────────────────────────────────────────────────────────────
 

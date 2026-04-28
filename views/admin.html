@@ -34,7 +34,7 @@ select.inp option{background:#272018;color:#f0e6d8}
 </style>
 <script src="/icons.js" defer></script>
 </head>
-<body class="bg-background text-on-surface font-body min-h-screen">
+<body class="bg-background text-on-surface font-body min-h-screen" data-assistant-section="admin" data-assistant-label="админ">
 
 <!-- Login gate -->
 <div id="loginGate" class="fixed inset-0 bg-background flex items-center justify-center z-50">
@@ -557,7 +557,7 @@ async function loadAdmin(){
 async function loadCategories(){
   categories=await get("/solutions/categories");
   const sel=document.getElementById("sol_cat");
-  sel.innerHTML=categories.map(c=>`<option value="${c.id}">${c.title}</option>`).join("");
+  sel.innerHTML=categories.map(c=>`<option value="${esc(c.id)}">${esc(c.title)}</option>`).join("");
   const tabs=document.getElementById("catTabs");
   tabs.innerHTML=`<button onclick="filterCat(null)" data-cat="" class="cat-btn btn btn-p text-xs">Все</button>`;
   categories.forEach(c=>{

@@ -31,6 +31,7 @@ from server.routes.assets import router as assets_router
 from server.routes.webhook import router as webhook_router
 from server.routes.widget import router as widget_router
 from server.routes.proposals import router as proposals_router
+from server.routes.assistant import router as assistant_router
 
 load_dotenv()
 
@@ -296,6 +297,7 @@ app.include_router(widget_router)
 app.include_router(public_router)
 app.include_router(assets_router)
 app.include_router(proposals_router)
+app.include_router(assistant_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -316,11 +318,16 @@ def _html(name: str) -> FileResponse:
 
 @app.get("/icons.js", include_in_schema=False)
 def serve_icons():
-    """Единый набор векторных иконок — заменяет эмодзи в UI."""
+    """Единый набор векторных иконок — заменяет эмодзи в UI.
+
+    Cache: 60 секунд + must-revalidate. Так после деплоя клиент получит свежий
+    icons.js за минуту, а не через час (старый max-age=3600 однажды залип
+    PWA-кэшем и юзер не видел обновлений UI до жёсткого hard-reload).
+    """
     return FileResponse(
         os.path.join(_BASE, "icons.js"),
         media_type="application/javascript",
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers={"Cache-Control": "public, max-age=60, must-revalidate"},
     )
 
 

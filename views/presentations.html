@@ -45,7 +45,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 </style>
 <script src="/icons.js" defer></script>
 </head>
-<body class="dark">
+<body class="dark" data-assistant-section="presentations" data-assistant-label="презентации">
 
 <div class="max-w-6xl mx-auto px-5 py-8">
 
@@ -288,7 +288,7 @@ async function loadProjects(){
     projects = projects.filter(p => p.doc_type === 'presentation');
     renderProjects();
   }catch(e){
-    document.getElementById('projectsGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${e.message}</p>`;
+    document.getElementById('projectsGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${escHtml(e.message)}</p>`;
   }
 }
 

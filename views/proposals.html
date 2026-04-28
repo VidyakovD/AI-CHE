@@ -43,7 +43,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 </style>
 <script src="/icons.js" defer></script>
 </head>
-<body class="dark">
+<body class="dark" data-assistant-section="proposals.projects" data-assistant-label="КП · мои">
 
 <div class="max-w-6xl mx-auto px-5 py-8">
 
@@ -530,6 +530,9 @@ function switchTab(tab){
   document.getElementById('paneProjects').classList.toggle('hidden', tab!=='projects');
   document.getElementById('paneBrands').classList.toggle('hidden', tab!=='brands');
   document.getElementById('panePrices').classList.toggle('hidden', tab!=='prices');
+  // Подсказываем помощнику новую секцию (он подхватит на следующий вопрос).
+  const sectionMap = {projects: 'proposals.projects', brands: 'proposals.brands', prices: 'proposals.prices'};
+  document.body.setAttribute('data-assistant-section', sectionMap[tab] || 'proposals.projects');
   if(tab==='brands') loadBrands();
   else if(tab==='prices') loadPriceLists();
   else loadProjects();
@@ -543,7 +546,7 @@ async function loadProjects(){
     projects = await r.json();
     renderProjects();
   }catch(e){
-    document.getElementById('projectsGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${e.message}</p>`;
+    document.getElementById('projectsGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${escHtml(e.message)}</p>`;
   }
 }
 
@@ -1310,7 +1313,7 @@ async function loadBrands(){
     brands = await r.json();
     renderBrands();
   }catch(e){
-    document.getElementById('brandsGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${e.message}</p>`;
+    document.getElementById('brandsGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${escHtml(e.message)}</p>`;
   }
 }
 
@@ -1569,7 +1572,7 @@ async function loadPriceLists(){
     priceLists = await r.json();
     renderPriceLists();
   }catch(e){
-    document.getElementById('pricesGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${e.message}</p>`;
+    document.getElementById('pricesGrid').innerHTML = `<p class="text-error col-span-full">Ошибка: ${escHtml(e.message)}</p>`;
   }
 }
 

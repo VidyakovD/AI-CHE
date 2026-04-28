@@ -387,31 +387,16 @@ async def max_webhook(bot_id: int, request: Request,
 
 # ── Management bot webhook ────────────────────────────────────────────────
 # Отдельный TG-бот для управления АГЕНТАМИ (не клиентский, а для владельца).
-# Webhook URL: /webhook/tg-mgmt/{secret}
-# Secret выводится из TG_MGMT_BOT_TOKEN. setWebhook через:
-#   curl -F url=https://aiche.ru/webhook/tg-mgmt/{SECRET} \
+# Рекомендуемый URL (header-only, секрет НЕ светится в логах nginx/proxy):
+#   curl -F url=https://aiche.ru/webhook/tg-mgmt \
 #        -F secret_token={SECRET} \
 #        https://api.telegram.org/bot{TOKEN}/setWebhook
+# Старый URL /webhook/tg-mgmt/{secret} остаётся для backward-compat.
 
 
-@router.post("/tg-mgmt/{path_secret}")
-async def telegram_mgmt_webhook(path_secret: str, request: Request):
-    """Webhook для бота-управляющего (управление аккаунтом владельца).
-    Защита: path_secret в URL + X-Telegram-Bot-Api-Secret-Token header,
-    оба равны производному от TG_MGMT_BOT_TOKEN (через tg_webhook_secret).
-    """
-    import hmac
-    from server.tg_management import handle_update, _bot_token, is_configured
-    if not is_configured():
-        raise HTTPException(503, "Management bot not configured (TG_MGMT_BOT_TOKEN missing)")
-    expected = tg_webhook_secret(_bot_token() or "")
-    if not expected:
-        raise HTTPException(503, "Webhook secret not derivable")
-    if not hmac.compare_digest(path_secret, expected):
-        raise HTTPException(401, "Invalid path secret")
-    got_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    if not hmac.compare_digest(got_header, expected):
-        raise HTTPException(401, "Invalid secret header")
+async def _tg_mgmt_handle(request: Request) -> dict:
+    """Общая логика обработки апдейта от management-бота."""
+    from server.tg_management import handle_update
     try:
         body = await request.json()
     except Exception:
@@ -421,3 +406,34 @@ async def telegram_mgmt_webhook(path_secret: str, request: Request):
     except Exception as e:
         log.error(f"[tg-mgmt] update handler error: {type(e).__name__}: {e}")
     return {"ok": True}
+
+
+def _tg_mgmt_check_header(request: Request) -> None:
+    """Проверка X-Telegram-Bot-Api-Secret-Token (constant-time)."""
+    import hmac
+    from server.tg_management import _bot_token, is_configured
+    if not is_configured():
+        raise HTTPException(503, "Management bot not configured (TG_MGMT_BOT_TOKEN missing)")
+    expected = tg_webhook_secret(_bot_token() or "")
+    if not expected:
+        raise HTTPException(503, "Webhook secret not derivable")
+    got_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not hmac.compare_digest(got_header, expected):
+        raise HTTPException(401, "Invalid secret header")
+
+
+@router.post("/tg-mgmt")
+async def telegram_mgmt_webhook_v2(request: Request):
+    """Header-only webhook (рекомендуется). Secret в `X-Telegram-Bot-Api-Secret-Token`."""
+    _tg_mgmt_check_header(request)
+    return await _tg_mgmt_handle(request)
+
+
+@router.post("/tg-mgmt/{path_secret}")
+async def telegram_mgmt_webhook_legacy(path_secret: str, request: Request):
+    """Legacy webhook с secret в path. Header-проверка — основная,
+    path сравнивается, но не критичен (path может уйти в access-log).
+    Оставлен для уже настроенных Telegram webhook'ов.
+    """
+    _tg_mgmt_check_header(request)
+    return await _tg_mgmt_handle(request)

@@ -11,7 +11,7 @@
  * автоматически почистился при первой регистрации нового SW.
  */
 
-const CACHE_VERSION = 'aiche-v1-2026-04-27';
+const CACHE_VERSION = 'aiche-v2-2026-04-28';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const HTML_CACHE = `${CACHE_VERSION}-html`;
 
@@ -92,7 +92,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static (icon.svg, manifest, /icons.js, *.css, *.js): cache-first
+  // JS/CSS — network-first: иначе после деплоя нового icons.js юзер
+  // продолжит видеть старую версию из кэша. При offline — fallback на кэш.
+  const isCode = path.endsWith('.js') || path.endsWith('.css');
+  if (isCode) {
+    event.respondWith(
+      fetch(req).then((resp) => {
+        if (resp && resp.status === 200) {
+          const respClone = resp.clone();
+          caches.open(STATIC_CACHE).then((c) => c.put(req, respClone));
+        }
+        return resp;
+      }).catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  // Иконки/SVG/PNG/manifest — cache-first (бинарные ассеты редко меняются)
   event.respondWith(
     caches.match(req).then((cached) => {
       if (cached) return cached;

@@ -255,6 +255,14 @@ async def handle_update(update: dict) -> None:
 
 
 async def _do_link(chat_id: str, tg_uid: str, tg_username: str, code: str) -> None:
+    # Rate-limit на TG-юзера: макс 8 попыток /link / 10 мин.
+    # Защита от перебора кодов (хоть алфавит 27 симв × 6 = ~387 млн комбинаций,
+    # но реальные коды актуальны 10 мин — за это время можно перебрать заметно).
+    from server.security import _check as _rl_check
+    if not _rl_check(f"tg_link:{tg_uid}", max_calls=8, window_sec=600):
+        await send_message(chat_id,
+            "🛑 Слишком много попыток. Подожди 10 минут и попробуй снова.")
+        return
     from server.db import db_session
     with db_session() as db:
         user_id = consume_link_code(db, code, tg_uid, tg_username)

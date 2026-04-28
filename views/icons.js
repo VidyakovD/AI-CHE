@@ -183,6 +183,19 @@
   // Утилита для динамически вставляемого HTML — вызывать после insertAdjacentHTML
   window.renderIcons = _replaceAll;
 
+  // ── HTML-escape: единственный источник истины для всех views.
+  // Используем при подстановке user-/API-данных в .innerHTML / template literals.
+  // На страницах могут быть локальные `escHtml/esc` — оставляем (idempotent).
+  if (!window.escHtml) {
+    window.escHtml = function (s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    };
+  }
+  if (!window.esc) window.esc = window.escHtml;
+  if (!window.escAttr) window.escAttr = window.escHtml;
+
   // Маппинг model_id (или подстроки в id) → SVG бренда AI-провайдера.
   // Используется в селекторе модели на главной + аватаре сообщения.
   window.getModelBrandIcon = function(modelId) {
@@ -518,4 +531,354 @@
     }
     return _origFetch(input, init);
   };
+
+  // ── Контекстный помощник по разделам ────────────────────────────────────
+  // Плавающая кнопка-bubble в правом нижнем углу. Клик → открывает чат-панель.
+  // Секция определяется атрибутом <body data-assistant-section="proposals.projects">.
+  // Если атрибут не задан — помощник не подключается. Это позволяет точечно
+  // включать его на нужных страницах (например, не в /terms.html).
+  function _initAssistant() {
+    if (!document.body) return;
+    const section = document.body.getAttribute('data-assistant-section');
+    if (!section) return;
+    if (document.getElementById('ai-assistant-root')) return;
+
+    // ── Стили ──
+    const css = `
+#ai-assistant-root{position:fixed;right:18px;bottom:18px;z-index:99998;font:13px/1.45 system-ui,-apple-system,sans-serif;color:#1a1a1a}
+#ai-assistant-bubble{width:54px;height:54px;border-radius:50%;border:none;cursor:pointer;background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;box-shadow:0 6px 22px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;transition:transform .15s}
+#ai-assistant-bubble:hover{transform:scale(1.06)}
+#ai-assistant-bubble svg{width:26px;height:26px;fill:currentColor}
+#ai-assistant-panel{position:absolute;right:0;bottom:64px;width:360px;max-width:calc(100vw - 24px);height:520px;max-height:calc(100vh - 96px);background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.25);display:none;flex-direction:column;overflow:hidden;border:1px solid rgba(0,0,0,.08)}
+#ai-assistant-panel.open{display:flex}
+#ai-assistant-panel.dragging{transition:none;user-select:none;opacity:.92}
+#ai-assistant-panel.detached{position:fixed;right:auto;bottom:auto}
+#ai-assistant-hdr{padding:12px 14px;background:linear-gradient(135deg,#FFB300,#FF6F00);color:#fff;display:flex;align-items:center;justify-content:space-between;font-weight:600;cursor:grab;touch-action:none;user-select:none}
+#ai-assistant-hdr:active{cursor:grabbing}
+#ai-assistant-hdr small{display:block;font-weight:400;opacity:.85;font-size:11px;margin-top:2px}
+#ai-assistant-hdr-grip{display:inline-flex;flex-direction:column;gap:2px;margin-right:8px;opacity:.7}
+#ai-assistant-hdr-grip span{display:block;width:14px;height:2px;background:#fff;border-radius:1px}
+#ai-assistant-close{background:transparent;border:none;color:#fff;font-size:18px;cursor:pointer;padding:4px 6px;line-height:1}
+#ai-assistant-reset{background:transparent;border:none;color:#fff;cursor:pointer;padding:4px 6px;line-height:1;font-size:12px;opacity:.85;margin-right:2px}
+#ai-assistant-reset:hover{opacity:1}
+#ai-assistant-msgs{flex:1;overflow-y:auto;padding:12px 14px;background:#fafafa}
+.ai-msg{margin-bottom:10px;max-width:88%;padding:8px 11px;border-radius:12px;word-wrap:break-word}
+.ai-msg.user{background:#FFB300;color:#fff;margin-left:auto;border-bottom-right-radius:4px}
+.ai-msg.bot{background:#fff;color:#1a1a1a;border:1px solid #eee;border-bottom-left-radius:4px}
+.ai-msg.bot a{color:#FF6F00;text-decoration:underline}
+.ai-msg .lnks{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}
+.ai-msg .lnks a{display:inline-block;padding:4px 9px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:12px;text-decoration:none;color:#9a3412}
+.ai-msg .lnks a:hover{background:#ffedd5}
+.ai-msg.err{background:#fff1f1;color:#9b1a1a;border:1px solid #fecaca}
+.ai-msg.thinking{font-style:italic;color:#888}
+#ai-assistant-inp-wrap{padding:10px;background:#fff;border-top:1px solid #eee;display:flex;gap:6px}
+#ai-assistant-inp{flex:1;border:1px solid #ddd;border-radius:10px;padding:9px 11px;font:inherit;outline:none;resize:none;max-height:90px;min-height:38px}
+#ai-assistant-inp:focus{border-color:#FFB300}
+#ai-assistant-send{border:none;background:#FFB300;color:#fff;padding:0 14px;border-radius:10px;cursor:pointer;font-weight:600}
+#ai-assistant-send:disabled{opacity:.5;cursor:not-allowed}
+@media (prefers-color-scheme:dark){
+  #ai-assistant-panel{background:#1c1815;border-color:rgba(255,255,255,.1);color:#eee}
+  #ai-assistant-msgs{background:#15110e}
+  .ai-msg.bot{background:#231e1a;color:#eee;border-color:#332b25}
+  #ai-assistant-inp-wrap{background:#1c1815;border-color:#332b25}
+  #ai-assistant-inp{background:#231e1a;color:#eee;border-color:#332b25}
+}
+`;
+    const styleEl = document.createElement('style');
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+
+    // ── Markup ──
+    const root = document.createElement('div');
+    root.id = 'ai-assistant-root';
+    root.innerHTML = `
+<div id="ai-assistant-panel" role="dialog" aria-label="AI-помощник">
+  <div id="ai-assistant-hdr" title="Перетащите за этот заголовок, чтобы переместить окно">
+    <div style="display:flex;align-items:center;min-width:0;flex:1">
+      <span id="ai-assistant-hdr-grip" aria-hidden="true"><span></span><span></span><span></span></span>
+      <div style="min-width:0">AI-помощник<small id="ai-assistant-section-label"></small></div>
+    </div>
+    <div style="display:flex;align-items:center;flex-shrink:0">
+      <button id="ai-assistant-reset" type="button" title="Вернуть окно в исходное место" aria-label="Сбросить позицию">⤓</button>
+      <button id="ai-assistant-close" type="button" aria-label="Закрыть">×</button>
+    </div>
+  </div>
+  <div id="ai-assistant-msgs" role="log" aria-live="polite"></div>
+  <div id="ai-assistant-inp-wrap">
+    <textarea id="ai-assistant-inp" rows="1" placeholder="Спросите про этот раздел…" maxlength="600"></textarea>
+    <button id="ai-assistant-send" disabled>↑</button>
+  </div>
+</div>
+<button id="ai-assistant-bubble" type="button" aria-label="Открыть AI-помощника">
+  <svg viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6 2 11c0 2.7 1.4 5.1 3.6 6.7L4 22l4.6-1.5c1 .3 2.2.5 3.4.5 5.5 0 10-4 10-9s-4.5-10-10-10zm-1 13.5h-2v-2h2v2zm2.5-6.1-.9 1c-.7.7-1.1 1.3-1.1 2.6h-2v-.5c0-1 .4-1.9 1.1-2.6l1.2-1.2c.4-.3.6-.8.6-1.4 0-1.1-.9-2-2-2s-2 .9-2 2H6c0-2.2 1.8-4 4-4s4 1.8 4 4c0 .9-.4 1.7-.9 2.2z"/></svg>
+</button>
+`;
+    document.body.appendChild(root);
+
+    const panel = root.querySelector('#ai-assistant-panel');
+    const bubble = root.querySelector('#ai-assistant-bubble');
+    const closeBtn = root.querySelector('#ai-assistant-close');
+    const resetBtn = root.querySelector('#ai-assistant-reset');
+    const hdr = root.querySelector('#ai-assistant-hdr');
+    const msgs = root.querySelector('#ai-assistant-msgs');
+    const inp = root.querySelector('#ai-assistant-inp');
+    const sendBtn = root.querySelector('#ai-assistant-send');
+    const sectionLabel = root.querySelector('#ai-assistant-section-label');
+
+    // Подпись секции — берём из data-assistant-label или из секции id.
+    const niceLabel = document.body.getAttribute('data-assistant-label')
+      || section.replace(/[._]/g, ' › ');
+    sectionLabel.textContent = niceLabel;
+
+    // История разговора в sessionStorage (на одну вкладку, не БД).
+    const STORAGE_KEY = 'ai-assistant:' + section;
+    let history = [];
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY);
+      if (saved) history = JSON.parse(saved) || [];
+    } catch (_) { history = []; }
+
+    function _saveHistory() {
+      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(-20))); }
+      catch (_) {}
+    }
+
+    function _renderMsg(m) {
+      const div = document.createElement('div');
+      div.className = 'ai-msg ' + (m.role || 'bot') + (m.kind === 'err' ? ' err' : '');
+      // Текст: безопасно, через textContent (никакого innerHTML с user-данными)
+      const txt = document.createElement('div');
+      txt.textContent = m.text || '';
+      div.appendChild(txt);
+      // Ссылки от бота — рендерим кнопками
+      if (m.role === 'bot' && Array.isArray(m.links) && m.links.length) {
+        const lnks = document.createElement('div');
+        lnks.className = 'lnks';
+        m.links.forEach(l => {
+          const a = document.createElement('a');
+          a.textContent = l.label || l.href;
+          a.href = l.href;
+          // Если ссылка ведёт на хэш текущей страницы — не открываем в новой вкладке
+          if (!l.href.startsWith('#')) a.target = '_self';
+          lnks.appendChild(a);
+        });
+        div.appendChild(lnks);
+      }
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+      return div;
+    }
+
+    function _initialGreeting() {
+      if (history.length) {
+        history.forEach(_renderMsg);
+        return;
+      }
+      _renderMsg({
+        role: 'bot',
+        text: 'Привет! Я подскажу по этому разделу. Спросите что-нибудь — например, как создать или что значит та или иная кнопка.',
+      });
+    }
+
+    // ── Drag the panel by header ───────────────────────────────────────────
+    // Сохранённую позицию помним между сессиями: localStorage, общий для всех
+    // секций, ключ привязан к origin'у (не section'у), потому что юзер скорее
+    // ожидает что окно будет в одном и том же месте на любой странице.
+    const POS_KEY = 'ai-assistant:pos';
+
+    function _clampPos(left, top) {
+      const w = panel.offsetWidth || 360;
+      const h = panel.offsetHeight || 520;
+      const maxLeft = Math.max(0, window.innerWidth - w - 4);
+      const maxTop = Math.max(0, window.innerHeight - h - 4);
+      return {
+        left: Math.min(maxLeft, Math.max(4, left)),
+        top: Math.min(maxTop, Math.max(4, top)),
+      };
+    }
+
+    function _applyPos(left, top) {
+      const c = _clampPos(left, top);
+      panel.classList.add('detached');
+      panel.style.left = c.left + 'px';
+      panel.style.top = c.top + 'px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+    }
+
+    function _resetPos() {
+      panel.classList.remove('detached');
+      panel.style.left = '';
+      panel.style.top = '';
+      panel.style.right = '';
+      panel.style.bottom = '';
+      try { localStorage.removeItem(POS_KEY); } catch (_) {}
+    }
+
+    function _loadSavedPos() {
+      try {
+        const raw = localStorage.getItem(POS_KEY);
+        if (!raw) return null;
+        const p = JSON.parse(raw);
+        if (typeof p.left === 'number' && typeof p.top === 'number') return p;
+      } catch (_) {}
+      return null;
+    }
+
+    function _toggle(open) {
+      if (open == null) open = !panel.classList.contains('open');
+      panel.classList.toggle('open', open);
+      if (open) {
+        // Применяем сохранённую позицию (если есть) при каждом открытии —
+        // viewport мог измениться, заодно clamp по новым размерам.
+        const saved = _loadSavedPos();
+        if (saved) _applyPos(saved.left, saved.top);
+        if (!msgs.children.length) _initialGreeting();
+        setTimeout(() => inp.focus(), 50);
+      }
+    }
+
+    bubble.addEventListener('click', () => _toggle());
+    closeBtn.addEventListener('click', () => _toggle(false));
+    resetBtn.addEventListener('click', () => {
+      _resetPos();
+      // Чтобы сразу применить дефолтное (привязка к bubble'у) — toggle off+on
+      const wasOpen = panel.classList.contains('open');
+      if (wasOpen) { panel.classList.remove('open'); panel.classList.add('open'); }
+    });
+
+    // Drag: pointer events работают и с мышью, и с тач-экранами.
+    // Игнорируем клики по close/reset кнопкам — у них своя логика.
+    let _drag = null;  // {pointerId, startX, startY, baseLeft, baseTop}
+    hdr.addEventListener('pointerdown', (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      const t = e.target;
+      if (t && t.closest && (t.closest('#ai-assistant-close') || t.closest('#ai-assistant-reset'))) return;
+      // Текущая позиция — берём из getBoundingClientRect (правильно даже когда
+      // panel ещё в режиме absolute right:0/bottom:64px относительно root).
+      const rect = panel.getBoundingClientRect();
+      _drag = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        baseLeft: rect.left,
+        baseTop: rect.top,
+      };
+      // Сразу переключаем в fixed-режим, чтобы дальше двигать по координатам viewport.
+      _applyPos(rect.left, rect.top);
+      panel.classList.add('dragging');
+      try { hdr.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+
+    hdr.addEventListener('pointermove', (e) => {
+      if (!_drag || e.pointerId !== _drag.pointerId) return;
+      const dx = e.clientX - _drag.startX;
+      const dy = e.clientY - _drag.startY;
+      _applyPos(_drag.baseLeft + dx, _drag.baseTop + dy);
+    });
+
+    function _endDrag(e) {
+      if (!_drag) return;
+      if (e && e.pointerId !== _drag.pointerId) return;
+      _drag = null;
+      panel.classList.remove('dragging');
+      try { hdr.releasePointerCapture(e.pointerId); } catch (_) {}
+      // Сохраняем итоговую позицию
+      const rect = panel.getBoundingClientRect();
+      try {
+        localStorage.setItem(POS_KEY, JSON.stringify({
+          left: Math.round(rect.left), top: Math.round(rect.top),
+        }));
+      } catch (_) {}
+    }
+    hdr.addEventListener('pointerup', _endDrag);
+    hdr.addEventListener('pointercancel', _endDrag);
+
+    // На ресайз окна — clamp текущей позиции, чтобы окно не уехало за экран.
+    window.addEventListener('resize', () => {
+      if (!panel.classList.contains('detached')) return;
+      const rect = panel.getBoundingClientRect();
+      _applyPos(rect.left, rect.top);
+      try {
+        localStorage.setItem(POS_KEY, JSON.stringify({
+          left: Math.round(parseFloat(panel.style.left) || 0),
+          top: Math.round(parseFloat(panel.style.top) || 0),
+        }));
+      } catch (_) {}
+    });
+
+    inp.addEventListener('input', () => {
+      sendBtn.disabled = !inp.value.trim();
+      // auto-grow
+      inp.style.height = 'auto';
+      inp.style.height = Math.min(90, inp.scrollHeight) + 'px';
+    });
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (!sendBtn.disabled) _send();
+      }
+    });
+    sendBtn.addEventListener('click', _send);
+
+    let _busy = false;
+    async function _send() {
+      if (_busy) return;
+      const text = inp.value.trim();
+      if (!text) return;
+      _busy = true;
+      sendBtn.disabled = true;
+      inp.value = '';
+      inp.style.height = 'auto';
+      const userMsg = { role: 'user', text };
+      history.push(userMsg);
+      _renderMsg(userMsg);
+      _saveHistory();
+
+      const thinking = _renderMsg({ role: 'bot', text: 'Думаю…' });
+      thinking.classList.add('thinking');
+
+      try {
+        const r = await fetch('/assistant/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ section, message: text }),
+        });
+        thinking.remove();
+        if (!r.ok) {
+          let detail = 'Помощник недоступен';
+          try {
+            const d = await r.json();
+            if (d && d.detail) detail = String(d.detail);
+          } catch (_) {}
+          const errMsg = { role: 'bot', text: detail, kind: 'err' };
+          _renderMsg(errMsg);
+          history.push(errMsg);
+          _saveHistory();
+          return;
+        }
+        const data = await r.json();
+        const botMsg = { role: 'bot', text: data.answer || '', links: data.links || [] };
+        _renderMsg(botMsg);
+        history.push(botMsg);
+        _saveHistory();
+      } catch (e) {
+        thinking.remove();
+        _renderMsg({ role: 'bot', text: 'Сеть недоступна. Попробуйте позже.', kind: 'err' });
+      } finally {
+        _busy = false;
+        sendBtn.disabled = !inp.value.trim();
+        inp.focus();
+      }
+    }
+  }
+
+  // Инициализация после загрузки DOM (включая body с data-assistant-section)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _initAssistant);
+  } else {
+    _initAssistant();
+  }
 })();

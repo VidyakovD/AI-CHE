@@ -155,36 +155,63 @@ async def imap_tick():
             # B.7 — Threading: ищем proposals у которых outbox_message_id
             # совпадает с In-Reply-To/References входящего письма.
             # Если нашли — отмечаем replied_at + crm_stage='replied'.
+            #
+            # Защита от подделки threading'а: если кто-то узнал Message-ID
+            # исходящего письма (через cc/forward/leak), он мог бы прислать
+            # фейковый "ответ" и закрыть сделку. Поэтому проверяем, что
+            # отправитель совпадает с client_email проекта (полный адрес или
+            # хотя бы домен). Если client_email не задан — fallback на
+            # threading без проверки (обратная совместимость).
             from server.models import ProposalProject as _PP
             from datetime import datetime as _dt
+            import re as _re
+
+            def _addr(s: str) -> str:
+                """Извлекает 'a@b.c' из строки 'Имя <a@b.c>' или просто 'a@b.c'."""
+                if not s:
+                    return ""
+                m = _re.search(r"[\w.\-+]+@[\w.\-]+\.[A-Za-z]{2,}", s)
+                return (m.group(0) if m else s).strip().lower()
+
             for em in emails:
                 refs = []
                 if em.get("in_reply_to"):
                     refs.append(em["in_reply_to"])
                 if em.get("references"):
-                    # References может содержать несколько ID через пробел
                     refs.extend(em["references"].split())
                 if not refs:
                     continue
+                from_addr = _addr(em.get("from", ""))
+                from_dom = from_addr.split("@", 1)[1] if "@" in from_addr else ""
                 for r in refs:
                     rid = r.strip().strip("<>").strip()
-                    if not rid or len(rid) < 10:
+                    # Раньше допускался любой rid >=10 символов с LIKE %rid% —
+                    # это слишком широко. Принимаем только точные совпадения.
+                    if not rid or len(rid) < 16 or "@" not in rid:
                         continue
-                    # Сопоставляем по outbox_message_id (с угловыми скобками
-                    # и без — Message-ID хранится с <…>, In-Reply-To тоже).
                     targets = (db.query(_PP)
                                  .filter(_PP.outbox_message_id != None)
                                  .filter((_PP.outbox_message_id == r.strip()) |
                                          (_PP.outbox_message_id == f"<{rid}>") |
-                                         (_PP.outbox_message_id.like(f"%{rid}%")))
+                                         (_PP.outbox_message_id == rid))
                                  .all())
                     for proj in targets:
                         if proj.replied_at:
                             continue
+                        # Anti-spoof: если client_email указан — отправитель
+                        # должен совпадать (по полному адресу или домену).
+                        client_email = (getattr(proj, "client_email", "") or "").lower().strip()
+                        if client_email and from_addr:
+                            if (from_addr != client_email
+                                    and from_dom != client_email.split("@", 1)[-1]):
+                                log.warning(
+                                    f"[IMAP threading] proposal {proj.id}: from={from_addr} "
+                                    f"!= client={client_email} → skip (possible spoof)")
+                                continue
                         proj.replied_at = _dt.utcnow()
                         if (proj.crm_stage or "new") in ("new", "sent", "opened"):
                             proj.crm_stage = "replied"
-                        log.info(f"[IMAP threading] proposal {proj.id} → replied")
+                        log.info(f"[IMAP threading] proposal {proj.id} → replied (from={from_addr})")
                         try:
                             from server.audit_log import log_action as _la
                             _la("proposal.client_replied", user_id=proj.user_id,

@@ -61,7 +61,7 @@ select.inp option{background:#272018;color:#f0e6d8}
 </style>
 <script src="/icons.js" defer></script>
 </head>
-<body class="dark">
+<body class="dark" data-assistant-section="chatbots" data-assistant-label="чат-боты">
 <div class="max-w-5xl mx-auto px-5 py-8">
 
   <!-- Header -->
@@ -955,7 +955,7 @@ async function openTemplates(){
     _allTemplates = data.templates || [];
     renderTemplates(_allTemplates);
   }catch(e){
-    grid.innerHTML = `<p class="text-red-400 text-sm col-span-full">Ошибка: ${e.message}</p>`;
+    grid.innerHTML = `<p class="text-red-400 text-sm col-span-full">Ошибка: ${escHtml(e.message)}</p>`;
   }
 }
 
@@ -1444,7 +1444,7 @@ async function loadAnalytics(days){
       </div>
     `;
   }catch(e){
-    body.innerHTML = `<p class="text-red-400 text-sm">Ошибка: ${e.message}</p>`;
+    body.innerHTML = `<p class="text-red-400 text-sm">Ошибка: ${escHtml(e.message)}</p>`;
   }
 }
 
@@ -1991,7 +1991,7 @@ async function loadRecords(){
       <p class="text-[10px] text-on-dim/60 mt-3">Всего: ${rows.length}. Скачайте CSV для отправки менеджеру или импорта в CRM.</p>
     `;
   }catch(e){
-    tbl.innerHTML = `<p class="text-red-400 text-xs">Ошибка: ${e.message}</p>`;
+    tbl.innerHTML = `<p class="text-red-400 text-xs">Ошибка: ${escHtml(e.message)}</p>`;
   }
 }
 

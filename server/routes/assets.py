@@ -36,6 +36,25 @@ router = APIRouter(tags=["assets"])
 
 ASSETS_DIR = Path("uploads/assets")
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+_ASSETS_DIR_RESOLVED = ASSETS_DIR.resolve()
+
+
+def _safe_asset_abs_path(rel_path: str) -> Path | None:
+    """Преобразует rel_path вида '/uploads/assets/<id><ext>' в абсолютный путь
+    внутри ASSETS_DIR. Возвращает None если получившийся путь выходит за пределы
+    директории (защита от path traversal даже если rel_path был испорчен в БД).
+    """
+    if not rel_path:
+        return None
+    fname = Path(rel_path).name  # отбрасываем директории, оставляем имя
+    if not fname or fname in (".", ".."):
+        return None
+    candidate = (ASSETS_DIR / fname).resolve()
+    try:
+        candidate.relative_to(_ASSETS_DIR_RESOLVED)
+    except ValueError:
+        return None
+    return candidate
 
 # Лимит на размер одного файла (тарифицируется отдельно через storage)
 _MAX_FILE_BYTES = 50 * 1024 * 1024   # 50 МБ — больше требует premium-плана
@@ -122,6 +141,14 @@ async def upload_asset(file: UploadFile = File(...),
     contents = await file.read(_MAX_FILE_BYTES + 1)
     if len(contents) > _MAX_FILE_BYTES:
         raise HTTPException(413, f"Файл больше {_MAX_FILE_BYTES // 1024 // 1024} МБ")
+    # SVG-санитайзер: блокируем <script>/on*=/javascript: и т.п. — иначе через
+    # /assets/public/{token} получаем XSS на домене сервиса.
+    ext_lower = (Path(file.filename or "").suffix or "").lower()
+    is_svg = mime == "image/svg+xml" or ext_lower == ".svg" \
+        or contents[:32].lstrip().lower().startswith((b"<svg", b"<?xml"))
+    if is_svg:
+        from server.security import sanitize_svg_or_raise
+        sanitize_svg_or_raise(contents)
     # Если bot_id задан — проверяем владение
     if bot_id is not None:
         bot = db.query(ChatBot).filter_by(id=bot_id, user_id=user.id).first()
@@ -169,12 +196,11 @@ def list_archived(db: Session = Depends(get_db),
               .filter_by(user_id=user.id, is_active=False)
               .order_by(StoredAsset.created_at.desc())
               .all())
-    from pathlib import Path as _P
     out = []
     for a in rows:
         # Проверяем что файл ещё физически существует
-        p = _P(a.path.lstrip("/"))
-        if not p.exists():
+        p = _safe_asset_abs_path(a.path)
+        if not p or not p.exists():
             continue
         out.append({
             "id": a.id, "name": a.name, "size_bytes": a.size_bytes,
@@ -194,13 +220,12 @@ def restore_asset(asset_id: int,
     Списываемся с баланса за один день storage'а сразу — иначе ночью архивирует
     обратно. Юзер должен пополнить баланс до восстановления.
     """
-    from pathlib import Path as _P
     a = db.query(StoredAsset).filter_by(
         id=asset_id, user_id=user.id, is_active=False).first()
     if not a:
         raise HTTPException(404, "Архивный файл не найден")
-    p = _P(a.path.lstrip("/"))
-    if not p.exists():
+    p = _safe_asset_abs_path(a.path)
+    if not p or not p.exists():
         raise HTTPException(410, "Файл уже удалён физически")
     # Сразу списываем дневную ставку (~цена одного блока за день)
     rate_kop_month = get_price("storage.per_100mb_month", default=5000)
@@ -229,8 +254,8 @@ def delete_asset(asset_id: int,
         raise HTTPException(404, "Файл не найден")
     # Удаляем с диска
     try:
-        abs_path = Path(a.path.lstrip("/"))
-        if abs_path.exists():
+        abs_path = _safe_asset_abs_path(a.path)
+        if abs_path and abs_path.exists():
             abs_path.unlink()
     except Exception as e:
         log.warning(f"[assets] failed to remove file {a.path}: {e}")
@@ -251,8 +276,8 @@ def serve_public_asset(public_token: str, db: Session = Depends(get_db)):
                                           is_active=True).first()
     if not a:
         raise HTTPException(404, "Файл не найден или удалён")
-    abs_path = Path(a.path.lstrip("/"))
-    if not abs_path.exists():
+    abs_path = _safe_asset_abs_path(a.path)
+    if not abs_path or not abs_path.exists():
         raise HTTPException(404, "Файл отсутствует на диске")
     return FileResponse(
         path=str(abs_path),

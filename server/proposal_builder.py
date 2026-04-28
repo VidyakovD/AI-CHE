@@ -53,6 +53,35 @@ def _is_private_ip(host: str) -> bool:
     return False
 
 
+def _host_resolves_to_private(host: str) -> bool:
+    """Защита от DNS rebinding: hostname вроде attacker.com может резолвиться
+    в 127.0.0.1 — `_is_private_ip(host)` это не поймает (host строковый,
+    не IP). Ручно резолвим через socket и проверяем все возвращённые адреса.
+    Если хотя бы один — приватный/loopback/link-local — отклоняем.
+    """
+    if not host:
+        return True
+    if _is_private_ip(host):
+        return True
+    try:
+        import socket
+        import ipaddress
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        # Не смогли резолвить — считаем подозрительным, отклоняем
+        return True
+    for info in infos:
+        try:
+            ip_str = info[4][0]
+            ip = ipaddress.ip_address(ip_str)
+            if (ip.is_private or ip.is_loopback or ip.is_link_local
+                    or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+                return True
+        except Exception:
+            return True
+    return False
+
+
 def parse_client_site(url: str) -> str:
     """
     Скачивает главную страницу клиента и извлекает краткий контекст:
@@ -72,8 +101,9 @@ def parse_client_site(url: str) -> str:
         if parsed.scheme not in ("http", "https"):
             return ""
         host = parsed.hostname or ""
-        if _is_private_ip(host):
-            log.warning(f"[proposal] skip private host: {host}")
+        # DNS rebinding-safe: резолвим имя и проверяем все полученные IP
+        if _host_resolves_to_private(host):
+            log.warning(f"[proposal] skip private/unresolvable host: {host}")
             return ""
     except Exception:
         return ""
@@ -87,7 +117,9 @@ def parse_client_site(url: str) -> str:
                 loc = r.headers.get("location", "")
                 if loc:
                     parsed2 = urlparse(loc)
-                    if parsed2.scheme in ("http", "https") and not _is_private_ip(parsed2.hostname or ""):
+                    loc_host = parsed2.hostname or ""
+                    if (parsed2.scheme in ("http", "https")
+                            and not _host_resolves_to_private(loc_host)):
                         r = client.get(loc)
             if r.status_code >= 400:
                 return ""
