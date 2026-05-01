@@ -189,10 +189,18 @@ async def vk_webhook(bot_id: int, request: Request,
             raise HTTPException(503, "vk_confirmation not set — re-save bot to fetch it")
         return bot.vk_confirmation
 
-    # Проверка secret
-    if bot.vk_secret and body.get("secret") != bot.vk_secret:
+    # Проверка secret. ВАЖНО: secret обязателен — иначе любой может постить
+    # message_new и сжигать AI-баланс владельца. Если в БД пусто — отклоняем
+    # (юзеру нужно задать `vk_secret` при настройке Callback API).
+    # Сравнение через compare_digest — защита от timing attack на «ловлю» secret.
+    if not bot.vk_secret:
+        log.warning(f"[VK Bot {bot_id}] vk_secret не настроен — отклоняем webhook")
+        raise HTTPException(401, "vk_secret not configured")
+    import hmac as _hmac
+    body_secret = body.get("secret") or ""
+    if not _hmac.compare_digest(str(body_secret), str(bot.vk_secret)):
         log.warning(f"[VK Bot {bot_id}] Invalid secret")
-        return "ok"
+        raise HTTPException(401, "Invalid secret")
 
     if bot.status != "active":
         return "ok"

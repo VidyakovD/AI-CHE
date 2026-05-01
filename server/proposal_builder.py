@@ -1002,20 +1002,71 @@ def _html_escape(s: str | None) -> str:
             .replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;"))
 
 
+_PROPOSAL_ALLOWED_TAGS = [
+    "section", "div", "span", "p", "br", "hr",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "ul", "ol", "li",
+    "table", "thead", "tbody", "tr", "th", "td",
+    "strong", "b", "em", "i", "u", "small", "sub", "sup",
+    "a", "img",
+    "blockquote", "pre", "code",
+]
+_PROPOSAL_ALLOWED_ATTRS = {
+    "*": ["class", "style", "id"],
+    "a": ["href", "title", "target", "rel"],
+    "img": ["src", "alt", "title", "width", "height"],
+    "td": ["colspan", "rowspan"],
+    "th": ["colspan", "rowspan"],
+}
+_PROPOSAL_ALLOWED_PROTOCOLS = ["http", "https", "mailto", "tel"]
+
+
 def _strip_ai_wrappers(content: str) -> str:
-    """AI иногда возвращает с обёртками — снимаем."""
+    """AI иногда возвращает с обёртками — снимаем + жёстко санитизируем.
+
+    Возможные источники XSS: AI-prompt-injection (через client_request /
+    extra_notes), ручная правка HTML самим юзером, legacy-fallback когда
+    JSON-first путь не сработал. WYSIWYG-режим в /proposals.html
+    рендерит generated_html в iframe с allow-scripts (нужен для
+    contenteditable) и allow-same-origin → встроенный <script> мог бы
+    дёрнуть parent.fetch и слить данные юзера.
+
+    Решение: bleach с whitelist'ом тегов/атрибутов/протоколов. javascript:
+    и data: URLs (кроме data:image/...) режутся. on*-handlers удаляются.
+    """
     if not content:
         return ""
     s = content.strip()
     # Снимаем markdown code-fence если есть
     s = re.sub(r"^```(?:html)?\s*", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s*```\s*$", "", s)
-    # Снимаем <html>/<body> если AI всё-таки вернул их
+    # Снимаем <html>/<body>/<head>/<style>/<script> до bleach (для совместимости
+    # с теми вызовами, что обрабатывают AI-чистый HTML без обёртки).
     s = re.sub(r"</?html[^>]*>", "", s, flags=re.IGNORECASE)
     s = re.sub(r"</?head[^>]*>", "", s, flags=re.IGNORECASE)
     s = re.sub(r"</?body[^>]*>", "", s, flags=re.IGNORECASE)
     s = re.sub(r"<style[^>]*>.*?</style>", "", s, flags=re.IGNORECASE | re.DOTALL)
     s = re.sub(r"<script[^>]*>.*?</script>", "", s, flags=re.IGNORECASE | re.DOTALL)
+    try:
+        import bleach
+        s = bleach.clean(
+            s,
+            tags=_PROPOSAL_ALLOWED_TAGS,
+            attributes=_PROPOSAL_ALLOWED_ATTRS,
+            protocols=_PROPOSAL_ALLOWED_PROTOCOLS,
+            strip=True,
+            strip_comments=True,
+        )
+    except Exception:
+        # Fallback: ручной режим, если bleach по какой-то причине не загрузился.
+        # Не идеален, но базовые векторы закрывает.
+        s = re.sub(r"<(iframe|object|embed|form|input|button|link|meta|svg|"
+                   r"math|base)[^>]*>.*?</\1>", "", s, flags=re.IGNORECASE | re.DOTALL)
+        s = re.sub(r"<(iframe|object|embed|form|input|button|link|meta|svg|"
+                   r"math|base)[^>]*/?>", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\son[a-z]+\s*=\s*\"[^\"]*\"", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\son[a-z]+\s*=\s*'[^']*'", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"javascript\s*:", "blocked:", s, flags=re.IGNORECASE)
     return s.strip()
 
 

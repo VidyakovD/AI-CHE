@@ -497,10 +497,19 @@ def serve_public_proposal(public_token: str):
             if (p.crm_stage or "new") in ("new", "sent"):
                 p.crm_stage = "opened"
             _db.commit()
-        # Путь к файлу
+        # Путь к файлу. Strict relative_to(uploads_root) — защита на случай
+        # если в БД попадёт путь типа "../../etc/passwd" (через миграцию /
+        # ручной SQL / баг в save-html). p.generated_pdf обычно trusted, но
+        # defense-in-depth.
+        from pathlib import Path as _P
         base = os.path.dirname(os.path.abspath(__file__))
-        pdf_path = os.path.join(base, p.generated_pdf.lstrip("/"))
-        if not os.path.exists(pdf_path):
+        uploads_root = _P(base, "uploads").resolve()
+        try:
+            pdf_path = _P(base, p.generated_pdf.lstrip("/")).resolve()
+            pdf_path.relative_to(uploads_root)
+        except (ValueError, OSError):
+            return JSONResponse({"detail": "PDF файл недоступен"}, status_code=404)
+        if not pdf_path.exists() or not pdf_path.is_file():
             return JSONResponse({"detail": "PDF файл недоступен"}, status_code=404)
         # Audit-лог только при первом открытии (не спамить)
         if first_open:
@@ -513,7 +522,7 @@ def serve_public_proposal(public_token: str):
         # Иконка для имени файла из проекта
         import re as _re
         safe = _re.sub(r"[^\w\-]", "_", p.name or "proposal")[:40]
-        return FileResponse(pdf_path, media_type="application/pdf",
+        return FileResponse(str(pdf_path), media_type="application/pdf",
                              filename=f"{safe}.pdf")
 
 @app.get("/terms.html", include_in_schema=False)

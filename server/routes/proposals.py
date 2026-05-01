@@ -642,10 +642,16 @@ def save_proposal_html(project_id: int, body: SaveHtmlBody,
         raise HTTPException(400, "HTML пустой")
     if len(body.html) > 500_000:
         raise HTTPException(413, "HTML слишком большой (макс 500 КБ)")
-    new_html = body.html.strip()
+    # Санитизация: WYSIWYG-iframe в /proposals.html запускается с
+    # `sandbox="allow-same-origin allow-scripts"` (нужен для contenteditable),
+    # поэтому встроенный <script> сможет дёргать parent.fetch и слить
+    # данные юзера. Sanitizer убирает все опасные теги/атрибуты/протоколы.
+    from server.proposal_builder import _strip_ai_wrappers, _save_pdf
+    new_html = _strip_ai_wrappers(body.html)
+    if not new_html:
+        raise HTTPException(400, "После очистки HTML пустой — добавьте контент")
 
     # Сохраняем + регенерируем PDF
-    from server.proposal_builder import _save_pdf
     p.generated_html = new_html
     try:
         new_pdf_path = _save_pdf(new_html, p.id)

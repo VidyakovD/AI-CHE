@@ -186,6 +186,8 @@ def brief_assist(body: BriefAssistBody, db: Session = Depends(get_db),
     """AI-ассистент: юзер пишет грубую идею → AI возвращает структурированный
     бриф (тема + аудитория + ключевые тезисы + предложенное число слайдов).
     Стоимость = реальные токены Claude Haiku (это короткий вызов, дёшево)."""
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email для использования AI-помощника")
     if not body.rough_idea or len(body.rough_idea.strip()) < 10:
         raise HTTPException(400, "Опиши идею хотя бы кратко (10+ символов)")
     sc = max(3, min(30, int(body.slide_count or 10)))

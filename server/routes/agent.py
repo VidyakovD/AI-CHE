@@ -142,14 +142,39 @@ def agent_cancel(task_id: str, user=Depends(optional_user)):
 @router.websocket("/{task_id}/ws")
 async def agent_websocket(websocket: WebSocket, task_id: str):
     """WebSocket для real-time обновлений шагов агента.
-    Клиент подключается, получает текущее состояние и live-обновления."""
-    await websocket.accept()
+    Клиент подключается, получает текущее состояние и live-обновления.
+
+    IDOR-защита: разрешаем подключиться только владельцу задачи (или
+    тому же anon — task_owner=None). Auth берём из cookie access_token
+    или query-параметра ?token=<jwt>. Если task_owner != current — close 1008.
+    """
     t = agent_tasks.get(task_id)
     if not t:
+        await websocket.accept()
         await websocket.send_json({"type": "error", "message": "Задача не найдена"})
         await websocket.close()
         return
 
+    # Owner-check
+    task_owner = t.get("user_id")
+    cur_owner = None
+    try:
+        from server.auth import decode_token, ACCESS_COOKIE_NAME
+        token = (websocket.cookies.get(ACCESS_COOKIE_NAME)
+                 or websocket.query_params.get("token") or "")
+        if token:
+            payload = decode_token(token, require_type="access")
+            if payload:
+                cur_owner = int(payload.get("sub", 0)) or None
+    except Exception:
+        cur_owner = None
+    if task_owner != cur_owner:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Нет доступа"})
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
     # Subscribe to future updates
     subscribe_task(task_id, websocket)
 
@@ -201,8 +226,19 @@ async def agent_websocket(websocket: WebSocket, task_id: str):
 
 
 @router.get("/{task_id}/stream")
-async def agent_stream(task_id: str):
-    """SSE stream для real-time обновлений шагов агента (fallback для старых клиентов)."""
+async def agent_stream(task_id: str, user=Depends(optional_user)):
+    """SSE stream для real-time обновлений шагов агента (fallback для старых клиентов).
+
+    IDOR-защита: разрешаем стрим только владельцу задачи (как у /status,
+    /cancel, /ws). Иначе любой узнавший task_id мог бы видеть steps/result.
+    """
+    t = agent_tasks.get(task_id)
+    if not t:
+        raise HTTPException(404, "Задача не найдена")
+    task_owner = t.get("user_id")
+    cur_owner = user.id if user else None
+    if task_owner != cur_owner:
+        raise HTTPException(403, "Нет доступа к задаче")
 
     async def event_gen():
         last_step = 0

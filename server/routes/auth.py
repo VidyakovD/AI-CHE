@@ -45,7 +45,11 @@ class VerifyEmailRequest(BaseModel):
 
 
 class ResendVerifyRequest(BaseModel):
-    user_id: int
+    # Поддерживаем оба пути:
+    #  - email (новый, не палит enumeration — отвечаем одинаково для несущ. юзера)
+    #  - user_id (legacy, для старого фронта во время grace-period)
+    email: str | None = None
+    user_id: int | None = None
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -163,17 +167,29 @@ def verify_email(req: VerifyEmailRequest, response: Response, db: Session = Depe
 
 @router.post("/resend-verify")
 def resend_verify(req: ResendVerifyRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter_by(id=req.user_id).first()
-    if not user:
-        raise HTTPException(404, "Пользователь не найден")
-    if user.is_verified:
-        raise HTTPException(400, "Email уже подтверждён")
-    code = _make_verify_token(db, user.id, "verify_email", generate_code, VERIFY_TTL_MINUTES)
-    try:
-        send_verification(user.email, code)
-    except Exception as e:
-        log.error(f"Resend error: {e}")
-    return {"message": "Код повторно отправлен"}
+    """Повторно выслать код подтверждения email.
+
+    Не палит enumeration: всегда отвечаем 200 «Код повторно отправлен» вне
+    зависимости от того, существует ли юзер и подтверждён ли уже email.
+    Если есть и не подтверждён — высылаем; иначе ничего не делаем.
+    """
+    user = None
+    if req.email:
+        try:
+            email = validate_email(req.email)
+            user = db.query(User).filter_by(email=email).first()
+        except Exception:
+            user = None
+    elif req.user_id:
+        user = db.query(User).filter_by(id=req.user_id).first()
+    if user and not user.is_verified:
+        try:
+            code = _make_verify_token(db, user.id, "verify_email", generate_code,
+                                       VERIFY_TTL_MINUTES)
+            send_verification(user.email, code)
+        except Exception as e:
+            log.error(f"Resend error: {e}")
+    return {"message": "Если email зарегистрирован и не подтверждён — код выслан повторно."}
 
 
 # Фиктивный bcrypt-хеш для константного времени при несуществующем юзере.
@@ -193,7 +209,11 @@ def login(req: LoginRequest, response: Response, request: Request,
     if not user or not pw_ok:
         raise HTTPException(401, "Неверный email или пароль")
     if not user.is_verified:
-        return {"status": "pending_verification", "user_id": user.id,
+        # Не возвращаем user.id — это утечка enumeration: атакер с верным
+        # паролем (например, переиспользованным с другого сервиса) увидит
+        # внутренний ID юзера. /resend-verify теперь принимает email
+        # (см. ResendVerifyRequest), а не user_id.
+        return {"status": "pending_verification",
                 "message": "Подтвердите email. Выслать код повторно?"}
 
     # Security alert: вход с нового IP — уведомляем юзера на email.

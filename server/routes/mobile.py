@@ -184,6 +184,8 @@ _VOICE_SYSTEM_PROMPT = """Ты разбираешь голосовые кома�
 def voice_parse(req: VoiceParseReq,
                 user: User = Depends(current_user)):
     """Текст голосовой команды → структурированное действие через AI."""
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
     text = req.text.strip()
     if not text:
         raise HTTPException(400, "Пустая команда")

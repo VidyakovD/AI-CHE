@@ -18,12 +18,13 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Backgro
 from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db, current_user
+from sqlalchemy import func
 from server.models import User, ChatBot, AgentConfig, KnowledgeFile
 from server.knowledge import (
     add_file as kb_add_file,
     get_files, delete_file, retrieve, build_context_block,
     set_enabled,
-    MAX_FILE_BYTES, MAX_FILES_PER_OWNER,
+    MAX_FILE_BYTES, MAX_FILES_PER_OWNER, MAX_TOTAL_BYTES_PER_USER,
 )
 
 log = logging.getLogger(__name__)
@@ -94,12 +95,23 @@ async def kb_upload(
     if len(contents) == 0:
         raise HTTPException(400, "Пустой файл")
 
-    # Лимит файлов
+    # Лимит файлов на конкретного владельца (бот/агент)
     cnt = (db.query(KnowledgeFile)
              .filter_by(owner_type=owner_type, owner_id=owner_id).count())
     if cnt >= MAX_FILES_PER_OWNER:
         raise HTTPException(409,
-            f"Превышен лимит {MAX_FILES_PER_OWNER} файлов. Удалите ненужные.")
+            f"Превышен лимит {MAX_FILES_PER_OWNER} файлов на бота/агента. Удалите ненужные.")
+    # Глобальный лимит суммарного объёма по юзеру (across всех ботов/агентов)
+    # — пока RAG-файлы не учитываются в storage-биллинге, иначе юзер может
+    # бесплатно занять диск на много гигабайт через несколько ботов.
+    total_bytes = (db.query(func.coalesce(func.sum(KnowledgeFile.size), 0))
+                     .filter(KnowledgeFile.user_id == user.id).scalar()) or 0
+    if total_bytes + len(contents) > MAX_TOTAL_BYTES_PER_USER:
+        used_mb = total_bytes / 1024 / 1024
+        max_mb = MAX_TOTAL_BYTES_PER_USER / 1024 / 1024
+        raise HTTPException(413,
+            f"Превышен суммарный лимит базы знаний ({max_mb:.0f} МБ на пользователя; "
+            f"использовано {used_mb:.0f} МБ). Удалите старые файлы.")
 
     # Сохраняем на диск
     safe_id = secrets.token_urlsafe(12)
@@ -198,6 +210,10 @@ def kb_search(owner_type: str, owner_id: int, q: str, top: int = 5,
     _check_owner(db, user, owner_type, owner_id)
     if not q or not q.strip():
         return {"results": []}
+    # Лимит на длину запроса — иначе юзер может слать 100 КБ текст в
+    # OpenAI embeddings за наш счёт. 1000 символов ~ 250 токенов хватает
+    # для любого осмысленного запроса.
+    q = q.strip()[:1000]
     if top < 1: top = 1
     if top > 20: top = 20
     results = retrieve(owner_type=owner_type, owner_id=owner_id, query=q, top=top)

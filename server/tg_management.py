@@ -136,10 +136,22 @@ def generate_link_code(db, user_id: int) -> str:
 
 def consume_link_code(db, code: str, tg_user_id: str, tg_username: str | None) -> int | None:
     """Применить код: найти юзера, привязать tg_user_id, сбросить код.
-    Возвращает user_id или None если код не валиден/истёк."""
+    Возвращает user_id или None если код не валиден/истёк/rate-limit.
+
+    Защита от brute-force: rate-limit на tg_user_id, 10 попыток за 10 мин
+    (TG-юзер вряд ли наберёт 10 неверных кодов вручную).
+    Также шлём email-alert владельцу аккаунта при успешном link/relink —
+    иначе угнавший аккаунт код атакер привяжет свой TG тихо.
+    """
     from server.models import User
+    from server.security import _check as _rl_check
     code = (code or "").strip().upper()
     if not code or len(code) != LINK_CODE_LEN:
+        return None
+    # Rate-limit по TG-user, чтобы исключить brute-force 6-знач кода
+    # (~28 бит энтропии + 10 мин TTL = в принципе brute-force-able без лимита).
+    if not _rl_check(f"tg-link:{tg_user_id}", max_calls=10, window_sec=600):
+        log.warning(f"[tg-mgmt] consume_link_code rate-limit hit for tg_user_id={tg_user_id}")
         return None
     u = db.query(User).filter_by(tg_link_code=code).first()
     if not u:
@@ -153,11 +165,30 @@ def consume_link_code(db, code: str, tg_user_id: str, tg_username: str | None) -
     if other:
         other.tg_user_id = None
         other.tg_username = None
+    is_relink = bool(u.tg_user_id and u.tg_user_id != str(tg_user_id))
     u.tg_user_id = str(tg_user_id)
     u.tg_username = (tg_username or "")[:100] or None
     u.tg_link_code = None
     u.tg_link_expires = None
     db.commit()
+    # Email-уведомление об успешной привязке (важная security-операция:
+    # TG-бот после этого может управлять подписками и видеть push'и).
+    try:
+        from server.email_service import _send, _base_template
+        verb = "перепривязан" if is_relink else "привязан"
+        body = (
+            f'<p style="color:rgba(199,196,215,0.8);line-height:1.6">'
+            f'К вашему аккаунту {verb} Telegram-бот управления.<br/>'
+            f'TG-юзер: <b>@{(tg_username or "—")[:40]}</b><br/>'
+            f'Время: {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}</p>'
+            f'<p style="color:rgba(199,196,215,0.7);font-size:13px">'
+            f'Если это были не вы — отвяжите в кабинете → Настройки → '
+            f'«🤖 Telegram-бот» и смените пароль.</p>'
+        )
+        _send(u.email, "🔔 Telegram-бот привязан — AI Студия Че",
+              _base_template("Telegram-бот привязан", body))
+    except Exception as e:
+        log.warning(f"[tg-mgmt] link-alert email failed: {type(e).__name__}: {e}")
     return u.id
 
 

@@ -451,20 +451,58 @@ async def tool_web_search(params: dict, context: dict) -> str:
 
 
 async def tool_browse_url(params: dict, context: dict) -> str:
+    """Скачать публичную страницу. SSRF-safe: блок private-сетей + cloud
+    metadata endpoints (169.254.169.254). AI-агент по prompt-injection не
+    дотянется до внутренних сервисов, даже если URL содержит такой хост или
+    редиректит на него.
+    """
     url = params.get("url", "")
     log.info(f"[tool] browse_url: {url}")
+    if not url or not isinstance(url, str):
+        return "Ошибка: URL не задан"
+    from urllib.parse import urlparse
+    from server.proposal_builder import _host_resolves_to_private
+    try:
+        parsed = urlparse(url.strip())
+    except Exception:
+        return "Ошибка: некорректный URL"
+    if parsed.scheme not in ("http", "https"):
+        return f"Ошибка: разрешены только http/https URL, получено: {parsed.scheme}"
+    host = parsed.hostname or ""
+    if _host_resolves_to_private(host):
+        return f"Ошибка: запрещён доступ к приватной сети ({host})"
     try:
         import httpx
-        resp  = await httpx.AsyncClient(timeout=15, follow_redirects=True).get(
-            url, headers={"User-Agent": "Mozilla/5.0"}
-        )
-        clean = re.sub(r'<script[^>]*>.*?</script>', '', resp.text, flags=re.DOTALL)
-        clean = re.sub(r'<style[^>]*>.*?</style>',   '', clean,     flags=re.DOTALL)
+        # follow_redirects=False — иначе редирект на 127.0.0.1 обойдёт фильтр.
+        # Делаем один step вручную и реvalidate Location.
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False,
+                                       headers={"User-Agent": "Mozilla/5.0"}) as cli:
+            resp = await cli.get(url)
+            for _ in range(3):  # до 3 редиректов
+                if not (300 <= resp.status_code < 400):
+                    break
+                loc = resp.headers.get("location", "")
+                if not loc:
+                    break
+                try:
+                    loc_parsed = urlparse(loc)
+                    loc_host = loc_parsed.hostname or host
+                except Exception:
+                    return "Ошибка: некорректный redirect"
+                if loc_parsed.scheme not in ("http", "https"):
+                    return "Ошибка: redirect на не-http протокол"
+                if _host_resolves_to_private(loc_host):
+                    return f"Ошибка: redirect на приватный хост ({loc_host})"
+                resp = await cli.get(loc if loc.startswith("http") else f"{parsed.scheme}://{host}{loc}")
+        # Лимит на размер ответа — 2 МБ хватает для любой осмысленной страницы.
+        text = resp.text[:2_000_000]
+        clean = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
+        clean = re.sub(r'<style[^>]*>.*?</style>',   '', clean,  flags=re.DOTALL)
         clean = re.sub(r'<[^>]+>', ' ', clean)
         clean = re.sub(r'\s+',    ' ', clean).strip()
         return clean[:3000] + ("..." if len(clean) > 3000 else "")
     except Exception as e:
-        return f"Ошибка загрузки {url}: {e}"
+        return f"Ошибка загрузки: {type(e).__name__}"
 
 
 async def tool_run_llm(params: dict, context: dict) -> str:

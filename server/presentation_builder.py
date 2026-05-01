@@ -860,16 +860,40 @@ def _add_chart_to_slide(slide, chart_data: dict, top, accent_rgb):
 
 
 def _add_remote_image(slide, url: str, prs) -> None:
-    """Скачивает картинку и вставляет в слайд (правый верхний угол)."""
+    """Скачивает картинку и вставляет в слайд (правый верхний угол).
+
+    SSRF-safe: блок private-сетей и cloud metadata-endpoints. URL может
+    прилететь от AI (если оно вздумает галлюцинировать какую-то ссылку) или
+    из юзер-input.
+    """
     import httpx
     from pptx.util import Inches
+    from urllib.parse import urlparse
+    from server.proposal_builder import _host_resolves_to_private
     full_url = url
     if url.startswith("/"):
         app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
         full_url = app_url + url
     try:
-        with httpx.Client(timeout=10) as client:
+        parsed = urlparse(full_url)
+    except Exception:
+        return
+    if parsed.scheme not in ("http", "https"):
+        return
+    if _host_resolves_to_private(parsed.hostname or ""):
+        log.warning(f"[pptx] skip private host: {parsed.hostname}")
+        return
+    try:
+        with httpx.Client(timeout=10, follow_redirects=False) as client:
             r = client.get(full_url)
+            # Один redirect-хоп с revalidation
+            if 300 <= r.status_code < 400:
+                loc = r.headers.get("location", "")
+                if loc:
+                    loc_p = urlparse(loc)
+                    if (loc_p.scheme in ("http", "https")
+                            and not _host_resolves_to_private(loc_p.hostname or "")):
+                        r = client.get(loc)
             if r.status_code != 200 or len(r.content) > 5 * 1024 * 1024:
                 return
             buf = BytesIO(r.content)
