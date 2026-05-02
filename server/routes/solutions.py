@@ -1,8 +1,12 @@
+import asyncio
+import secrets as _secrets
 from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import json, uuid, logging
 
-from server.routes.deps import get_db, optional_user
+from server.routes.deps import get_db, optional_user, current_user
 from server.models import Solution, SolutionCategory, SolutionStep, SolutionRun, User, Message, Transaction
 from server.ai import generate_response, get_token_cost, resolve_model
 from server.billing import deduct_strict, get_balance
@@ -18,7 +22,8 @@ def _sol_dict(s: Solution) -> dict:
     return {"id": s.id, "title": s.title, "description": s.description,
             "image_url": s.image_url, "price_tokens": s.price_tokens,
             "category_id": s.category_id,
-            "steps_count": len(s.steps) if s.steps else 0}
+            "steps_count": len(s.steps) if s.steps else 0,
+            "is_orchestra": bool(s.orchestra_json)}
 
 
 def _step_dict(s: SolutionStep) -> dict:
@@ -182,6 +187,18 @@ def get_solution(solution_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Решение не найдено")
     d = _sol_dict(s)
     d["steps"] = [_step_dict(st) for st in s.steps]
+    # Для orchestra-режима — отдаём подсказку и список stages для preview
+    if s.orchestra_json:
+        try:
+            orch = json.loads(s.orchestra_json)
+            d["orchestra_input_hint"] = orch.get("input_hint", "")
+            d["orchestra_stages"] = [
+                {"id": st["id"], "label": st.get("label", st["id"]),
+                 "type": st.get("type", "llm")}
+                for st in (orch.get("stages") or [])
+            ]
+        except Exception:
+            pass
     return d
 
 
@@ -238,3 +255,178 @@ def continue_run(run_id: int, body: dict, db: Session = Depends(get_db),
     step = steps[run.current_step]
     user_input = body.get("input", "")
     return _execute_step(run, step, user_input, db, user)
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Multi-agent orchestra endpoints
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Поток работы:
+#   1. POST /solutions/{id}/orchestra/start  { input } → возвращает run_id
+#      Сразу запускает asyncio task с run_orchestra(run_id) в фоне.
+#   2. GET  /solutions/runs/{run_id}/stream — SSE поток обновлений stages_state
+#      (UI рисует прогресс по каждому stage'у).
+#   3. GET  /solutions/runs/{run_id}        — снимок состояния (для возврата
+#      после реконнекта).
+#   4. POST /solutions/runs/{run_id}/share  — генерит public_token + URL для шаринга.
+#   5. GET  /s/{public_token}               — публичный просмотр результата (без auth).
+
+
+class OrchestraStartBody(BaseModel):
+    input: str
+
+
+@router.post("/solutions/{solution_id}/orchestra/start")
+async def orchestra_start(solution_id: int, body: OrchestraStartBody,
+                           db: Session = Depends(get_db),
+                           user: User = Depends(current_user)):
+    """Запустить multi-agent оркестр для решения. Списание происходит
+    по факту работы каждого stage'а (real × margin), не разово фикс-цену."""
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    solution = db.query(Solution).filter_by(id=solution_id, is_active=True).first()
+    if not solution:
+        raise HTTPException(404, "Решение не найдено")
+    if not solution.orchestra_json:
+        raise HTTPException(400, "У этого решения нет orchestra-конфигурации. "
+                                  "Используйте /solutions/{id}/run для legacy-запуска.")
+    user_input = (body.input or "").strip()
+    if len(user_input) < 10:
+        raise HTTPException(400, "Опиши задачу подробнее (минимум 10 символов).")
+    if len(user_input) > 20_000:
+        raise HTTPException(413, "Слишком длинный input (макс 20 КБ).")
+
+    # Pre-check: у юзера должен быть какой-то баланс, иначе бессмысленно
+    # стартовать (orchestra списывает по stage'ам — первый же stage упадёт).
+    if get_balance(db, user.id) < 200:  # минимум 2 ₽ "на пробу"
+        raise HTTPException(402, "Недостаточно средств. Минимум для запуска — 2 ₽.")
+
+    chat_id = uuid.uuid4().hex[:16]
+    run = SolutionRun(
+        user_id=user.id, solution_id=solution_id,
+        chat_id=chat_id, status="running",
+        user_input=user_input,
+        context=json.dumps({}, ensure_ascii=False),
+    )
+    db.add(run); db.commit(); db.refresh(run)
+
+    try:
+        from server.audit_log import log_action
+        log_action("solution.orchestra_started", user_id=user.id,
+                   target_type="solution", target_id=str(solution_id),
+                   details={"run_id": run.id, "title": solution.title[:80]})
+    except Exception:
+        pass
+
+    # Запуск в фоне — НЕ ждём окончания. Фронт подключается к SSE-потоку.
+    from server.solutions_orchestra import run_orchestra
+    asyncio.create_task(run_orchestra(run.id))
+
+    return {"run_id": run.id, "chat_id": chat_id, "status": "running"}
+
+
+@router.get("/solutions/runs/{run_id}")
+def orchestra_run_get(run_id: int, db: Session = Depends(get_db),
+                       user: User = Depends(current_user)):
+    """Снимок состояния run'а (без auth-bypass через шаринг — здесь только владелец)."""
+    run = db.query(SolutionRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "Run не найден")
+    if run.user_id != user.id:
+        raise HTTPException(403, "Нет доступа")
+    state = {}
+    if run.stages_state:
+        try: state = json.loads(run.stages_state)
+        except Exception: state = {}
+    return {
+        "run_id": run.id,
+        "solution_id": run.solution_id,
+        "status": run.status,
+        "stages": state.get("stages", {}),
+        "final_output": run.final_output,
+        "pdf_path": run.pdf_path,
+        "total_cost_kop": run.total_cost_kop or 0,
+        "public_token": run.public_token,
+        "user_input": run.user_input,
+    }
+
+
+@router.get("/solutions/runs/{run_id}/stream")
+async def orchestra_run_stream(run_id: int, db: Session = Depends(get_db),
+                                 user: User = Depends(current_user)):
+    """SSE-поток обновлений run'а. Сначала шлёт текущее состояние, потом
+    push'ит каждый delta при изменении (через subscribe_run)."""
+    run = db.query(SolutionRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "Run не найден")
+    if run.user_id != user.id:
+        raise HTTPException(403, "Нет доступа")
+
+    from server.solutions_orchestra import subscribe_run, unsubscribe_run
+
+    async def event_gen():
+        # Сразу — снимок состояния
+        snap = {}
+        if run.stages_state:
+            try: snap = json.loads(run.stages_state)
+            except Exception: snap = {}
+        snap["status"] = run.status
+        snap["final_output"] = run.final_output
+        snap["pdf_path"] = run.pdf_path
+        yield f"data: {json.dumps(snap, ensure_ascii=False)}\n\n"
+
+        if run.status in ("done", "error"):
+            return
+
+        q = subscribe_run(run_id)
+        try:
+            for _ in range(600):  # макс 10 минут (600 × 1 сек idle)
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    # heartbeat — чтобы прокси не закрыл соединение
+                    yield ": ping\n\n"
+                    continue
+                yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+                if msg.get("status") in ("done", "error"):
+                    return
+        finally:
+            unsubscribe_run(run_id, q)
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream",
+                              headers={"Cache-Control": "no-cache",
+                                       "X-Accel-Buffering": "no"})
+
+
+@router.post("/solutions/runs/{run_id}/share")
+def orchestra_run_share(run_id: int, db: Session = Depends(get_db),
+                         user: User = Depends(current_user)):
+    """Генерит public_token для шаринга результата. Идемпотентно: если уже
+    есть — возвращает тот же."""
+    run = db.query(SolutionRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "Run не найден")
+    if run.user_id != user.id:
+        raise HTTPException(403, "Нет доступа")
+    if run.status != "done":
+        raise HTTPException(400, "Можно шарить только завершённый отчёт")
+    if not run.public_token:
+        run.public_token = _secrets.token_urlsafe(20)
+        db.commit()
+    return {"public_token": run.public_token,
+            "share_url": f"/s/{run.public_token}"}
+
+
+@router.delete("/solutions/runs/{run_id}/share")
+def orchestra_run_unshare(run_id: int, db: Session = Depends(get_db),
+                           user: User = Depends(current_user)):
+    """Отменить шаринг (revoke token)."""
+    run = db.query(SolutionRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "Run не найден")
+    if run.user_id != user.id:
+        raise HTTPException(403, "Нет доступа")
+    run.public_token = None
+    db.commit()
+    return {"status": "revoked"}

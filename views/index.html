@@ -3056,23 +3056,26 @@ async function switchSolTab(_tab){
     const sols=await fetch(`${API}/solutions?category=business`).then(r=>r.json());
     if(!sols.length){grid.innerHTML=`<div class="col-span-3 text-center text-on-surface-dim/40 py-12 text-sm">Решений пока нет</div>`;return;}
     grid.innerHTML=sols.map(s=>`
-      <div class="bg-surface2 rounded-xl border border-outline/20 hover:border-primary/35 transition overflow-hidden flex flex-col cursor-pointer group" onclick="launchSolution(${s.id},'${esc(s.title)}',${s.steps_count})">
+      <div class="bg-surface2 rounded-xl border ${s.is_orchestra?'border-primary/40':'border-outline/20'} hover:border-primary/60 transition overflow-hidden flex flex-col cursor-pointer group relative" onclick="launchSolution(${s.id},'${esc(s.title)}',${s.steps_count},${s.is_orchestra?1:0})">
+        ${s.is_orchestra?`<div class="absolute top-2 right-2 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-gradient-to-br from-primary to-yellow-500 text-black z-10">✨ PRO · Multi-Agent</div>`:""}
         ${s.image_url?`<img src="${esc(s.image_url)}" class="w-full h-32 object-cover group-hover:opacity-88 transition"/>`:`<div class="w-full h-32 bg-surface3 flex items-center justify-center text-primary"><svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/></svg></div>`}
         <div class="p-3 flex flex-col gap-1.5 flex-1">
           <p class="font-bold text-sm font-headline">${esc(s.title)}</p>
           ${s.description?`<p class="text-xs text-on-surface-dim/70 line-clamp-2">${esc(s.description)}</p>`:""}
           <div class="mt-auto pt-2 flex items-center justify-between">
-            <span class="text-xs text-on-surface-dim/50">фикс-цена</span>
-            <span class="text-sm font-bold ${s.price_tokens?"text-primary":"text-green-400"}">${s.price_tokens?fmtRub(s.price_tokens):"Бесплатно"}</span>
+            <span class="text-xs text-on-surface-dim/50">${s.is_orchestra?'по факту работы':'фикс-цена'}</span>
+            <span class="text-sm font-bold ${s.price_tokens?"text-primary":"text-green-400"}">${s.price_tokens?(s.is_orchestra?'до '+fmtRub(s.price_tokens):fmtRub(s.price_tokens)):"Бесплатно"}</span>
           </div>
         </div>
       </div>`).join("");
   }catch(e){grid.innerHTML=`<div class="col-span-3 text-center text-error py-12 text-sm">Ошибка: ${esc(e.message)}</div>`;}
 }
 
-async function launchSolution(id,title,stepsCount){
-  if(!currentUser&&stepsCount>0){closeM("solutionsModal");openM("loginModal");return;}
+async function launchSolution(id,title,stepsCount,isOrchestra){
+  if(!currentUser){closeM("solutionsModal");openM("loginModal");return;}
   closeM("solutionsModal");
+  // Multi-agent orchestra — отдельный flow с live-progress
+  if(isOrchestra){return launchOrchestra(id,title);}
   document.getElementById("runTitle").textContent=title;
   document.getElementById("runErr").classList.add("hidden");
   document.getElementById("runResult").classList.add("hidden");
@@ -3088,6 +3091,199 @@ async function launchSolution(id,title,stepsCount){
     activeRun={run_id:data.run_id,chat_id:data.chat_id,solution_id:id,steps_count:stepsCount,current_step:0};
     updateRunUI(data);
   }catch(e){document.getElementById("runErr").textContent=e.message;document.getElementById("runErr").classList.remove("hidden");}
+}
+
+// ── Multi-agent orchestra flow ────────────────────────────────────────────
+let _orchestraStream = null;
+
+async function launchOrchestra(solutionId, title){
+  // Шаг 1: показать форму ввода (используем существующую runModal с пометкой PRO)
+  document.getElementById("runTitle").textContent = title + " ✨";
+  document.getElementById("runErr").classList.add("hidden");
+  document.getElementById("runResult").classList.add("hidden");
+  document.getElementById("runChatBtn").classList.add("hidden");
+  // Получим input_hint из orchestra-конфига для подсказки
+  let hint = "Опиши свою задачу подробно (минимум 30 символов).";
+  try{
+    const sol = await api(`/solutions/${solutionId}`);
+    if(sol?.orchestra_input_hint) hint = sol.orchestra_input_hint;
+  }catch(e){}
+  document.getElementById("runHint").textContent = hint;
+  document.getElementById("runStepLabel").textContent = "🤖 PRO режим — несколько AI-агентов работают параллельно";
+  document.getElementById("runInputArea").classList.remove("hidden");
+  document.getElementById("runContinueBtn").classList.remove("hidden");
+  document.getElementById("runBtnLabel").textContent = "Запустить";
+  document.getElementById("runProgress").innerHTML = "";
+  // Подменяем continueRun → orchestraStart
+  document.getElementById("runContinueBtn").onclick = () => orchestraStart(solutionId);
+  document.getElementById("runInput").value = "";
+  openM("runModal");
+  document.getElementById("runInput").focus();
+}
+
+async function orchestraStart(solutionId){
+  const input = document.getElementById("runInput").value.trim();
+  if(input.length < 10){
+    document.getElementById("runErr").textContent = "Минимум 10 символов";
+    document.getElementById("runErr").classList.remove("hidden");
+    return;
+  }
+  const btn = document.getElementById("runContinueBtn");
+  btn.disabled = true;
+  document.getElementById("runBtnLabel").textContent = "Запускаем агентов...";
+  document.getElementById("runErr").classList.add("hidden");
+  try{
+    const r = await apiPost(`/solutions/${solutionId}/orchestra/start`, {input});
+    activeRun = {run_id: r.run_id, solution_id: solutionId, orchestra: true};
+    // Скрываем input — теперь только прогресс
+    document.getElementById("runInputArea").classList.add("hidden");
+    document.getElementById("runContinueBtn").classList.add("hidden");
+    document.getElementById("runStepLabel").textContent = "⏳ Агенты работают...";
+    document.getElementById("runHint").textContent = "Можешь свернуть это окно — задача выполнится в фоне.";
+    listenOrchestraStream(r.run_id);
+  }catch(e){
+    document.getElementById("runErr").textContent = e.message || "Ошибка запуска";
+    document.getElementById("runErr").classList.remove("hidden");
+    btn.disabled = false;
+    document.getElementById("runBtnLabel").textContent = "Запустить";
+  }
+}
+
+function listenOrchestraStream(runId){
+  if(_orchestraStream){try{_orchestraStream.close();}catch(e){}}
+  // SSE с auth-cookie. Если auth через Bearer — fallback на polling.
+  let url = `${API}/solutions/runs/${runId}/stream`;
+  // EventSource не умеет custom headers (Authorization) — используем cookie
+  // (если нет — fallback на polling).
+  const useStream = !!document.cookie.match(/access_token=/);
+  if(useStream){
+    _orchestraStream = new EventSource(url, {withCredentials: true});
+    _orchestraStream.onmessage = (ev) => {
+      try{
+        const data = JSON.parse(ev.data);
+        renderOrchestraProgress(data);
+        if(data.status === "done" || data.status === "error"){
+          _orchestraStream.close(); _orchestraStream = null;
+          finalizeOrchestra(runId);
+        }
+      }catch(e){console.warn("[orchestra] parse",e);}
+    };
+    _orchestraStream.onerror = (e) => {
+      console.warn("[orchestra] SSE error, fallback to polling", e);
+      try{_orchestraStream.close();}catch(_){};_orchestraStream=null;
+      pollOrchestraStatus(runId);
+    };
+  }else{
+    pollOrchestraStatus(runId);
+  }
+}
+
+async function pollOrchestraStatus(runId){
+  for(let i=0; i<240; i++){  // максимум 4 минуты с интервалом 1 сек
+    try{
+      const data = await api(`/solutions/runs/${runId}`);
+      renderOrchestraProgress(data);
+      if(data.status === "done" || data.status === "error"){
+        finalizeOrchestra(runId); return;
+      }
+    }catch(e){console.warn("[orchestra] poll",e);}
+    await new Promise(r=>setTimeout(r,1500));
+  }
+}
+
+function renderOrchestraProgress(data){
+  const stages = data.stages || {};
+  const ids = Object.keys(stages);
+  if(!ids.length) return;
+  const prog = document.getElementById("runProgress");
+  // Прогресс-бар (визуальный)
+  prog.innerHTML = ids.map(sid => {
+    const st = stages[sid];
+    const bg = st.status === "done" ? "sig" :
+               st.status === "running" ? "bg-primary/60 animate-pulse" :
+               st.status === "error" ? "bg-error" : "bg-surface3";
+    return `<div class="h-1.5 flex-1 rounded-full ${bg}" title="${esc(st.label||sid)}"></div>`;
+  }).join("");
+  // Текстовый список stages
+  let listEl = document.getElementById("runStagesList");
+  if(!listEl){
+    listEl = document.createElement("div");
+    listEl.id = "runStagesList";
+    listEl.className = "space-y-1.5 mt-3 max-h-64 overflow-y-auto pr-1";
+    prog.parentNode.insertBefore(listEl, prog.nextSibling);
+  }
+  listEl.innerHTML = ids.map(sid => {
+    const st = stages[sid];
+    const icon = st.status === "done" ? "✅" :
+                 st.status === "running" ? "⏳" :
+                 st.status === "error" ? "❌" : "⏸";
+    const cost = st.cost_kop ? ` · <span class="text-primary">${(st.cost_kop/100).toFixed(2)} ₽</span>` : "";
+    const err = st.error ? `<div class="text-xs text-error mt-0.5">${esc(st.error)}</div>` : "";
+    return `<div class="text-xs px-3 py-2 rounded-lg ${st.status==='running'?'bg-primary/10 border border-primary/30':'bg-surface2/50'}">
+      <div class="flex items-center justify-between gap-2">
+        <span>${icon} <span class="font-medium">${esc(st.label||sid)}</span></span>
+        <span class="text-on-surface-dim/60">${st.status==='done'?'готово':st.status==='running'?'работает':st.status==='error'?'ошибка':'ожидание'}${cost}</span>
+      </div>
+      ${err}
+    </div>`;
+  }).join("");
+}
+
+async function finalizeOrchestra(runId){
+  // Достаём финальный результат + PDF
+  let data;
+  try{ data = await api(`/solutions/runs/${runId}`); }
+  catch(e){ data = {status:"error", error:e.message}; }
+
+  document.getElementById("runStepLabel").textContent =
+    data.status === "done" ? "✅ Готово" : "❌ Ошибка";
+  document.getElementById("runHint").textContent =
+    data.status === "done"
+      ? `Списано: ${((data.total_cost_kop||0)/100).toFixed(2)} ₽. Можно скачать PDF или поделиться ссылкой.`
+      : "Не удалось завершить. Часть стоимости не списана.";
+
+  if(data.status === "done"){
+    const resultTxt = document.getElementById("runResultText");
+    const resultEl = document.getElementById("runResult");
+    if(data.final_output){
+      resultTxt.textContent = data.final_output.slice(0, 4000);
+      resultEl.classList.remove("hidden");
+    }
+    // Кнопка PDF
+    let pdfBtn = document.getElementById("runPdfBtn");
+    if(data.pdf_path){
+      if(!pdfBtn){
+        pdfBtn = document.createElement("a");
+        pdfBtn.id = "runPdfBtn";
+        pdfBtn.target = "_blank";
+        pdfBtn.className = "px-4 py-3 rounded-xl text-sm font-medium hover:opacity-90 transition flex items-center gap-2";
+        pdfBtn.style.cssText = "background:linear-gradient(135deg,#c89052,#ff8c42);color:#1e1a14";
+        pdfBtn.innerHTML = '📄 Скачать PDF';
+        document.getElementById("runChatBtn").parentNode.insertBefore(pdfBtn, document.getElementById("runChatBtn"));
+      }
+      pdfBtn.href = data.pdf_path;
+      pdfBtn.classList.remove("hidden");
+    }
+    // Кнопка «Поделиться»
+    let shareBtn = document.getElementById("runShareBtn");
+    if(!shareBtn){
+      shareBtn = document.createElement("button");
+      shareBtn.id = "runShareBtn";
+      shareBtn.className = "px-4 py-3 rounded-xl text-sm font-medium bg-surface3 hover:bg-surface3/70 transition flex items-center gap-2";
+      shareBtn.innerHTML = '🔗 Поделиться';
+      shareBtn.onclick = async () => {
+        try{
+          const r = await apiPost(`/solutions/runs/${runId}/share`, {});
+          const url = location.origin + r.share_url;
+          await navigator.clipboard.writeText(url);
+          aiAlert("Ссылка скопирована: " + url, "success");
+        }catch(e){ aiAlert("Не удалось: " + (e.message||"ошибка"), "error"); }
+      };
+      document.getElementById("runChatBtn").parentNode.insertBefore(shareBtn, document.getElementById("runChatBtn"));
+    }
+    shareBtn.classList.remove("hidden");
+    if(authToken) fetchMe();
+  }
 }
 
 async function continueRun(){

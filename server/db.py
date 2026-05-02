@@ -167,6 +167,14 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # рассылку — опционально (предзаполнять чекбокс нельзя).
     ("users", "marketing_consent", "BOOLEAN DEFAULT 0"),
     ("users", "marketing_consent_at", "DATETIME"),
+    # Multi-agent оркестрация бизнес-решений — см. server/solutions_orchestra.py.
+    ("solutions", "orchestra_json", "TEXT"),
+    ("solution_runs", "stages_state", "TEXT"),
+    ("solution_runs", "final_output", "TEXT"),
+    ("solution_runs", "pdf_path", "VARCHAR"),
+    ("solution_runs", "total_cost_kop", "INTEGER DEFAULT 0"),
+    ("solution_runs", "user_input", "TEXT"),
+    ("solution_runs", "public_token", "VARCHAR"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

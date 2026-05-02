@@ -271,7 +271,16 @@ class SolutionCategory(Base):
 
 
 class Solution(Base):
-    """Одно готовое решение / промпт-пак."""
+    """Одно готовое решение / промпт-пак.
+
+    Два режима выполнения:
+      1. Legacy «plain»: SolutionStep'ы выполняются последовательно, каждый
+         шаг = один LLM-вызов (см. routes/solutions._execute_step).
+      2. Multi-agent «orchestra»: orchestra_json содержит граф stage'ов
+         (web_search / browse_url / llm / parallel_llm / synthesize) — несколько
+         специализированных агентов работают параллельно/последовательно
+         (см. server/solutions_orchestra.py).
+    """
     __tablename__ = "solutions"
 
     id           = Column(Integer, primary_key=True, index=True)
@@ -282,6 +291,11 @@ class Solution(Base):
     price_tokens = Column(Integer, default=0)       # стоимость запуска в токенах
     is_active    = Column(Boolean, default=True)
     sort_order   = Column(Integer, default=0)
+    # Multi-agent оркестрация. Если задан — выполняется через
+    # solutions_orchestra.run_orchestra. Иначе — legacy SolutionStep flow.
+    # Структура JSON: {"stages": [{...}, ...], "input_hint": "...",
+    #                  "default_model": "claude-sonnet"}
+    orchestra_json = Column(Text, nullable=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
 
     category = relationship("SolutionCategory", back_populates="solutions")
@@ -308,7 +322,14 @@ class SolutionStep(Base):
 
 
 class SolutionRun(Base):
-    """Запущенная сессия решения пользователем."""
+    """Запущенная сессия решения пользователем.
+
+    Поддерживает два режима:
+      - legacy plain: current_step указывает на текущий SolutionStep, status:
+        running | waiting_input | done | error
+      - multi-agent orchestra: stages_state хранит JSON с состоянием каждого
+        stage'а (status/output/cost/error/timestamps), final_output — итог.
+    """
     __tablename__ = "solution_runs"
 
     id           = Column(Integer, primary_key=True, index=True)
@@ -318,6 +339,16 @@ class SolutionRun(Base):
     current_step = Column(Integer, default=0)
     status       = Column(String, default="running")        # running | waiting_input | done | error
     context      = Column(Text, nullable=True)              # JSON накопленный контекст шагов
+    # Multi-agent режим: дамп состояния всех stage'ов для UI/SSE-стрима.
+    # Формат: {"stages": {<id>: {"status","output","cost_kop","error",
+    #                            "started_at","finished_at","label"}}, ...}
+    stages_state = Column(Text, nullable=True)
+    final_output = Column(Text, nullable=True)              # markdown итогового отчёта
+    pdf_path     = Column(String, nullable=True)            # путь сгенерированного PDF
+    total_cost_kop = Column(Integer, default=0)             # суммарно списано
+    user_input   = Column(Text, nullable=True)              # исходный {input} для повтора
+    # Шаринг: unguessable token для публичной ссылки на результат.
+    public_token = Column(String, unique=True, nullable=True, index=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
 
 

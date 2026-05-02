@@ -559,3 +559,92 @@ class TestBotPriceList:
             assert by_name["Норма"].price_kop == 150000  # 1500 ₽ = 150000 коп
         finally:
             db.close()
+
+
+# ══ Multi-agent orchestra для бизнес-решений ══════════════════════════════
+
+class TestSolutionsOrchestra:
+    """Юнит-тесты для server/solutions_orchestra.py."""
+
+    def test_template_render_basic(self):
+        from server.solutions_orchestra import _render_template
+        ctx = {
+            "input": "Привет",
+            "stages": {
+                "scout": {"output": "Найдено 5 источников"},
+                "deep": {"outputs": ["Анализ A", "Анализ B", "Анализ C"]},
+            },
+        }
+        # Простой input
+        assert _render_template("Тема: {{input}}", ctx) == "Тема: Привет"
+        # Output stage
+        assert "5 источников" in _render_template("{{scout.output}}", ctx)
+        # Outputs склейка
+        out = _render_template("{{deep.outputs}}", ctx)
+        assert "Анализ A" in out and "Анализ B" in out and "---" in out
+        # Конкретная ветка
+        assert _render_template("{{deep.outputs[1]}}", ctx) == "Анализ B"
+        # Несуществующий stage → пустая строка (не падает)
+        assert _render_template("{{missing.output}}", ctx) == ""
+        # Несуществующая ветка → пусто
+        assert _render_template("{{deep.outputs[99]}}", ctx) == ""
+
+    def test_template_render_combined(self):
+        from server.solutions_orchestra import _render_template
+        ctx = {"input": "ниша X", "stages": {"a": {"output": "A"}, "b": {"output": "B"}}}
+        out = _render_template("Ввод: {{input}}, A={{a.output}}, B={{b.output}}", ctx)
+        assert out == "Ввод: ниша X, A=A, B=B"
+
+    def test_calc_cost_kop(self):
+        from server.solutions_orchestra import _calc_cost_kop
+        # input=2000, output=500 → real ≈ 2*8 + 0.5*30 = 16+15 = 31 коп
+        # margin 500 → 31*5 = 155 коп
+        cost = _calc_cost_kop({"input_tokens": 2000, "output_tokens": 500}, 500)
+        assert 100 <= cost <= 200
+        # Пустой usage → 0
+        assert _calc_cost_kop({}, 500) == 0
+        assert _calc_cost_kop(None, 500) == 0
+
+    def test_subscribe_unsubscribe(self):
+        from server.solutions_orchestra import subscribe_run, unsubscribe_run, _subscribers
+        q = subscribe_run(99999)
+        assert 99999 in _subscribers
+        assert q in _subscribers[99999]
+        unsubscribe_run(99999, q)
+        assert 99999 not in _subscribers  # cleanup
+
+    def test_orchestra_seed_pilots_have_valid_structure(self):
+        # Импорт seed-скрипта проверяет, что 3 пилотных orchestra-конфига валидны
+        # (имеют stages, ссылки между ними резолвятся правильно).
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "seed_orchestra", "scripts/seed_orchestra_solutions.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for pilot in mod.PILOTS:
+            orch = pilot["orchestra"]
+            assert "stages" in orch and len(orch["stages"]) >= 2
+            assert "default_model" in orch
+            stage_ids = {st["id"] for st in orch["stages"]}
+            # Все ссылки {{<id>.output}} должны указывать на существующий stage
+            import re
+            for st in orch["stages"]:
+                full = " ".join(filter(None, [
+                    st.get("user_prompt", ""), st.get("system_prompt", ""),
+                    st.get("query", ""), st.get("from_lines", ""),
+                ]))
+                refs = re.findall(r"\{\{\s*([a-zA-Z0-9_]+)\.(?:output|outputs)", full)
+                for ref in refs:
+                    assert ref in stage_ids, (
+                        f"В пилоте {pilot['title']!r}, stage {st['id']!r}: "
+                        f"ссылка на несуществующий stage {ref!r}"
+                    )
+
+    def test_orchestra_endpoints_registered(self):
+        # Проверяем, что endpoint'ы оркестры зарегистрированы в FastAPI app.
+        import main
+        paths = {r.path for r in main.app.routes}
+        assert "/solutions/{solution_id}/orchestra/start" in paths
+        assert "/solutions/runs/{run_id}/stream" in paths
+        assert "/solutions/runs/{run_id}/share" in paths
+        assert "/s/{public_token}" in paths

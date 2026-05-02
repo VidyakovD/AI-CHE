@@ -528,6 +528,44 @@ def serve_public_proposal(public_token: str):
         return FileResponse(str(pdf_path), media_type="application/pdf",
                              filename=f"{safe}.pdf")
 
+@app.get("/s/{public_token}", include_in_schema=False)
+def serve_public_solution(public_token: str):
+    """Публичная ссылка на результат бизнес-решения (orchestra). Без auth.
+    Отдаёт PDF если есть, иначе плейн-текст итогового markdown."""
+    from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+    from server.db import db_session
+    from server.models import SolutionRun, Solution
+    if (not public_token or len(public_token) < 16 or len(public_token) > 64
+            or not all(c.isalnum() or c in "-_" for c in public_token)):
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    with db_session() as _db:
+        run = _db.query(SolutionRun).filter_by(public_token=public_token).first()
+        if not run or run.status != "done":
+            return JSONResponse({"detail": "Решение не найдено или не завершено"}, status_code=404)
+        sol = _db.query(Solution).filter_by(id=run.solution_id).first()
+        title = (sol.title if sol else "Бизнес-решение")
+        pdf_path_rel = run.pdf_path
+        final_md = run.final_output or ""
+    # PDF приоритетнее
+    if pdf_path_rel:
+        from pathlib import Path as _P
+        base = os.path.dirname(os.path.abspath(__file__))
+        uploads_root = _P(base, "uploads").resolve()
+        try:
+            pdf_abs = _P(base, pdf_path_rel.lstrip("/")).resolve()
+            pdf_abs.relative_to(uploads_root)
+            if pdf_abs.exists() and pdf_abs.is_file():
+                import re as _re
+                safe = _re.sub(r"[^\w\-]", "_", title)[:40]
+                return FileResponse(str(pdf_abs), media_type="application/pdf",
+                                     filename=f"{safe}.pdf")
+        except (ValueError, OSError):
+            pass
+    # Fallback: markdown как plain text
+    return PlainTextResponse(final_md or "Результат недоступен",
+                              headers={"Cache-Control": "no-store"})
+
+
 @app.get("/terms.html", include_in_schema=False)
 def serve_terms():
     return _html("terms.html")
