@@ -648,3 +648,50 @@ class TestSolutionsOrchestra:
         assert "/solutions/runs/{run_id}/stream" in paths
         assert "/solutions/runs/{run_id}/share" in paths
         assert "/s/{public_token}" in paths
+        # UX-полировка + production апгрейды
+        assert "/solutions/runs/{run_id}/restage" in paths
+        assert "/solutions/runs/{run_id}/save-template" in paths
+        assert "/solutions/templates" in paths
+        assert "/solutions/templates/{template_id}" in paths
+        assert "/solutions/templates/{template_id}/run" in paths
+        assert "/solutions/runs/{run_id}/reaction" in paths
+        assert "/solutions/runs/{run_id}/docx" in paths
+
+    def test_docx_builder_basic(self, tmp_path):
+        """DOCX-builder корректно собирает документ из markdown."""
+        from server.docx_builder import markdown_to_docx
+        md = (
+            "# Главный заголовок\n\n"
+            "## Раздел 1\n"
+            "Это **жирный** текст и обычный.\n\n"
+            "- пункт 1\n"
+            "- пункт 2\n\n"
+            "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\n"
+            "## Раздел 2\n"
+            "1. цифра 1\n"
+            "2. цифра 2\n\n"
+            "---\n\n"
+            "Финальный абзац.\n"
+        )
+        out = str(tmp_path / "test.docx")
+        ok = markdown_to_docx(md_text=md, title="Тест", out_path=out, subtitle="Подзаголовок")
+        # Если python-docx нет — ok=False, тест пропускаем (CI/dev может не иметь)
+        if not ok:
+            import pytest
+            pytest.skip("python-docx not installed in environment")
+        import os
+        assert os.path.exists(out)
+        assert os.path.getsize(out) > 1000  # настоящий docx файл
+
+    def test_orchestra_seed_8_pilots(self):
+        """После добавления Аудит соцсети / Финансы / Холодная email — 8 пилотов."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "seed_orchestra2", "scripts/seed_orchestra_solutions.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert len(mod.PILOTS) == 8
+        titles = {p["title"] for p in mod.PILOTS}
+        assert "Аудит соцсети канала" in titles
+        assert "Финансовый аудит по Excel" in titles
+        assert "Холодная email-рассылка под список компаний" in titles

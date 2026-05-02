@@ -443,6 +443,206 @@ async def _run_parallel_llm(stage: dict, ctx: dict, default_model: str,
 # ── Главный entry-point ──────────────────────────────────────────────────────
 
 
+async def restage(run_id: int, stage_id: str,
+                   extra_instruction: str | None = None) -> dict:
+    """Перезапустить ОДИН конкретный stage в уже завершённом run'е и
+    автоматически пересобрать финальный stage (если этот не финальный).
+
+    Используется когда юзер недоволен отдельным разделом отчёта — например,
+    хочет другой набор гарантий в КП или другое позиционирование в SWOT.
+    Списание: real-токены × margin (так же, как обычный stage).
+
+    Параметры:
+        run_id          — id завершённого SolutionRun
+        stage_id        — id stage'а который надо перегенерировать
+        extra_instruction — опц. дополнительная инструкция от юзера
+                           (добавляется в user_prompt текущего stage'а)
+    """
+    with db_session() as db:
+        run = db.query(SolutionRun).filter_by(id=run_id).first()
+        if not run:
+            return {"status": "error", "error": "Run not found"}
+        if run.status not in ("done", "error"):
+            return {"status": "error",
+                    "error": "Re-run возможен только для завершённого решения"}
+        solution = db.query(Solution).filter_by(id=run.solution_id).first()
+        if not solution or not solution.orchestra_json:
+            return {"status": "error", "error": "No orchestra"}
+        try:
+            orchestra = json.loads(solution.orchestra_json)
+            saved_state = json.loads(run.stages_state or "{}")
+        except Exception as e:
+            return {"status": "error", "error": f"Invalid state: {e}"}
+        user_id = run.user_id
+        user_input = run.user_input or ""
+        attachments: list = []
+        try:
+            if run.attachments_json:
+                attachments = json.loads(run.attachments_json) or []
+        except Exception:
+            attachments = []
+        user_api_key = None
+        try:
+            from server.models import UserApiKey
+            uk = db.query(UserApiKey).filter_by(user_id=user_id,
+                                                  provider="anthropic").first()
+            user_api_key = uk.api_key if uk else None
+        except Exception:
+            pass
+
+    stages = orchestra.get("stages", []) or []
+    target = next((s for s in stages if s["id"] == stage_id), None)
+    if not target:
+        return {"status": "error", "error": f"Stage {stage_id} not in orchestra"}
+    final_id = orchestra.get("final_stage") or stages[-1]["id"]
+    default_model = orchestra.get("default_model", "claude-sonnet")
+
+    # Восстанавливаем контекст из сохранённого состояния
+    ctx = {
+        "input": user_input,
+        "attachments": attachments,
+        "stages": saved_state.get("stages", {}) or {},
+        "status": "running",
+        "started_at": datetime.utcnow().isoformat(),
+    }
+    # Сбрасываем target stage + все стадии после него (они зависели от него)
+    seen_target = False
+    for s in stages:
+        if s["id"] == stage_id:
+            seen_target = True
+        if seen_target:
+            ctx["stages"][s["id"]] = _empty_stage_state(s)
+    run.status = "running"
+    _persist(run_id, ctx)
+
+    total_extra = 0
+
+    # Список stages для пере-выполнения: [target, ... все после, до final включительно]
+    to_run: list[dict] = []
+    seen_target = False
+    for s in stages:
+        if s["id"] == stage_id:
+            seen_target = True
+        if seen_target:
+            to_run.append(s)
+    # final гарантированно в to_run если стоит после target. Если target ==
+    # последний stage, to_run = [target] — этого достаточно.
+
+    for stage in to_run:
+        sid = stage["id"]
+        st = ctx["stages"][sid]
+        st["status"] = "running"
+        st["started_at"] = datetime.utcnow().isoformat()
+        _persist(run_id, ctx)
+
+        try:
+            # Если это target — добавляем extra_instruction к user_prompt
+            stage_eff = dict(stage)
+            if sid == stage_id and extra_instruction and extra_instruction.strip():
+                base_up = stage_eff.get("user_prompt", "")
+                stage_eff["user_prompt"] = (
+                    base_up + "\n\n=== ДОПОЛНИТЕЛЬНАЯ ИНСТРУКЦИЯ ОТ ПОЛЬЗОВАТЕЛЯ ===\n"
+                    + extra_instruction.strip()
+                )
+
+            stype = stage.get("type", "llm")
+            cost = 0
+            if stype == "web_search":
+                text = await _run_web_search(stage_eff, ctx); st["output"] = text
+            elif stype == "browse_url":
+                text = await _run_browse_url(stage_eff, ctx); st["output"] = text
+            elif stype in ("llm", "synthesize"):
+                text, cost = await _run_llm(stage_eff, ctx, default_model, user_api_key)
+                st["output"] = text
+            elif stype == "parallel_llm":
+                outputs, cost = await _run_parallel_llm(stage_eff, ctx, default_model,
+                                                         user_api_key)
+                st["outputs"] = outputs; st["output"] = "\n\n---\n\n".join(outputs)
+            elif stype == "file_extract":
+                st["output"] = await _run_file_extract(stage_eff, ctx)
+            elif stype == "vision_describe":
+                st["output"] = await _run_vision_describe(stage_eff, ctx)
+            elif stype == "extract_urls":
+                urls = await _run_extract_urls(stage_eff, ctx)
+                st["outputs"] = urls; st["output"] = "\n".join(urls)
+            elif stype == "parallel_browse":
+                outputs = await _run_parallel_browse(stage_eff, ctx)
+                st["outputs"] = outputs; st["output"] = "\n\n---\n\n".join(outputs)
+            else:
+                raise ValueError(f"Unknown stage type: {stype}")
+
+            st["cost_kop"] = cost
+            st["finished_at"] = datetime.utcnow().isoformat()
+            st["status"] = "done"
+
+            if cost > 0 and user_id:
+                with db_session() as db:
+                    if not deduct_strict(db, user_id, cost):
+                        st["status"] = "error"
+                        st["error"] = "Недостаточно средств"
+                        ctx["status"] = "error"
+                        _persist(run_id, ctx)
+                        return {"status": "error", "error": "Insufficient balance",
+                                "total_cost_kop": total_extra}
+                    db.add(Transaction(
+                        user_id=user_id, type="usage", tokens_delta=-cost,
+                        description=f"{(solution.title or 'Решение')[:60]} · re-run · {stage.get('label', sid)[:60]}",
+                        model=stage.get("model", default_model),
+                    ))
+                    db.commit()
+                total_extra += cost
+        except Exception as e:
+            log.error(f"[restage] run={run_id} stage={sid} error: {type(e).__name__}: {e}")
+            st["status"] = "error"
+            st["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+            st["finished_at"] = datetime.utcnow().isoformat()
+            ctx["status"] = "error"
+            _persist(run_id, ctx)
+            return {"status": "error", "error": st["error"], "total_cost_kop": total_extra}
+        _persist(run_id, ctx)
+
+    # Обновляем final_output + регенерируем PDF
+    final_text = ctx["stages"].get(final_id, {}).get("output") or ""
+    pdf_url = None
+    try:
+        from server.pdf_builder import markdown_to_pdf
+        import os, uuid
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        upload_dir = os.path.join(base, "uploads", "solutions")
+        os.makedirs(upload_dir, exist_ok=True)
+        fid = f"sol_{run_id}_{uuid.uuid4().hex[:8]}.pdf"
+        out_path = os.path.join(upload_dir, fid)
+        ok = markdown_to_pdf(md_text=final_text,
+                              title=solution.title if solution else "Бизнес-решение",
+                              out_path=out_path,
+                              subtitle=solution.description if solution else "")
+        if ok:
+            pdf_url = f"/uploads/solutions/{fid}"
+    except Exception as e:
+        log.warning(f"[restage] PDF gen failed: {e}")
+
+    ctx["status"] = "done"
+    ctx["finished_at"] = datetime.utcnow().isoformat()
+    with db_session() as db:
+        run = db.query(SolutionRun).filter_by(id=run_id).first()
+        if run:
+            run.final_output = final_text
+            if pdf_url:
+                run.pdf_path = pdf_url
+            run.total_cost_kop = (run.total_cost_kop or 0) + total_extra
+            run.status = "done"
+            run.stages_state = json.dumps({
+                "stages": ctx["stages"], "status": "done",
+                "started_at": ctx.get("started_at"),
+                "finished_at": ctx["finished_at"],
+            }, ensure_ascii=False)
+            db.commit()
+    _notify_run(run_id, {"stages": ctx["stages"], "status": "done",
+                          "final_output": final_text, "pdf_url": pdf_url})
+    return {"status": "done", "final_output": final_text, "pdf_url": pdf_url,
+            "total_cost_kop": total_extra}
+
+
 async def run_orchestra(run_id: int) -> dict:
     """Выполняет оркестрацию для SolutionRun. Обновляет SolutionRun.stages_state
     после каждого stage'а, в конце пишет final_output + pdf_path. Возвращает

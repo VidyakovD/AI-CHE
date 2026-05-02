@@ -3119,12 +3119,77 @@ async function launchOrchestra(solutionId, title){
   document.getElementById("runProgress").innerHTML = "";
   document.getElementById("runInput").value = "";
   _orchestraAttachments = [];
+  // Скрываем result-action кнопки (могли остаться от прошлого run'а)
+  ["runPdfBtn","runShareBtn","runDocxBtn","runReactionsRow","runRestageRow","runSaveTplBtn"]
+    .forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add("hidden")});
+  const stagesList = document.getElementById("runStagesList");
+  if(stagesList) stagesList.innerHTML = "";
   // Рисуем блок attachments если требуется
   renderOrchestraAttachmentsBlock(solutionId, attSpec);
+  // Блок «Запустить из шаблона» (если есть сохранённые шаблоны под это решение)
+  renderOrchestraTemplatesBlock(solutionId);
   // Подменяем continueRun → orchestraStart
   document.getElementById("runContinueBtn").onclick = () => orchestraStart(solutionId, attSpec);
   openM("runModal");
   document.getElementById("runInput").focus();
+}
+
+async function renderOrchestraTemplatesBlock(solutionId){
+  let block = document.getElementById("orchTplBlock");
+  if(!block){
+    block = document.createElement("div");
+    block.id = "orchTplBlock";
+    block.className = "space-y-2";
+    const inp = document.getElementById("runInput");
+    inp.parentNode.insertBefore(block, inp);
+  }
+  block.innerHTML = "";
+  let templates = [];
+  try{ templates = await api(`/solutions/templates?solution_id=${solutionId}`); }
+  catch(e){ return; }
+  if(!templates.length) return;
+  block.innerHTML = `
+    <div class="text-[10px] uppercase tracking-wider text-on-surface-dim/60 font-bold">
+      📂 Запустить из шаблона
+    </div>
+    <div class="flex flex-wrap gap-2">
+      ${templates.map(t=>`
+        <button data-tpl="${t.id}" class="text-xs px-3 py-1.5 rounded-full bg-surface3 hover:bg-primary/20 border border-outline/30 transition group">
+          <span class="font-medium">${esc(t.name)}</span>
+          <span class="text-on-surface-dim/50 ml-1 group-hover:text-error" data-del="${t.id}" title="Удалить">✕</span>
+        </button>
+      `).join("")}
+    </div>`;
+  // Клики
+  block.querySelectorAll("button[data-tpl]").forEach(btn=>{
+    btn.addEventListener("click", async (e)=>{
+      const tplId = btn.getAttribute("data-tpl");
+      // Удаление по клику на ✕
+      if(e.target?.dataset?.del){
+        e.stopPropagation();
+        if(!await aiConfirm("Удалить шаблон?")) return;
+        try{
+          const hdrs = {}; if(authToken) hdrs["Authorization"] = "Bearer "+authToken;
+          await fetch(`${API}/solutions/templates/${tplId}`, {method:"DELETE", headers:hdrs});
+          renderOrchestraTemplatesBlock(solutionId);
+        }catch(e){ aiAlert("Ошибка: "+(e.message||"не удалось"),"error"); }
+        return;
+      }
+      // Запуск из шаблона
+      try{
+        const r = await apiPost(`/solutions/templates/${tplId}/run`, {});
+        activeRun = {run_id: r.run_id, solution_id: solutionId, orchestra: true};
+        document.getElementById("runInputArea").classList.add("hidden");
+        document.getElementById("runContinueBtn").classList.add("hidden");
+        block.classList.add("hidden");
+        const attBlock = document.getElementById("orchAttBlock");
+        if(attBlock) attBlock.classList.add("hidden");
+        document.getElementById("runStepLabel").textContent = "⏳ Запуск из шаблона...";
+        document.getElementById("runHint").textContent = "Можешь свернуть окно — задача в фоне.";
+        listenOrchestraStream(r.run_id);
+      }catch(e){ aiAlert("Не запустилось: "+(e.message||"ошибка"),"error"); }
+    });
+  });
 }
 
 function renderOrchestraAttachmentsBlock(solutionId, spec){
@@ -3290,7 +3355,7 @@ function renderOrchestraProgress(data){
                st.status === "error" ? "bg-error" : "bg-surface3";
     return `<div class="h-1.5 flex-1 rounded-full ${bg}" title="${esc(st.label||sid)}"></div>`;
   }).join("");
-  // Текстовый список stages
+  // Текстовый список stages с кнопками re-run
   let listEl = document.getElementById("runStagesList");
   if(!listEl){
     listEl = document.createElement("div");
@@ -3298,6 +3363,8 @@ function renderOrchestraProgress(data){
     listEl.className = "space-y-1.5 mt-3 max-h-64 overflow-y-auto pr-1";
     prog.parentNode.insertBefore(listEl, prog.nextSibling);
   }
+  // Если status=done — у каждой стадии можно нажать re-run
+  const canRestage = data.status === "done";
   listEl.innerHTML = ids.map(sid => {
     const st = stages[sid];
     const icon = st.status === "done" ? "✅" :
@@ -3305,14 +3372,43 @@ function renderOrchestraProgress(data){
                  st.status === "error" ? "❌" : "⏸";
     const cost = st.cost_kop ? ` · <span class="text-primary">${(st.cost_kop/100).toFixed(2)} ₽</span>` : "";
     const err = st.error ? `<div class="text-xs text-error mt-0.5">${esc(st.error)}</div>` : "";
+    const restageBtn = (canRestage && st.status === "done") ?
+      `<button class="text-[10px] text-primary hover:underline" onclick="orchestraRestage('${esc(sid)}','${esc(st.label||sid).replace(/'/g,'')}')">↻ перегенерировать</button>` :
+      "";
     return `<div class="text-xs px-3 py-2 rounded-lg ${st.status==='running'?'bg-primary/10 border border-primary/30':'bg-surface2/50'}">
       <div class="flex items-center justify-between gap-2">
         <span>${icon} <span class="font-medium">${esc(st.label||sid)}</span></span>
-        <span class="text-on-surface-dim/60">${st.status==='done'?'готово':st.status==='running'?'работает':st.status==='error'?'ошибка':'ожидание'}${cost}</span>
+        <span class="text-on-surface-dim/60 flex items-center gap-2">
+          ${st.status==='done'?'готово':st.status==='running'?'работает':st.status==='error'?'ошибка':'ожидание'}${cost}
+          ${restageBtn}
+        </span>
       </div>
       ${err}
     </div>`;
   }).join("");
+}
+
+async function orchestraRestage(stageId, label){
+  if(!activeRun?.run_id) return;
+  const extra = await aiPrompt(
+    `Перегенерировать «${label}»?\nМожешь дать дополнительную инструкцию (необязательно):`,
+    "", {placeholder: "например: «больше конкретики и цифр»"});
+  if(extra === null) return; // отмена
+  try{
+    await apiPost(`/solutions/runs/${activeRun.run_id}/restage`, {
+      stage_id: stageId,
+      extra_instruction: extra || null,
+    });
+    // Возвращаемся к прогресс-режиму
+    document.getElementById("runStepLabel").textContent = "⏳ Перегенерируем...";
+    document.getElementById("runHint").textContent = "Будет пересобран этот раздел и финальный отчёт.";
+    document.getElementById("runResult").classList.add("hidden");
+    ["runPdfBtn","runShareBtn","runDocxBtn","runReactionsRow","runSaveTplBtn"]
+      .forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add("hidden")});
+    listenOrchestraStream(activeRun.run_id);
+  }catch(e){
+    aiAlert("Не удалось: "+(e.message||"ошибка"),"error");
+  }
 }
 
 async function finalizeOrchestra(runId){
@@ -3368,6 +3464,84 @@ async function finalizeOrchestra(runId){
       document.getElementById("runChatBtn").parentNode.insertBefore(shareBtn, document.getElementById("runChatBtn"));
     }
     shareBtn.classList.remove("hidden");
+    // Кнопка DOCX
+    let docxBtn = document.getElementById("runDocxBtn");
+    if(!docxBtn){
+      docxBtn = document.createElement("a");
+      docxBtn.id = "runDocxBtn";
+      docxBtn.target = "_blank";
+      docxBtn.className = "px-4 py-3 rounded-xl text-sm font-medium bg-surface3 hover:bg-surface3/70 transition flex items-center gap-2";
+      docxBtn.innerHTML = '📝 DOCX';
+      document.getElementById("runChatBtn").parentNode.insertBefore(docxBtn, document.getElementById("runChatBtn"));
+    }
+    // Бэкенд требует Authorization → не open-window напрямую. Делаем blob-скачивание.
+    docxBtn.onclick = async (e) => {
+      e.preventDefault();
+      try{
+        const hdrs = {}; if(authToken) hdrs["Authorization"] = "Bearer "+authToken;
+        const r = await fetch(`${API}/solutions/runs/${runId}/docx`, {headers:hdrs});
+        if(!r.ok){
+          const d = await r.json().catch(()=>({}));
+          throw new Error(d.detail || r.statusText);
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = "report.docx";
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url), 1000);
+      }catch(err){ aiAlert("DOCX не доступен: "+(err.message||"ошибка"),"error"); }
+    };
+    docxBtn.classList.remove("hidden");
+    // «Сохранить как шаблон»
+    let saveTplBtn = document.getElementById("runSaveTplBtn");
+    if(!saveTplBtn){
+      saveTplBtn = document.createElement("button");
+      saveTplBtn.id = "runSaveTplBtn";
+      saveTplBtn.className = "px-4 py-3 rounded-xl text-sm font-medium bg-surface3 hover:bg-surface3/70 transition flex items-center gap-2";
+      saveTplBtn.innerHTML = '⭐ Сохранить как шаблон';
+      saveTplBtn.onclick = async () => {
+        const name = await aiPrompt("Название шаблона:", "");
+        if(!name || name.trim().length < 2) return;
+        try{
+          await apiPost(`/solutions/runs/${runId}/save-template`, {name: name.trim()});
+          aiAlert("Шаблон сохранён", "success");
+        }catch(e){ aiAlert("Не сохранилось: "+(e.message||"ошибка"),"error"); }
+      };
+      document.getElementById("runChatBtn").parentNode.insertBefore(saveTplBtn, document.getElementById("runChatBtn"));
+    }
+    saveTplBtn.classList.remove("hidden");
+    // Реакции 👍/👎/💡
+    let reactRow = document.getElementById("runReactionsRow");
+    if(!reactRow){
+      reactRow = document.createElement("div");
+      reactRow.id = "runReactionsRow";
+      reactRow.className = "flex items-center gap-2 mt-2";
+      reactRow.innerHTML = `
+        <span class="text-xs text-on-surface-dim/60">Оценка отчёта:</span>
+        <button data-mark="up" class="px-3 py-1 rounded-lg bg-surface3 hover:bg-green-500/20 text-sm transition">👍</button>
+        <button data-mark="down" class="px-3 py-1 rounded-lg bg-surface3 hover:bg-error/20 text-sm transition">👎</button>
+        <button data-mark="idea" class="px-3 py-1 rounded-lg bg-surface3 hover:bg-yellow-500/20 text-sm transition">💡</button>`;
+      document.getElementById("runResult").parentNode.insertBefore(reactRow, document.getElementById("runResult").nextSibling);
+      reactRow.querySelectorAll("button[data-mark]").forEach(btn=>{
+        btn.addEventListener("click", async ()=>{
+          const mark = btn.getAttribute("data-mark");
+          let comment = null;
+          if(mark === "down" || mark === "idea"){
+            comment = await aiPrompt(mark==="down"?"Что не так?":"Идея?", "");
+            if(comment === null) return;
+          }
+          try{
+            await apiPost(`/solutions/runs/${runId}/reaction`, {mark, comment});
+            // Подсветка
+            reactRow.querySelectorAll("button").forEach(b=>b.classList.remove("ring-2","ring-primary"));
+            btn.classList.add("ring-2","ring-primary");
+            aiAlert("Спасибо за отзыв!", "success");
+          }catch(e){ aiAlert("Не удалось: "+(e.message||"ошибка"),"error"); }
+        });
+      });
+    }
+    reactRow.classList.remove("hidden");
     if(authToken) fetchMe();
   }
 }

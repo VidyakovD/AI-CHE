@@ -353,7 +353,35 @@ class SolutionRun(Base):
     attachments_json = Column(Text, nullable=True)
     # Шаринг: unguessable token для публичной ссылки на результат.
     public_token = Column(String, unique=True, nullable=True, index=True)
+    # Реакция юзера на финальный отчёт (👍/👎/💡 + опц. комментарий).
+    # Помогает выявить плохие пайплайны для админ-агрегации.
+    user_mark    = Column(String, nullable=True)   # up | down | idea | None
+    user_comment = Column(Text, nullable=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+class SolutionRunTemplate(Base):
+    """Сохранённый запуск как шаблон.
+
+    Юзер запустил «Аудит лендинга» с конкретным URL/скриншотом, доволен
+    результатом — сохранил «как шаблон» с именем «Мой основной сайт».
+    Через неделю одним кликом запускает заново (например после правок
+    лендинга) — input + attachments берутся из шаблона.
+
+    Привязан к solution_id — нельзя применить шаблон одного решения
+    к другому (разная orchestra-структура).
+    """
+    __tablename__ = "solution_run_templates"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    user_id        = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    solution_id    = Column(Integer, ForeignKey("solutions.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    name           = Column(String, nullable=False)
+    user_input     = Column(Text, nullable=True)
+    attachments_json = Column(Text, nullable=True)
+    created_at     = Column(DateTime, default=datetime.utcnow)
 
 
 # ── API Keys Management ───────────────────────────────────────────────────────

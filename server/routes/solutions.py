@@ -488,3 +488,224 @@ def orchestra_run_unshare(run_id: int, db: Session = Depends(get_db),
     run.public_token = None
     db.commit()
     return {"status": "revoked"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Re-run отдельного stage'а
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class RestageBody(BaseModel):
+    stage_id: str
+    extra_instruction: str | None = None
+
+
+@router.post("/solutions/runs/{run_id}/restage")
+async def orchestra_restage(run_id: int, body: RestageBody,
+                              db: Session = Depends(get_db),
+                              user: User = Depends(current_user)):
+    """Перезапустить один stage в завершённом отчёте + перегенерировать
+    финал. Стоимость: real-токены × margin (как обычная стадия).
+
+    Используется когда юзер недоволен отдельным разделом — например, хочет
+    другой блок «гарантии» или другие 3 варианта CTA.
+    """
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    run = db.query(SolutionRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "Run не найден")
+    if run.user_id != user.id:
+        raise HTTPException(403, "Нет доступа")
+    if run.status not in ("done", "error"):
+        raise HTTPException(400, "Re-run возможен только для завершённого решения")
+    sid = (body.stage_id or "").strip()
+    if not sid or len(sid) > 64:
+        raise HTTPException(400, "Некорректный stage_id")
+    extra = (body.extra_instruction or "")[:5000]
+    if get_balance(db, user.id) < 200:
+        raise HTTPException(402, "Минимум для пере-генерации — 2 ₽")
+    run.status = "running"
+    db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("solution.restage", user_id=user.id,
+                   target_type="solution_run", target_id=str(run_id),
+                   details={"stage_id": sid})
+    except Exception:
+        pass
+    from server.solutions_orchestra import restage as _restage
+    asyncio.create_task(_restage(run_id, sid, extra or None))
+    return {"run_id": run_id, "status": "running", "stage_id": sid}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Templates: сохранить запуск как шаблон + повторить одним кликом
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class SaveTemplateBody(BaseModel):
+    name: str
+
+
+@router.post("/solutions/runs/{run_id}/save-template")
+def template_save_from_run(run_id: int, body: SaveTemplateBody,
+                            db: Session = Depends(get_db),
+                            user: User = Depends(current_user)):
+    """Сохранить input + attachments запуска как шаблон с именем."""
+    from server.models import SolutionRunTemplate
+    run = db.query(SolutionRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "Run не найден")
+    if run.user_id != user.id:
+        raise HTTPException(403, "Нет доступа")
+    name = (body.name or "").strip()[:100]
+    if len(name) < 2:
+        raise HTTPException(400, "Имя шаблона минимум 2 символа")
+    cnt = db.query(SolutionRunTemplate).filter_by(user_id=user.id).count()
+    if cnt >= 50:
+        raise HTTPException(409, "Превышен лимит 50 шаблонов")
+    t = SolutionRunTemplate(
+        user_id=user.id, solution_id=run.solution_id, name=name,
+        user_input=run.user_input,
+        attachments_json=run.attachments_json,
+    )
+    db.add(t); db.commit(); db.refresh(t)
+    return {"template_id": t.id, "name": t.name}
+
+
+@router.get("/solutions/templates")
+def templates_list(solution_id: int | None = None,
+                    db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    from server.models import SolutionRunTemplate
+    q = db.query(SolutionRunTemplate).filter_by(user_id=user.id)
+    if solution_id:
+        q = q.filter_by(solution_id=solution_id)
+    rows = q.order_by(SolutionRunTemplate.created_at.desc()).all()
+    return [{
+        "id": t.id, "solution_id": t.solution_id, "name": t.name,
+        "input_preview": (t.user_input or "")[:100],
+        "has_attachments": bool(t.attachments_json and t.attachments_json != "[]"),
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+    } for t in rows]
+
+
+@router.delete("/solutions/templates/{template_id}")
+def template_delete(template_id: int, db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
+    from server.models import SolutionRunTemplate
+    t = db.query(SolutionRunTemplate).filter_by(
+        id=template_id, user_id=user.id).first()
+    if not t:
+        raise HTTPException(404, "Шаблон не найден")
+    db.delete(t); db.commit()
+    return {"status": "deleted"}
+
+
+@router.post("/solutions/templates/{template_id}/run")
+async def template_run(template_id: int, db: Session = Depends(get_db),
+                        user: User = Depends(current_user)):
+    """Запустить orchestra с input + attachments из сохранённого шаблона."""
+    from server.models import SolutionRunTemplate
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    t = db.query(SolutionRunTemplate).filter_by(
+        id=template_id, user_id=user.id).first()
+    if not t:
+        raise HTTPException(404, "Шаблон не найден")
+    sol = db.query(Solution).filter_by(id=t.solution_id, is_active=True).first()
+    if not sol or not sol.orchestra_json:
+        raise HTTPException(400, "Решение шаблона больше недоступно")
+    if get_balance(db, user.id) < 200:
+        raise HTTPException(402, "Минимум для запуска — 2 ₽")
+    chat_id = uuid.uuid4().hex[:16]
+    run = SolutionRun(
+        user_id=user.id, solution_id=t.solution_id,
+        chat_id=chat_id, status="running",
+        user_input=t.user_input,
+        attachments_json=t.attachments_json,
+        context=json.dumps({}, ensure_ascii=False),
+    )
+    db.add(run); db.commit(); db.refresh(run)
+    from server.solutions_orchestra import run_orchestra
+    asyncio.create_task(run_orchestra(run.id))
+    return {"run_id": run.id, "chat_id": chat_id, "status": "running",
+            "from_template": t.id}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Реакция юзера 👍/👎/💡
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class ReactionBody(BaseModel):
+    mark: str
+    comment: str | None = None
+
+
+@router.post("/solutions/runs/{run_id}/reaction")
+def orchestra_reaction(run_id: int, body: ReactionBody,
+                        db: Session = Depends(get_db),
+                        user: User = Depends(current_user)):
+    """👍/👎/💡 на финальный отчёт + опц. комментарий."""
+    run = db.query(SolutionRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "Run не найден")
+    if run.user_id != user.id:
+        raise HTTPException(403, "Нет доступа")
+    mark = (body.mark or "").strip().lower()
+    if mark not in ("up", "down", "idea", "clear"):
+        raise HTTPException(400, "mark должен быть up/down/idea/clear")
+    run.user_mark = None if mark == "clear" else mark
+    if body.comment is not None:
+        run.user_comment = (body.comment or "")[:2000]
+    db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("solution.reaction", user_id=user.id,
+                   target_type="solution_run", target_id=str(run_id),
+                   details={"mark": mark, "solution_id": run.solution_id,
+                             "has_comment": bool(body.comment)})
+    except Exception:
+        pass
+    return {"status": "ok", "mark": run.user_mark}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DOCX-экспорт финального отчёта
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/solutions/runs/{run_id}/docx")
+def orchestra_docx(run_id: int, db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    """Скачать финальный отчёт в DOCX (on-demand)."""
+    from fastapi.responses import FileResponse
+    run = db.query(SolutionRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "Run не найден")
+    if run.user_id != user.id:
+        raise HTTPException(403, "Нет доступа")
+    if run.status != "done" or not run.final_output:
+        raise HTTPException(400, "Отчёт ещё не готов")
+    sol = db.query(Solution).filter_by(id=run.solution_id).first()
+    title = sol.title if sol else "Бизнес-решение"
+    subtitle = sol.description if sol else ""
+    import os as _os, uuid as _uuid, re as _re
+    base = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+    out_dir = _os.path.join(base, "uploads", "solutions")
+    _os.makedirs(out_dir, exist_ok=True)
+    fid = f"sol_{run_id}_{_uuid.uuid4().hex[:6]}.docx"
+    out_path = _os.path.join(out_dir, fid)
+    from server.docx_builder import markdown_to_docx
+    ok = markdown_to_docx(md_text=run.final_output, title=title,
+                           out_path=out_path, subtitle=subtitle)
+    if not ok:
+        raise HTTPException(503, "DOCX-экспорт временно недоступен")
+    safe = _re.sub(r"[^\w\-]", "_", title)[:40]
+    return FileResponse(
+        out_path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"{safe}.docx",
+    )
