@@ -1,10 +1,89 @@
 # HANDOVER — для нового AI-ассистента
 
-Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-04-28 после спринтов «КП-конструктор», «Презентации v2» и «Три приложения»**.
+Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-05-02 после трёх спринтов: «Security audit», «Refresh single-use + sites public_token + RAG billing», «РФ Compliance»**.
 
 ---
 
-## 🆕 Спринт «Презентации v2» (2026-04-28, последний)
+## 🆕 Спринт «РФ Compliance» (2026-05-02, последний, `a2bffc0`)
+
+Юзер: пришёл chek-list 152-ФЗ + 54-ФЗ + российская инфра — что есть, что нужно сделать.
+
+### Что закрыто кодом
+- **AES-256-GCM шифрование бэкапов БД** ([scheduler.py](server/scheduler.py)): `_db_backup_tick` теперь шифрует chat.db перед записью в `/backups/*.enc`. Plaintext `.tmp` удаляется сразу. Ключ из env `BACKUP_ENCRYPTION_KEY` или auto-generated файла `.backup_encryption_key` (права 0o400, .gitignore'd). Утилита расшифровки — [scripts/restore_backup.py](scripts/restore_backup.py).
+- **Чек 54-ФЗ в ЮKassa** ([routes/payments.py](server/routes/payments.py)): `payment_subject="service"` + `payment_mode="full_payment"` + `tax_system_code` (из env, default 2=УСН доходы) + `vat_code` (из env, default 1=Без НДС). Юзер настраивает через `YOOKASSA_VAT_CODE` и `YOOKASSA_TAX_SYSTEM_CODE`.
+- **Маркетинговое согласие отдельно от оферты** ([models.py](server/models.py), [routes/auth.py](server/routes/auth.py), [routes/user.py](server/routes/user.py), [views/index.html](views/index.html)): `User.marketing_consent` + `marketing_consent_at`, миграция, чекбокс в форме регистрации (НЕ предзаполнен), toggle в кабинете → Настройки → 📬 Маркетинговая рассылка.
+- **Из payment-логов убраны суммы**: `payment.webhook` и `payment.confirm` логируют только `payment_id` (суммы остаются в Transaction).
+- **Документ для юзера**: [docs/compliance_ru.md](docs/compliance_ru.md) — что закрыто и что юзер делает руками.
+
+### Что юзер обязан сделать руками (см. [docs/compliance_ru.md](docs/compliance_ru.md) и `TODO_NEXT.md`)
+1. **🔴 БЛОКЕР: подключить SMTP** — на проде SMTP вообще не настроен, юзеры не получают verification-код. Решение: Unisender / SendPulse / Yandex 360.
+2. **Сохранить ключ шифрования бэкапов** в 1Password (или положить в env `BACKUP_ENCRYPTION_KEY`).
+3. **Подключить ОФД** в ЛК ЮKassa (Атол Онлайн / Контур.ОФД).
+4. **Регистрация в РКН** как оператор ПДн (https://pd.rkn.gov.ru/).
+5. **Обновить политику конфиденциальности**: ЮKassa, Anthropic, OpenAI, SMTP-провайдер как обработчики.
+6. **Бэкапы вне РФ-сервера** или миграция primary в РФ (Selectel/Yandex Cloud/Reg.ru).
+
+---
+
+## 🆕 Спринт «Refresh single-use + sites public_token + RAG billing» (2026-05-02, `d90e2f1`)
+
+### A. Refresh-token rotation single-use (P1.2 закрыт)
+- `User.refresh_jtis` (JSON-список до 10 активных jti, multi-device)
+- `create_refresh_token(user_id, email, jti=None)` — теперь принимает jti
+- `register_refresh_jti(db, user, jti)` / `revoke_refresh_jti(db, user, jti)` / `revoke_all_refresh_jtis(db, user)` / `is_refresh_jti_active(user, jti)` — в [auth.py](server/auth.py)
+- `/auth/login`, `/auth/verify-email`, `/auth/reset-password`, `/auth/oauth/exchange`, `/qr-login/poll` — все вызывают `register_refresh_jti` после issue
+- `/auth/refresh` — проверяет jti в наборе. **Reuse-detection** (jti уже использован) = security-incident → `revoke_all_refresh_jtis` + audit-лог critical + 401
+- `/auth/logout` — revoke текущий jti server-side
+- `/auth/reset-password` — revoke ВСЕ refresh-сессии после смены пароля
+- **Grace-period** для legacy токенов без jti / без registered jti — пропускаем проверку (плавная миграция)
+
+### B. Sites public_token (P1.4 закрыт)
+- `SiteProject.public_token` (~160 bit `secrets.token_urlsafe(20)`)
+- Backfill в `apply_lightweight_migrations`: для уже опубликованных сайтов с `hosted_path != NULL` генерим token и переписываем hosted_path. Старые URL `/sites/hosted/{int_id}/` после деплоя возвращают 404 — юзер должен зайти в `/sites.html` и взять новую ссылку.
+- `_ensure_public_token(p)` helper в [routes/sites.py](server/routes/sites.py) — caller commits
+- Endpoint `/sites/hosted/{public_token}/{full_path:path}` валидирует token (16-64 alnum/-_), lookup → физическая папка `_sites_host_base/<project.id>/`. Sandbox-обёртка для HTML с null-origin сохранена.
+- **Убран `app.mount('/sites/hosted', StaticFiles(...))`** из [main.py](main.py) — он обходил sandbox + token-проверку.
+
+### C. Storage-биллинг для RAG-файлов
+- `KnowledgeFile.last_billed_at` + миграция
+- Лимиты в [knowledge.py](server/knowledge.py): 50 файлов × 50 МБ × 2 ГБ/юзер (раз теперь платный — было 20×20×500МБ без билинга)
+- `_storage_billing_tick` в [scheduler.py](server/scheduler.py) — UNION SUM(StoredAsset) + SUM(KnowledgeFile) за один проход, общий лимит 100 МБ chunks на user
+- Просрочка >7д: `KnowledgeFile.enabled=False` (не участвует в RAG, файл цел)
+- Просрочка >37д: hard-delete файла + строки + чанков (cascade)
+- Audit: `knowledge.disabled` event с reason="no_balance_7d"
+
+---
+
+## 🆕 Спринт «Security audit» (2026-04-30 → 2026-05-02, `cc5afa5`)
+
+Юзер запросил security-review через subagent + ручной чеклист. Найдено + зафикшено 13 пунктов:
+
+### P1 (критичные)
+- VK webhook без secret → требуем `vk_secret` обязательным + `compare_digest`
+- SSRF в agent `tool_browse_url`: добавлен `_host_resolves_to_private`, scheme whitelist, revalidate редиректов
+- SSRF в `presentation_builder._add_remote_image` — то же
+- `/knowledge/search` лимит длины `q` (1000 симв) — иначе abuse OpenAI embeddings
+- RAG лимиты сначала ужесточены до 20×20×500МБ (потом подняты обратно с биллингом)
+- `is_verified` check в `brief-assist`, `/voice/parse`
+
+### P2 (XSS / IDOR / info-leak)
+- bleach-санитизация `generated_html` КП в legacy fallback + `edit_section` + `save-html` (защита от self-XSS в WYSIWYG-iframe `allow-scripts allow-same-origin`)
+- `/agent/{id}/ws` + `/stream` — owner-check (cookie `access_token` или `?token=`)
+- `/auth/login` не возвращает `user_id` для unverified (enumeration)
+- `/resend-verify` принимает email + не палит существование (всегда 200 «если есть и не подтверждён — выслан»)
+- TG-link: rate-limit (10/10мин на tg_user_id) + email-alert при успешной привязке/перепривязке
+
+### P3 (hardening)
+- `/p/{token}` PDF — `relative_to(uploads_root)` (defense-in-depth)
+- YooKassa race — validated false-positive (rollback откатывает credit_atomic)
+
+### Что отложено отдельным спринтом
+- ⏸ JWT `aud`/`iss` strict verify — нужен grace-period
+- ⏸ starlette upgrade — pinned в FastAPI 0.111
+
+---
+
+## Спринт «Презентации v2» (2026-04-28)
 
 Юзер: «надо чтобы получались стильные презентации, не привязываемся к стилю сервиса; цвета — на усмотрение пользователя; считывать фото; графики; ТЗ через ИИ; сайт клиента → стиль; форматы PPTX/HTML/PDF; цена не показываем формулу».
 
@@ -348,14 +427,24 @@
 
 Финансы: Welcome 50₽, реферал 10%. Платежи через ЮKassa (тестовый shop). Деплой ручной.
 
-## Что НЕ сделано (но понятно как)
+**Состояние security:** прошли 3 спринта security/compliance — refresh single-use rotation, sites public_token, RAG storage billing, AES-GCM шифрование бэкапов, 54-ФЗ чеки, маркетинговое согласие. См. `TODO_NEXT.md`.
+
+## ❗ Что не работает на проде (нужны действия юзера)
+1. **🔴 SMTP не настроен** — юзеры не получают verification-код (нужен Unisender/SendPulse/Yandex 360)
+2. **🔴 ОФД не подключён в ЛК ЮKassa** — мои `receipt`-объекты никуда не идут
+3. **🔴 Регистрация в РКН** — оператор ПДн (152-ФЗ ст. 22)
+4. **🔴 Прод в Нидерландах** — нужна миграция в РФ или хотя бы Yandex backup для ПДн
+5. **TG management-бот не запущен** — нужно создать через @BotFather + `setWebhook`
+
+## Что НЕ сделано (но понятно как — отдельные спринты)
 1. **OAuth Google/VK** — код готов, ждёт `GOOGLE_CLIENT_ID`/`VK_CLIENT_ID` в env
-2. **Прод ЮKassa** — сейчас тестовый shop, нужен live shop_id+secret
-3. **TG management-бот** — реализация готова, но юзеру нужно создать бот через @BotFather и заполнить env `TG_MGMT_BOT_TOKEN`/`TG_MGMT_BOT_USERNAME` + `setWebhook`
-4. **Web Push API через VAPID** — push в браузер без TG (defer)
-5. **starlette апгрейд** — нужно обновить FastAPI 0.111 → 0.115+ (отдельный спринт)
-6. **2FA для админки** — TOTP (отдельный спринт)
-7. **Cloudflare/CDN+WAF** — сейчас прямой запрос в Дронтен NL
+2. **Прод ЮKassa** — сейчас тестовый shop
+3. **Web Push API через VAPID** — sw.js push-handler уже есть, нужны subscription endpoint + ключи
+4. **starlette апгрейд** — pinned в FastAPI 0.111, CVE-2024-47874
+5. **2FA для админки** — TOTP через pyotp
+6. **JWT aud/iss strict verify** — сейчас `verify_aud=False`, нужен grace-period
+7. **Cloudflare/CDN+WAF** — сейчас прямой запрос в NL без DDoS-защиты
+8. **WhatsApp канал через Wazzup24** — самый востребованный из «🔮 Скоро»
 
 ## Что обычно ломается
 1. **Google AI Studio 429 «prepayment depleted»** — закончились кредиты в Google Cloud билле. Auto-refund в `/message` уже работает.

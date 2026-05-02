@@ -446,7 +446,11 @@ body.welcome #inputArea{display:none!important}
       </div>
       <label class="flex items-start gap-3 cursor-pointer">
         <input type="checkbox" id="rg_agree" class="mt-0.5 w-4 h-4 accent-primary"/>
-        <span class="text-sm text-on-surface-dim"><a class="text-primary hover:underline cursor-pointer" onclick="openTerms()">Принимаю условия оферты</a></span>
+        <span class="text-sm text-on-surface-dim"><a class="text-primary hover:underline cursor-pointer" onclick="openTerms()">Принимаю условия оферты</a> и согласен на обработку персональных данных</span>
+      </label>
+      <label class="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" id="rg_marketing" class="mt-0.5 w-4 h-4 accent-primary"/>
+        <span class="text-sm text-on-surface-dim/80">Согласен получать информационную и рекламную рассылку (можно отключить в любой момент в кабинете)</span>
       </label>
       <div id="rg_err" class="err"></div>
       <button onclick="doRegister()" class="btn-p">Зарегистрироваться</button>
@@ -1524,12 +1528,15 @@ async function doRegister(){
   const pass=document.getElementById("rg_pass").value;
   const ref=document.getElementById("rg_ref").value.trim();
   const agree=document.getElementById("rg_agree").checked;
+  // Маркетинговое согласие — отдельно от оферты (152-ФЗ).
+  // По умолчанию НЕ отмечен (предзаполнять нельзя).
+  const marketing=document.getElementById("rg_marketing")?.checked||false;
   const err=document.getElementById("rg_err");
   err.style.display="none";
   if(!agree){err.textContent="Необходимо принять условия";err.style.display="block";return;}
   const promo=document.getElementById("rg_promo")?.value.trim()||"";
   try{
-    const r=await apiPost("/auth/register",{name,email,password:pass,agreed_to_terms:true,referral_code:ref||undefined});
+    const r=await apiPost("/auth/register",{name,email,password:pass,agreed_to_terms:true,marketing_consent:marketing,referral_code:ref||undefined});
     pendingVerifyUserId=r.user_id;pendingVerifyEmail=email;
     if(promo) sessionStorage.setItem("pending_promo",promo);
     document.getElementById("verifyEmailDisplay").textContent=email;
@@ -2242,6 +2249,15 @@ async function renderSettingsTab(el){
       </div>
       <div id="s_lowbal_msg" class="text-xs mt-1 hidden"></div>
     </div>
+    <div class="border-t border-outline/20 pt-5">
+      <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">📬 Маркетинговая рассылка</p>
+      <p class="text-xs text-on-dim mb-2">Информационные и рекламные сообщения от платформы (новые возможности, акции, советы). Можно включить или отключить в любой момент.</p>
+      <label class="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" id="s_marketing" class="mt-0.5 w-4 h-4 accent-primary"/>
+        <span class="text-sm text-on-surface-dim">Получать рассылку</span>
+      </label>
+      <div id="s_marketing_msg" class="text-xs mt-1 hidden"></div>
+    </div>
     <div class="border-t border-outline/20 pt-5"><p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Сменить пароль</p>
       <div class="space-y-2">
         <input id="s_oldp" type="password" placeholder="Текущий пароль" class="inp"/>
@@ -2285,6 +2301,30 @@ async function renderSettingsTab(el){
     </div>
   </div>`;
   setupCodes(".em-code-cell");
+  // Маркетинговое согласие — текущее состояние + toggle
+  (async()=>{
+    try{
+      const s = await api('/user/marketing-consent');
+      const cb = document.getElementById('s_marketing');
+      if(cb) cb.checked = !!s.consent;
+    }catch(e){/* tihoe oшибка не страшно */}
+    const cb = document.getElementById('s_marketing');
+    if(cb) cb.addEventListener('change', async ()=>{
+      const msg=document.getElementById('s_marketing_msg');
+      msg.classList.remove('hidden');
+      msg.textContent='Сохраняем…'; msg.style.color='#a89880';
+      try{
+        await apiPut('/user/marketing-consent', {consent: cb.checked});
+        msg.textContent = cb.checked ? '✅ Подписка включена' : '✅ Отписка применена';
+        msg.style.color='#6bff9e';
+        setTimeout(()=>msg.classList.add('hidden'), 2500);
+      }catch(e){
+        msg.textContent='❌ '+(e.message||'Ошибка');
+        msg.style.color='#ff6b6b';
+        cb.checked = !cb.checked;  // откат UI
+      }
+    });
+  })();
   // Подгружаем статус привязки TG
   _renderTgLinkStatus();
   window.applyPromoCabinet=async function(){
@@ -3276,6 +3316,12 @@ async function api(path){
 async function apiPost(path,body){
   const h={"Content-Type":"application/json"};if(authToken)h["Authorization"]="Bearer "+authToken;
   const r=await fetch(API+path,{method:"POST",headers:h,body:JSON.stringify(body)});
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
+  return r.json();
+}
+async function apiPut(path,body){
+  const h={"Content-Type":"application/json"};if(authToken)h["Authorization"]="Bearer "+authToken;
+  const r=await fetch(API+path,{method:"PUT",headers:h,body:JSON.stringify(body)});
   if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
   return r.json();
 }
