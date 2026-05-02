@@ -12,6 +12,8 @@ from server.auth import (
     hash_password, verify_password, create_token, create_refresh_token,
     decode_token, generate_code, VERIFY_TTL_MINUTES,
     set_auth_cookies, clear_auth_cookies,
+    _new_jti, register_refresh_jti, revoke_refresh_jti,
+    revoke_all_refresh_jtis, is_refresh_jti_active,
 )
 from server.security import validate_email, validate_password
 from server.email_service import send_verification, send_password_reset, send_welcome
@@ -159,7 +161,9 @@ def verify_email(req: VerifyEmailRequest, response: Response, db: Session = Depe
     except Exception as e:
         log.error(f"Welcome email error: {e}")
     access = create_token(user.id, user.email)
-    refresh = create_refresh_token(user.id, user.email)
+    rt_jti = _new_jti()
+    refresh = create_refresh_token(user.id, user.email, jti=rt_jti)
+    register_refresh_jti(db, user, rt_jti)
     csrf = set_auth_cookies(response, access, refresh)
     return {"token": access, "refresh_token": refresh, "csrf_token": csrf,
             "user": _user_dict(user)}
@@ -243,7 +247,9 @@ def login(req: LoginRequest, response: Response, request: Request,
         log.warning(f"login-alert flow failed: {type(e).__name__}")
 
     access = create_token(user.id, user.email)
-    refresh = create_refresh_token(user.id, user.email)
+    rt_jti = _new_jti()
+    refresh = create_refresh_token(user.id, user.email, jti=rt_jti)
+    register_refresh_jti(db, user, rt_jti)
     csrf = set_auth_cookies(response, access, refresh)
     return {"token": access, "refresh_token": refresh, "csrf_token": csrf,
             "user": _user_dict(user)}
@@ -286,9 +292,15 @@ def reset_password(req: ResetPasswordRequest, response: Response,
     if not user or not _use_verify_token(db, user.id, req.code, "reset_password"):
         raise HTTPException(400, "Неверный или истёкший код")
     user.password_hash = hash_password(req.new_password)
+    # Reset password — security-инцидент: revoke ВСЕ существующие refresh
+    # сессии. Иначе атакер с украденным refresh продолжит работать после
+    # того как юзер сменил пароль.
+    revoke_all_refresh_jtis(db, user)
     db.commit()
     access = create_token(user.id, user.email)
-    refresh = create_refresh_token(user.id, user.email)
+    rt_jti = _new_jti()
+    refresh = create_refresh_token(user.id, user.email, jti=rt_jti)
+    register_refresh_jti(db, user, rt_jti)
     csrf = set_auth_cookies(response, access, refresh)
     return {"token": access, "refresh_token": refresh, "csrf_token": csrf,
             "user": _user_dict(user)}
@@ -364,9 +376,31 @@ def refresh_token(req: RefreshRequest, response: Response,
         raise HTTPException(401, "Пользователь не найден")
     if getattr(user, 'is_banned', False):
         raise HTTPException(403, "Аккаунт заблокирован. Обратитесь в поддержку.")
-    # Return new access token AND new refresh token (rotation)
+    # Single-use: проверяем что jti токена ещё активен. Если jti уже был
+    # использован (украденный токен после rotation, или повторный submit) —
+    # security-инцидент: revoke ВСЕ jti юзера, чтобы и легитимная сессия,
+    # и атакер потеряли доступ. Юзер увидит логаут на всех устройствах.
+    old_jti = payload.get("jti")
+    if not is_refresh_jti_active(user, old_jti):
+        log.warning(f"[auth] refresh jti reuse detected for user {user.id} — revoking all sessions")
+        revoke_all_refresh_jtis(db, user)
+        try:
+            from server.audit_log import log_action
+            log_action("auth.refresh_reuse", user_id=user.id, target_type="user",
+                        target_id=user.id, level="critical", success=False,
+                        details={"jti_prefix": (old_jti or "")[:8]})
+        except Exception:
+            pass
+        raise HTTPException(401, "Refresh-токен уже был использован. Войдите заново.")
+    # Rotation: убираем старый jti (если был зарегистрирован — для legacy
+    # токенов без registered jti revoke вернёт False, но это OK — grace period).
+    if old_jti:
+        revoke_refresh_jti(db, user, old_jti)
+    # Выдаём новые токены и регистрируем новый jti
     new_access = create_token(user.id, user.email)
-    new_refresh = create_refresh_token(user.id, user.email)
+    new_jti = _new_jti()
+    new_refresh = create_refresh_token(user.id, user.email, jti=new_jti)
+    register_refresh_jti(db, user, new_jti)
     csrf = set_auth_cookies(response, new_access, new_refresh)
     return {
         "access_token": new_access,
@@ -377,9 +411,21 @@ def refresh_token(req: RefreshRequest, response: Response,
 
 
 @router.post("/logout")
-def logout(response: Response):
-    """Стирает auth cookies. JWT в Authorization-header будет работать
-    до своего exp — ничего нельзя revoke server-side без revocation list,
-    но cookie-based сессия точно завершится."""
+def logout(response: Response,
+           db: Session = Depends(get_db),
+           refresh_cookie: str | None = Cookie(None, alias="refresh_token")):
+    """Стирает auth cookies + revoke текущий refresh jti (server-side).
+    Access-токен в Authorization-header будет работать до своего exp
+    (1 день), но refresh — нет: повторный refresh с этого устройства
+    выдаст 401 «Refresh-токен уже был использован»."""
+    if refresh_cookie:
+        try:
+            payload = decode_token(refresh_cookie, require_type="refresh")
+            if payload:
+                user = db.query(User).filter_by(id=int(payload.get("sub", 0))).first()
+                if user and payload.get("jti"):
+                    revoke_refresh_jti(db, user, payload["jti"])
+        except Exception:
+            pass
     clear_auth_cookies(response)
     return {"status": "logged_out"}

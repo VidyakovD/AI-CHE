@@ -97,14 +97,101 @@ def create_token(user_id: int, email: str) -> str:
         SECRET_KEY, algorithm=ALGORITHM
     )
 
-def create_refresh_token(user_id: int, email: str) -> str:
-    """Create long-lived refresh token (30 days)."""
+
+def _new_jti() -> str:
+    """Уникальный JWT ID для refresh-токена (для single-use rotation)."""
+    return secrets.token_urlsafe(16)
+
+
+def create_refresh_token(user_id: int, email: str, jti: str | None = None) -> str:
+    """Create long-lived refresh token (30 days).
+
+    Если передан `jti` — кладём в payload. Иначе генерим новый. Caller
+    должен зарегистрировать jti в `User.refresh_jtis` (через
+    `register_refresh_jti`) — иначе токен не пройдёт verify в `decode_token`.
+    """
     expire = datetime.utcnow() + timedelta(minutes=REFRESH_TTL)
+    if jti is None:
+        jti = _new_jti()
     return jwt.encode(
         {"sub": str(user_id), "email": email, "exp": expire, "type": "refresh",
-         "iss": JWT_ISS, "aud": JWT_AUD},
+         "iss": JWT_ISS, "aud": JWT_AUD, "jti": jti},
         SECRET_KEY, algorithm=ALGORITHM
     )
+
+
+# ── Refresh-token rotation: single-use JTI tracking ─────────────────────────
+# Чтобы украденный refresh нельзя было использовать после законной ротации,
+# в БД храним set активных jti на юзера (User.refresh_jtis, JSON-список).
+# При login/refresh — добавляем новый jti, при ротации — удаляем старый.
+# decode_token(require_type='refresh') дополнительно проверяет, что jti
+# присутствует в текущем наборе. Multi-device: до 10 параллельных сессий.
+
+_MAX_ACTIVE_REFRESH_JTIS = 10  # cap на user — больше 10 параллельных устройств?
+
+
+def _load_jtis(user) -> list[str]:
+    raw = getattr(user, "refresh_jtis", None) or ""
+    if not raw:
+        return []
+    try:
+        import json as _json
+        v = _json.loads(raw)
+        return [str(x) for x in v if isinstance(x, (str, int))][:_MAX_ACTIVE_REFRESH_JTIS]
+    except Exception:
+        return []
+
+
+def _save_jtis(user, jtis: list[str]) -> None:
+    import json as _json
+    user.refresh_jtis = _json.dumps(jtis[-_MAX_ACTIVE_REFRESH_JTIS:],
+                                     separators=(",", ":"))
+
+
+def register_refresh_jti(db, user, jti: str) -> None:
+    """Зарегистрировать новый jti в наборе активных у юзера. Сохраняет до
+    `_MAX_ACTIVE_REFRESH_JTIS` последних — старые выпадают (вытесняются
+    при превышении лимита, юзеру с 11-го устройства придётся перелогиниться)."""
+    jtis = _load_jtis(user)
+    if jti in jtis:
+        return  # уже есть — идемпотентно
+    jtis.append(jti)
+    _save_jtis(user, jtis)
+    db.commit()
+
+
+def revoke_refresh_jti(db, user, jti: str) -> bool:
+    """Удалить jti из активных. Возвращает True если был — False иначе."""
+    jtis = _load_jtis(user)
+    if jti not in jtis:
+        return False
+    jtis = [x for x in jtis if x != jti]
+    _save_jtis(user, jtis)
+    db.commit()
+    return True
+
+
+def revoke_all_refresh_jtis(db, user) -> None:
+    """Logout-everywhere: сброс всех refresh-токенов юзера (кроме access,
+    который проживёт до своего exp). Используется при смене пароля
+    или security-инциденте."""
+    user.refresh_jtis = None
+    db.commit()
+
+
+def is_refresh_jti_active(user, jti: str | None) -> bool:
+    """Проверка: jti из payload присутствует в наборе активных юзера.
+    Если у юзера ещё нет refresh_jtis (legacy токены, выданные до миграции
+    single-use rotation) — пропускаем проверку (grace-period). Эту grace
+    можно убрать после 30-дней + миграции существующих токенов."""
+    if not jti:
+        # Legacy refresh без jti — пропускаем (grace).
+        return True
+    raw = getattr(user, "refresh_jtis", None) or ""
+    if not raw:
+        # У юзера ещё нет registered jti — это legacy сессия. Grace-период.
+        return True
+    return jti in _load_jtis(user)
 
 def decode_token(token: str, require_type: str = None) -> dict | None:
     """Verify JWT. Пробует все доступные ключи (текущий + legacy), чтобы

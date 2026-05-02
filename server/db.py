@@ -150,6 +150,18 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("knowledge_files", "enabled", "BOOLEAN DEFAULT 1"),
     # КП: конструктор шапки (4 стиля)
     ("proposal_projects", "header_layout", "VARCHAR DEFAULT 'classic'"),
+    # Refresh-token rotation single-use: список активных jti (JSON).
+    # При login — append, при refresh — remove old + add new, при decode —
+    # проверяем jti в наборе. До 10 параллельных сессий на юзера.
+    ("users", "refresh_jtis", "TEXT"),
+    # Sites: unguessable public_token заменяет sequential id в hosted URL —
+    # /sites/hosted/{public_token}/ вместо /sites/hosted/{id}/. Защита от
+    # enumeration чужих опубликованных сайтов перебором ID.
+    ("site_projects", "public_token", "VARCHAR"),
+    # RAG knowledge: учёт в storage-биллинге (50 ₽/мес за 100 МБ).
+    # last_billed_at — когда последний раз scheduler.storage_billing_tick
+    # списал плату (NULL — ещё не биллились). Лимит 2 ГБ/юзер.
+    ("knowledge_files", "last_billed_at", "DATETIME"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен
@@ -171,6 +183,47 @@ LIGHTWEIGHT_INDEXES: list[tuple[str, str]] = [
      "CREATE UNIQUE INDEX IF NOT EXISTS uq_promo_uses_code_user "
      "ON promo_uses(code_id, user_id)"),
 ]
+
+
+def _backfill_site_public_tokens(conn) -> None:
+    """Для всех уже опубликованных сайтов (hosted_path != NULL) и без
+    public_token — сгенерировать unguessable token и обновить hosted_path.
+
+    Запускается один раз после добавления колонки. Старые URL вида
+    /sites/hosted/{int_id}/ превратятся в 404 — это намеренно (IDOR-фикс).
+    Юзер должен зайти в /sites.html и взять новую ссылку из UI.
+    """
+    import secrets as _secrets
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    from sqlalchemy import text
+    try:
+        rows = list(conn.execute(text(
+            "SELECT id FROM site_projects "
+            "WHERE hosted_path IS NOT NULL AND hosted_path <> '' "
+            "AND (public_token IS NULL OR public_token = '')"
+        )))
+    except Exception as e:
+        _log.warning(f"migration: site public_token backfill skipped: {e}")
+        return
+    if not rows:
+        return
+    n = 0
+    for r in rows:
+        pid = int(r[0])
+        token = _secrets.token_urlsafe(20)  # ~160 bit, не угадывается
+        try:
+            conn.execute(text(
+                "UPDATE site_projects SET public_token = :t, "
+                "hosted_path = '/sites/hosted/' || :t || '/' "
+                "WHERE id = :id AND (public_token IS NULL OR public_token = '')"
+            ), {"t": token, "id": pid})
+            n += 1
+        except Exception as e:
+            _log.warning(f"migration: backfill site #{pid} failed: {e}")
+    conn.commit()
+    if n:
+        _log.info(f"migration: backfilled public_token for {n} hosted site(s)")
 
 
 def apply_lightweight_migrations():
@@ -201,6 +254,12 @@ def apply_lightweight_migrations():
                 conn.commit()
             except Exception as e:
                 log.warning(f"migration: index {name}: {e}")
+        # Data migration: backfill public_token для уже опубликованных сайтов
+        # (idempotent — обновляет только rows где public_token IS NULL).
+        try:
+            _backfill_site_public_tokens(conn)
+        except Exception as e:
+            log.warning(f"migration: site public_token backfill error: {e}")
         # Special migration: knowledge_files.bot_id was NOT NULL (legacy для ботов).
         # Теперь поддерживаем агентов через owner_type/owner_id, и для агента
         # bot_id=NULL. SQLite ALTER не умеет менять NULL/NOT NULL — пересоздаём

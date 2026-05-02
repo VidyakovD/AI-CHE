@@ -49,6 +49,10 @@ class User(Base):
     # Уведомления о входе с нового IP (security alert).
     last_login_ip    = Column(String, nullable=True)
     last_login_at    = Column(DateTime, nullable=True)
+    # Refresh-token rotation single-use: JSON-список активных jti (до 10).
+    # Управляется server.auth.register/revoke_refresh_jti — украденный
+    # refresh не сработает после законной ротации, jti удаляется при rotate.
+    refresh_jtis     = Column(Text, nullable=True)
     # Привязка Telegram-аккаунта (для TG-бота управления + push)
     tg_user_id       = Column(String, unique=True, nullable=True, index=True)
     tg_username      = Column(String, nullable=True)
@@ -476,7 +480,12 @@ class SiteProject(Base):
     conversation_phase = Column(String, default="idle")  # idle / gathering_spec / spec_ready / collecting_images / generating_code / done
     chat_history = Column(Text, nullable=True)    # JSON: conversation during spec creation
     image_paths  = Column(Text, nullable=True)    # JSON array of uploaded image/logo paths
-    hosted_path  = Column(String, nullable=True)  # e.g. "sites/123/" for hosted URL
+    hosted_path  = Column(String, nullable=True)  # e.g. "sites/abc123.../" for hosted URL
+    # Unguessable публичный токен — раньше hosted URL содержал sequential
+    # project.id, что позволяло перебором найти и скачать любой чужой
+    # опубликованный сайт. Теперь URL вида /sites/hosted/{public_token}/.
+    # Generates on first /host call (см. routes/sites.py).
+    public_token = Column(String, unique=True, nullable=True, index=True)
     attached_bot_id = Column(Integer, ForeignKey("chatbots.id"), nullable=True)  # виджет чат-бота
     # Фоновая генерация: статус и прогресс live-генерации (фронт polling'ит)
     gen_status   = Column(String, nullable=True)  # idle | running | done | failed
@@ -648,6 +657,9 @@ class KnowledgeFile(Base):
     indexing_error  = Column(Text, nullable=True)
     enabled      = Column(Boolean, default=True)               # участвует ли в retrieve
     created_at   = Column(DateTime, default=datetime.utcnow)
+    # Storage-биллинг: scheduler.storage_billing_tick списывает плату за
+    # KB-файлы аналогично StoredAsset (50 ₽/мес за 100 МБ).
+    last_billed_at = Column(DateTime, nullable=True)
 
 
 class KnowledgeChunk(Base):

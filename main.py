@@ -308,10 +308,13 @@ app.include_router(knowledge_router)
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# ── Static files (sites hosted) ───────────────────────────────────────────────
+# ── Hosted sites: убран StaticFiles mount ─────────────────────────────────
+# Раньше mount /sites/hosted → uploads/sites/ позволял прямой доступ к файлам
+# по sequential ID (`/sites/hosted/123/index.html`) — обходил sandbox-обёртку
+# и токен-проверку из routes/sites.py. Сайты теперь раздаются ТОЛЬКО через
+# endpoint `/sites/hosted/{public_token}/{path}` (см. routes/sites.py).
 _sites_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "sites")
 os.makedirs(_sites_dir, exist_ok=True)
-app.mount("/sites/hosted", StaticFiles(directory=_sites_dir), name="sites-hosted")
 
 # ── HTML pages ─────────────────────────────────────────────────────────────────
 _BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "views")

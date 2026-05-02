@@ -29,7 +29,10 @@ from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db, current_user, _user_dict
 from server.models import QrLoginSession, User
-from server.auth import create_token, create_refresh_token, set_auth_cookies
+from server.auth import (
+    create_token, create_refresh_token, set_auth_cookies,
+    _new_jti, register_refresh_jti,
+)
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/qr-login", tags=["auth"])
@@ -88,7 +91,9 @@ def qr_poll(token: str, response: Response, db: Session = Depends(get_db)):
     if not user:
         return {"status": "expired"}
     access = create_token(user.id, user.email)
-    refresh = create_refresh_token(user.id, user.email)
+    rt_jti = _new_jti()
+    refresh = create_refresh_token(user.id, user.email, jti=rt_jti)
+    register_refresh_jti(db, user, rt_jti)
     csrf = set_auth_cookies(response, access, refresh)
     sess.consumed = True
     db.commit()

@@ -449,21 +449,25 @@ async def conv_cleanup_loop():
 async def _storage_billing_tick():
     """
     Раз в сутки списывает плату за хранение файлов:
-      - считаем total bytes у каждого юзера (только active assets)
-      - округляем вверх до 100 МБ блоков
+      - считаем total bytes у каждого юзера: active StoredAsset + KnowledgeFile
+      - округляем вверх до 100 МБ блоков (один общий лимит на user)
       - умножаем на цену storage.per_100mb_month / 30 (дневная ставка)
       - списываем атомарно
 
     Логика просроченных оплат:
-      - При успешном списании ставим last_billed_at=now на ВСЕ active asset'ы юзера
-      - Если баланса нет 7+ дней (last_billed_at < now-7d) → archive (is_active=False)
-      - Если archived 30+ дней (last_billed_at < now-37d) → физическое удаление файла
+      - При успешном списании ставим last_billed_at=now на все asset'ы и
+        KnowledgeFile юзера, попавшие в SUM этого тика.
+      - Если баланса нет 7+ дней:
+          StoredAsset → archive (is_active=False)
+          KnowledgeFile → enabled=False (не участвует в RAG, но файл хранится)
+      - Если archived/disabled 30+ дней (last_billed_at < now-37d):
+          физическое удаление файла + строки в БД.
 
     Юзер видит "архивирован" в UI и может пополнить + восстановить (если ещё не удалили).
     """
     from datetime import datetime, timedelta
     from server.db import db_session
-    from server.models import StoredAsset, User, Transaction
+    from server.models import StoredAsset, KnowledgeFile, User, Transaction
     from server.billing import deduct_strict
     from server.pricing import get_price
     from sqlalchemy import func, update as sa_update
@@ -480,18 +484,30 @@ async def _storage_billing_tick():
     tick_start = now
     try:
         with db_session() as db:
-            users_with_storage = (
-                db.query(StoredAsset.user_id, func.sum(StoredAsset.size_bytes).label("total"))
-                .filter(StoredAsset.is_active == True)
-                .filter((StoredAsset.last_billed_at == None) |
-                        (StoredAsset.last_billed_at < tick_start))
-                .group_by(StoredAsset.user_id)
-                .all()
+            # ── Сбор SUM bytes по юзерам из StoredAsset + KnowledgeFile ──
+            asset_sum = dict(
+                db.query(StoredAsset.user_id,
+                          func.sum(StoredAsset.size_bytes))
+                  .filter(StoredAsset.is_active == True)
+                  .filter((StoredAsset.last_billed_at == None) |
+                          (StoredAsset.last_billed_at < tick_start))
+                  .group_by(StoredAsset.user_id).all()
             )
+            kb_sum = dict(
+                db.query(KnowledgeFile.user_id,
+                          func.sum(KnowledgeFile.size))
+                  .filter(KnowledgeFile.user_id != None)
+                  .filter((KnowledgeFile.last_billed_at == None) |
+                          (KnowledgeFile.last_billed_at < tick_start))
+                  .group_by(KnowledgeFile.user_id).all()
+            )
+            user_ids = set(asset_sum) | set(kb_sum)
             charged = skipped = 0
-            for row in users_with_storage:
-                user_id = row[0]
-                total_bytes = int(row[1] or 0)
+            for user_id in user_ids:
+                if not user_id:
+                    continue
+                total_bytes = int(asset_sum.get(user_id, 0) or 0) \
+                              + int(kb_sum.get(user_id, 0) or 0)
                 if total_bytes <= 0:
                     continue
                 units = (total_bytes + chunk - 1) // chunk
@@ -501,16 +517,21 @@ async def _storage_billing_tick():
                         user_id=user_id, type="usage", tokens_delta=-cost,
                         description=f"Хранилище: {round(total_bytes/1024/1024, 1)} МБ ({cost/100:.2f} ₽/день)",
                     ))
-                    # Помечаем «оплачено» ТОЛЬКО те asset'ы, которые попали в
-                    # SUM этого тика. Свежезагруженные (last_billed_at >=
-                    # tick_start) не трогаем — они сами проставили актуальную
-                    # дату и попадут в SUM следующего тика.
+                    # Помечаем «оплачено» ТОЛЬКО те asset'ы и KB-файлы, которые
+                    # попали в SUM этого тика. Свежезагруженные не трогаем.
                     db.execute(
                         sa_update(StoredAsset)
                         .where(StoredAsset.user_id == user_id,
                                StoredAsset.is_active == True,
                                (StoredAsset.last_billed_at == None) |
                                (StoredAsset.last_billed_at < tick_start))
+                        .values(last_billed_at=now)
+                    )
+                    db.execute(
+                        sa_update(KnowledgeFile)
+                        .where(KnowledgeFile.user_id == user_id,
+                               (KnowledgeFile.last_billed_at == None) |
+                               (KnowledgeFile.last_billed_at < tick_start))
                         .values(last_billed_at=now)
                     )
                     charged += 1
@@ -520,10 +541,7 @@ async def _storage_billing_tick():
             if charged or skipped:
                 log.info(f"[storage-billing] charged={charged} skipped(no balance)={skipped}")
 
-            # ── Архивация просроченных (>7 дней без оплаты) ──────────────
-            # Защита от race: новые файлы (created_at > cutoff) пропускаем,
-            # даже если last_billed_at старый — последнее обновление billing
-            # tick'а могло их пропустить, но грейс-период есть.
+            # ── Архивация просроченных StoredAsset (>7 дней без оплаты) ──
             cutoff_archive = now - timedelta(days=7)
             archived = (
                 db.query(StoredAsset)
@@ -541,7 +559,6 @@ async def _storage_billing_tick():
                 db.commit()
                 log.warning(f"[storage-billing] archived {len(archived_ids)} asset(s) — просрочка оплаты >7д")
                 from server.audit_log import log_action
-                # Группируем по user_id для отдельных audit-записей
                 by_user: dict[int, list[int]] = {}
                 for a in archived:
                     by_user.setdefault(a.user_id, []).append(a.id)
@@ -550,8 +567,38 @@ async def _storage_billing_tick():
                                level="warn", success=False,
                                details={"reason": "no_balance_7d", "asset_ids": ids[:50]})
 
-            # ── Физическое удаление (>37 дней с last_billed_at, is_active=False) ──
+            # ── Disable просроченных KnowledgeFile (>7 дней без оплаты) ──
+            disabled_kb = (
+                db.query(KnowledgeFile)
+                .filter(KnowledgeFile.enabled == True)
+                .filter(KnowledgeFile.last_billed_at != None)
+                .filter(KnowledgeFile.last_billed_at < cutoff_archive)
+                .filter(KnowledgeFile.created_at < cutoff_archive)
+                .all()
+            )
+            disabled_ids: list[int] = []
+            for kf in disabled_kb:
+                kf.enabled = False
+                disabled_ids.append(kf.id)
+            if disabled_ids:
+                db.commit()
+                log.warning(f"[storage-billing] disabled {len(disabled_ids)} KB-файл(ов) — просрочка оплаты >7д")
+                from server.audit_log import log_action
+                by_user_kb: dict[int, list[int]] = {}
+                for kf in disabled_kb:
+                    if kf.user_id:
+                        by_user_kb.setdefault(kf.user_id, []).append(kf.id)
+                for uid, ids in by_user_kb.items():
+                    log_action("knowledge.disabled", user_id=uid, target_type="kb",
+                               level="warn", success=False,
+                               details={"reason": "no_balance_7d", "file_ids": ids[:50]})
+
+            # ── Физическое удаление просроченных StoredAsset (>37 дней) ──
             cutoff_delete = now - timedelta(days=37)
+            from pathlib import Path as _P
+            _proj_root = _P(__file__).resolve().parent.parent
+            _uploads_root = (_proj_root / "uploads").resolve()
+
             stale = (
                 db.query(StoredAsset)
                 .filter(StoredAsset.is_active == False)
@@ -560,28 +607,47 @@ async def _storage_billing_tick():
                 .all()
             )
             deleted = 0
-            from pathlib import Path as _P
-            # Корень проекта (parent для server/) — для абсолютного резолва путей.
-            # uploads_root защищает от path-traversal: даже если в БД попал
-            # path="../../etc/passwd", relative_to() кинет ValueError и пропустит.
-            _proj_root = _P(__file__).resolve().parent.parent
-            _uploads_root = (_proj_root / "uploads").resolve()
             for a in stale:
                 try:
                     p = (_proj_root / a.path.lstrip("/")).resolve()
-                    p.relative_to(_uploads_root)  # ValueError если вне uploads/
+                    p.relative_to(_uploads_root)
                     if p.exists() and p.is_file():
                         p.unlink()
                 except (ValueError, OSError) as ex:
                     log.warning(f"[storage-billing] skip delete {a.path}: {type(ex).__name__}")
                 except Exception as ex:
                     log.warning(f"[storage-billing] cannot delete file {a.path}: {type(ex).__name__}")
-                # Удаляем запись из БД (можно оставить для истории, но тогда orphan)
                 db.delete(a)
                 deleted += 1
             if deleted:
                 db.commit()
                 log.warning(f"[storage-billing] hard-deleted {deleted} asset(s) — просрочка >37д")
+
+            # ── Физическое удаление просроченных KnowledgeFile (>37 дней) ──
+            stale_kb = (
+                db.query(KnowledgeFile)
+                .filter(KnowledgeFile.enabled == False)
+                .filter(KnowledgeFile.last_billed_at != None)
+                .filter(KnowledgeFile.last_billed_at < cutoff_delete)
+                .all()
+            )
+            deleted_kb = 0
+            for kf in stale_kb:
+                try:
+                    if kf.path:
+                        p = (_proj_root / kf.path.lstrip("/")).resolve()
+                        p.relative_to(_uploads_root)
+                        if p.exists() and p.is_file():
+                            p.unlink()
+                except (ValueError, OSError) as ex:
+                    log.warning(f"[storage-billing] skip delete KB {kf.path}: {type(ex).__name__}")
+                except Exception as ex:
+                    log.warning(f"[storage-billing] cannot delete KB file {kf.path}: {type(ex).__name__}")
+                db.delete(kf)  # каскадно удалит KnowledgeChunk-и
+                deleted_kb += 1
+            if deleted_kb:
+                db.commit()
+                log.warning(f"[storage-billing] hard-deleted {deleted_kb} KB-файл(ов) — просрочка >37д")
     except Exception as e:
         log.error(f"[storage-billing] failed: {e}")
 

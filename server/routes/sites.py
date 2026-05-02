@@ -1037,10 +1037,24 @@ def site_project_edit_block(project_id: int, body: EditBlockBody,
 # ---------------------------------------------------------------------------
 # Hosting & serving
 # ---------------------------------------------------------------------------
+def _ensure_public_token(p: SiteProject) -> str:
+    """Гарантирует, что у проекта есть unguessable public_token. Используется
+    в URL вместо sequential id (защита от enumeration). Caller commits."""
+    import secrets as _secrets
+    if not p.public_token:
+        p.public_token = _secrets.token_urlsafe(20)
+    return p.public_token
+
+
 @router.post("/sites/projects/{project_id}/host")
 def site_project_host(project_id: int, db: Session = Depends(get_db),
                        user: User = Depends(current_user)):
-    """Publish site -- save files and return public URL."""
+    """Publish site -- save files and return public URL.
+
+    URL содержит unguessable public_token (~160 bit), не sequential id.
+    Раньше URL вида /sites/hosted/{id}/ позволял атакующему перебрать ID
+    и скачать любой чужой опубликованный сайт.
+    """
     p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
@@ -1059,15 +1073,21 @@ def site_project_host(project_id: int, db: Session = Depends(get_db),
     with open(os.path.join(host_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(final_html)
 
-    p.hosted_path = f"/sites/hosted/{project_id}/"
+    token = _ensure_public_token(p)
+    p.hosted_path = f"/sites/hosted/{token}/"
     db.commit()
     return {"url": p.hosted_path, "status": "hosted",
             "widget_attached": bool(p.attached_bot_id)}
 
 
-@router.get("/sites/hosted/{project_id}/{full_path:path}")
-def site_project_serve(project_id: int, full_path: str = ""):
+@router.get("/sites/hosted/{public_token}/{full_path:path}")
+def site_project_serve(public_token: str, full_path: str = "",
+                        db: Session = Depends(get_db)):
     """Serve hosted site files.
+
+    URL содержит unguessable public_token, не sequential id (защита от
+    enumeration). Lookup project через public_token → физическая папка
+    `_sites_host_base/<project.id>/`.
 
     HTML отдаётся ЧЕРЕЗ SANDBOX IFRAME с null-origin:
       - sandbox="allow-scripts allow-forms allow-popups" — JS работает
@@ -1079,7 +1099,15 @@ def site_project_serve(project_id: int, full_path: str = ""):
     """
     from pathlib import Path
     from fastapi.responses import HTMLResponse as _HTMLResponse
-    host_dir = Path(_sites_host_base, str(project_id)).resolve()
+    # Валидация токена: только URL-safe символы и разумная длина (защита
+    # от попыток подсунуть в lookup сложные строки).
+    if (not public_token or len(public_token) < 16 or len(public_token) > 64
+            or not all(c.isalnum() or c in "-_" for c in public_token)):
+        raise HTTPException(404, "Сайт не найден")
+    p = db.query(SiteProject).filter_by(public_token=public_token).first()
+    if not p or not p.hosted_path:
+        raise HTTPException(404, "Сайт не найден")
+    host_dir = Path(_sites_host_base, str(p.id)).resolve()
     try:
         file_path = (host_dir / (full_path or "index.html")).resolve()
         file_path.relative_to(host_dir)
@@ -1141,9 +1169,10 @@ def site_project_download(project_id: int, db: Session = Depends(get_db),
     with open(os.path.join(host_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(p.code_html)
 
-    p.hosted_path = f"/sites/hosted/{project_id}/"
+    token = _ensure_public_token(p)
+    p.hosted_path = f"/sites/hosted/{token}/"
     db.commit()
-    return {"url": f"/sites/hosted/{project_id}/", "status": "ready"}
+    return {"url": p.hosted_path, "status": "ready"}
 
 
 @router.get("/sites/projects/{project_id}/zip")

@@ -19,7 +19,10 @@ import httpx
 
 from server.routes.deps import get_db, _user_dict
 from server.models import User, Transaction, VerifyToken, OAuthState
-from server.auth import create_token, create_refresh_token, hash_password, set_auth_cookies
+from server.auth import (
+    create_token, create_refresh_token, hash_password, set_auth_cookies,
+    _new_jti, register_refresh_jti,
+)
 
 log = logging.getLogger("oauth")
 router = APIRouter(prefix="/auth/oauth", tags=["auth"])
@@ -169,7 +172,9 @@ def oauth_exchange(req: OAuthExchangeRequest, response: Response,
     if not user:
         raise HTTPException(404, "User not found")
     access = create_token(user.id, user.email)
-    refresh = create_refresh_token(user.id, user.email)
+    rt_jti = _new_jti()
+    refresh = create_refresh_token(user.id, user.email, jti=rt_jti)
+    register_refresh_jti(db, user, rt_jti)
     csrf = set_auth_cookies(response, access, refresh)
     return {
         "access": access,
