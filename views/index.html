@@ -3095,6 +3095,7 @@ async function launchSolution(id,title,stepsCount,isOrchestra){
 
 // ── Multi-agent orchestra flow ────────────────────────────────────────────
 let _orchestraStream = null;
+let _orchestraAttachments = []; // {file_url, name, mime, kind, size}
 
 async function launchOrchestra(solutionId, title){
   // Шаг 1: показать форму ввода (используем существующую runModal с пометкой PRO)
@@ -3102,11 +3103,13 @@ async function launchOrchestra(solutionId, title){
   document.getElementById("runErr").classList.add("hidden");
   document.getElementById("runResult").classList.add("hidden");
   document.getElementById("runChatBtn").classList.add("hidden");
-  // Получим input_hint из orchestra-конфига для подсказки
+  // Получим input_hint и список требуемых файлов
   let hint = "Опиши свою задачу подробно (минимум 30 символов).";
+  let attSpec = [];
   try{
     const sol = await api(`/solutions/${solutionId}`);
     if(sol?.orchestra_input_hint) hint = sol.orchestra_input_hint;
+    attSpec = sol?.orchestra_attachments_spec || [];
   }catch(e){}
   document.getElementById("runHint").textContent = hint;
   document.getElementById("runStepLabel").textContent = "🤖 PRO режим — несколько AI-агентов работают параллельно";
@@ -3114,36 +3117,119 @@ async function launchOrchestra(solutionId, title){
   document.getElementById("runContinueBtn").classList.remove("hidden");
   document.getElementById("runBtnLabel").textContent = "Запустить";
   document.getElementById("runProgress").innerHTML = "";
-  // Подменяем continueRun → orchestraStart
-  document.getElementById("runContinueBtn").onclick = () => orchestraStart(solutionId);
   document.getElementById("runInput").value = "";
+  _orchestraAttachments = [];
+  // Рисуем блок attachments если требуется
+  renderOrchestraAttachmentsBlock(solutionId, attSpec);
+  // Подменяем continueRun → orchestraStart
+  document.getElementById("runContinueBtn").onclick = () => orchestraStart(solutionId, attSpec);
   openM("runModal");
   document.getElementById("runInput").focus();
 }
 
-async function orchestraStart(solutionId){
+function renderOrchestraAttachmentsBlock(solutionId, spec){
+  let block = document.getElementById("orchAttBlock");
+  if(!block){
+    block = document.createElement("div");
+    block.id = "orchAttBlock";
+    block.className = "space-y-2 mt-3";
+    const inp = document.getElementById("runInput");
+    inp.parentNode.insertBefore(block, inp.nextSibling);
+  }
+  if(!spec || !spec.length){block.innerHTML = ""; return;}
+  block.innerHTML = `
+    <div class="text-[10px] uppercase tracking-wider text-on-surface-dim/60 font-bold">
+      📎 Дополнительные данные для анализа
+    </div>
+    ${spec.map((s,i)=>`
+      <div class="bg-surface2 border border-outline/20 rounded-lg p-2.5">
+        <div class="flex items-center justify-between gap-2 mb-1.5">
+          <div class="text-xs">
+            <span class="font-medium">${esc(s.label||'Файл')}</span>
+            ${s.required?'<span class="text-error">*</span>':'<span class="text-on-surface-dim/60"> (необязательно)</span>'}
+          </div>
+          <span class="text-[10px] text-on-surface-dim/50 uppercase">${esc(s.kind||'doc')}</span>
+        </div>
+        ${s.hint?`<div class="text-[11px] text-on-surface-dim/70 mb-1.5">${esc(s.hint)}</div>`:''}
+        <input type="file" data-att-idx="${i}" data-att-kind="${esc(s.kind||'doc')}"
+               accept="${esc(s.accept||'')}"
+               class="text-xs w-full"
+               onchange="orchestraUploadAttachment(this, ${i})"/>
+        <div id="orchAttStatus${i}" class="text-[11px] mt-1 hidden"></div>
+      </div>
+    `).join('')}
+    <div class="text-[10px] text-on-surface-dim/40">Файлы загружаются на сервер и используются только для этого анализа.</div>
+  `;
+}
+
+async function orchestraUploadAttachment(input, idx){
+  const file = input.files?.[0];
+  if(!file) return;
+  const status = document.getElementById(`orchAttStatus${idx}`);
+  status.classList.remove("hidden");
+  status.style.color = "#a89880";
+  status.textContent = `Загружаем «${file.name}»...`;
+  try{
+    const fd = new FormData(); fd.append("file", file);
+    const hdrs = {}; if(authToken) hdrs["Authorization"] = "Bearer "+authToken;
+    const r = await fetch(`${API}/upload`, {method:"POST", headers:hdrs, body:fd});
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.detail || "Ошибка загрузки");
+    const kind = input.getAttribute("data-att-kind") || "doc";
+    _orchestraAttachments[idx] = {
+      file_url: data.url,
+      name: file.name,
+      mime: file.type || null,
+      kind: kind,
+      size: file.size,
+    };
+    status.style.color = "#6bff9e";
+    status.textContent = `✅ ${file.name} (${(file.size/1024).toFixed(0)} КБ)`;
+  }catch(e){
+    status.style.color = "#ff6b6b";
+    status.textContent = `❌ ${e.message||"ошибка"}`;
+    _orchestraAttachments[idx] = null;
+  }
+}
+
+async function orchestraStart(solutionId, attSpec){
   const input = document.getElementById("runInput").value.trim();
+  const errEl = document.getElementById("runErr");
   if(input.length < 10){
-    document.getElementById("runErr").textContent = "Минимум 10 символов";
-    document.getElementById("runErr").classList.remove("hidden");
+    errEl.textContent = "Минимум 10 символов";
+    errEl.classList.remove("hidden");
     return;
   }
+  // Проверка required attachments
+  if(attSpec && attSpec.length){
+    for(let i=0; i<attSpec.length; i++){
+      if(attSpec[i].required && !_orchestraAttachments[i]){
+        errEl.textContent = `Загрузите файл: ${attSpec[i].label || 'обязательный'}`;
+        errEl.classList.remove("hidden");
+        return;
+      }
+    }
+  }
+  const attachments = _orchestraAttachments.filter(a=>a);
   const btn = document.getElementById("runContinueBtn");
   btn.disabled = true;
   document.getElementById("runBtnLabel").textContent = "Запускаем агентов...";
-  document.getElementById("runErr").classList.add("hidden");
+  errEl.classList.add("hidden");
   try{
-    const r = await apiPost(`/solutions/${solutionId}/orchestra/start`, {input});
+    const r = await apiPost(`/solutions/${solutionId}/orchestra/start`,
+                              {input, attachments});
     activeRun = {run_id: r.run_id, solution_id: solutionId, orchestra: true};
-    // Скрываем input — теперь только прогресс
+    // Скрываем input + attachments — теперь только прогресс
     document.getElementById("runInputArea").classList.add("hidden");
     document.getElementById("runContinueBtn").classList.add("hidden");
+    const attBlock = document.getElementById("orchAttBlock");
+    if(attBlock) attBlock.classList.add("hidden");
     document.getElementById("runStepLabel").textContent = "⏳ Агенты работают...";
     document.getElementById("runHint").textContent = "Можешь свернуть это окно — задача выполнится в фоне.";
     listenOrchestraStream(r.run_id);
   }catch(e){
-    document.getElementById("runErr").textContent = e.message || "Ошибка запуска";
-    document.getElementById("runErr").classList.remove("hidden");
+    errEl.textContent = e.message || "Ошибка запуска";
+    errEl.classList.remove("hidden");
     btn.disabled = false;
     document.getElementById("runBtnLabel").textContent = "Запустить";
   }

@@ -175,6 +175,7 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("solution_runs", "total_cost_kop", "INTEGER DEFAULT 0"),
     ("solution_runs", "user_input", "TEXT"),
     ("solution_runs", "public_token", "VARCHAR"),
+    ("solution_runs", "attachments_json", "TEXT"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

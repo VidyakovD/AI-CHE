@@ -347,6 +347,10 @@ class SolutionRun(Base):
     pdf_path     = Column(String, nullable=True)            # путь сгенерированного PDF
     total_cost_kop = Column(Integer, default=0)             # суммарно списано
     user_input   = Column(Text, nullable=True)              # исходный {input} для повтора
+    # Загруженные файлы (PDF договора / скриншоты / Excel и т.п.) — JSON массив
+    # объектов {file_url, name, mime, kind:"doc"|"image"|"sheet"|"other", size}.
+    # Используется stage'ами file_extract / vision_describe.
+    attachments_json = Column(Text, nullable=True)
     # Шаринг: unguessable token для публичной ссылки на результат.
     public_token = Column(String, unique=True, nullable=True, index=True)
     created_at   = Column(DateTime, default=datetime.utcnow)

@@ -192,6 +192,9 @@ def get_solution(solution_id: int, db: Session = Depends(get_db)):
         try:
             orch = json.loads(s.orchestra_json)
             d["orchestra_input_hint"] = orch.get("input_hint", "")
+            # requires_attachments: список того что юзер должен загрузить.
+            # Каждый: {kind:"doc"|"image", label, accept (mime/ext), required}
+            d["orchestra_attachments_spec"] = orch.get("requires_attachments", [])
             d["orchestra_stages"] = [
                 {"id": st["id"], "label": st.get("label", st["id"]),
                  "type": st.get("type", "llm")}
@@ -273,8 +276,20 @@ def continue_run(run_id: int, body: dict, db: Session = Depends(get_db),
 #   5. GET  /s/{public_token}               — публичный просмотр результата (без auth).
 
 
+class OrchestraAttachment(BaseModel):
+    """Файл, загруженный юзером для решения. file_url берётся из /upload
+    (т.е. файл уже лежит в /uploads/...). kind задаёт семантику для
+    stage'ов file_extract / vision_describe."""
+    file_url: str
+    name: str | None = None
+    mime: str | None = None
+    kind: str = "doc"   # doc | image | sheet | other
+    size: int | None = None
+
+
 class OrchestraStartBody(BaseModel):
     input: str
+    attachments: list[OrchestraAttachment] | None = None
 
 
 @router.post("/solutions/{solution_id}/orchestra/start")
@@ -302,11 +317,49 @@ async def orchestra_start(solution_id: int, body: OrchestraStartBody,
     if get_balance(db, user.id) < 200:  # минимум 2 ₽ "на пробу"
         raise HTTPException(402, "Недостаточно средств. Минимум для запуска — 2 ₽.")
 
+    # Валидация attachments: каждый file_url должен указывать на /uploads/*,
+    # реально существовать на диске и быть в безопасных пределах размера.
+    attachments_payload: list[dict] = []
+    if body.attachments:
+        from pathlib import Path as _P
+        import os as _os
+        proj_root = _P(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))).resolve()
+        uploads_root = (proj_root / "uploads").resolve()
+        for att in body.attachments[:5]:  # макс 5 файлов на запуск
+            url = (att.file_url or "").strip()
+            if not url.startswith("/uploads/") or len(url) > 500:
+                raise HTTPException(400, f"Некорректный file_url: {url[:60]}")
+            try:
+                abs_p = (proj_root / url.lstrip("/")).resolve()
+                abs_p.relative_to(uploads_root)
+            except (ValueError, OSError):
+                raise HTTPException(400, "Файл вне разрешённой директории")
+            if not abs_p.is_file():
+                raise HTTPException(404, f"Файл не найден: {att.name or url}")
+            try:
+                size_bytes = abs_p.stat().st_size
+            except OSError:
+                size_bytes = att.size or 0
+            if size_bytes > 25 * 1024 * 1024:
+                raise HTTPException(413, f"Файл больше 25 МБ: {att.name or url}")
+            kind = (att.kind or "doc").strip()
+            if kind not in ("doc", "image", "sheet", "other"):
+                kind = "doc"
+            attachments_payload.append({
+                "file_url": url,
+                "name": (att.name or "")[:200],
+                "mime": (att.mime or "")[:100],
+                "kind": kind,
+                "size": size_bytes,
+            })
+
     chat_id = uuid.uuid4().hex[:16]
     run = SolutionRun(
         user_id=user.id, solution_id=solution_id,
         chat_id=chat_id, status="running",
         user_input=user_input,
+        attachments_json=(json.dumps(attachments_payload, ensure_ascii=False)
+                           if attachments_payload else None),
         context=json.dumps({}, ensure_ascii=False),
     )
     db.add(run); db.commit(); db.refresh(run)
@@ -339,6 +392,10 @@ def orchestra_run_get(run_id: int, db: Session = Depends(get_db),
     if run.stages_state:
         try: state = json.loads(run.stages_state)
         except Exception: state = {}
+    attachments = []
+    if run.attachments_json:
+        try: attachments = json.loads(run.attachments_json) or []
+        except Exception: attachments = []
     return {
         "run_id": run.id,
         "solution_id": run.solution_id,
@@ -349,6 +406,7 @@ def orchestra_run_get(run_id: int, db: Session = Depends(get_db),
         "total_cost_kop": run.total_cost_kop or 0,
         "public_token": run.public_token,
         "user_input": run.user_input,
+        "attachments": attachments,
     }
 
 

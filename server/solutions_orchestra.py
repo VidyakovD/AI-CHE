@@ -135,10 +135,12 @@ def _empty_stage_state(stage: dict) -> dict:
     }
 
 
-def _build_initial_state(orchestra: dict, user_input: str) -> dict:
+def _build_initial_state(orchestra: dict, user_input: str,
+                          attachments: list | None = None) -> dict:
     stages = orchestra.get("stages", []) or []
     return {
         "input": user_input or "",
+        "attachments": attachments or [],
         "stages": {st["id"]: _empty_stage_state(st) for st in stages},
         "status": "running",
         "final_output": None,
@@ -191,6 +193,141 @@ async def _run_browse_url(stage: dict, ctx: dict) -> str:
         return ""
     text = await tool_browse_url({"url": url.strip()}, context={})
     return text or ""
+
+
+# ── Расширенные stage-типы для глубокого анализа ────────────────────────────
+
+
+async def _run_file_extract(stage: dict, ctx: dict) -> str:
+    """Извлекает текст из загруженного юзером файла. Параметр `attachment`
+    выбирает, какой attachment взять:
+      - "first"   — первый из списка attachments (default)
+      - индекс N  — по индексу
+      - "kind:doc" — первый attachment с указанным kind ('doc'|'image'|...)
+
+    Использует server.knowledge.extract_text — поддерживает PDF/DOCX/XLSX/CSV/TXT.
+    Возвращает обрезанный до 50000 символов текст.
+    """
+    from server.knowledge import extract_text
+    attachments: list[dict] = ctx.get("attachments", []) or []
+    selector = stage.get("attachment", "first")
+    target: dict | None = None
+    if selector == "first" and attachments:
+        target = attachments[0]
+    elif isinstance(selector, int) and 0 <= selector < len(attachments):
+        target = attachments[selector]
+    elif isinstance(selector, str) and selector.startswith("kind:"):
+        want = selector.split(":", 1)[1]
+        target = next((a for a in attachments if a.get("kind") == want), None)
+    if not target:
+        return "[нет загруженного файла]"
+    rel_path = target.get("file_url") or target.get("path") or ""
+    if not rel_path:
+        return "[нет пути к файлу]"
+    loop = asyncio.get_event_loop()
+    text = await loop.run_in_executor(None, lambda: extract_text(rel_path))
+    if not text:
+        return f"[не удалось извлечь текст из {target.get('name', rel_path)}]"
+    return text[:50_000]
+
+
+async def _run_vision_describe(stage: dict, ctx: dict) -> str:
+    """Vision-описание загруженного изображения через Claude Haiku.
+    Использует server.presentation_builder.describe_image_via_claude если
+    доступно, иначе делает прямой call. Параметры:
+      - attachment: какой attachment (kind:image / first / индекс)
+      - hint: подсказка для модели (что именно описывать)
+    """
+    attachments: list[dict] = ctx.get("attachments", []) or []
+    selector = stage.get("attachment", "kind:image")
+    target: dict | None = None
+    if isinstance(selector, str) and selector.startswith("kind:"):
+        want = selector.split(":", 1)[1]
+        target = next((a for a in attachments if a.get("kind") == want), None)
+    elif selector == "first" and attachments:
+        target = attachments[0]
+    elif isinstance(selector, int) and 0 <= selector < len(attachments):
+        target = attachments[selector]
+    if not target:
+        return "[нет изображения]"
+    rel_path = target.get("file_url") or target.get("path") or ""
+    if not rel_path:
+        return "[нет пути к картинке]"
+    hint = _render_template(stage.get("hint", "Опиши, что изображено."), ctx)
+    try:
+        from server.presentation_builder import describe_image_via_claude
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(
+            None, lambda: describe_image_via_claude(rel_path, hint))
+        return text or "[не удалось описать изображение]"
+    except Exception as e:
+        log.warning(f"[orchestra] vision_describe failed: {type(e).__name__}: {e}")
+        return f"[ошибка vision: {type(e).__name__}]"
+
+
+async def _run_extract_urls(stage: dict, ctx: dict) -> list[str]:
+    """Из output указанного stage'а вытягивает HTTP-URL'ы (regex). Возвращает
+    список строк (для дальнейшей подачи в parallel_browse)."""
+    src = _render_template(stage.get("source", ""), ctx)
+    if not src:
+        return []
+    urls = re.findall(r"https?://[^\s\)\]\>\"'`,]+", src)
+    # dedup сохраняя порядок, ограничение
+    seen, out = set(), []
+    for u in urls:
+        u = u.rstrip(".,;)")
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    max_n = int(stage.get("max", 10))
+    return out[:max_n]
+
+
+async def _run_parallel_browse(stage: dict, ctx: dict) -> list[str]:
+    """Параллельный browse_url для списка URL'ов.
+    Источник URL'ов:
+      - "urls": [...] — явный массив
+      - "from": "<placeholder>" — ссылка на output stage'а с массивом URL
+        (либо stage extract_urls, либо текстовый output из которого
+        мы выдернем URL'ы regex'ом)
+    """
+    from server.agent_runner import tool_browse_url
+    urls: list[str] = []
+    if isinstance(stage.get("urls"), list):
+        urls = [str(u) for u in stage["urls"] if u]
+    elif "from" in stage:
+        # Может быть либо результат extract_urls (list внутри stage state),
+        # либо просто текст с URL'ами.
+        from_expr = stage["from"].strip()
+        # Попробуем взять как массив
+        m = re.match(r"^\{\{\s*([a-zA-Z0-9_]+)\.outputs\s*\}\}$", from_expr)
+        if m:
+            sid = m.group(1)
+            st = ctx.get("stages", {}).get(sid, {})
+            if isinstance(st.get("outputs"), list):
+                urls = [str(u) for u in st["outputs"]]
+        if not urls:
+            # Fallback: text → regex по URL
+            text = _render_template(from_expr, ctx)
+            urls = re.findall(r"https?://[^\s\)\]\>\"'`,]+", text or "")
+    max_n = int(stage.get("max", 5))
+    urls = urls[:max_n]
+    if not urls:
+        return []
+
+    async def _one(url: str) -> str:
+        try:
+            text = await tool_browse_url({"url": url}, context={})
+            # Сжимаем — для дальнейшего LLM-анализа
+            head = f"=== {url} ===\n"
+            return head + (text or "[пустая страница]")[:5000]
+        except Exception as e:
+            return f"=== {url} ===\n[ошибка: {type(e).__name__}]"
+
+    results = await asyncio.gather(*[_one(u) for u in urls],
+                                    return_exceptions=True)
+    return [r if isinstance(r, str) else f"[err: {type(r).__name__}]"
+            for r in results]
 
 
 def _llm_call(model: str, system_prompt: str, user_prompt: str,
@@ -323,6 +460,13 @@ async def run_orchestra(run_id: int) -> dict:
             return {"status": "error", "error": f"Invalid orchestra_json: {e}"}
         user_id = run.user_id
         user_input = run.user_input or ""
+        # Attachments юзера (PDF/DOCX/картинки) — для file_extract / vision_describe
+        attachments: list = []
+        try:
+            if run.attachments_json:
+                attachments = json.loads(run.attachments_json) or []
+        except Exception:
+            attachments = []
         # Берём свой ключ юзера (Anthropic) — даём 80%-ю скидку
         user_api_key = None
         try:
@@ -339,7 +483,7 @@ async def run_orchestra(run_id: int) -> dict:
     if not stages:
         return {"status": "error", "error": "Orchestra has no stages"}
 
-    ctx = _build_initial_state(orchestra, user_input)
+    ctx = _build_initial_state(orchestra, user_input, attachments)
     _persist(run_id, ctx)
     total_cost = 0
 
@@ -368,6 +512,20 @@ async def run_orchestra(run_id: int) -> dict:
                                                           user_api_key)
                 st["outputs"] = outputs
                 # output = объединённый текст для удобства placeholder'а
+                st["output"] = "\n\n---\n\n".join(outputs)
+            elif stype == "file_extract":
+                text = await _run_file_extract(stage, ctx)
+                st["output"] = text
+            elif stype == "vision_describe":
+                text = await _run_vision_describe(stage, ctx)
+                st["output"] = text
+            elif stype == "extract_urls":
+                urls = await _run_extract_urls(stage, ctx)
+                st["outputs"] = urls
+                st["output"] = "\n".join(urls)
+            elif stype == "parallel_browse":
+                outputs = await _run_parallel_browse(stage, ctx)
+                st["outputs"] = outputs
                 st["output"] = "\n\n---\n\n".join(outputs)
             else:
                 raise ValueError(f"Unknown stage type: {stype}")
