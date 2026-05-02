@@ -107,8 +107,17 @@ class TestAuth:
         assert r.status_code == 401
 
     def test_refresh_token_with_valid_refresh(self, client, test_user):
-        from server.auth import create_refresh_token
-        refresh = create_refresh_token(test_user.id, test_user.email)
+        # Single-use rotation: jti должен быть зарегистрирован в наборе
+        # активных, иначе срабатывает reuse-detection (revoke all sessions).
+        # В реальном flow регистрация делается в /login — здесь имитируем.
+        from server.auth import _new_jti, create_refresh_token, register_refresh_jti
+        from server.db import db_session
+        from server.models import User
+        with db_session() as db:
+            u = db.query(User).filter_by(id=test_user.id).first()
+            jti = _new_jti()
+            refresh = create_refresh_token(u.id, u.email, jti=jti)
+            register_refresh_jti(db, u, jti)
         r = client.post("/auth/refresh", json={"refresh_token": refresh})
         assert r.status_code == 200
         assert "access_token" in r.json()

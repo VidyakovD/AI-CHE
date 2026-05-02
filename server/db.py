@@ -162,6 +162,11 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # last_billed_at — когда последний раз scheduler.storage_billing_tick
     # списал плату (NULL — ещё не биллились). Лимит 2 ГБ/юзер.
     ("knowledge_files", "last_billed_at", "DATETIME"),
+    # Маркетинговое согласие — отдельно от agreed_to_terms (ПДн).
+    # 152-ФЗ: согласие на ПДн обязательно для регистрации, согласие на
+    # рассылку — опционально (предзаполнять чекбокс нельзя).
+    ("users", "marketing_consent", "BOOLEAN DEFAULT 0"),
+    ("users", "marketing_consent_at", "DATETIME"),
 ]
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен

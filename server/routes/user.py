@@ -377,3 +377,46 @@ def tg_link_notifications(body: TgNotifyToggleBody,
         u.tg_notify_errors = bool(body.notify_errors)
     db.commit()
     return {"status": "ok"}
+
+
+# ── Согласие на маркетинговую рассылку (152-ФЗ) ────────────────────────────
+
+
+class MarketingConsentBody(BaseModel):
+    consent: bool
+
+
+@router.put("/marketing-consent")
+def marketing_consent_set(body: MarketingConsentBody,
+                           user: User = Depends(current_user),
+                           db: Session = Depends(get_db)):
+    """Юзер ставит/снимает согласие на маркетинговую рассылку.
+    152-ФЗ: согласие на ПДн для маркетинга должно быть отдельным от
+    согласия на оферту, и его можно отозвать в любой момент."""
+    u = db.query(User).filter_by(id=user.id).first()
+    if not u:
+        raise HTTPException(404, "Пользователь не найден")
+    new_val = bool(body.consent)
+    if new_val and not u.marketing_consent:
+        u.marketing_consent_at = datetime.utcnow()
+    u.marketing_consent = new_val
+    db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("user.marketing_consent",
+                   user_id=u.id, target_type="user", target_id=u.id,
+                   details={"consent": new_val})
+    except Exception:
+        pass
+    return {"consent": u.marketing_consent,
+            "consent_at": u.marketing_consent_at.isoformat() if u.marketing_consent_at else None}
+
+
+@router.get("/marketing-consent")
+def marketing_consent_get(user: User = Depends(current_user),
+                           db: Session = Depends(get_db)):
+    u = db.query(User).filter_by(id=user.id).first()
+    if not u:
+        raise HTTPException(404, "Пользователь не найден")
+    return {"consent": bool(u.marketing_consent),
+            "consent_at": u.marketing_consent_at.isoformat() if u.marketing_consent_at else None}

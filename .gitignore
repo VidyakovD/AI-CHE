@@ -8,4 +8,5 @@ venv/
 .venv/
 uploads/
 server/.jwt_secret
+.backup_encryption_key
 *.log

@@ -285,39 +285,138 @@ async def pdf_cleanup_loop():
 
 # ── Auto-backup chat.db (раз в сутки, hot backup + retention 14 дней) ────────
 
+def _get_backup_encryption_key() -> bytes | None:
+    """Достаёт 256-битный ключ для AES-GCM шифрования бэкапов.
+
+    Приоритет:
+      1. ENV `BACKUP_ENCRYPTION_KEY` (hex или base64-encoded 32 байта)
+      2. Файл `<project>/.backup_encryption_key` (генерится один раз)
+
+    Если файла нет — генерим новый ключ и сохраняем с правами 0o400.
+    Возвращает None если по какой-то причине ключ недоступен (тогда
+    backup НЕ делается — иначе нарушение compliance).
+
+    ВАЖНО: после потери ключа → backup'ы нечитаемы. Юзер должен
+    скопировать содержимое ключа в безопасное место (1Password, Yandex Vault).
+    """
+    import os, base64, secrets as _secrets
+    env_key = os.getenv("BACKUP_ENCRYPTION_KEY", "").strip()
+    if env_key:
+        try:
+            # Поддержка hex (64 hex chars) и base64
+            if len(env_key) == 64 and all(c in "0123456789abcdefABCDEF" for c in env_key):
+                k = bytes.fromhex(env_key)
+            else:
+                k = base64.b64decode(env_key)
+            if len(k) == 32:
+                return k
+        except Exception:
+            pass
+        log.error("[db-backup] BACKUP_ENCRYPTION_KEY задан, но имеет некорректный формат "
+                   "(нужно 32 байта в hex или base64)")
+        return None
+
+    # Файловый ключ
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    key_path = os.path.join(base, ".backup_encryption_key")
+    if os.path.exists(key_path):
+        try:
+            with open(key_path, "rb") as f:
+                k = f.read().strip()
+                if len(k) == 64:  # hex
+                    return bytes.fromhex(k.decode("ascii"))
+                if len(k) == 32:  # raw
+                    return k
+                # base64
+                return base64.b64decode(k)
+        except Exception as e:
+            log.error(f"[db-backup] cannot read key file: {e}")
+            return None
+
+    # Генерим новый ключ. ОБЯЗАТЕЛЬНО предупреждаем юзера в логах.
+    new_key = _secrets.token_bytes(32)
+    try:
+        with open(key_path, "wb") as f:
+            f.write(new_key.hex().encode("ascii"))
+        try:
+            os.chmod(key_path, 0o400)
+        except Exception:
+            pass
+        log.warning(
+            "[db-backup] СГЕНЕРИРОВАН новый BACKUP_ENCRYPTION_KEY → %s. "
+            "СКОПИРУЙ содержимое файла в безопасное место (1Password/Vault)! "
+            "При потере ключа все будущие бэкапы будут нечитаемы.",
+            key_path,
+        )
+        return new_key
+    except Exception as e:
+        log.error(f"[db-backup] cannot write key file: {e}")
+        return None
+
+
+def _encrypt_file(src_path: str, dst_path: str, key: bytes) -> None:
+    """Зашифровать файл AES-256-GCM, записать в dst_path.
+
+    Формат: 12-байтный nonce || ciphertext || 16-байтный auth tag.
+    Auth tag добавляется автоматически AESGCM.encrypt(). Для чтения нужен
+    тот же ключ + первые 12 байт как nonce.
+
+    Решение читать файл целиком в RAM приемлемо для chat.db (≤ сотен МБ);
+    при росте до ГБ — переключиться на streaming (chunked AES-CTR + HMAC).
+    """
+    import secrets as _secrets
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    aesgcm = AESGCM(key)
+    nonce = _secrets.token_bytes(12)
+    with open(src_path, "rb") as f:
+        plaintext = f.read()
+    ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data=b"aiche-db-backup-v1")
+    with open(dst_path, "wb") as f:
+        f.write(nonce + ciphertext)
+
+
 async def _db_backup_tick():
     """Делает hot-backup chat.db через sqlite3.backup() — не блокирует writes.
+    Шифрует AES-256-GCM перед записью на диск (152-ФЗ требование для ПДн).
 
-    Сохраняет в /backups/chat.db.YYYY-MM-DD; старше 14 дней удаляет.
-    Без этого деплой = git pull + restart, и при ошибке миграции откатиться
-    некуда, кроме как руками вытаскивать журналы WAL.
+    Сохраняет в /backups/chat.db.YYYY-MM-DD.enc; старше 14 дней удаляет.
+    Plaintext SQLite-копия удаляется сразу после шифрования.
+
+    Restore: см. scripts/restore_backup.sh — расшифровка через тот же ключ.
     """
     import os, sqlite3, datetime, glob
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     src = os.path.join(base, "chat.db")
     if not os.path.exists(src):
         return
+
+    # Берём ключ ДО создания бэкапа — иначе можем сделать незашифрованный
+    # plaintext-файл и не успеть зашифровать.
+    enc_key = _get_backup_encryption_key()
+    if enc_key is None:
+        log.error("[db-backup] нет encryption key — пропускаем backup, "
+                   "иначе остался бы незашифрованный SQLite на диске")
+        return
+
     backup_dir = os.path.join(base, "backups")
     os.makedirs(backup_dir, exist_ok=True)
     today = datetime.date.today().isoformat()
-    dst = os.path.join(backup_dir, f"chat.db.{today}")
-    if os.path.exists(dst):
+    dst_plain = os.path.join(backup_dir, f"chat.db.{today}.tmp")
+    dst_enc = os.path.join(backup_dir, f"chat.db.{today}.enc")
+    if os.path.exists(dst_enc):
         return  # уже сделали сегодня (например рестарт сервера)
     try:
-        # SQLite-native backup API — атомарно копирует, не блокируя writers
-        # надолго (использует WAL + iterdump-friendly mode).
+        # SQLite-native backup API
         src_conn = sqlite3.connect(src)
-        dst_conn = sqlite3.connect(dst)
+        dst_conn = sqlite3.connect(dst_plain)
         try:
             with dst_conn:
                 src_conn.backup(dst_conn)
         finally:
             src_conn.close()
             dst_conn.close()
-        # Проверка целостности скопированного файла. Без этого corrupted backup
-        # может остаться незамеченным до момента когда он понадобится для
-        # восстановления — это худший вариант.
-        check_conn = sqlite3.connect(dst)
+        # Проверка целостности
+        check_conn = sqlite3.connect(dst_plain)
         try:
             cur = check_conn.execute("PRAGMA integrity_check")
             row = cur.fetchone()
@@ -325,27 +424,39 @@ async def _db_backup_tick():
         finally:
             check_conn.close()
         if not integrity_ok:
-            log.error(f"[db-backup] integrity_check FAILED for {dst} — removing")
-            try: os.remove(dst)
+            log.error(f"[db-backup] integrity_check FAILED for {dst_plain} — removing")
+            try: os.remove(dst_plain)
             except Exception: pass
             return
-        size_mb = os.path.getsize(dst) / 1024 / 1024
-        log.info(f"[db-backup] {dst} ({size_mb:.1f} MB) integrity=ok")
+        # Шифруем + удаляем plaintext
+        _encrypt_file(dst_plain, dst_enc, enc_key)
+        try:
+            os.chmod(dst_enc, 0o400)
+        except Exception:
+            pass
+        try:
+            os.remove(dst_plain)
+        except Exception as e:
+            log.warning(f"[db-backup] cannot remove plaintext {dst_plain}: {e}")
+        size_mb = os.path.getsize(dst_enc) / 1024 / 1024
+        log.info(f"[db-backup] {dst_enc} ({size_mb:.1f} MB) encrypted=AES-256-GCM integrity=ok")
     except Exception as e:
         log.error(f"[db-backup] failed: {e}")
-        # Удалим частичную копию чтобы не путать
-        if os.path.exists(dst):
-            try: os.remove(dst)
-            except Exception: pass
+        for p in (dst_plain, dst_enc):
+            if os.path.exists(p):
+                try: os.remove(p)
+                except Exception: pass
         return
 
-    # Retention: удаляем backup-ы старше 14 дней
+    # Retention: удаляем backup-ы старше 14 дней (включая legacy plaintext)
     cutoff = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
     removed = 0
     for path in glob.glob(os.path.join(backup_dir, "chat.db.*")):
         try:
-            tag = os.path.basename(path).replace("chat.db.", "")
-            # tag = YYYY-MM-DD
+            name = os.path.basename(path)
+            # Поддерживаем оба формата: chat.db.YYYY-MM-DD (legacy plaintext)
+            # и chat.db.YYYY-MM-DD.enc (новый зашифрованный).
+            tag = name.replace("chat.db.", "").replace(".enc", "").replace(".tmp", "")
             if len(tag) == 10 and tag < cutoff:
                 os.remove(path)
                 removed += 1

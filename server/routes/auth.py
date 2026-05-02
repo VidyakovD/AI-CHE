@@ -33,6 +33,9 @@ class RegisterRequest(BaseModel):
     password: str
     name: str | None = None
     agreed_to_terms: bool = False
+    # 152-ФЗ: согласие на маркетинговую рассылку — отдельно. По умолчанию
+    # False (предзаполнять нельзя), юзер сам отмечает чекбокс.
+    marketing_consent: bool = False
     referral_code: str | None = None
 
 
@@ -103,12 +106,16 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     user = User(email=email, password_hash=hash_password(req.password),
                 name=req.name or email.split("@")[0], tokens_balance=0,
                 agreed_to_terms=True, is_verified=False,
+                marketing_consent=bool(req.marketing_consent),
+                marketing_consent_at=(datetime.utcnow()
+                                       if req.marketing_consent else None),
                 referral_code=ref_code, referred_by=referred_by)
     db.add(user); db.commit(); db.refresh(user)
 
     from server.audit_log import log_action
     log_action("auth.register", user_id=user.id, target_type="user", target_id=user.id,
-               details={"email_domain": email.split("@")[-1], "ref": bool(referrer_id)})
+               details={"email_domain": email.split("@")[-1], "ref": bool(referrer_id),
+                        "marketing": bool(req.marketing_consent)})
 
     # Реферальный бонус — atomic gate на User.referral_signup_bonus_paid_at:
     # даже при гонке двух concurrent /register с одним email (что невозможно

@@ -148,10 +148,13 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
         db.rollback()
         log.warning(f"Webhook: race for payment {payment_id}: {e}")
         return {"status": "already_credited"}
-    log.info(f"Webhook: credited {amount_kop} kop ({amount_rub} ₽) for user {user_id}")
+    # 152-ФЗ best practice: в логах оставляем только идентификатор платежа
+    # и факт успеха. Сумма видна в Transaction (защищённая БД), а не в
+    # plaintext logs / Sentry / journalctl.
+    log.info(f"Webhook: credited payment_id={payment_id} for user {user_id}")
     from server.audit_log import log_action
     log_action("payment.webhook", user_id=int(user_id), target_type="payment", target_id=payment_id,
-               details={"amount_kop": amount_kop, "amount_rub": amount_rub, "pkg": pkg_name})
+               details={"pkg": pkg_name})
     return {"status": "ok"}
 
 
@@ -180,13 +183,34 @@ def buy_tokens(req: BuyTokenRequest, user: User = Depends(current_user),
             },
         }
         if user.email:
+            # Чек 54-ФЗ. ЮKassa автоматически передаёт его в ОФД, который
+            # подключён в личном кабинете ЮKassa (Атол Онлайн / Контур.ОФД).
+            #
+            # Поля:
+            # - vat_code: 1=Без НДС | 2=НДС 0% | 3=НДС 10% | 4=НДС 20% |
+            #             5=НДС 10/110 | 6=НДС 20/120
+            #   По умолчанию 1 (Без НДС) — актуально для УСН без НДС.
+            # - tax_system_code: 1=ОСН | 2=УСН доходы | 3=УСН доходы-расходы
+            #                    | 4=ЕНВД | 5=ЕСН | 6=ПСН
+            #   По умолчанию 2 (УСН доходы 6%).
+            # - payment_subject: "service" — услуга (наш случай).
+            # - payment_mode: "full_payment" — полная оплата при покупке.
+            #
+            # Юзер настраивает под свою налоговую систему через env:
+            #   YOOKASSA_VAT_CODE=1
+            #   YOOKASSA_TAX_SYSTEM_CODE=2
+            vat_code = os.getenv("YOOKASSA_VAT_CODE", "1")
+            tax_system = os.getenv("YOOKASSA_TAX_SYSTEM_CODE", "2")
             payment_data["receipt"] = {
                 "customer": {"email": user.email},
+                "tax_system_code": int(tax_system),
                 "items": [{
-                    "description": f"Пополнение баланса: {pkg.name}",
+                    "description": f"Пополнение баланса: {pkg.name}"[:128],
                     "quantity": "1",
                     "amount": {"value": str(float(pkg.price_rub)), "currency": "RUB"},
-                    "vat_code": "1",
+                    "vat_code": int(vat_code),
+                    "payment_subject": "service",
+                    "payment_mode": "full_payment",
                 }],
             }
         p = YKP.create(payment_data, str(uuid.uuid4()))
@@ -244,7 +268,8 @@ def confirm_tokens(payment_id: str, user: User = Depends(current_user),
         log.warning(f"Confirm-tokens: race for payment {payment_id}: {e}")
         return {"status": "already_credited"}
     from server.audit_log import log_action
+    # См. payment.webhook — сумма не пишется в audit-лог (хранится только в Transaction).
     log_action("payment.confirm", user_id=user.id, target_type="payment", target_id=payment_id,
-               details={"amount_kop": amount_kop, "pkg": pkg.name})
+               details={"pkg": pkg.name})
     return {"status": "credited", "kopecks_added": amount_kop,
             "rub_added": amount_kop / 100}

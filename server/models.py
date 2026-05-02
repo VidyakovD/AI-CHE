@@ -35,6 +35,11 @@ class User(Base):
     is_verified      = Column(Boolean, default=False)       # email verified
     is_banned        = Column(Boolean, default=False)        # заблокирован по оферте (п. 10.1)
     agreed_to_terms  = Column(Boolean, default=False)
+    # Согласие на маркетинговую рассылку — отдельно от agreed_to_terms.
+    # 152-ФЗ требует, чтобы согласие на обработку ПДн для рассылки было
+    # выраженным (предзаполнять нельзя). Юзер может отозвать → False.
+    marketing_consent    = Column(Boolean, default=False)
+    marketing_consent_at = Column(DateTime, nullable=True)
     referral_code    = Column(String, unique=True, nullable=True)
     referred_by      = Column(String, nullable=True)
     oauth_provider   = Column(String, nullable=True)  # google / vk / None (email)
