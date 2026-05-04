@@ -179,7 +179,12 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # 👍/👎/💡 реакция юзера на финальный отчёт + опц. комментарий
     ("solution_runs", "user_mark", "VARCHAR"),
     ("solution_runs", "user_comment", "TEXT"),
+    # WhatsApp через Wazzup24 — новый канал в чат-ботах
+    ("chatbots", "wazzup_api_key", "VARCHAR"),
+    ("chatbots", "wazzup_channel_id", "VARCHAR"),
 ]
+
+# Note: push_subscriptions / solution_run_templates создаются Base.metadata.create_all
 
 # Indexes/constraints — CREATE INDEX IF NOT EXISTS идемпотентен
 # Нужны для защиты от double-spend (UNIQUE yookassa_payment_id)

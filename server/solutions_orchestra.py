@@ -265,6 +265,35 @@ async def _run_vision_describe(stage: dict, ctx: dict) -> str:
         return f"[ошибка vision: {type(e).__name__}]"
 
 
+async def _run_generate_image(stage: dict, ctx: dict) -> str:
+    """Сгенерировать иллюстрацию через DALL-E (gpt-image-1).
+    Параметры stage:
+      - prompt: текст промпта для генерации (рендерится как обычный шаблон)
+      - size: "1024x1024" / "1792x1024" / "1024x1792"
+    Возвращает MARKDOWN-блок ![](url) — синтезатор может вставить его прямо
+    в финальный отчёт, и markdown_to_pdf сделает inline-картинку в PDF.
+    """
+    from server.agent_runner import tool_generate_image
+    prompt = _render_template(stage.get("prompt", "{{input}}"), ctx)
+    size = stage.get("size", "1024x1024")
+    if not prompt or len(prompt.strip()) < 5:
+        return "[пустой промпт для картинки]"
+    res = await tool_generate_image(
+        {"prompt": prompt[:1000], "size": size}, context={})
+    # tool_generate_image возвращает строку с URL или markdown — нормализуем
+    if not isinstance(res, str) or not res.strip():
+        return "[не удалось сгенерировать]"
+    s = res.strip()
+    # Если уже markdown — оставляем; если просто URL — оборачиваем
+    import re as _re
+    if s.startswith("!["):
+        return s
+    url_match = _re.search(r"https?://\S+", s)
+    if url_match:
+        return f"![]({url_match.group(0)})"
+    return f"_(не удалось извлечь URL: {s[:200]})_"
+
+
 async def _run_extract_urls(stage: dict, ctx: dict) -> list[str]:
     """Из output указанного stage'а вытягивает HTTP-URL'ы (regex). Возвращает
     список строк (для дальнейшей подачи в parallel_browse)."""
@@ -343,6 +372,111 @@ def _llm_call(model: str, system_prompt: str, user_prompt: str,
     if temperature is not None:
         extra["temperature"] = temperature
     return generate_response(model, messages, extra, user_api_key=user_api_key)
+
+
+# ── Streaming для финального synthesize ────────────────────────────────────
+
+
+async def _llm_call_stream_anthropic(real_model: str, system_prompt: str,
+                                       user_prompt: str, max_tokens: int,
+                                       on_delta, user_api_key: str | None = None,
+                                       temperature: float | None = None) -> dict:
+    """Стримит токены Claude. on_delta(full_text_so_far) вызывается по мере
+    поступления — UI рисует output live.
+
+    Возвращает {content, usage} как обычный _llm_call.
+    """
+    try:
+        from anthropic import AsyncAnthropic
+    except Exception as e:
+        raise RuntimeError(f"AsyncAnthropic unavailable: {e}")
+    from server.ai import _get_api_keys
+    keys = [user_api_key] if user_api_key else _get_api_keys("anthropic")
+    if not keys:
+        raise RuntimeError("No anthropic API key")
+    client = AsyncAnthropic(api_key=keys[0], timeout=600.0)
+    full = ""
+    kwargs = {
+        "model": real_model,
+        "max_tokens": max_tokens,
+        "system": system_prompt or "",
+        "messages": [{"role": "user", "content": user_prompt}],
+    }
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    async with client.messages.stream(**kwargs) as stream:
+        async for delta in stream.text_stream:
+            full += delta
+            try:
+                await on_delta(full)
+            except Exception as e:
+                log.debug(f"[stream] on_delta error: {type(e).__name__}: {e}")
+        final = await stream.get_final_message()
+    usage = {}
+    try:
+        usage = {
+            "input_tokens": int(getattr(final.usage, "input_tokens", 0) or 0),
+            "output_tokens": int(getattr(final.usage, "output_tokens", 0) or 0),
+        }
+    except Exception:
+        pass
+    return {"content": full, "usage": usage}
+
+
+async def _run_llm_streaming(stage: dict, ctx: dict, default_model: str,
+                              user_api_key: str | None,
+                              run_id: int, sid: str) -> tuple[str, int]:
+    """LLM-вызов со streaming. Только для Claude. Throttle на нотификации
+    подписчикам — не чаще раза в 600мс. Если модель не Claude → fallback на _run_llm."""
+    model = stage.get("model", default_model)
+    # Резолвим реальное имя через MODEL_REGISTRY (claude/claude-sonnet/...)
+    from server.ai import resolve_model
+    cfg = resolve_model(model) or {}
+    real_model = cfg.get("real_model", model)
+    if not str(real_model).lower().startswith("claude"):
+        # OpenAI/Grok streaming — пока не делаем, fallback
+        return await _run_llm(stage, ctx, default_model, user_api_key)
+
+    system_prompt = _render_template(stage.get("system_prompt", ""), ctx)
+    user_prompt = _render_template(stage.get("user_prompt", ""), ctx)
+    max_tokens = int(stage.get("max_tokens", 4000))
+    temperature = stage.get("temperature")
+    margin_pct = int(get_price("ai.improve_margin_pct", default=500))
+
+    last_notify = [0.0]
+
+    async def _on_delta(full_text: str):
+        # Throttle: не чаще 600мс между нотификациями
+        now = time.monotonic()
+        if now - last_notify[0] < 0.6:
+            return
+        last_notify[0] = now
+        # Обновляем stage в ctx и нотифицируем подписчиков (без записи в БД —
+        # БД только на завершении stage'а, иначе будет много writes)
+        st = ctx["stages"].get(sid, {})
+        st["output"] = full_text
+        st["streaming"] = True
+        _notify_run(run_id, {
+            "stages": ctx["stages"], "status": "running",
+            "stream_stage_id": sid,
+        })
+
+    try:
+        answer = await _llm_call_stream_anthropic(
+            real_model, system_prompt, user_prompt, max_tokens,
+            _on_delta, user_api_key, temperature,
+        )
+    except Exception as e:
+        log.warning(f"[stream] failed for stage {sid}, fallback non-stream: {type(e).__name__}: {e}")
+        return await _run_llm(stage, ctx, default_model, user_api_key)
+
+    text = answer.get("content", "") or ""
+    cost = _calc_cost_kop(answer.get("usage"), margin_pct)
+    # Финальная нотификация без throttle
+    st = ctx["stages"].get(sid, {})
+    st["output"] = text
+    st.pop("streaming", None)
+    return text, cost
 
 
 def _calc_cost_kop(usage: dict | None, margin_pct: int) -> int:
@@ -568,6 +702,8 @@ async def restage(run_id: int, stage_id: str,
             elif stype == "parallel_browse":
                 outputs = await _run_parallel_browse(stage_eff, ctx)
                 st["outputs"] = outputs; st["output"] = "\n\n---\n\n".join(outputs)
+            elif stype == "generate_image":
+                st["output"] = await _run_generate_image(stage_eff, ctx)
             else:
                 raise ValueError(f"Unknown stage type: {stype}")
 
@@ -705,7 +841,17 @@ async def run_orchestra(run_id: int) -> dict:
                 text = await _run_browse_url(stage, ctx)
                 st["output"] = text
             elif stype in ("llm", "synthesize"):
-                text, cost = await _run_llm(stage, ctx, default_model, user_api_key)
+                # Streaming: если у stage флаг stream=true ИЛИ это финальный
+                # synthesize — стримим Claude-токены подписчикам live
+                use_stream = bool(stage.get("stream")) or (
+                    stype == "synthesize" and stage["id"] == (final_stage_id or stages[-1]["id"])
+                )
+                if use_stream:
+                    text, cost = await _run_llm_streaming(
+                        stage, ctx, default_model, user_api_key,
+                        run_id=run_id, sid=stage["id"])
+                else:
+                    text, cost = await _run_llm(stage, ctx, default_model, user_api_key)
                 st["output"] = text
             elif stype == "parallel_llm":
                 outputs, cost = await _run_parallel_llm(stage, ctx, default_model,
@@ -727,6 +873,8 @@ async def run_orchestra(run_id: int) -> dict:
                 outputs = await _run_parallel_browse(stage, ctx)
                 st["outputs"] = outputs
                 st["output"] = "\n\n---\n\n".join(outputs)
+            elif stype == "generate_image":
+                st["output"] = await _run_generate_image(stage, ctx)
             else:
                 raise ValueError(f"Unknown stage type: {stype}")
 

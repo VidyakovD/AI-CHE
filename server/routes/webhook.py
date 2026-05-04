@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db
 from server.models import ChatBot
-from server.chatbot_engine import handle_message, send_telegram, send_vk, send_avito, send_max
+from server.chatbot_engine import handle_message, send_telegram, send_vk, send_avito, send_max, send_whatsapp
 from server.security import tg_webhook_secret
 
 log = logging.getLogger("webhook")
@@ -445,3 +445,62 @@ async def telegram_mgmt_webhook_legacy(path_secret: str, request: Request):
     """
     _tg_mgmt_check_header(request)
     return await _tg_mgmt_handle(request)
+
+
+# ── WhatsApp через Wazzup24 ────────────────────────────────────────────────
+
+
+@router.post("/wazzup/{bot_id}")
+async def wazzup_webhook(bot_id: int, request: Request,
+                          db: Session = Depends(get_db)):
+    """Webhook от Wazzup24 — приходит при новом сообщении в WhatsApp.
+
+    Wazzup24 шлёт массив `messages` где каждый объект содержит:
+      - chatId — телефон собеседника (E.164)
+      - text — текст сообщения
+      - status='inbound'/'outbound' — нам нужны inbound
+      - channelId — наш канал (проверяем что совпадает)
+
+    Защита: путь содержит `bot_id`, мы матчим channelId. Подмена возможна
+    только если знаешь и bot_id, и channelId — обычно достаточно.
+    Дополнительный уровень: query-param `?secret=` (как у /avito/, MAX/ — те же
+    стандартные tg_webhook_secret от api_key).
+    """
+    from server.security import tg_webhook_secret
+    bot = db.query(ChatBot).filter_by(id=bot_id).first()
+    if not bot or not bot.wazzup_api_key or not bot.wazzup_channel_id:
+        return {"ok": True}
+    # Проверка secret (computed = HMAC от api_key)
+    expected = tg_webhook_secret(bot.wazzup_api_key or "")
+    if expected:
+        got = request.query_params.get("secret", "")
+        import hmac as _hmac
+        if not got or not _hmac.compare_digest(got, expected):
+            log.warning(f"[Wazzup Bot {bot_id}] invalid secret")
+            raise HTTPException(401, "Invalid secret")
+    if bot.status != "active":
+        return {"ok": True}
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": True}
+    msgs = body.get("messages") or []
+    for m in msgs:
+        if m.get("status") not in ("inbound", "incoming"):
+            continue
+        if str(m.get("channelId", "")) != str(bot.wazzup_channel_id):
+            continue
+        chat_id = str(m.get("chatId") or "").strip()
+        text = (m.get("text") or "").strip()
+        if not chat_id or not text:
+            continue
+        # Обработка через стандартный handle_message (платформа='whatsapp')
+        try:
+            answer = await handle_message(bot, chat_id, text, "whatsapp", chat_id)
+        except Exception as e:
+            log.error(f"[Wazzup Bot {bot_id}] handle_message error: {e}")
+            continue
+        if answer:
+            await send_whatsapp(bot.wazzup_api_key, bot.wazzup_channel_id,
+                                  chat_id, answer)
+    return {"ok": True}

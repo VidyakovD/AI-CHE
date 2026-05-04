@@ -644,11 +644,72 @@ class ReactionBody(BaseModel):
     comment: str | None = None
 
 
+_AUTO_FLAG_THRESHOLD_DOWNS = 3      # сколько 👎 за окно достаточно для алерта
+_AUTO_FLAG_WINDOW_DAYS = 7          # окно
+_auto_flagged_recent: dict[int, float] = {}  # solution_id → ts последнего алерта
+
+
+def _check_auto_flag(db: Session, solution_id: int) -> None:
+    """Если за последние 7 дней по этому solution_id >=3 👎 → email админу.
+    Дедуп по solution_id раз в 24 часа (in-memory, ребут сбрасывает).
+    """
+    import time as _time
+    from datetime import datetime as _dt, timedelta as _td
+    now_ts = _time.monotonic()
+    last = _auto_flagged_recent.get(solution_id, 0)
+    if now_ts - last < 86400:  # уже алертили за последние 24ч
+        return
+    cutoff = _dt.utcnow() - _td(days=_AUTO_FLAG_WINDOW_DAYS)
+    recent = (db.query(SolutionRun)
+                .filter(SolutionRun.solution_id == solution_id,
+                        SolutionRun.user_mark == "down",
+                        SolutionRun.created_at >= cutoff)
+                .all())
+    if len(recent) < _AUTO_FLAG_THRESHOLD_DOWNS:
+        return
+    sol = db.query(Solution).filter_by(id=solution_id).first()
+    title = sol.title if sol else f"Solution #{solution_id}"
+    log.warning(f"[auto-flag] {len(recent)} 👎 на «{title}» за {_AUTO_FLAG_WINDOW_DAYS}д — алерт админу")
+    _auto_flagged_recent[solution_id] = now_ts
+    # Шлём email
+    try:
+        import os as _os
+        admins = [e.strip().lower() for e in _os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+        if not admins:
+            return
+        from server.email_service import _send, _base_template
+        comments = [f"<li>{(r.user_comment or 'без комментария')[:200]}</li>"
+                    for r in recent if r.user_comment]
+        comments_html = ("<ul style='color:rgba(199,196,215,0.8)'>"
+                         + "".join(comments[:10]) + "</ul>") if comments else ""
+        body_html = (
+            f'<p style="color:rgba(199,196,215,0.85);line-height:1.6">'
+            f'За последние {_AUTO_FLAG_WINDOW_DAYS} дней пользователи поставили '
+            f'<b>{len(recent)} 👎</b> на решение <b>«{title}»</b>.</p>'
+            f'<p style="color:rgba(199,196,215,0.7)">Комментарии:</p>'
+            f'{comments_html}'
+            f'<p style="color:rgba(199,196,215,0.6);font-size:13px">'
+            f'Стоит проверить orchestra-промпты и качество ресёрча.</p>'
+        )
+        for admin_email in admins:
+            _send(admin_email, f"⚠️ {len(recent)} 👎 на «{title[:40]}»",
+                  _base_template("Низкое качество отчёта", body_html))
+        from server.audit_log import log_action
+        log_action("solution.auto_flagged", user_id=None,
+                   target_type="solution", target_id=str(solution_id),
+                   level="warn", success=False,
+                   details={"downs": len(recent), "title": title[:80]})
+    except Exception as e:
+        log.warning(f"[auto-flag] email failed: {type(e).__name__}: {e}")
+
+
 @router.post("/solutions/runs/{run_id}/reaction")
 def orchestra_reaction(run_id: int, body: ReactionBody,
                         db: Session = Depends(get_db),
                         user: User = Depends(current_user)):
-    """👍/👎/💡 на финальный отчёт + опц. комментарий."""
+    """👍/👎/💡 на финальный отчёт + опц. комментарий.
+    При 👎 проверяем, не пора ли поднять алерт админу (auto-flagging:
+    3+ 👎 за 7 дней по одному решению → email)."""
     run = db.query(SolutionRun).filter_by(id=run_id).first()
     if not run:
         raise HTTPException(404, "Run не найден")
@@ -669,6 +730,12 @@ def orchestra_reaction(run_id: int, body: ReactionBody,
                              "has_comment": bool(body.comment)})
     except Exception:
         pass
+    # Auto-flagging при 👎
+    if mark == "down":
+        try:
+            _check_auto_flag(db, run.solution_id)
+        except Exception as e:
+            log.warning(f"[auto-flag] check failed: {type(e).__name__}: {e}")
     return {"status": "ok", "mark": run.user_mark}
 
 
@@ -708,4 +775,40 @@ def orchestra_docx(run_id: int, db: Session = Depends(get_db),
         out_path,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         filename=f"{safe}.docx",
+    )
+
+
+@router.get("/solutions/runs/{run_id}/xlsx")
+def orchestra_xlsx(run_id: int, db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    """Скачать финальный отчёт в XLSX. Каждая markdown-таблица из отчёта
+    идёт на отдельный лист. Главный лист — резюме. Полезно для финансового
+    аудита и конкурентного анализа (хочешь обработать таблицу дальше)."""
+    from fastapi.responses import FileResponse
+    run = db.query(SolutionRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "Run не найден")
+    if run.user_id != user.id:
+        raise HTTPException(403, "Нет доступа")
+    if run.status != "done" or not run.final_output:
+        raise HTTPException(400, "Отчёт ещё не готов")
+    sol = db.query(Solution).filter_by(id=run.solution_id).first()
+    title = sol.title if sol else "Бизнес-решение"
+    subtitle = sol.description if sol else ""
+    import os as _os, uuid as _uuid, re as _re
+    base = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+    out_dir = _os.path.join(base, "uploads", "solutions")
+    _os.makedirs(out_dir, exist_ok=True)
+    fid = f"sol_{run_id}_{_uuid.uuid4().hex[:6]}.xlsx"
+    out_path = _os.path.join(out_dir, fid)
+    from server.xlsx_builder import markdown_to_xlsx
+    ok = markdown_to_xlsx(md_text=run.final_output, title=title,
+                           out_path=out_path, subtitle=subtitle)
+    if not ok:
+        raise HTTPException(503, "XLSX-экспорт временно недоступен")
+    safe = _re.sub(r"[^\w\-]", "_", title)[:40]
+    return FileResponse(
+        out_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"{safe}.xlsx",
     )

@@ -695,3 +695,56 @@ class TestSolutionsOrchestra:
         assert "Аудит соцсети канала" in titles
         assert "Финансовый аудит по Excel" in titles
         assert "Холодная email-рассылка под список компаний" in titles
+
+    def test_xlsx_builder_extracts_tables(self, tmp_path):
+        """XLSX builder вытаскивает markdown-таблицы на отдельные листы."""
+        try:
+            import openpyxl  # noqa
+        except ImportError:
+            import pytest; pytest.skip("openpyxl not installed in environment")
+        from server.xlsx_builder import markdown_to_xlsx
+        md = (
+            "# Отчёт\n\n"
+            "Какой-то длинный параграф для резюме главного листа отчёта.\n\n"
+            "## Таблица 1: Конкуренты\n\n"
+            "| Имя | Цена | УТП |\n|---|---|---|\n| A | 100 | быстрый |\n| B | 200 | дешёвый |\n\n"
+            "## Таблица 2: Риски\n\n"
+            "| Риск | Уровень |\n|---|---|\n| 1 | high |\n"
+        )
+        out = str(tmp_path / "test.xlsx")
+        ok = markdown_to_xlsx(md_text=md, title="Тест", out_path=out)
+        assert ok
+        from openpyxl import load_workbook
+        wb = load_workbook(out)
+        # Должно быть: Отчёт + 2 листа таблиц
+        assert "Отчёт" in wb.sheetnames
+        assert len(wb.sheetnames) == 3  # отчёт + 2 таблицы
+        # Шапка таблицы — на втором листе (порядок может варьироваться)
+        ws = wb[wb.sheetnames[1]]
+        assert ws.cell(row=1, column=1).value == "Имя"
+        assert ws.cell(row=2, column=1).value == "A"
+
+    def test_new_endpoints_registered(self):
+        """Новые endpoints зарегистрированы (XLSX, Push, Wazzup webhook)."""
+        import main
+        paths = {r.path for r in main.app.routes}
+        assert "/solutions/runs/{run_id}/xlsx" in paths
+        assert "/user/push/subscribe" in paths
+        assert "/user/push/unsubscribe" in paths
+        assert "/user/push/vapid-public" in paths
+        assert "/user/push/status" in paths
+        assert "/user/push/test" in paths
+        assert "/webhook/wazzup/{bot_id}" in paths
+
+    def test_wazzup_send_helper_exists(self):
+        from server.chatbot_engine import send_whatsapp
+        assert callable(send_whatsapp)
+
+    def test_orchestra_generate_image_stage_dispatched(self):
+        """Stage type generate_image должен быть распознан runtime в обоих
+        диспатчерах (run_orchestra и restage)."""
+        with open("server/solutions_orchestra.py", "r", encoding="utf-8") as f:
+            src = f.read()
+        # 2 упоминания в коде: один в run_orchestra, один в restage
+        assert src.count('"generate_image"') >= 2
+        assert "_run_generate_image" in src

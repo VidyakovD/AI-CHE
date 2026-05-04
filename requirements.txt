@@ -18,6 +18,8 @@ bleach==6.1.0
 python-pptx==0.6.23
 # DOCX-экспорт результатов бизнес-решений
 python-docx==1.1.2
+# Web Push API (VAPID) для браузерных уведомлений
+pywebpush==2.0.0
 # PDF-отчёты для бизнес-решений
 # CVE-2025-69534 — XSS в markdown.fenced_code, fix в 3.8.1
 markdown==3.8.1

@@ -2249,6 +2249,16 @@ async function renderSettingsTab(el){
       </div>
       <div id="s_lowbal_msg" class="text-xs mt-1 hidden"></div>
     </div>
+    <div class="border-t border-outline/20 pt-5" id="s_push_block">
+      <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">🔔 Push-уведомления в браузер</p>
+      <p class="text-xs text-on-dim mb-2">Получай уведомления когда клиент открывает КП, приходит новая заявка из бота, заканчивается баланс. Работает в Chrome/Edge/Firefox.</p>
+      <div id="s_push_status" class="text-xs text-on-dim mb-2">Загрузка…</div>
+      <div class="flex flex-wrap gap-2">
+        <button id="s_push_subscribe" onclick="pushSubscribe()" class="btn-g hidden">Подписаться</button>
+        <button id="s_push_unsubscribe" onclick="pushUnsubscribe()" class="text-xs px-3 py-2 rounded-lg bg-surface3 hover:bg-error/20 transition hidden">Отписаться</button>
+        <button id="s_push_test" onclick="pushTest()" class="text-xs px-3 py-2 rounded-lg bg-surface3 hover:bg-primary/20 transition hidden">Прислать тест</button>
+      </div>
+    </div>
     <div class="border-t border-outline/20 pt-5">
       <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">📬 Маркетинговая рассылка</p>
       <p class="text-xs text-on-dim mb-2">Информационные и рекламные сообщения от платформы (новые возможности, акции, советы). Можно включить или отключить в любой момент.</p>
@@ -2325,6 +2335,8 @@ async function renderSettingsTab(el){
       }
     });
   })();
+  // Web Push status
+  _renderPushStatus();
   // Подгружаем статус привязки TG
   _renderTgLinkStatus();
   window.applyPromoCabinet=async function(){
@@ -2338,6 +2350,98 @@ async function renderSettingsTab(el){
   };
 }
 // ── Telegram management bot binding ─────────────────────────────────────
+// ── Web Push (VAPID) ──────────────────────────────────────────────────────
+
+async function _renderPushStatus(){
+  const block = document.getElementById('s_push_block');
+  if(!block) return;
+  const status = document.getElementById('s_push_status');
+  const subBtn = document.getElementById('s_push_subscribe');
+  const unsubBtn = document.getElementById('s_push_unsubscribe');
+  const testBtn = document.getElementById('s_push_test');
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)){
+    block.classList.add('hidden');
+    return;
+  }
+  let st;
+  try{ st = await api('/user/push/status'); }
+  catch(e){
+    status.innerHTML = `<span class="text-error">Не удалось загрузить</span>`;
+    return;
+  }
+  if(!st.configured){
+    status.innerHTML = `<span class="text-on-dim/60">Push не настроен на сервере (нужны VAPID-ключи).</span>`;
+    return;
+  }
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if(sub){
+    status.innerHTML = `<span class="text-green-400">✓ Подписка активна</span> (${st.subscriptions} устройств)`;
+    subBtn.classList.add('hidden');
+    unsubBtn.classList.remove('hidden');
+    testBtn.classList.remove('hidden');
+  }else{
+    status.innerHTML = `<span class="text-on-dim/60">Не подписан</span>`;
+    subBtn.classList.remove('hidden');
+    unsubBtn.classList.add('hidden');
+    testBtn.classList.add('hidden');
+  }
+}
+
+function _b64UrlToUint8(b64){
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const base64 = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+async function pushSubscribe(){
+  try{
+    const perm = await Notification.requestPermission();
+    if(perm !== 'granted'){
+      aiAlert("Разрешение на уведомления не дано.","warn");
+      return;
+    }
+    const k = await api('/user/push/vapid-public');
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: _b64UrlToUint8(k.public_key),
+    });
+    const subJson = sub.toJSON();
+    await apiPost('/user/push/subscribe', {
+      endpoint: subJson.endpoint,
+      keys: subJson.keys,
+    });
+    aiAlert("Подписка оформлена!","success");
+    _renderPushStatus();
+  }catch(e){
+    aiAlert("Ошибка: "+(e.message||e),"error");
+  }
+}
+
+async function pushUnsubscribe(){
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if(sub){
+      await sub.unsubscribe();
+      await apiPost('/user/push/unsubscribe', {endpoint: sub.endpoint});
+    }
+    aiAlert("Отписка выполнена","success");
+    _renderPushStatus();
+  }catch(e){
+    aiAlert("Ошибка: "+(e.message||e),"error");
+  }
+}
+
+async function pushTest(){
+  try{
+    const r = await apiPost('/user/push/test', {});
+    aiAlert(`Push отправлен (${r.delivered} устройств)`,"success");
+  }catch(e){ aiAlert("Не удалось: "+(e.message||e),"error"); }
+}
+
 async function _renderTgLinkStatus(){
   const wrap = document.getElementById('s_tg_status');
   if(!wrap) return;
@@ -3493,6 +3597,31 @@ async function finalizeOrchestra(runId){
       }catch(err){ aiAlert("DOCX не доступен: "+(err.message||"ошибка"),"error"); }
     };
     docxBtn.classList.remove("hidden");
+    // Кнопка XLSX
+    let xlsxBtn = document.getElementById("runXlsxBtn");
+    if(!xlsxBtn){
+      xlsxBtn = document.createElement("a");
+      xlsxBtn.id = "runXlsxBtn";
+      xlsxBtn.target = "_blank";
+      xlsxBtn.className = "px-4 py-3 rounded-xl text-sm font-medium bg-surface3 hover:bg-surface3/70 transition flex items-center gap-2";
+      xlsxBtn.innerHTML = '📊 XLSX';
+      document.getElementById("runChatBtn").parentNode.insertBefore(xlsxBtn, document.getElementById("runChatBtn"));
+    }
+    xlsxBtn.onclick = async (e) => {
+      e.preventDefault();
+      try{
+        const hdrs = {}; if(authToken) hdrs["Authorization"] = "Bearer "+authToken;
+        const r = await fetch(`${API}/solutions/runs/${runId}/xlsx`, {headers:hdrs});
+        if(!r.ok){ const d = await r.json().catch(()=>({})); throw new Error(d.detail || r.statusText); }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = "report.xlsx";
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url), 1000);
+      }catch(err){ aiAlert("XLSX не доступен: "+(err.message||"ошибка"),"error"); }
+    };
+    xlsxBtn.classList.remove("hidden");
     // «Сохранить как шаблон»
     let saveTplBtn = document.getElementById("runSaveTplBtn");
     if(!saveTplBtn){

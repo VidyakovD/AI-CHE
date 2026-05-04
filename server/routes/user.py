@@ -1,5 +1,5 @@
 import os, csv, io, logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -420,3 +420,87 @@ def marketing_consent_get(user: User = Depends(current_user),
         raise HTTPException(404, "Пользователь не найден")
     return {"consent": bool(u.marketing_consent),
             "consent_at": u.marketing_consent_at.isoformat() if u.marketing_consent_at else None}
+
+
+# ── Web Push (VAPID) ───────────────────────────────────────────────────────
+
+
+class PushSubscribeBody(BaseModel):
+    """PushSubscription JSON из браузера."""
+    endpoint: str
+    keys: dict   # {p256dh: ..., auth: ...}
+
+
+@router.get("/push/vapid-public")
+def push_vapid_public():
+    """Публичный VAPID-ключ для регистрации подписки в браузере."""
+    from server.push import VAPID_PUBLIC_KEY, is_configured
+    if not is_configured():
+        raise HTTPException(503, "Push не настроен на сервере")
+    return {"public_key": VAPID_PUBLIC_KEY}
+
+
+@router.post("/push/subscribe")
+def push_subscribe(body: PushSubscribeBody, request: Request,
+                    user: User = Depends(current_user),
+                    db: Session = Depends(get_db)):
+    """Регистрация подписки браузера. Идемпотентно: если endpoint уже есть —
+    обновляем p256dh/auth (могли смениться)."""
+    from server.models import PushSubscription
+    from server.push import is_configured
+    if not is_configured():
+        raise HTTPException(503, "Push не настроен на сервере")
+    endpoint = (body.endpoint or "").strip()
+    p256dh = (body.keys.get("p256dh") or "").strip() if body.keys else ""
+    auth = (body.keys.get("auth") or "").strip() if body.keys else ""
+    if not endpoint or not p256dh or not auth:
+        raise HTTPException(400, "Неполные данные подписки")
+    if not endpoint.startswith("https://"):
+        raise HTTPException(400, "endpoint должен быть https://")
+    ua = (request.headers.get("user-agent") or "")[:255]
+    existing = db.query(PushSubscription).filter_by(endpoint=endpoint).first()
+    if existing:
+        if existing.user_id != user.id:
+            raise HTTPException(409, "Endpoint занят другим юзером")
+        existing.p256dh = p256dh
+        existing.auth = auth
+        existing.user_agent = ua
+        db.commit()
+        return {"status": "updated", "id": existing.id}
+    sub = PushSubscription(user_id=user.id, endpoint=endpoint,
+                            p256dh=p256dh, auth=auth, user_agent=ua)
+    db.add(sub); db.commit(); db.refresh(sub)
+    return {"status": "subscribed", "id": sub.id}
+
+
+@router.post("/push/unsubscribe")
+def push_unsubscribe(body: dict, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Отписка от push (по endpoint или сразу со всех устройств)."""
+    from server.models import PushSubscription
+    endpoint = (body.get("endpoint") or "").strip() if isinstance(body, dict) else ""
+    q = db.query(PushSubscription).filter_by(user_id=user.id)
+    if endpoint:
+        q = q.filter_by(endpoint=endpoint)
+    n = q.delete(synchronize_session=False)
+    db.commit()
+    return {"status": "unsubscribed", "deleted": n}
+
+
+@router.get("/push/status")
+def push_status(user: User = Depends(current_user),
+                 db: Session = Depends(get_db)):
+    """Сколько активных подписок у юзера."""
+    from server.models import PushSubscription
+    from server.push import is_configured
+    cnt = db.query(PushSubscription).filter_by(user_id=user.id).count()
+    return {"configured": is_configured(), "subscriptions": cnt}
+
+
+@router.post("/push/test")
+def push_test(user: User = Depends(current_user)):
+    """Тестовый push — для проверки что подписка работает."""
+    from server.push import push_to_user
+    n = push_to_user(user.id, "AI Студия Че", "Тестовое уведомление 🎉",
+                      url="/")
+    return {"delivered": n}

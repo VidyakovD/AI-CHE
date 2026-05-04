@@ -522,6 +522,15 @@ def serve_public_proposal(public_token: str):
                             target_type="proposal", target_id=str(p.id))
             except Exception:
                 pass
+            # Web Push: клиент открыл КП — уведомление владельцу
+            try:
+                from server.push import push_to_user as _push
+                _push(p.user_id,
+                      f"Клиент открыл КП «{p.name}»",
+                      f"{p.client_name or p.client_email or 'Клиент'} только что посмотрел документ.",
+                      url=f"/proposals.html#proposal-{p.id}")
+            except Exception:
+                pass
         # Иконка для имени файла из проекта
         import re as _re
         safe = _re.sub(r"[^\w\-]", "_", p.name or "proposal")[:40]

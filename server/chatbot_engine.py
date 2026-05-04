@@ -1479,6 +1479,19 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                     )
                 except Exception:
                     pass
+                # Web Push (VAPID) — браузерное уведомление если юзер
+                # подписан и не онлайн
+                try:
+                    from server.push import push_to_user as _push
+                    _push(
+                        ctx["bot"].user_id,
+                        f"Новая заявка из бота «{ctx['bot'].name}»",
+                        f"{ctx.get('customer_name') or 'Клиент'}: "
+                        f"{ctx.get('customer_phone') or ctx.get('customer_email') or 'без контакта'}",
+                        url="/chatbots.html",
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             log.error(f"[save_record] failed: {e}")
             return f"⚠ Не удалось сохранить заявку. Попробуйте ещё раз."
@@ -2736,6 +2749,45 @@ async def send_vk(token: str, user_id: str, text: str) -> dict:
         return r.json()
     except Exception as e:
         log.error(f"[VK] send error: {e}")
+        return {"error": str(e)}
+
+
+# ── WhatsApp через Wazzup24 (российский официальный посредник) ─────────────
+# https://wazzup24.com/help/api/v3/
+# Схема: бот общается с Wazzup24 REST API; Wazzup24 общается с WhatsApp Cloud
+# (официально, без серых обходов). Преимущества: российская инфра без VPN,
+# договор оферта с РФ-юрлицом, ПДн обрабатываются в РФ.
+
+_WAZZUP_API = "https://api.wazzup24.com/v3"
+
+
+async def send_whatsapp(api_key: str, channel_id: str, chat_id: str,
+                          text: str) -> dict:
+    """Отправить текстовое сообщение в WhatsApp через Wazzup24.
+
+    chat_id — это телефонный номер собеседника (E.164, например 79991234567).
+    Wazzup24 принимает в поле chatId. Текст через text. content_type='text'.
+    """
+    if not api_key or not channel_id:
+        return {"error": "wazzup_api_key/channel_id not set"}
+    try:
+        r = await HTTP.post(
+            f"{_WAZZUP_API}/message",
+            json={
+                "channelId": channel_id,
+                "chatId": str(chat_id),
+                "chatType": "whatsapp",
+                "text": text[:4096],
+            },
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=20.0,
+        )
+        if r.status_code >= 400:
+            log.warning(f"[Wazzup] {r.status_code}: {r.text[:200]}")
+            return {"error": f"HTTP {r.status_code}"}
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"ok": True}
+    except Exception as e:
+        log.error(f"[Wazzup] send error: {e}")
         return {"error": str(e)}
 
 

@@ -360,6 +360,28 @@ class SolutionRun(Base):
     created_at   = Column(DateTime, default=datetime.utcnow)
 
 
+class PushSubscription(Base):
+    """Web Push (VAPID) — подписка браузера юзера на push-уведомления.
+
+    Браузер регистрирует через service worker и шлёт PushSubscription JSON
+    на /user/push/subscribe. Мы храним endpoint+ключи и шлём через pywebpush
+    при событиях (новая заявка из бота / клиент открыл КП / низкий баланс).
+
+    У одного юзера может быть несколько подписок (разные устройства).
+    Если push приводит к 410 Gone — удаляем подписку как устаревшую.
+    """
+    __tablename__ = "push_subscriptions"
+
+    id        = Column(Integer, primary_key=True, index=True)
+    user_id   = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    endpoint  = Column(String, nullable=False, unique=True)
+    p256dh    = Column(String, nullable=False)   # auth ECDH
+    auth      = Column(String, nullable=False)   # auth secret
+    user_agent = Column(String, nullable=True)   # для UI «удалить с этого устройства»
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class SolutionRunTemplate(Base):
     """Сохранённый запуск как шаблон.
 
@@ -894,6 +916,11 @@ class ChatBot(Base):
     # MAX (мессенджер VK group, https://max.ru)
     max_token         = Column(EncryptedString, nullable=True)
     max_webhook_set   = Column(Boolean, default=False)
+    # WhatsApp через Wazzup24 (российский официальный посредник).
+    # wazzup_api_key — выдаётся в личном кабинете Wazzup24,
+    # wazzup_channel_id — идентификатор подключённого WA-канала.
+    wazzup_api_key    = Column(EncryptedString, nullable=True)
+    wazzup_channel_id = Column(String, nullable=True)
     # Виджет
     widget_enabled  = Column(Boolean, default=False)
     widget_secret   = Column(EncryptedString, nullable=True)
