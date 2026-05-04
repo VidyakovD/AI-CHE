@@ -273,4 +273,79 @@ async def voice_transcribe(audio: UploadFile = File(...),
     except Exception as e:
         log.warning(f"[voice] billing failed: {type(e).__name__}: {e}")
 
-    return {"text": text}
+    return {"text": text, "cost_kop": 500}
+
+
+# ── TTS (text-to-speech) ────────────────────────────────────────────────────
+# Голосовой ответ AI прямо в чате. OpenAI tts-1 = $0.015/1k chars,
+# с margin ×1.5 → 2.25 ₽ / 1k символов, округляем минимум 50 коп / запрос.
+
+class TtsBody(BaseModel):
+    text: str
+    voice: str | None = None  # alloy, echo, fable, onyx, nova, shimmer
+
+
+_TTS_VOICES = {"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
+_TTS_MAX_CHARS = 4000
+
+
+@router.post("/voice/tts")
+def voice_tts(body: TtsBody, db: Session = Depends(get_db),
+               user: User = Depends(current_user)):
+    """Превратить текст в речь через OpenAI tts-1. Возвращает MP3-файл
+    (audio/mpeg) inline через StreamingResponse.
+
+    Стоимость: 2.25 ₽ / 1k символов (минимум 50 коп). С balance-проверкой,
+    refund при ошибке."""
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(400, "Пустой текст")
+    if len(text) > _TTS_MAX_CHARS:
+        raise HTTPException(413, f"Слишком длинный текст (макс {_TTS_MAX_CHARS} симв)")
+    voice = (body.voice or "nova").strip().lower()
+    if voice not in _TTS_VOICES:
+        voice = "nova"
+
+    # Расчёт стоимости: 225 коп/1000 chars, минимум 50 коп
+    char_count = len(text)
+    cost_kop = max(50, int(225 * char_count / 1000))
+
+    from server.billing import deduct_strict, credit_atomic
+    if not deduct_strict(db, user.id, cost_kop):
+        raise HTTPException(402, f"Недостаточно средств. Цена: {cost_kop/100:.2f} ₽")
+
+    try:
+        from openai import OpenAI
+        from server.ai import _get_api_keys
+        keys = _get_api_keys("openai")
+        if not keys:
+            credit_atomic(db, user.id, cost_kop)
+            raise HTTPException(503, "OpenAI ключ не настроен")
+        cli = OpenAI(api_key=keys[0])
+        resp = cli.audio.speech.create(
+            model="tts-1", voice=voice, input=text,
+            response_format="mp3",
+        )
+        # response — bytes MP3
+        mp3_bytes = resp.read() if hasattr(resp, "read") else resp.content
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"[voice/tts] OpenAI error: {type(e).__name__}: {e}")
+        # Refund
+        credit_atomic(db, user.id, cost_kop)
+        db.commit()
+        raise HTTPException(503, "Ошибка генерации речи. Деньги возвращены.")
+
+    db.add(Transaction(user_id=user.id, type="usage",
+                       tokens_delta=-cost_kop,
+                       description=f"TTS ({voice}, {char_count} симв.)",
+                       model="tts-1"))
+    db.commit()
+
+    from fastapi.responses import Response
+    return Response(content=mp3_bytes, media_type="audio/mpeg",
+                     headers={
+                         "Cache-Control": "no-store",
+                         "X-Cost-Kop": str(cost_kop),
+                     })

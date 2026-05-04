@@ -4,6 +4,54 @@
 
 ---
 
+## 🆕 Спринт «Voice-режим: Whisper + TTS» (2026-05-04 совсем-совсем закроем)
+
+ChatGPT-Voice-style опыт прямо в платформе: голосовой ввод (Whisper) + голосовые ответы AI (OpenAI TTS).
+
+### Backend
+
+**Whisper transcription** — был с прошлых спринтов: `POST /mobile/voice/transcribe` (фикс 5 ₽/вызов, лимит 15 МБ, передаётся в OpenAI Whisper-1 с language=ru).
+
+**Новый `POST /mobile/voice/tts`** в `routes/mobile.py`:
+- Body: `{text, voice?}` — voice одно из 6 (alloy/echo/fable/onyx/nova/shimmer), default `nova`
+- Лимит 4000 символов на запрос
+- Цена 2.25 ₽ / 1k chars (минимум 50 коп) — расчёт `max(50, int(225 * len/1000))`
+- `deduct_strict` перед вызовом, `credit_atomic` refund при ошибке
+- Возвращает `audio/mpeg` Response с MP3-байтами + header `X-Cost-Kop`
+
+### Frontend
+
+**`window.aiVoice` helper в icons.js:**
+- `recordOnce(opts)` — MediaRecorder (webm/Chrome, mp4/Safari) → upload → transcribe → возврат текста. Поддержка `onStart`/`onStop` колбэков, `maxSec` (default 60).
+- `speak(text, {voice})` — POST text → MP3 blob → создаёт `<audio>` → `.play()`
+- `stop()` — досрочно остановить запись
+
+**UI на главной чата (`index.html`):**
+- Кнопка 🎤 рядом с кнопкой отправки. При клике — старт записи, иконка пульсирует красным. Повторный клик или 60 сек → стоп → upload → текст вставляется в input. `aiToast('🎤 Распознано')`.
+- Под каждым AI-ответом (текстовые, ≤4000 chars) — кнопка «🔊 Озвучить». Клик → TTS → плеер. Повторный клик во время воспроизведения → стоп.
+- Tooltip с ценой: «5 ₽ за запрос» / «~2 ₽ за озвучку»
+
+### Безопасность
+- `deduct_strict` для TTS — без баланса 402
+- TTS лимит 4000 chars (защита от больших uploads)
+- Whisper лимит 15 МБ
+- Voice scope — только для авторизованного юзера (`current_user`)
+- `credit_atomic` refund при ошибке OpenAI
+
+### Тесты
+- pytest 164/164 passed
+- JS sanity 10 файлов OK
+- Preview e2e:
+  - `aiVoice` helper определён, `recordOnce` + `speak` функции
+  - Кнопка 🎤 (`micBtn`) + иконки idle/active в DOM
+  - `toggleVoiceRecord` + `speakAiMessage` функции присутствуют
+  - `/mobile/voice/transcribe` без файла → 422 (валидация)
+  - `/mobile/voice/tts` без body → 422
+  - `/mobile/voice/tts` empty text → 400 «Пустой текст»
+  - Console + server errors = 0
+
+---
+
 ## 🆕 Спринт «2FA админки + Prompt-injection защита» (2026-05-04 закроем уже)
 
 Две security-фичи в одном спринте, обе закрывают долгие TODO:

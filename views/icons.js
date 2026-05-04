@@ -863,6 +863,139 @@
   }
 
 
+  // ── Voice helper (Whisper transcription + TTS) ──────────────────────────
+  // Использование:
+  //   const text = await window.aiVoice.recordToText({onLevel: lv => ...});
+  //   await window.aiVoice.speak('Привет!');
+  //
+  // Whisper backend: POST /mobile/voice/transcribe (5 ₽/вызов фикс)
+  // TTS backend: POST /mobile/voice/tts (2.25 ₽/1k chars)
+  if (!window.aiVoice) {
+    let _recorder = null, _stream = null, _chunks = [];
+    let _stopResolve = null;
+
+    async function _startRecording(){
+      if (!navigator.mediaDevices?.getUserMedia){
+        throw new Error('Браузер не поддерживает запись с микрофона');
+      }
+      _stream = await navigator.mediaDevices.getUserMedia({audio: true});
+      // MediaRecorder mime: webm/opus в Chrome, mp4/aac в Safari
+      let mime = 'audio/webm';
+      try {
+        if (!MediaRecorder.isTypeSupported('audio/webm')){
+          mime = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+        }
+      } catch(e){ mime = ''; }
+      _recorder = mime
+        ? new MediaRecorder(_stream, {mimeType: mime})
+        : new MediaRecorder(_stream);
+      _chunks = [];
+      _recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) _chunks.push(e.data); };
+      _recorder.onstop = () => {
+        try { _stream.getTracks().forEach(t => t.stop()); } catch(e){}
+        if (_stopResolve){
+          const blob = new Blob(_chunks, {type: _recorder.mimeType || 'audio/webm'});
+          _stopResolve(blob);
+          _stopResolve = null;
+        }
+      };
+      _recorder.start();
+    }
+
+    function _stopRecording(){
+      return new Promise((resolve) => {
+        if (!_recorder || _recorder.state === 'inactive'){
+          resolve(new Blob([], {type: 'audio/webm'}));
+          return;
+        }
+        _stopResolve = resolve;
+        _recorder.stop();
+      });
+    }
+
+    async function _uploadAudio(blob){
+      // FormData → /mobile/voice/transcribe
+      const fd = new FormData();
+      const ext = (blob.type.split('/')[1] || 'webm').split(';')[0];
+      fd.append('audio', blob, 'voice.' + ext);
+      const r = await fetch('/mobile/voice/transcribe', {
+        method: 'POST', body: fd, credentials: 'same-origin',
+      });
+      if (!r.ok){
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.detail || 'HTTP ' + r.status);
+      }
+      const data = await r.json();
+      return data.text || '';
+    }
+
+    window.aiVoice = {
+      isRecording: false,
+      // Полный flow: запись → upload → transcribe → возврат текста.
+      // opts: {onStart?: fn, onStop?: fn, maxSec?: 60}
+      async recordOnce(opts){
+        opts = opts || {};
+        if (this.isRecording) throw new Error('Запись уже идёт');
+        try {
+          await _startRecording();
+          this.isRecording = true;
+          if (opts.onStart) opts.onStart();
+          // Auto-stop через maxSec (по дефолту 60 сек)
+          const maxMs = (opts.maxSec || 60) * 1000;
+          const tid = setTimeout(() => {
+            if (this.isRecording) this.stop();
+          }, maxMs);
+          // Ждём stop (либо ручной, либо auto)
+          const blob = await _stopRecording();
+          clearTimeout(tid);
+          this.isRecording = false;
+          if (opts.onStop) opts.onStop();
+          if (blob.size < 500) {
+            throw new Error('Запись слишком короткая');
+          }
+          // Upload + transcribe
+          const text = await _uploadAudio(blob);
+          return text;
+        } catch(e){
+          this.isRecording = false;
+          if (_stream) try { _stream.getTracks().forEach(t => t.stop()); } catch(_){}
+          throw e;
+        }
+      },
+      // Завершить текущую запись досрочно (если был recordOnce — тоже ловит)
+      stop(){
+        if (_recorder && _recorder.state !== 'inactive'){
+          _recorder.stop();
+        }
+      },
+      // TTS: озвучить текст. Возвращает HTMLAudioElement, его можно
+      // .play() / .pause(). Списание ~2.25 ₽ за 1k chars.
+      async speak(text, opts){
+        opts = opts || {};
+        if (!text || !text.trim()) return null;
+        const voice = opts.voice || 'nova';
+        const r = await fetch('/mobile/voice/tts', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          credentials: 'same-origin',
+          body: JSON.stringify({text: text.slice(0, 4000), voice}),
+        });
+        if (!r.ok){
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.detail || 'HTTP ' + r.status);
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.addEventListener('ended', () => URL.revokeObjectURL(url));
+        await audio.play();
+        if (window.aiBalance) window.aiBalance.refresh();
+        return audio;
+      },
+    };
+  }
+
+
   // ── Toast helper ─────────────────────────────────────────────────────────
   // Не блокирующее уведомление в правом нижнем углу с auto-fade.
   // Использование:
