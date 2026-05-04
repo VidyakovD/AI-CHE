@@ -730,10 +730,13 @@
 
     async function _fetchBalance(){
       try {
-        const r = await fetch('/me', {credentials:'same-origin'});
+        const r = await fetch('/auth/me', {credentials:'same-origin'});
         if (!r.ok) return null;
         const d = await r.json();
-        // /me возвращает обычно tokens_balance в копейках
+        // /auth/me возвращает {user: {...tokens_balance: kop}}
+        const u = d && d.user;
+        if (u && typeof u.tokens_balance === 'number') return u.tokens_balance;
+        // Fallback на flat-структуру (на случай если позже изменим)
         if (typeof d.tokens_balance === 'number') return d.tokens_balance;
         if (typeof d.balance_kop === 'number') return d.balance_kop;
         return null;

@@ -8,6 +8,8 @@
       "port": 8001,
       "env": {
         "DEV_MODE": "true",
+        "APP_ENV": "dev",
+        "ALLOWED_ORIGINS": "http://localhost:8001",
         "JWT_SECRET": "dev-jwt-secret-32-chars-long-yes-yes",
         "PYTHONIOENCODING": "utf-8"
       }
