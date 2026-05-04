@@ -23,7 +23,32 @@ import logging
 
 log = logging.getLogger("push")
 
-VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+def _load_private_key() -> str:
+    """Загружает VAPID-приватный ключ.
+
+    Приоритет:
+      1. VAPID_PRIVATE_KEY_FILE — путь к PEM-файлу (читаем содержимое)
+      2. VAPID_PRIVATE_KEY — прямое значение (PEM или base64).
+         Если значение начинается с "/" и существует как файл — читаем.
+    """
+    path_env = os.getenv("VAPID_PRIVATE_KEY_FILE", "").strip()
+    if path_env and os.path.exists(path_env):
+        try:
+            with open(path_env, "r") as f:
+                return f.read().strip()
+        except Exception as e:
+            log.error(f"[push] cannot read VAPID_PRIVATE_KEY_FILE: {e}")
+    raw = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+    if raw.startswith("/") and os.path.exists(raw):
+        try:
+            with open(raw, "r") as f:
+                return f.read().strip()
+        except Exception:
+            pass
+    return raw
+
+
+VAPID_PRIVATE_KEY = _load_private_key()
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "").strip()
 VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:admin@aiche.ru").strip()
 
