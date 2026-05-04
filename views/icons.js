@@ -1333,6 +1333,11 @@
       if (!_readCookie('csrf_token') && !_readCookie('access_token')) return null;
       // Не показываем на отдельных страницах (terms, qr_confirm)
       if (document.body.hasAttribute('data-no-balance')) return null;
+      // Не показываем если на странице уже есть нативный ЛК-бутон с балансом
+      // (на главной /index.html есть navCabinetBtn). Иначе плашки перекроют
+      // друг друга в правом верхнем углу.
+      if (document.getElementById('navCabinetBtn')) return null;
+      if (document.getElementById('sidebarBalance')) return null;
 
       const css = `
 #ai-balance-pill{position:fixed;top:12px;right:62px;z-index:99996;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:rgba(20,20,22,.72);backdrop-filter:blur(8px);font:12px/1 system-ui,-apple-system,sans-serif;font-weight:600;cursor:pointer;transition:transform .15s,box-shadow .15s;text-decoration:none;color:#fff}
