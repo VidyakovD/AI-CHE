@@ -160,10 +160,20 @@ def authenticate_token(request: Request, db: Session,
     user = db.query(User).filter_by(id=t.user_id, is_active=True).first()
     if not user or user.is_banned:
         raise HTTPException(403, "User account inactive")
-    # Метрики
+    if not user.is_verified:
+        # Если юзер был ре-верифицирован после issue токена — отзываем
+        # доступ автоматически. Защита от использования API заброшенным
+        # аккаунтом, у которого админ снял verified.
+        raise HTTPException(403, "Email not verified")
+    # Метрики (atomic UPDATE — без race в multi-worker).
     try:
-        t.last_used_at = datetime.utcnow()
-        t.requests_count = (t.requests_count or 0) + 1
+        from sqlalchemy import update as _sql_update
+        db.execute(
+            _sql_update(ApiToken).where(ApiToken.id == t.id).values(
+                last_used_at=datetime.utcnow(),
+                requests_count=(ApiToken.requests_count + 1),
+            )
+        )
         db.commit()
     except Exception:
         db.rollback()

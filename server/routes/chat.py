@@ -15,7 +15,12 @@ from server.billing import deduct_atomic, get_balance
 # Если клиент передаёт `Idempotency-Key`, мы кэшируем response на 5 минут.
 # Двойной клик или ретрай по сетевой ошибке вернёт тот же ответ без
 # повторного вызова AI и повторного списания.
-# Cache живёт в процессе — для multi-worker setup нужен Redis (TODO).
+#
+# ⚠️ КОРРЕКТНО РАБОТАЕТ ТОЛЬКО ПРИ workers=1.
+# При нескольких uvicorn-воркерах одновременный двойной клик может попасть
+# на разные воркеры → двойное списание (т.к. кэш per-process). Прод сейчас
+# на 1 воркере (см. systemd unit) — это OK. При масштабировании заменить
+# на Redis или ввести IdempotencyRecord SQL-таблицу с UNIQUE(user_id, key).
 _IDEMPOTENCY_TTL_SEC = 300
 _idempotency_cache: dict[tuple[int, str], tuple[float, dict]] = {}
 _idempotency_lock = threading.Lock()

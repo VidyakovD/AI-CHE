@@ -49,6 +49,30 @@ def _validate_hex(c: str | None, default: str) -> str:
     return s
 
 
+# Защита от XSS-векторов через image-поля. Принимаем только http/https/data:image/.
+# javascript:/vbscript:/file:/blob: — отбрасываем.
+def _validate_image_url(url: str | None, field: str = "image_url") -> str | None:
+    if not url:
+        return None
+    s = url.strip()
+    if not s:
+        return None
+    if len(s) > 2000:
+        raise HTTPException(400, f"{field}: ссылка слишком длинная")
+    low = s.lower()
+    # Относительные пути — ОК (наш /uploads/...)
+    if low.startswith("/"):
+        return s
+    # http/https — OK
+    if low.startswith("http://") or low.startswith("https://"):
+        return s
+    # data: разрешаем только image/* mime-type
+    if low.startswith("data:image/") and ";base64," in low[:50]:
+        return s
+    raise HTTPException(400,
+        f"{field}: ссылка должна быть http://, https://, относительной или data:image/")
+
+
 # ── Brand CRUD ─────────────────────────────────────────────────────────────
 
 
@@ -125,14 +149,15 @@ def create_brand(body: BrandBody, db: Session = Depends(get_db),
         user_id=user.id,
         name=body.name.strip()[:100],
         company_name=(body.company_name or "").strip()[:200] or None,
-        logo_url=body.logo_url, primary_color=primary,
+        logo_url=_validate_image_url(body.logo_url, "logo_url"),
+        primary_color=primary,
         secondary_color=secondary, accent_color=accent,
         font_family=body.font_family or "Inter",
         style_preset=body.style_preset or "minimal",
         contacts=(body.contacts or "")[:1000] or None,
         inn=(body.inn or "")[:20] or None,
         address=(body.address or "")[:500] or None,
-        signature_url=body.signature_url,
+        signature_url=_validate_image_url(body.signature_url, "signature_url"),
         tagline=(body.tagline or "")[:200] or None,
         usp_list=(body.usp_list or "")[:2000] or None,
         guarantees=(body.guarantees or "")[:2000] or None,
@@ -160,7 +185,7 @@ def update_brand(brand_id: int, body: BrandBody,
         raise HTTPException(400, f"Preset должен быть из {_PRESET_WHITELIST}")
     b.name = body.name.strip()[:100] if body.name else b.name
     b.company_name = (body.company_name or "").strip()[:200] or None
-    b.logo_url = body.logo_url
+    b.logo_url = _validate_image_url(body.logo_url, "logo_url")
     b.primary_color = _validate_hex(body.primary_color, b.primary_color or "#ff8c42")
     b.secondary_color = _validate_hex(body.secondary_color, b.secondary_color or "#1C1C1C")
     b.accent_color = _validate_hex(body.accent_color, b.accent_color or "#ffb347")
@@ -169,7 +194,7 @@ def update_brand(brand_id: int, body: BrandBody,
     b.contacts = (body.contacts or "")[:1000] or None
     b.inn = (body.inn or "")[:20] or None
     b.address = (body.address or "")[:500] or None
-    b.signature_url = body.signature_url
+    b.signature_url = _validate_image_url(body.signature_url, "signature_url")
     if body.tone and body.tone in _TONE_WHITELIST:
         b.tone = body.tone
     b.tagline = (body.tagline or "")[:200] or None

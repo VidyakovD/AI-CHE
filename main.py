@@ -225,18 +225,24 @@ async def csrf_middleware(request: Request, call_next):
         if path.startswith(prefix):
             return await call_next(request)
     # CSRF нужен ТОЛЬКО если запрос использует cookie-based auth.
-    # Если есть Authorization header С НЕПУСТЫМ ТОКЕНОМ — это API-клиент / legacy
-    # frontend, cross-site атака не может подделать Authorization (CORS блокирует).
-    # ВАЖНО: проверяем длину после "Bearer ", иначе атакующий может прислать
-    # `Authorization: Bearer ` (только префикс) и обойти CSRF проверку.
+    # ПОРЯДОК ВАЖЕН:
+    #   1. Если cookie access_token присутствует → ВСЕГДА требуем CSRF.
+    #      Не доверяем наличию Authorization header'а как разрешению,
+    #      потому что cookie всё равно автоматически отправляется браузером
+    #      и используется в `current_user`. Если кто-то расширит CORS на
+    #      сторонние домены — Bearer-bypass превратится в полный CSRF-bypass.
+    #   2. Иначе если есть Bearer >= "Bearer XXXX" — это чистый API-клиент,
+    #      cookie нет → CSRF не нужен (CORS защищает Authorization header).
+    #   3. Иначе anon/public endpoint — пропускаем.
+    has_cookie_auth = bool(request.cookies.get(ACCESS_COOKIE_NAME))
     auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer ") and len(auth_header.strip()) > 10:
+    has_bearer = (auth_header.startswith("Bearer ")
+                   and len(auth_header.strip()) > len("Bearer ") + 3)
+    if not has_cookie_auth:
+        # Нет cookie — либо чистый API-вызов, либо public anon endpoint
         return await call_next(request)
-    # Если нет ни cookie с access_token — пропускаем (anon/public endpoint
-    # сам решит надо ли auth)
-    if not request.cookies.get(ACCESS_COOKIE_NAME):
-        return await call_next(request)
-    # Cookie-based auth → требуем CSRF
+    # Cookie-based auth → требуем CSRF (даже если есть и Bearer)
+    _ = has_bearer  # сохранено для потенциальной будущей логики
     cookie_csrf = request.cookies.get(CSRF_COOKIE_NAME, "")
     header_csrf = request.headers.get(CSRF_HEADER_NAME, "")
     import hmac as _hmac
@@ -455,6 +461,13 @@ def serve_mobile():
 def serve_mobile_short():
     """Короткий алиас для лайт-режима."""
     return FileResponse(os.path.join(_BASE, "mobile.html"), headers=_NO_CACHE)
+
+
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    """Лёгкий health-check для мониторинга/балансировщика. Без БД-запросов
+    чтобы не нагружать. Если процесс жив и роутер дошёл сюда — 200 OK."""
+    return {"status": "ok"}
 
 
 @app.get("/", include_in_schema=False)

@@ -65,6 +65,18 @@ def publish_listing(body: ListingPublishBody, db: Session = Depends(get_db),
     if cnt >= 10:
         raise HTTPException(409, "Лимит 10 публикаций. Удалите старые.")
 
+    # Валидация cover_image_url: только http/https или относительный путь
+    # (защита от javascript:/data:text/html → XSS, если кто-то начнёт
+    # рендерить как <a href> или background-image).
+    cover = (body.cover_image_url or "").strip()[:500] or None
+    if cover:
+        low = cover.lower()
+        if not (low.startswith("http://") or low.startswith("https://")
+                 or low.startswith("/")
+                 or (low.startswith("data:image/") and ";base64," in low[:50])):
+            raise HTTPException(400,
+                "cover_image_url: только http://, https://, относительная или data:image/")
+
     listing = BotMarketplaceListing(
         author_id=user.id, source_bot_id=bot.id,
         name=body.name.strip()[:100],
@@ -73,7 +85,7 @@ def publish_listing(body: ListingPublishBody, db: Session = Depends(get_db),
         price_kop=int(body.price_kop or 0),
         system_prompt=bot.system_prompt,
         workflow_json=bot.workflow_json,
-        cover_image_url=(body.cover_image_url or "").strip()[:500] or None,
+        cover_image_url=cover,
         is_approved=False,  # ждёт модерации
     )
     db.add(listing); db.commit(); db.refresh(listing)
@@ -161,6 +173,18 @@ def install_listing(listing_id: int, db: Session = Depends(get_db),
         raise HTTPException(404, "Листинг не найден или не одобрен")
     if listing.author_id == user.id:
         raise HTTPException(400, "Нельзя установить свой собственный бот")
+
+    # Anti-pump: для платных листингов запрещаем повторную установку.
+    # Для бесплатных — разрешаем (юзер мог удалить локального и хочет
+    # установить заново). Защита от collusion-схемы «два аккаунта установили
+    # друг другу 100 раз и собрали 70%×100 автору».
+    if listing.price_kop and listing.price_kop > 0:
+        already = (db.query(BotMarketplaceInstall)
+                     .filter_by(listing_id=listing.id, installer_id=user.id)
+                     .first())
+        if already:
+            raise HTTPException(409,
+                "Этот платный шаблон уже установлен. Найдите бота в /chatbots.html.")
 
     paid = 0
     # Платный режим: списание + revenue split

@@ -389,6 +389,7 @@ async def orchestra_start(solution_id: int, body: OrchestraStartBody,
     # Запуск в фоне — НЕ ждём окончания. Фронт подключается к SSE-потоку.
     from server.solutions_orchestra import run_orchestra
     asyncio.create_task(run_orchestra(run.id))
+    return {"run_id": run.id, "chat_id": chat_id, "status": "running"}
 
 
 # Whitelist моделей для сравнительного запуска. Только Claude/GPT — иначе
@@ -446,10 +447,11 @@ async def orchestra_start_compare(solution_id: int, body: OrchestraCompareBody,
     # вместе как «сравнение»). Кладём в chat_id с префиксом для удобства.
     cmp_group = f"cmp_{uuid.uuid4().hex[:12]}"
 
+    import copy as _copy
     runs_info: list[dict] = []
     for model in models:
         # Делаем deep-copy orchestra с переопределённой моделью
-        custom = json.loads(json.dumps(orch))
+        custom = _copy.deepcopy(orch)
         custom["default_model"] = model
         # Создаём run с custom orchestra прямо в его context (мы не меняем
         # Solution в БД — это плохо для других юзеров). Чтобы run использовал
@@ -519,8 +521,6 @@ def orchestra_compare_get(compare_group: str,
             "user_mark": r.user_mark,
         })
     return {"compare_group": compare_group, "runs": out}
-
-    return {"run_id": run.id, "chat_id": chat_id, "status": "running"}
 
 
 @router.get("/solutions/runs/{run_id}")
@@ -790,18 +790,22 @@ class ReactionBody(BaseModel):
 
 _AUTO_FLAG_THRESHOLD_DOWNS = 3      # сколько 👎 за окно достаточно для алерта
 _AUTO_FLAG_WINDOW_DAYS = 7          # окно
-_auto_flagged_recent: dict[int, float] = {}  # solution_id → ts последнего алерта
 
 
 def _check_auto_flag(db: Session, solution_id: int) -> None:
     """Если за последние 7 дней по этому solution_id >=3 👎 → email админу.
-    Дедуп по solution_id раз в 24 часа (in-memory, ребут сбрасывает).
+    Дедуп через ActionLog (`solution.auto_flagged`) — раз в 24ч на solution_id.
+    DB-based чтобы работать корректно при multi-worker (раньше был in-memory dict).
     """
-    import time as _time
     from datetime import datetime as _dt, timedelta as _td
-    now_ts = _time.monotonic()
-    last = _auto_flagged_recent.get(solution_id, 0)
-    if now_ts - last < 86400:  # уже алертили за последние 24ч
+    from server.models import ActionLog
+    # Уже алертили за последние 24ч?
+    last_alert = (db.query(ActionLog)
+                    .filter(ActionLog.action == "solution.auto_flagged",
+                            ActionLog.target_id == str(solution_id),
+                            ActionLog.ts >= _dt.utcnow() - _td(hours=24))
+                    .first())
+    if last_alert:
         return
     cutoff = _dt.utcnow() - _td(days=_AUTO_FLAG_WINDOW_DAYS)
     recent = (db.query(SolutionRun)
@@ -814,7 +818,6 @@ def _check_auto_flag(db: Session, solution_id: int) -> None:
     sol = db.query(Solution).filter_by(id=solution_id).first()
     title = sol.title if sol else f"Solution #{solution_id}"
     log.warning(f"[auto-flag] {len(recent)} 👎 на «{title}» за {_AUTO_FLAG_WINDOW_DAYS}д — алерт админу")
-    _auto_flagged_recent[solution_id] = now_ts
     # Шлём email
     try:
         import os as _os

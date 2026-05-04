@@ -1,6 +1,58 @@
 # HANDOVER — для нового AI-ассистента
 
-Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-05-04 после большой серии спринтов по бизнес-решениям, marketplace, public API**.
+Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-05-04 после большой серии спринтов по бизнес-решениям, marketplace, public API + аудит-фикс сессия**.
+
+---
+
+## 🆕 Спринт «Аудит-фиксы» (2026-05-04 вечером)
+
+Прошлая сессия запросила полный аудит проекта (тесты + security + новые идеи + баги). Найдено и закрыто 13 пунктов:
+
+### P1 — функциональные/security баги
+- **B1** `orchestra_start` не возвращал `run_id` — фронт получал `null` ([routes/solutions.py:391](server/routes/solutions.py:391)).
+- **B2** Unreachable code в `orchestra_compare_get` после `return out` (мёртвый блок ссылался на отсутствующие переменные).
+- **B3** Wazzup webhook secret из URL `?secret=` → теперь поддерживается header `X-Wazzup-Signature` (приоритетный) с обратной совместимостью query.
+- **B4** Race в `register_refresh_jti`/`revoke_refresh_jti`: read-modify-write мог терять чужой jti при одновременных login → юзер ловил «refresh_reuse» 401. Введён `_atomic_jtis_update` с `with_for_update` (Postgres), re-fetch в текущей сессии (SQLite).
+
+### P2 — серьёзные
+- **B5** Image URLs (`logo_url`/`signature_url`/`cover_image_url`) теперь whitelist'ятся: только `http(s)://`, относительный `/` или `data:image/...`. `javascript:`/`vbscript:`/`data:text/html` отбрасываются.
+- **B6** Marketplace: повторная установка одного **платного** листинга одним юзером блокируется (anti-pump схема против collusion-аккаунтов).
+- **B7** CSRF middleware: убрал «Bearer >10 char пропускает CSRF». Теперь если есть cookie access_token — CSRF обязателен независимо от Authorization-header. Чистый Bearer без cookie → CSRF не требуется (правильное поведение для API-клиентов).
+- **B9** `requests_count` Public API: теперь atomic `UPDATE ... = requests_count + 1` (раньше read-modify-write = race в multi-worker).
+- **B10** `authenticate_token` теперь требует `is_verified` (раньше при unverify админом токен продолжал работать).
+
+### P3 — мелочи
+- **B11** Auto-flag dedup: 24ч cooldown теперь живёт в ActionLog, не in-memory dict (multi-worker корректно).
+- **B12** `knowledge._abs_path`: defense-in-depth — путь обязан быть в `/uploads/` или `/backups/`, иначе ValueError. `extract_text` ловит и возвращает "".
+- **B13** Добавлен `/healthz` endpoint (200 + `{"status":"ok"}`) — для мониторинга/балансировщика без БД-запросов.
+- **B14** В `orchestra_start_compare` deepcopy(orch) вместо `json.loads(json.dumps(orch))`.
+
+### Что НЕ закрыто этой сессией (документировано)
+- **B8 Idempotency-Key** — оставил in-memory + добавил большой комментарий «корректно работает только при workers=1». Прод сейчас на 1 воркере — это OK. При масштабировании заменить на Redis или новую SQL-таблицу `IdempotencyRecord` с `UNIQUE(user_id, key)`.
+
+### Тесты
+164/164 passed после фиксов. Smoke на dev-сервере: `/healthz` 200, `/api/v1/me` без auth 401.
+
+### Security ревью на этой же сессии — что хорошо защищено (для будущих сессий не дублировать)
+- ✅ Public API: `hmac.compare_digest`, scope-проверка, секрет показывается только при создании
+- ✅ Solutions: SSE/share/restage/docx/xlsx/reaction — все владелец-only через `run.user_id == user.id`
+- ✅ `_validate_attachments`: `resolve+relative_to`, лимиты 25 МБ × 5
+- ✅ SSRF в `tool_browse_url`: explicit redirect-revalidation + private CIDR блок
+- ✅ Sites: 160-bit public_token + sandbox iframe в null origin
+- ✅ Refresh-rotation single-use: reuse → revoke ALL
+- ✅ Admin: 45 routes, 46 `require_admin` (consistent)
+
+### Найденные новые идеи (приоритет — для отдельных спринтов)
+1. **Marketplace UI** (приоритет №1, backend готов)
+2. **Webhook'и для Public API** — закрыть SaaS-интеграции
+3. **Электронная подпись КП** — canvas-подпись на `/p/{token}` + audit-trail
+4. **CRM-интеграции** Bitrix24/amoCRM на `save_record` ноду
+5. **Voice-режим в чате** (Whisper input + ElevenLabs/SaluteSpeech output)
+6. **Rate-limit на orchestra-start** — сейчас юзер может в цикле сжечь весь баланс
+7. **Cron-планировщик пользовательских orchestra** — превращает разовые покупки в подписку
+8. **Prompt-инжекция защита** для tool_run_llm — оборачивать пользовательский input в `<user_data>` теги
+9. **A/B-тест двух промптов** в одном Solution + сбор training-data из 👍/👎
+10. **Exit-criteria для orchestra стадий** — `validate_output: "min_length:200"`/`json_schema:...` + retry × 1
 
 ---
 

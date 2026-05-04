@@ -148,27 +148,58 @@ def _save_jtis(user, jtis: list[str]) -> None:
                                      separators=(",", ":"))
 
 
+def _atomic_jtis_update(db, user, mutate):
+    """Read-modify-write набора jti с защитой от race condition.
+    Делаем re-fetch юзера в текущей сессии (фиксирует строку для UPDATE) +
+    re-load jti после fetch — это сериализует параллельные login/refresh
+    одного юзера. Без этого два процесса могли бы потерять чужой jti."""
+    from server.models import User as _U
+    fresh = db.query(_U).filter_by(id=user.id).with_for_update().first() \
+        if db.bind.dialect.name not in ("sqlite",) \
+        else db.query(_U).filter_by(id=user.id).first()
+    target = fresh or user
+    raw = getattr(target, "refresh_jtis", None) or ""
+    try:
+        import json as _json
+        current = [str(x) for x in (_json.loads(raw) or [])
+                   if isinstance(x, (str, int))][:_MAX_ACTIVE_REFRESH_JTIS]
+    except Exception:
+        current = []
+    new_list = mutate(current)
+    if new_list == current:
+        return  # ничего не поменялось — даже не commit'им
+    _save_jtis(target, new_list)
+    db.commit()
+    # Синхронизируем переданный объект (чтобы caller видел актуальное)
+    if target is not user:
+        try: user.refresh_jtis = target.refresh_jtis
+        except Exception: pass
+
+
 def register_refresh_jti(db, user, jti: str) -> None:
     """Зарегистрировать новый jti в наборе активных у юзера. Сохраняет до
     `_MAX_ACTIVE_REFRESH_JTIS` последних — старые выпадают (вытесняются
-    при превышении лимита, юзеру с 11-го устройства придётся перелогиниться)."""
-    jtis = _load_jtis(user)
-    if jti in jtis:
-        return  # уже есть — идемпотентно
-    jtis.append(jti)
-    _save_jtis(user, jtis)
-    db.commit()
+    при превышении лимита, юзеру с 11-го устройства придётся перелогиниться).
+
+    Race-safe: re-fetch юзера + with_for_update (на не-SQLite). Без этого
+    два одновременных login могут потерять jti друг друга."""
+    def _mutate(jtis):
+        if jti in jtis:
+            return jtis  # уже есть — идемпотентно
+        return jtis + [jti]
+    _atomic_jtis_update(db, user, _mutate)
 
 
 def revoke_refresh_jti(db, user, jti: str) -> bool:
     """Удалить jti из активных. Возвращает True если был — False иначе."""
-    jtis = _load_jtis(user)
-    if jti not in jtis:
-        return False
-    jtis = [x for x in jtis if x != jti]
-    _save_jtis(user, jtis)
-    db.commit()
-    return True
+    found = [False]
+    def _mutate(jtis):
+        if jti not in jtis:
+            return jtis
+        found[0] = True
+        return [x for x in jtis if x != jti]
+    _atomic_jtis_update(db, user, _mutate)
+    return found[0]
 
 
 def revoke_all_refresh_jtis(db, user) -> None:

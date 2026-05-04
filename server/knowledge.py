@@ -55,13 +55,40 @@ MAX_TOTAL_TEXT_CHARS = 2_000_000              # ~500 страниц A4
 # ── Извлечение текста ────────────────────────────────────────────────────────
 
 def _abs_path(rel: str) -> str:
-    base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base, "..", rel.lstrip("/")) if not os.path.isabs(rel) else rel
+    """Резолвит относительный путь от корня проекта. Defense-in-depth:
+    результирующий путь обязан быть внутри /uploads/ или /backups/. Любая
+    попытка `..` или абсолютного пути за пределами этих директорий → ValueError.
+    Все callers сейчас уже валидируют через `_validate_attachments` /
+    upload-роуты, но проверка здесь спасает при добавлении нового caller'а
+    забывшего санитайзить путь."""
+    from pathlib import Path as _P
+    base = _P(__file__).resolve().parent.parent  # корень проекта
+    if os.path.isabs(rel):
+        candidate = _P(rel).resolve()
+    else:
+        candidate = (base / rel.lstrip("/")).resolve()
+    # Разрешённые корни — куда юзер может ссылаться
+    allowed_roots = [
+        (base / "uploads").resolve(),
+        (base / "backups").resolve(),
+    ]
+    for root in allowed_roots:
+        try:
+            candidate.relative_to(root)
+            return str(candidate)
+        except ValueError:
+            continue
+    # Не вписалось ни в один разрешённый корень
+    raise ValueError(f"path outside allowed roots: {rel}")
 
 
 def extract_text(file_path: str, mime: str | None = None) -> str:
     """Извлечь текст из файла. Поддержка: PDF, DOCX, XLSX, CSV, TXT, MD, HTML."""
-    abs_path = _abs_path(file_path)
+    try:
+        abs_path = _abs_path(file_path)
+    except ValueError as e:
+        log.warning(f"[KB] reject path: {e}")
+        return ""
     if not os.path.exists(abs_path):
         log.warning(f"[KB] file not found: {file_path}")
         return ""

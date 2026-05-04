@@ -463,8 +463,15 @@ async def wazzup_webhook(bot_id: int, request: Request,
 
     Защита: путь содержит `bot_id`, мы матчим channelId. Подмена возможна
     только если знаешь и bot_id, и channelId — обычно достаточно.
-    Дополнительный уровень: query-param `?secret=` (как у /avito/, MAX/ — те же
-    стандартные tg_webhook_secret от api_key).
+
+    Secret проверяется ДВУМЯ путями (по приоритету):
+      1. HTTP-header `X-Wazzup-Signature: <secret>` — рекомендуемый способ
+         (не попадает в nginx access-логи).
+      2. Query-param `?secret=<secret>` — legacy fallback (DEPRECATED:
+         попадает в логи nginx и Referer-заголовки. Поддерживаем для
+         плавной миграции — старые URL продолжают работать).
+
+    Все секреты — стандартные tg_webhook_secret(api_key).
     """
     from server.security import tg_webhook_secret
     bot = db.query(ChatBot).filter_by(id=bot_id).first()
@@ -473,7 +480,9 @@ async def wazzup_webhook(bot_id: int, request: Request,
     # Проверка secret (computed = HMAC от api_key)
     expected = tg_webhook_secret(bot.wazzup_api_key or "")
     if expected:
-        got = request.query_params.get("secret", "")
+        # Сначала пробуем header (рекомендуемый), потом query (legacy)
+        got = (request.headers.get("x-wazzup-signature")
+                or request.query_params.get("secret", ""))
         import hmac as _hmac
         if not got or not _hmac.compare_digest(got, expected):
             log.warning(f"[Wazzup Bot {bot_id}] invalid secret")
