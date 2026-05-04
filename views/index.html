@@ -2511,7 +2511,7 @@ async function _genTgLinkCode(){
 async function _copyTgCode(code){
   try{
     await navigator.clipboard.writeText('/link ' + code);
-    await aiAlert('Скопировано — вставь в боте', 'success');
+    aiToast('Скопировано — вставь в боте', 'success');
   }catch(e){ aiAlert('Не удалось скопировать. Скопируй вручную команду /link XXXXXX', 'warn'); }
 }
 
@@ -4244,7 +4244,7 @@ async function pollTokenPayment(pid){
   let n=0;const iv=setInterval(async()=>{
     if(n++>60){clearInterval(iv);return;}
     try{const r=await api(`/payment/confirm-tokens/${pid}`);
-      if(r.status==='credited'){clearInterval(iv);await fetchMe();await openCabinet();await aiAlert(`Зачислено ${fmtRub(r.kopecks_added)}!`,'success');}}catch{}
+      if(r.status==='credited'){clearInterval(iv);await fetchMe();await openCabinet();aiToast(`Зачислено ${fmtRub(r.kopecks_added)}!`, 'success');}}catch{}
   },5000);
 }
 

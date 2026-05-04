@@ -377,7 +377,7 @@ async function openProject(id){
   const r = await fetch(`${API}/presentations/projects/${id}`, {headers:hdrs(), credentials:'same-origin'});
   if(!r.ok){ await aiAlert('Ошибка ' + r.status, 'error'); return; }
   const p = await r.json();
-  if(p.doc_type === 'kp'){ await aiAlert('Это старое КП. Открой /proposals.html', 'info'); return; }
+  if(p.doc_type === 'kp'){ aiToast('Это старое КП. Открой /proposals.html', 'info'); return; }
   currentProjectId = p.id;
   currentImages = Array.isArray(p.image_paths) ? p.image_paths : [];
   currentCharts = Array.isArray(p.custom_charts) ? p.custom_charts : [];

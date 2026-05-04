@@ -1614,7 +1614,7 @@ function previewNav(action){
 }
 
 async function replaceSelectedImage(){
-  if(!selectedImg){ await aiAlert('Сначала кликни на картинку в превью', 'info'); return; }
+  if(!selectedImg){ aiToast('Сначала кликни на картинку в превью', 'info'); return; }
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';

@@ -955,9 +955,12 @@ async def run_orchestra(run_id: int) -> dict:
     except Exception as e:
         log.warning(f"[orchestra] PDF gen failed: {type(e).__name__}: {e}")
 
+    owner_id = None
+    sol_title = ""
     with db_session() as db:
         run = db.query(SolutionRun).filter_by(id=run_id).first()
         if run:
+            owner_id = run.user_id
             run.final_output = final_text
             run.pdf_path = pdf_url
             run.total_cost_kop = total_cost
@@ -969,12 +972,27 @@ async def run_orchestra(run_id: int) -> dict:
                 "finished_at": ctx["finished_at"],
             }, ensure_ascii=False)
             db.commit()
+            sol = db.query(Solution).filter_by(id=run.solution_id).first()
+            if sol:
+                sol_title = sol.title or ""
     _notify_run(run_id, {
         "stages": ctx["stages"],
         "status": "done",
         "final_output": final_text,
         "pdf_url": pdf_url,
     })
+    # Web Push: бизнес-решение готово — push владельцу. Может занять до
+    # минуты, юзер мог уйти со страницы — push приведёт обратно.
+    if owner_id:
+        try:
+            from server.push import push_to_user as _push
+            label = (sol_title or "Бизнес-решение")[:60]
+            _push(owner_id,
+                  f"Готов отчёт: «{label}»",
+                  f"Стоимость: {total_cost//100} ₽. Открыть и скачать PDF.",
+                  url="/index.html#solutions")
+        except Exception:
+            pass
 
     log.info(f"[orchestra] run={run_id} DONE total_cost={total_cost}коп stages={len(stages)}")
     return {"status": "done", "final_output": final_text,

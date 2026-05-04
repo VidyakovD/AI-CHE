@@ -715,6 +715,436 @@
     return _origFetch(input, init);
   };
 
+  // ── Touch-targets fix для мобильных ─────────────────────────────────────
+  // Apple HIG / Material guidelines рекомендуют тач-цели ≥44×44px.
+  // У нас много кнопок text-[10px] py-1 px-2 — на iPhone в них трудно попасть.
+  // Решение: на устройствах с pointer:coarse (таппают пальцем, не мышью)
+  // даём всем `<button>` минимальный hit-area через invisible inset-расширение.
+  // Visual размер не меняется (важно для дизайна), но клик-зона расширяется.
+  if (!document.getElementById('ai-touch-fix-style')) {
+    const css = `
+@media (pointer: coarse) {
+  /* Все интерактивные кнопки и линки получают min hit-area 44×44 через
+     invisible padding (через ::after-pseudo чтобы не ломать существующий layout). */
+  button, a[role="button"], .btn, .btn-p, .btn-g, [data-touch-target] {
+    position: relative;
+    min-height: 32px;  /* визуально может оставаться меньше, но контент-бокс ≥ 32 */
+  }
+  button::after, a[role="button"]::after, .btn::after, .btn-p::after, .btn-g::after, [data-touch-target]::after {
+    content: '';
+    position: absolute;
+    /* Если кнопка меньше 44px — это псевдо расширяет hit-area до 44 */
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    min-width: 44px;
+    min-height: 44px;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    z-index: -1;  /* за кнопкой, не перекрывает другие элементы */
+    background: transparent;
+  }
+  /* Для inline-кнопок (внутри текста) не расширяем — может задеть соседей.
+     Маркируем через data-no-touch-fix. */
+  [data-no-touch-fix]::after { display: none; }
+  /* Больше padding для мини-кнопок в действиях карточки. */
+  button.text-\\[10px\\], a.text-\\[10px\\] {
+    padding: 6px 10px !important;
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+  }
+  button.text-\\[11px\\], a.text-\\[11px\\] {
+    padding: 6px 10px !important;
+  }
+  /* Чек-боксы и radio-кнопки тоже увеличиваем */
+  input[type="checkbox"], input[type="radio"] {
+    min-width: 18px;
+    min-height: 18px;
+    transform: scale(1.15);
+    margin: 4px;
+  }
+}
+`;
+    const style = document.createElement('style');
+    style.id = 'ai-touch-fix-style';
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
+
+  // ── Skeleton loader helper ────────────────────────────────────────────────
+  // Замена «Загрузка…» на анимированные серые карточки-плейсхолдеры.
+  // Использование:
+  //   container.innerHTML = aiSkeleton('cards', 3);
+  //   container.innerHTML = aiSkeleton('lines', 4);
+  //   container.innerHTML = aiSkeleton('proposal');  // спец-пресет для КП
+  //   container.innerHTML = aiSkeleton('orchestra'); // спец-пресет для отчёта
+  if (!window.aiSkeleton) {
+    function _ensureCss(){
+      if (document.getElementById('ai-skel-style')) return;
+      const css = `
+@keyframes ai-skel-shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.ai-skel{background:linear-gradient(90deg,rgba(255,255,255,0.04) 25%,rgba(255,255,255,0.10) 50%,rgba(255,255,255,0.04) 75%);background-size:200% 100%;animation:ai-skel-shimmer 1.6s ease-in-out infinite;border-radius:8px;display:block}
+.ai-skel-line{height:14px;margin-bottom:8px}
+.ai-skel-line.short{width:55%}
+.ai-skel-line.med{width:80%}
+.ai-skel-line.long{width:95%}
+.ai-skel-card{padding:14px;border:1px solid rgba(255,255,255,.06);border-radius:12px;margin-bottom:10px}
+.ai-skel-hint{margin-top:14px;font-size:12px;color:rgba(255,255,255,.55);font-style:italic;text-align:center}
+.ai-skel-h{height:22px;width:60%;margin-bottom:14px}
+.ai-skel-img{height:120px;width:100%;margin-bottom:10px}
+`;
+      const style = document.createElement('style');
+      style.id = 'ai-skel-style';
+      style.textContent = css;
+      document.head.appendChild(style);
+    }
+
+    window.aiSkeleton = function(preset, count){
+      _ensureCss();
+      const n = parseInt(count) || 3;
+      let body = '';
+      switch (preset) {
+        case 'lines':
+          body = Array.from({length:n}, (_,i) =>
+            `<span class="ai-skel ai-skel-line ${i%3===0?'short':(i%3===1?'long':'med')}"></span>`
+          ).join('');
+          break;
+        case 'cards':
+          body = Array.from({length:n}, () =>
+            `<div class="ai-skel-card">
+              <span class="ai-skel ai-skel-h"></span>
+              <span class="ai-skel ai-skel-line long"></span>
+              <span class="ai-skel ai-skel-line med"></span>
+              <span class="ai-skel ai-skel-line short"></span>
+            </div>`
+          ).join('');
+          break;
+        case 'proposal':
+          body = `<div class="ai-skel-card">
+            <span class="ai-skel ai-skel-h" style="width:70%"></span>
+            <span class="ai-skel ai-skel-line long"></span>
+            <span class="ai-skel ai-skel-line long"></span>
+            <span class="ai-skel ai-skel-line med"></span>
+          </div>
+          <div class="ai-skel-card">
+            <span class="ai-skel ai-skel-h" style="width:40%"></span>
+            <span class="ai-skel ai-skel-line short"></span>
+            <span class="ai-skel ai-skel-line med"></span>
+          </div>
+          <div class="ai-skel-card">
+            <span class="ai-skel ai-skel-h" style="width:50%"></span>
+            <span class="ai-skel ai-skel-line long"></span>
+            <span class="ai-skel ai-skel-line long"></span>
+            <span class="ai-skel ai-skel-line short"></span>
+          </div>
+          <div class="ai-skel-hint">⏳ AI читает сайт клиента и собирает КП… обычно 15-30 секунд.</div>`;
+          break;
+        case 'orchestra':
+          body = `<div class="ai-skel-card">
+            <span class="ai-skel ai-skel-h" style="width:55%"></span>
+            <span class="ai-skel ai-skel-line long"></span>
+            <span class="ai-skel ai-skel-line med"></span>
+          </div>
+          <div class="ai-skel-card">
+            <span class="ai-skel ai-skel-h" style="width:45%"></span>
+            <span class="ai-skel ai-skel-line long"></span>
+            <span class="ai-skel ai-skel-line long"></span>
+            <span class="ai-skel ai-skel-line short"></span>
+          </div>
+          <div class="ai-skel-hint">⏳ AI-агенты работают параллельно… обычно 1-3 минуты.</div>`;
+          break;
+        default:
+          body = '<span class="ai-skel ai-skel-line long"></span>';
+      }
+      return body;
+    };
+  }
+
+
+  // ── Toast helper ─────────────────────────────────────────────────────────
+  // Не блокирующее уведомление в правом нижнем углу с auto-fade.
+  // Использование:
+  //   aiToast('КП сохранено', 'success');  // success | info | warn | error
+  //   aiToast('Файл удалён');              // default = info
+  //   aiToast('Готово!', 'success', {duration: 2000});
+  //
+  // Лучше aiAlert() для коротких подтверждений (sav/delete/copy) —
+  // не блокирует поток, не требует клика.
+  if (!window.aiToast) {
+    let _stack = null;
+
+    function _ensureStack(){
+      if (_stack) return _stack;
+      const css = `
+#ai-toast-stack{position:fixed;bottom:18px;right:18px;z-index:99995;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none;font:13px/1.4 system-ui,-apple-system,sans-serif}
+.ai-toast{pointer-events:auto;background:#1a1a1d;color:#e6e4f0;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px 14px;box-shadow:0 8px 24px rgba(0,0,0,.4);min-width:200px;max-width:340px;display:flex;align-items:center;gap:10px;animation:ai-toast-in .25s ease}
+.ai-toast .em{font-size:16px;flex-shrink:0}
+.ai-toast .msg{flex:1;line-height:1.4}
+.ai-toast.success{border-color:#7ed957}
+.ai-toast.warn{border-color:#ffb347}
+.ai-toast.error{border-color:#ff5252}
+.ai-toast.info{border-color:rgba(255,140,66,.4)}
+.ai-toast.fade{animation:ai-toast-out .3s ease forwards}
+@keyframes ai-toast-in{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+@keyframes ai-toast-out{to{opacity:0;transform:translateX(20px)}}
+@media(max-width:480px){#ai-toast-stack{bottom:10px;right:10px;left:10px;align-items:stretch}.ai-toast{max-width:none}}
+`;
+      const style = document.createElement('style');
+      style.id = 'ai-toast-style';
+      style.textContent = css;
+      document.head.appendChild(style);
+      _stack = document.createElement('div');
+      _stack.id = 'ai-toast-stack';
+      document.body.appendChild(_stack);
+      return _stack;
+    }
+
+    const _EMOJI = {
+      success: '✅', warn: '⚠️', error: '❌', info: '💬',
+    };
+
+    window.aiToast = function(message, type, opts){
+      type = type || 'info';
+      opts = opts || {};
+      const stack = _ensureStack();
+      const el = document.createElement('div');
+      el.className = `ai-toast ${type}`;
+      el.innerHTML = `<span class="em">${_EMOJI[type] || _EMOJI.info}</span><span class="msg">${window.escHtml(String(message || ''))}</span>`;
+      stack.appendChild(el);
+      const duration = parseInt(opts.duration) || (type === 'error' ? 5000 : 2800);
+      setTimeout(() => {
+        el.classList.add('fade');
+        setTimeout(() => el.remove(), 320);
+      }, duration);
+      // Click → закрыть
+      el.addEventListener('click', () => {
+        el.classList.add('fade');
+        setTimeout(() => el.remove(), 320);
+      });
+      return el;
+    };
+  }
+
+
+  // ── Глобальные шорткаты: Esc для модалок + Ctrl+K command palette ────────
+  // 1. Esc → закрывает верхнюю открытую модалку (.show / [data-modal] / role=dialog)
+  //    Не трогает специальные оверлеи: ai-tour-bg, ai-notif-panel — у них
+  //    свой обработчик. AiPrompt/Confirm уже обрабатывают Esc сами.
+  // 2. Ctrl+K (Cmd+K) → открывает command palette: поиск по
+  //    страницам / последним КП / ботам / сайтам.
+  if (!window.aiShortcuts) {
+    function _closeTopModal(){
+      // Ищем самые верхние «модалки» у которых открыто .show
+      const modals = [
+        ...document.querySelectorAll('.modal.show'),
+        ...document.querySelectorAll('[role="dialog"][aria-modal="true"]:not([hidden])'),
+      ].filter(el => {
+        // Игнорим тех что обрабатываются самостоятельно
+        if (el.id === 'ai-tour-bg') return false;
+        if (el.id === 'ai-notif-panel') return false;
+        // Видимый?
+        return el.offsetParent !== null;
+      });
+      if (!modals.length) return false;
+      // Берём верхнюю по z-index (или последнюю в DOM)
+      const top = modals[modals.length - 1];
+      // Пробуем стандартные пути закрытия
+      const closeBtn = top.querySelector('[data-close], [aria-label="Close"], [aria-label="Закрыть"]');
+      if (closeBtn) closeBtn.click();
+      else top.classList.remove('show');
+      return true;
+    }
+
+    document.addEventListener('keydown', (e) => {
+      // Esc для модалок — но только если фокус НЕ в input/textarea
+      // (там Esc может быть нужен для blur)
+      if (e.key === 'Escape'){
+        const tag = (document.activeElement?.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return;
+        if (_closeTopModal()) e.preventDefault();
+      }
+      // Ctrl+K / Cmd+K → command palette
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'){
+        e.preventDefault();
+        window.aiCmdPalette?.open();
+      }
+    });
+
+    // ── Command palette ─────────────────────────────────────────────────
+    // Минимальная команд-строка с пунктами навигации + поиск.
+    // Источник пунктов: статический список разделов + динамический fetch
+    // /user/recent-objects (3 бота / 3 КП / 3 сайта).
+    const STATIC_ITEMS = [
+      {label: 'Главная — чат с AI',         emoji: '💬', url: '/'},
+      {label: 'Бизнес-решения',             emoji: '🎯', url: '/?tab=solutions'},
+      {label: 'Чат-боты',                   emoji: '🤖', url: '/chatbots.html'},
+      {label: 'Коммерческие предложения',   emoji: '📄', url: '/proposals.html'},
+      {label: 'Презентации',                emoji: '🎬', url: '/presentations.html'},
+      {label: 'Сайты',                      emoji: '🌐', url: '/sites.html'},
+      {label: 'AI-агенты',                  emoji: '🛠️', url: '/agents.html'},
+      {label: 'Кабинет — токены / биллинг', emoji: '💰', url: '/?tab=tokens'},
+      {label: 'Кабинет — настройки',        emoji: '⚙️', url: '/?tab=settings'},
+    ];
+
+    let _palRoot = null;
+    let _palFiltered = [];
+    let _palCursor = 0;
+
+    async function _loadDynamicItems(){
+      const items = [];
+      try {
+        const r = await fetch('/user/recent-objects', {credentials:'same-origin'});
+        if (r.ok){
+          const d = await r.json();
+          for (const b of (d.bots||[])) items.push({
+            label: 'Бот: ' + (b.name || 'Без имени'), emoji: '🤖',
+            url: '/chatbots.html', meta: b.status==='active'?'🟢':'⚪',
+          });
+          for (const p of (d.proposals||[])) items.push({
+            label: 'КП: ' + (p.name || 'Без имени'), emoji: '📄',
+            url: '/proposals.html', meta: p.client_name || '',
+          });
+          for (const s of (d.sites||[])) items.push({
+            label: 'Сайт: ' + (s.name || 'Без имени'), emoji: '🌐',
+            url: '/sites.html', meta: s.gen_status==='done'?'✅':'',
+          });
+        }
+      } catch(e){}
+      return items;
+    }
+
+    function _palRender(){
+      if (!_palRoot) return;
+      const list = _palRoot.querySelector('#ai-pal-list');
+      if (!_palFiltered.length){
+        list.innerHTML = '<div class="ai-pal-empty">Ничего не найдено. Попробуйте «КП», «бот», «сайт»…</div>';
+        return;
+      }
+      list.innerHTML = _palFiltered.map((it, i) => {
+        const cls = i === _palCursor ? 'ai-pal-item active' : 'ai-pal-item';
+        const meta = it.meta ? `<span class="ai-pal-meta">${window.escHtml(it.meta)}</span>` : '';
+        return `<div class="${cls}" data-idx="${i}">
+          <span class="ai-pal-em">${window.escAttr(it.emoji||'•')}</span>
+          <span class="ai-pal-lbl">${window.escHtml(it.label)}</span>
+          ${meta}
+        </div>`;
+      }).join('');
+    }
+
+    function _palFilter(query, allItems){
+      const q = (query || '').trim().toLowerCase();
+      if (!q){ _palFiltered = allItems.slice(0, 12); _palCursor = 0; return; }
+      _palFiltered = allItems.filter(it =>
+        (it.label || '').toLowerCase().includes(q)
+      ).slice(0, 12);
+      _palCursor = 0;
+    }
+
+    function _ensurePalRoot(){
+      if (_palRoot) return _palRoot;
+      const css = `
+#ai-pal-bg{position:fixed;inset:0;background:rgba(10,10,12,.55);z-index:99998;display:none;align-items:flex-start;justify-content:center;padding:80px 16px;backdrop-filter:blur(2px)}
+#ai-pal-bg.open{display:flex;animation:ai-pal-fade .15s}
+@keyframes ai-pal-fade{from{opacity:0}to{opacity:1}}
+#ai-pal-card{width:100%;max-width:540px;background:#1a1a1d;color:#e6e4f0;border:1px solid rgba(255,140,66,.25);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.6);overflow:hidden;font:14px/1.5 system-ui,-apple-system,sans-serif}
+#ai-pal-input{width:100%;padding:14px 18px;background:transparent;border:0;border-bottom:1px solid rgba(255,255,255,.06);color:#fff;font-size:15px;outline:none;font-family:inherit}
+#ai-pal-input::placeholder{color:rgba(255,255,255,.4)}
+#ai-pal-list{max-height:440px;overflow-y:auto;padding:6px 0}
+.ai-pal-item{display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-left:2px solid transparent;transition:background .1s}
+.ai-pal-item:hover,.ai-pal-item.active{background:rgba(255,140,66,.1);border-left-color:#ff8c42}
+.ai-pal-em{font-size:16px;flex-shrink:0}
+.ai-pal-lbl{flex:1;color:#e6e4f0;font-size:13px}
+.ai-pal-meta{font-size:11px;color:rgba(230,228,240,.5);max-width:35%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-pal-empty{padding:24px 18px;text-align:center;color:rgba(230,228,240,.55);font-size:13px}
+#ai-pal-foot{padding:8px 14px;border-top:1px solid rgba(255,255,255,.05);font-size:11px;color:rgba(230,228,240,.5);display:flex;gap:14px;background:#15151a}
+#ai-pal-foot kbd{background:rgba(255,255,255,.06);padding:1px 6px;border-radius:4px;border:1px solid rgba(255,255,255,.08);font-family:inherit;font-size:10px}
+@media(max-width:520px){#ai-pal-bg{padding-top:30px}#ai-pal-card{max-width:none}}
+`;
+      const style = document.createElement('style');
+      style.id = 'ai-pal-style';
+      style.textContent = css;
+      document.head.appendChild(style);
+      const bg = document.createElement('div');
+      bg.id = 'ai-pal-bg';
+      bg.innerHTML = `
+        <div id="ai-pal-card" role="dialog" aria-label="Поиск по разделам">
+          <input id="ai-pal-input" placeholder="Перейти к разделу или объекту…" autocomplete="off" spellcheck="false" />
+          <div id="ai-pal-list"></div>
+          <div id="ai-pal-foot">
+            <span><kbd>↑↓</kbd> навигация</span>
+            <span><kbd>Enter</kbd> открыть</span>
+            <span><kbd>Esc</kbd> закрыть</span>
+          </div>
+        </div>`;
+      document.body.appendChild(bg);
+      _palRoot = bg;
+      const inp = bg.querySelector('#ai-pal-input');
+      let allItems = STATIC_ITEMS.slice();
+      bg.addEventListener('click', (e) => {
+        if (e.target === bg) _close();
+        const item = e.target.closest('.ai-pal-item');
+        if (item){
+          const idx = parseInt(item.dataset.idx);
+          if (_palFiltered[idx]) _navigate(_palFiltered[idx]);
+        }
+      });
+      inp.addEventListener('input', () => {
+        _palFilter(inp.value, allItems);
+        _palRender();
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown'){
+          e.preventDefault();
+          _palCursor = Math.min(_palCursor + 1, _palFiltered.length - 1);
+          _palRender();
+        } else if (e.key === 'ArrowUp'){
+          e.preventDefault();
+          _palCursor = Math.max(0, _palCursor - 1);
+          _palRender();
+        } else if (e.key === 'Enter'){
+          if (_palFiltered[_palCursor]) _navigate(_palFiltered[_palCursor]);
+        } else if (e.key === 'Escape'){
+          _close();
+        }
+      });
+
+      function _close(){
+        bg.classList.remove('open');
+        inp.value = '';
+      }
+      function _navigate(item){
+        if (!item || !item.url) return;
+        _close();
+        window.location.href = item.url;
+      }
+
+      window.aiCmdPalette = {
+        async open(){
+          // Подгружаем dynamic-items
+          const dyn = await _loadDynamicItems();
+          allItems = STATIC_ITEMS.concat(dyn);
+          _palFilter('', allItems);
+          _palRender();
+          bg.classList.add('open');
+          setTimeout(() => inp.focus(), 50);
+        },
+        close: _close,
+      };
+      return bg;
+    }
+    // Lazy-init при первом open()
+    window.aiShortcuts = {init: _ensurePalRoot};
+    // Готовим root сразу но без открытия — чтобы первый Ctrl+K сработал быстро
+    if (document.readyState === 'loading'){
+      document.addEventListener('DOMContentLoaded', _ensurePalRoot);
+    } else {
+      setTimeout(_ensurePalRoot, 100);
+    }
+  }
+
+
   // ── Cost-preview helpers + sticky-balance индикатор ──────────────────────
   // 1. window.aiCostHint(costKop) — возвращает HTML для подписи под кнопкой:
   //      «Спишется 50 ₽ · Баланс 730 ₽ → останется 680 ₽»

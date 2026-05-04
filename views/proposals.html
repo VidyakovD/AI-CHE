@@ -670,7 +670,7 @@ async function duplicateProject(id){
     const newProj = await r.json();
     await loadProjects();
     await openProject(newProj.id);
-    await aiAlert('Копия создана. Заполни поля клиента и нажми «Сгенерировать».', 'success');
+    aiToast('Копия создана. Заполни поля клиента и нажми «Сгенерировать».', 'success');
   }catch(e){ await aiAlertError(e); }
 }
 
@@ -1024,7 +1024,7 @@ async function aiEditSection(sectionHtml){
     if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
     showResult(data.generated_html || _currentHtml);
     const cost = data.cost_kop ? (data.cost_kop / 100).toFixed(2) : '0';
-    await aiAlert(`Блок переписан. Списано ${cost} ₽. PDF пересобран.`, 'success');
+    aiToast(`Блок переписан. Списано ${cost} ₽. PDF пересобран.`, 'success');
     await loadProjects();
   }catch(e){
     await aiAlertError(e);
@@ -1088,9 +1088,9 @@ async function cancelEditHtml(){
 async function saveEditedHtml(){
   if(!currentProjectId) return;
   const html = (_editedHtml || _currentHtml).trim();
-  if(!html){ await aiAlert('Нечего сохранять — правок не было', 'info'); return; }
+  if(!html){ aiToast('Нечего сохранять — правок не было', 'info'); return; }
   if(_editedHtml === '' || _editedHtml === _currentHtml){
-    await aiAlert('Изменений не было — нечего сохранять', 'info');
+    aiToast('Изменений не было — нечего сохранять', 'info');
     return;
   }
   if(html.length > 500000){
@@ -1110,7 +1110,7 @@ async function saveEditedHtml(){
     if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
     exitEditMode();
     showResult(data.generated_html || html);
-    await aiAlert('Сохранено. PDF пересобран.', 'success');
+    aiToast('Сохранено. PDF пересобран.', 'success');
     await loadProjects();
   }catch(e){
     await aiAlertError(e);
@@ -1137,6 +1137,13 @@ async function generateProposal(){
   btn.disabled = true;
   const oldLabel = document.getElementById('pGenBtnLabel').textContent;
   document.getElementById('pGenBtnLabel').textContent = 'Генерирую…';
+  // Skeleton-плейсхолдер вместо «Загрузка...» — юзер видит что ИИ
+  // работает (примерно 15-30 сек), не пугается белого экрана.
+  const resWrap = document.getElementById('pResult');
+  if (resWrap && window.aiSkeleton){
+    resWrap.classList.remove('hidden');
+    resWrap.innerHTML = `<div class="p-4">${window.aiSkeleton('proposal')}</div>`;
+  }
   try{
     const r = await fetch(`${API}/proposals/projects/${currentProjectId}/generate`,
                           {method:'POST', headers: hdrs(), credentials:'same-origin'});
@@ -1145,7 +1152,11 @@ async function generateProposal(){
     showResult(data.generated_html || '');
     updateGenButton(data);
     await loadProjects();
-  }catch(e){ await aiAlertError(e); }
+    if (window.aiToast) aiToast('КП готово!', 'success');
+  }catch(e){
+    if (resWrap) resWrap.innerHTML = '';
+    await aiAlertError(e);
+  }
   finally{
     btn.disabled = false;
     document.getElementById('pGenBtnLabel').textContent = oldLabel;
@@ -1186,7 +1197,7 @@ async function togglePublicLink(){
     if(choice){
       try{
         await navigator.clipboard.writeText(url);
-        await aiAlert('Ссылка скопирована в буфер обмена', 'success');
+        aiToast('Ссылка скопирована в буфер обмена', 'success');
       }catch(e){
         await aiAlert(url, 'info');
       }
@@ -1195,7 +1206,7 @@ async function togglePublicLink(){
       try{
         await fetch(`${API}/proposals/projects/${currentProjectId}/public-link`,
                     {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
-        await aiAlert('Публичная ссылка отозвана. Старый URL больше не работает.', 'info');
+        aiToast('Публичная ссылка отозвана. Старый URL больше не работает.', 'info');
         document.getElementById('pPublicInfo').classList.add('hidden');
       }catch(e){ await aiAlertError(e); }
     }
@@ -1213,7 +1224,7 @@ async function togglePublicLink(){
     const data = await r2.json();
     try{
       await navigator.clipboard.writeText(data.url);
-      await aiAlert(`Ссылка создана и скопирована:\n\n${data.url}`, 'success');
+      aiToast(`Ссылка создана и скопирована:\n\n${data.url}`, 'success');
     }catch(e){
       await aiAlert(`Ссылка создана:\n\n${data.url}`, 'info');
     }
@@ -1273,7 +1284,7 @@ async function restoreVersion(versionId){
     if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
     showResult(data.generated_html || '');
     closeVersions();
-    await aiAlert('Версия восстановлена. PDF пересобран.', 'success');
+    aiToast('Версия восстановлена. PDF пересобран.', 'success');
     await loadProjects();
   }catch(e){ await aiAlertError(e); }
 }
@@ -1342,7 +1353,7 @@ async function sendEmail(){
       info.textContent = `✓ Отправлено на ${data.to} — ${dt}`;
       info.classList.remove('hidden');
     }
-    await aiAlert(`КП отправлено на ${data.to}`, 'success');
+    aiToast(`КП отправлено на ${data.to}`, 'success');
     await loadProjects();
   }catch(e){
     await aiAlertError(e);
@@ -1821,7 +1832,7 @@ async function savePriceList(){
     }
     closePriceListModal();
     await loadPriceLists();
-    await aiAlert('Прайс сохранён', 'success');
+    aiToast('Прайс сохранён', 'success');
   }catch(e){ await aiAlertError(e); }
 }
 
@@ -1854,7 +1865,7 @@ async function importPriceCsv(ev){
     const data = await r.json();
     if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
     await openPriceListModal(currentPriceListId);
-    await aiAlert(`Импортировано ${data.added} позиций`, 'success');
+    aiToast(`Импортировано ${data.added} позиций`, 'success');
   }catch(e){ await aiAlertError(e); }
   finally{ ev.target.value = ''; }
 }

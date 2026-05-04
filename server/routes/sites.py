@@ -690,14 +690,26 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
                 p.gen_progress = f"Готово! {len(content)//1024} KB"
                 p.gen_error = None
                 db.commit()
+                # Web Push (VAPID): сайт готов — уведомление владельцу
+                # (если он закрыл вкладку, увидит push в браузере)
+                try:
+                    from server.push import push_to_user as _push
+                    _push(p.user_id,
+                          f"Сайт «{p.name}» готов",
+                          f"Открыть превью или скачать ZIP можно в /sites.html",
+                          url="/sites.html")
+                except Exception:
+                    pass
         log.info(f"[Sites/bg] project {project_id} done tier={quality} ({len(content)} symbols)")
 
     except Exception as e:
         log.error(f"[Sites/bg] project {project_id} failed: {e}", exc_info=True)
+        owner_id = None
         try:
             with db_session() as db:
                 p = db.query(SiteProject).filter_by(id=project_id).first()
                 if p:
+                    owner_id = p.user_id
                     p.gen_status = "failed"
                     # Не пишем сам exception в текст — может содержать proxy URL
                     # с креденшалами или API-ключ. Тип достаточен для UX.
@@ -708,6 +720,16 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
             pass
         # Авто-возврат списанной суммы (идемпотентен, не дублируется)
         _refund_site_generation(project_id, f"{type(e).__name__}: {e}"[:200])
+        # Web Push: сообщить владельцу что сайт не получился + деньги вернули
+        if owner_id:
+            try:
+                from server.push import push_to_user as _push
+                _push(owner_id,
+                      "Не удалось сгенерировать сайт",
+                      "Деньги возвращены на баланс. Попробуйте уточнить ТЗ и запустить снова.",
+                      url="/sites.html")
+            except Exception:
+                pass
 
 
 @router.post("/sites/projects/{project_id}/generate-code")

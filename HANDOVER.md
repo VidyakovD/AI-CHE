@@ -4,6 +4,52 @@
 
 ---
 
+## 🆕 Спринт «UX добавки — 6 фич» (2026-05-04 поздно ночью)
+
+После предыдущего спринта (5 quick wins) юзер дал «делай что можешь». Сделал ещё 6 mid-priority улучшений в одном коммите.
+
+### #1. Web Push на ключевые события
+Хуки уже были на `record.created` и `proposal.opened` — добавил ещё на:
+- **`site.generate_done`** ([routes/sites.py](server/routes/sites.py:691)): «Сайт «X» готов. Открыть превью или скачать ZIP»
+- **`site.generate_failed`** ([routes/sites.py](server/routes/sites.py:715)): «Не удалось сгенерировать сайт. Деньги возвращены»
+- **`solution.orchestra_done`** ([solutions_orchestra.py](server/solutions_orchestra.py:983)): «Готов отчёт: «Полный SWOT-анализ». Стоимость: 150 ₽»
+
+### #2. Глобальные шорткаты Esc + Ctrl+K command palette
+- **Esc** в `icons.js` — закрывает верхнюю открытую модалку (`.show` или `[role=dialog]`), не трогая ai-tour и ai-notif (у них свой обработчик). Не срабатывает в input/textarea (там Esc может быть нужен для blur).
+- **Ctrl+K / Cmd+K** — открывает command palette `aiCmdPalette`: 9 статических пунктов навигации (главная, бизнес-решения, чат-боты, КП, презентации, сайты, агенты, токены, настройки) + динамические из `/user/recent-objects` (3 бота / 3 КП / 3 сайта). ↑↓ навигация, Enter открыть, Esc закрыть. Поиск по labels.
+
+### #3. Toast helper + замена aiAlert на toast (16 мест)
+- `window.aiToast(msg, type, opts)` в `icons.js` — non-blocking уведомление в правом нижнем углу с auto-fade. 4 типа: success/info/warn/error. Auto-fade 2.8с (5с для error). Click → закрыть досрочно.
+- Mass-replace во всех views: `await aiAlert(<short_msg>, 'success'|'info')` → `aiToast(<msg>, 'success'|'info')` где `<msg>` — однострочное короткое сообщение без `\n`. **16 замен** в proposals (12), index (2), sites (1), presentations (1).
+- Длинные `aiAlert` с `\n` НЕ тронуты — они блокирующие, юзер должен прочитать.
+
+### #4. Workflow node labels — проверено, уже сделано
+Решения уже имеют русские labels в `agents.html`: `trigger_tg → "Telegram"`, `output_tg → "Ответить в TG"`, `kb_search → "БЗ: поиск"`. Технические идентификаторы не показываются юзеру.
+
+### #5. Skeleton loader helper + применение в proposals.html
+- `window.aiSkeleton(preset, count)` в `icons.js`: 4 пресета — `lines` (3 серых строки разной длины), `cards` (N карточек), `proposal` (3 карточки с подсказкой «AI читает сайт клиента и собирает КП…»), `orchestra` («AI-агенты работают параллельно… 1-3 минуты»). Анимация shimmer-эффект 1.6s.
+- В `generateProposal()` в proposals.html — пока идёт 15-30 сек генерация, в `#pResult` отрисовываются skeleton-карточки вместо белого экрана.
+- Завершение → `aiToast('КП готово!', 'success')`.
+
+### #6. Touch-targets fix для мобильных через CSS-инжект
+- Universal `<style id="ai-touch-fix-style">` в `icons.js` — на устройствах с `pointer:coarse` (тач-экраны):
+  - `text-[10px]` кнопки → `padding:6px 10px; font-size:11px`
+  - `text-[11px]` кнопки → `padding:6px 10px`
+  - Чекбоксы и radio → `transform: scale(1.15)`
+  - Все `button/a[role=button]/.btn*` получают `::after` псевдо-расширение hit-area до min 44×44px (z-index:-1, не перекрывает соседей)
+- Visual-размер не меняется на десктопе (только pointer:coarse). Соответствует Apple HIG / Material Design рекомендациям.
+
+### Тесты
+- 164/164 passed
+- JS sanity-check 8 файлов — OK
+- Preview-сверка через preview_eval с залогиненым юзером:
+  - `aiToast` — 3 уведомления отрисовались в стеке
+  - `aiSkeleton` — все 4 пресета возвращают валидный HTML
+  - `aiCmdPalette.open()` — 9 пунктов меню, поиск работает
+  - Console errors — 0
+
+---
+
 ## 🆕 Спринт «Friendly UX — 5 quick wins» (2026-05-04 ночью)
 
 Юзер запросил «предложения по friendly-дизайну для пользователей». Сделал 5 параллельных улучшений в одном спринте — всё через `views/icons.js` (загружается на каждой странице) + новые endpoints в `server/routes/user.py`.
