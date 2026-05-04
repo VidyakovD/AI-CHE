@@ -29,6 +29,9 @@ markdown==3.8.1
 xhtml2pdf==0.2.16
 # QR-генерация (для QR-логина и встраивания в КП/презентации)
 qrcode==8.2
+# 2FA (TOTP) для админки — генерация secret + проверка 6-значных кодов из
+# Google Authenticator / Authy / 1Password.
+pyotp==2.9.0
 # RAG: извлечение текста из XLSX (knowledge base)
 openpyxl==3.1.5
 # Извлечение текста из PDF

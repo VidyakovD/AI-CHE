@@ -110,6 +110,9 @@ select.inp option{background:#272018;color:#f0e6d8}
       <button onclick="showSec('marketplace')" data-sec="marketplace" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M19 6h-2c0-2.76-2.24-5-5-5S7 3.24 7 6H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-7-3c1.66 0 3 1.34 3 3H9c0-1.66 1.34-3 3-3z"/></svg>Marketplace
       </button>
+      <button onclick="showSec('security')" data-sec="security" class="sec-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-on-dim hover:text-on-surface hover:bg-surface2 transition text-left">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:17px;height:17px"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>Безопасность 2FA
+      </button>
     </nav>
 
     <main class="flex-1 p-5 overflow-auto">
@@ -291,6 +294,17 @@ select.inp option{background:#272018;color:#f0e6d8}
           </button>
         </div>
         <div id="faqList" class="space-y-3"></div>
+      </div>
+
+      <!-- Security: 2FA -->
+      <div id="sec-security" class="sec hidden space-y-5">
+        <div>
+          <h2 class="text-lg font-bold font-headline">🔐 Двухфакторная аутентификация (2FA)</h2>
+          <p class="text-xs text-on-dim mt-1">Защита админ-аккаунта от компрометации пароля. Используйте Google Authenticator / Authy / 1Password.</p>
+        </div>
+        <div id="sec2faPanel" class="card p-5">
+          <div id="sec2faLoading" class="text-on-dim">Загрузка…</div>
+        </div>
       </div>
 
       <!-- Marketplace moderation -->
@@ -607,6 +621,129 @@ function showSec(sec){
   if(sec==="support")    loadSupport();
   if(sec==="audit")      loadAudit();
   if(sec==="marketplace") loadMarketplace();
+  if(sec==="security") load2FA();
+}
+
+// ── 2FA админки ───────────────────────────────────────────────────────────
+async function load2FA(){
+  const panel = document.getElementById('sec2faPanel');
+  panel.innerHTML = '<div class="text-on-dim">Загрузка…</div>';
+  try {
+    const r = await fetch('/admin/2fa/status', {credentials:'same-origin'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (d.enabled){
+      panel.innerHTML = `
+        <div class="flex items-start gap-4">
+          <div class="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-2xl">✓</div>
+          <div class="flex-1">
+            <div class="font-bold text-lg mb-1">2FA включён</div>
+            <p class="text-sm text-on-dim mb-3">Ваш аккаунт защищён. При логине будет запрашиваться 6-значный код из приложения 2FA.</p>
+            <div class="flex items-center gap-2">
+              <input id="totpDisableCode" inputmode="numeric" pattern="\\d{6}" maxlength="6" class="inp" style="width:120px" placeholder="000000">
+              <button onclick="disable2FA()" class="btn-d">Отключить 2FA</button>
+            </div>
+            <p class="text-xs text-on-dim/60 mt-2">Введите текущий код из Authenticator чтобы подтвердить отключение.</p>
+          </div>
+        </div>`;
+    } else {
+      panel.innerHTML = `
+        <div class="flex items-start gap-4">
+          <div class="w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-2xl">⚠</div>
+          <div class="flex-1">
+            <div class="font-bold text-lg mb-1">2FA не включён</div>
+            <p class="text-sm text-on-dim mb-3">Рекомендуем включить — защита от компрометации пароля.</p>
+            <button onclick="setup2FA()" class="btn-p">Настроить 2FA</button>
+          </div>
+        </div>`;
+    }
+  } catch(e){
+    panel.innerHTML = `<div class="text-error">Ошибка: ${esc(e.message||e)}</div>`;
+  }
+}
+
+async function setup2FA(){
+  try {
+    const r = await fetch('/admin/2fa/setup', {method:'POST', credentials:'same-origin'});
+    if (!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'HTTP ' + r.status);
+    }
+    const d = await r.json();
+    const panel = document.getElementById('sec2faPanel');
+    panel.innerHTML = `
+      <div class="space-y-4">
+        <div>
+          <div class="font-bold text-lg mb-2">Шаг 1. Отсканируйте QR-код</div>
+          <p class="text-sm text-on-dim mb-3">Откройте Google Authenticator / Authy / 1Password и отсканируйте этот QR-код:</p>
+          <div class="flex justify-center bg-white p-4 rounded-lg" style="max-width:300px">
+            <img src="${esc(d.qr_data_url)}" alt="QR" style="display:block;max-width:100%;height:auto"/>
+          </div>
+          <details class="mt-3">
+            <summary class="cursor-pointer text-xs text-primary">Не получается — ввести вручную</summary>
+            <div class="mt-2 text-xs text-on-dim">
+              <p>Введите в Authenticator вручную:</p>
+              <pre class="bg-surface2 p-2 rounded mt-1 text-[10px] break-all">Тип: TOTP\nИздатель: ${esc(d.issuer)}\nАккаунт: ${esc(d.label)}\nКлюч: ${esc(d.secret)}</pre>
+            </div>
+          </details>
+        </div>
+        <div>
+          <div class="font-bold text-lg mb-2">Шаг 2. Введите 6-значный код</div>
+          <p class="text-sm text-on-dim mb-3">Authenticator показывает новый код каждые 30 секунд. Введите текущий:</p>
+          <div class="flex items-center gap-2">
+            <input id="totpEnableCode" inputmode="numeric" pattern="\\d{6}" maxlength="6" class="inp" style="width:140px;font-size:18px;text-align:center;letter-spacing:0.3em" placeholder="000000" autofocus>
+            <button onclick="enable2FA()" class="btn-p">Включить 2FA</button>
+          </div>
+        </div>
+        <div class="text-xs text-on-dim/70 bg-surface2 p-3 rounded-lg border border-outline/20">
+          ⚠️ Сохраните секрет в безопасном месте (1Password / резервный код).
+          Если потеряете доступ к Authenticator-приложению — придётся восстанавливать через DB.
+        </div>
+      </div>`;
+  } catch(e){
+    if (window.aiAlertError) await aiAlertError(e); else alert(e.message);
+  }
+}
+
+async function enable2FA(){
+  const code = (document.getElementById('totpEnableCode').value||'').trim();
+  if (!/^\d{6}$/.test(code)){
+    if (window.aiAlert) await aiAlert('Код должен быть 6 цифр', 'warn'); return;
+  }
+  try {
+    const r = await fetch('/admin/2fa/enable', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({code}),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+    if (window.aiToast) aiToast('2FA включён! Теперь будет запрашиваться код при логине.', 'success');
+    load2FA();
+  } catch(e){
+    if (window.aiAlertError) await aiAlertError(e); else alert(e.message);
+  }
+}
+
+async function disable2FA(){
+  const code = (document.getElementById('totpDisableCode').value||'').trim();
+  if (!/^\d{6}$/.test(code)){
+    if (window.aiAlert) await aiAlert('Введите текущий код из Authenticator', 'warn'); return;
+  }
+  if (!await aiConfirm('Точно отключить 2FA? Аккаунт станет менее защищённым.', {okLabel: 'Отключить', danger: true})) return;
+  try {
+    const r = await fetch('/admin/2fa/disable', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({code}),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+    if (window.aiToast) aiToast('2FA отключён', 'info');
+    load2FA();
+  } catch(e){
+    if (window.aiAlertError) await aiAlertError(e); else alert(e.message);
+  }
 }
 
 // ── Marketplace модерация ─────────────────────────────────────────────────

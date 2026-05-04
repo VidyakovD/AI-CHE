@@ -186,6 +186,9 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("users", "notifications_last_seen_at", "DATETIME"),
     # Welcome-tour для новичков: 4-шаговый онбординг на главной.
     ("users", "onboarding_completed", "BOOLEAN DEFAULT 0"),
+    # 2FA админки (TOTP). totp_secret шифруется через EncryptedString.
+    ("users", "totp_secret", "VARCHAR"),
+    ("users", "totp_enabled", "BOOLEAN DEFAULT 0"),
 ]
 
 # Note: push_subscriptions / solution_run_templates создаются Base.metadata.create_all

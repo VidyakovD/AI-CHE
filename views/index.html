@@ -374,6 +374,10 @@ body.welcome #inputArea{display:none!important}
     <div class="space-y-3">
       <input id="li_email" type="email" placeholder="Email" class="inp"/>
       <input id="li_pass"  type="password" placeholder="Пароль" class="inp" onkeydown="if(event.key==='Enter')doLogin()"/>
+      <div id="li_totp_row" class="hidden">
+        <input id="li_totp" type="text" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="🔐 Код 2FA (6 цифр)" class="inp" autocomplete="one-time-code" style="text-align:center;font-size:18px;letter-spacing:0.3em" onkeydown="if(event.key==='Enter')doLogin()"/>
+        <p class="text-xs text-on-surface-dim/60 mt-1">Откройте приложение Google Authenticator / Authy / 1Password и введите текущий код.</p>
+      </div>
       <div id="li_err" class="err"></div>
       <button onclick="doLogin()" class="btn-p">Войти</button>
       <div class="flex justify-between text-sm text-on-surface-dim pt-1">
@@ -1513,17 +1517,33 @@ async function checkIsAdmin(){
 async function doLogin(){
   const email=document.getElementById("li_email").value.trim();
   const pass=document.getElementById("li_pass").value;
+  // Если поле для TOTP-кода видно — берём оттуда (повторная попытка с 2FA)
+  const totpField = document.getElementById("li_totp");
+  const totpCode = totpField && !totpField.parentElement.classList.contains("hidden")
+    ? totpField.value.trim() : "";
   const err=document.getElementById("li_err");
   err.style.display="none";
   try{
-    const r=await apiPost("/auth/login",{email,password:pass});
+    const body = {email, password: pass};
+    if (totpCode) body.totp_code = totpCode;
+    const r=await apiPost("/auth/login", body);
     if(r.status==="pending_verification"){
       pendingVerifyUserId=r.user_id;pendingVerifyEmail=email;
       document.getElementById("verifyEmailDisplay").textContent=email;
       closeM("loginModal");openM("verifyModal");
+    } else if (r.status==="totp_required"){
+      // Админ с включённым 2FA → показываем поле кода
+      const totpRow = document.getElementById("li_totp_row");
+      if (totpRow) totpRow.classList.remove("hidden");
+      if (totpField){ totpField.value = ""; totpField.focus(); }
+      err.textContent = "Введите 6-значный код из приложения 2FA";
+      err.style.display = "block";
     }else{
       authToken=r.token;localStorage.setItem("obs_token",authToken);
       currentUser=r.user;closeM("loginModal");updateAuthUI();loadChats();startBalancePolling();
+      // Скроем поле 2FA на случай повторного логина
+      const totpRow = document.getElementById("li_totp_row");
+      if (totpRow) totpRow.classList.add("hidden");
     }
   }catch(e){err.textContent=e.message||"Ошибка входа";err.style.display="block";}
 }

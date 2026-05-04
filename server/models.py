@@ -71,6 +71,11 @@ class User(Base):
     notifications_last_seen_at = Column(DateTime, nullable=True)
     # Welcome-tour: показывали ли юзеру 4-шаговый онбординг при первом входе.
     onboarding_completed = Column(Boolean, default=False)
+    # 2FA через TOTP (Google Authenticator / Authy / 1Password).
+    # totp_secret хранится в EncryptedString — на лету шифруется/расшифровывается.
+    # Только админам — обычным юзерам не предлагаем 2FA пока что.
+    totp_secret  = Column(EncryptedString, nullable=True)
+    totp_enabled = Column(Boolean, default=False)
     created_at       = Column(DateTime, default=datetime.utcnow)
 
     messages      = relationship("Message",      back_populates="user")

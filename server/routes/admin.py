@@ -1122,3 +1122,104 @@ def admin_update_pricing(body: PricingUpdateBody,
     log_action("admin.pricing_update", user_id=user.id, target_type="pricing",
                target_id=body.key, details={"value_kop": body.value_kop})
     return {"status": "updated", "key": body.key, "value_kop": body.value_kop}
+
+
+# ── 2FA (TOTP) для админки ──────────────────────────────────────────────────
+# Защищает админ-аккаунты при компрометации пароля. Включается отдельно
+# каждым админом через UI (admin.html → вкладка 2FA → отсканировать QR).
+# При логине admin@-аккаунта с включённым 2FA backend требует второй фактор —
+# 6-значный код из Google Authenticator/Authy/1Password.
+#
+# Хранение: User.totp_secret (EncryptedString, AES-GCM via HKDF от JWT_SECRET).
+# Окно проверки: ±1 шаг 30 сек = до 90 секунд расхождения часов.
+
+class _TotpVerifyBody(BaseModel):
+    code: str
+
+
+@router.post("/2fa/setup")
+def admin_2fa_setup(user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    """Сгенерить новый TOTP secret + provisioning URI.
+    Юзер сканирует QR в Authenticator-приложении, потом подтверждает кодом
+    через /2fa/enable. До /enable secret НЕ сохраняется как enabled — его
+    можно регенерировать повторным /setup."""
+    require_admin(user)
+    import pyotp
+    secret = pyotp.random_base32()
+    # Сохраняем секрет (EncryptedString автоматически шифрует), но НЕ
+    # включаем — нужен подтверждающий код.
+    user.totp_secret = secret
+    user.totp_enabled = False
+    db.commit()
+    issuer = "AI-Studio-Che"
+    label = user.email or f"admin-{user.id}"
+    uri = pyotp.TOTP(secret).provisioning_uri(name=label, issuer_name=issuer)
+    # QR-код в data URL чтобы фронт нарисовал картинку
+    import qrcode, io, base64
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    qr_data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    from server.audit_log import log_action
+    log_action("admin.2fa_setup_started", user_id=user.id,
+               target_type="user", target_id=str(user.id))
+    return {
+        "secret": secret,
+        "provisioning_uri": uri,
+        "qr_data_url": qr_data_url,
+        "issuer": issuer,
+        "label": label,
+        "warning": "Сохраните секрет в безопасном месте на случай потери устройства.",
+    }
+
+
+@router.post("/2fa/enable")
+def admin_2fa_enable(body: _TotpVerifyBody, user: User = Depends(current_user),
+                      db: Session = Depends(get_db)):
+    """Подтвердить код от Authenticator → включить 2FA."""
+    require_admin(user)
+    if not user.totp_secret:
+        raise HTTPException(400, "Сначала вызовите /admin/2fa/setup")
+    import pyotp
+    code = (body.code or "").strip().replace(" ", "")
+    if not code.isdigit() or len(code) != 6:
+        raise HTTPException(400, "Код должен быть 6 цифр")
+    totp = pyotp.TOTP(user.totp_secret)
+    if not totp.verify(code, valid_window=1):
+        raise HTTPException(400, "Неверный код")
+    user.totp_enabled = True
+    db.commit()
+    from server.audit_log import log_action
+    log_action("admin.2fa_enabled", user_id=user.id, level="warn",
+               target_type="user", target_id=str(user.id))
+    return {"status": "enabled"}
+
+
+@router.post("/2fa/disable")
+def admin_2fa_disable(body: _TotpVerifyBody, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Выключить 2FA. Требуется текущий код для подтверждения (защита от
+    случайного отключения злоумышленником с украденной сессией)."""
+    require_admin(user)
+    if not user.totp_enabled or not user.totp_secret:
+        return {"status": "already_disabled"}
+    import pyotp
+    code = (body.code or "").strip().replace(" ", "")
+    totp = pyotp.TOTP(user.totp_secret)
+    if not totp.verify(code, valid_window=1):
+        raise HTTPException(400, "Неверный код")
+    user.totp_secret = None
+    user.totp_enabled = False
+    db.commit()
+    from server.audit_log import log_action
+    log_action("admin.2fa_disabled", user_id=user.id, level="warn",
+               target_type="user", target_id=str(user.id))
+    return {"status": "disabled"}
+
+
+@router.get("/2fa/status")
+def admin_2fa_status(user: User = Depends(current_user)):
+    """Включен ли 2FA у текущего админа."""
+    require_admin(user)
+    return {"enabled": bool(user.totp_enabled)}

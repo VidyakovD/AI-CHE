@@ -42,6 +42,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+    totp_code: str | None = None  # для админов с 2FA
 
 
 class VerifyEmailRequest(BaseModel):
@@ -226,6 +227,32 @@ def login(req: LoginRequest, response: Response, request: Request,
         # (см. ResendVerifyRequest), а не user_id.
         return {"status": "pending_verification",
                 "message": "Подтвердите email. Выслать код повторно?"}
+
+    # 2FA для админов: если у юзера включён TOTP, требуем код.
+    # Возвращаем НЕ-ошибку а специальный статус — фронт покажет поле кода
+    # без перелогинивания (более UX-friendly чем 401 с "wrong code").
+    from server.security import ADMIN_EMAILS
+    is_admin_user = (user.email or "").lower() in ADMIN_EMAILS
+    if is_admin_user and user.totp_enabled and user.totp_secret:
+        provided = (req.totp_code or "").strip().replace(" ", "")
+        if not provided:
+            return {"status": "totp_required",
+                    "message": "Введите 6-значный код из приложения 2FA"}
+        if not provided.isdigit() or len(provided) != 6:
+            raise HTTPException(401, "Код 2FA должен быть 6 цифр")
+        try:
+            import pyotp
+            totp = pyotp.TOTP(user.totp_secret)
+            if not totp.verify(provided, valid_window=1):
+                from server.audit_log import log_action
+                log_action("auth.2fa_failed", user_id=user.id, level="warn",
+                           target_type="user", target_id=str(user.id))
+                raise HTTPException(401, "Неверный код 2FA")
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.error(f"2FA verify error: {type(e).__name__}: {e}")
+            raise HTTPException(500, "Ошибка проверки 2FA")
 
     # Security alert: вход с нового IP — уведомляем юзера на email.
     # Не блокируем login — это только уведомление. Не шлём при первом входе
