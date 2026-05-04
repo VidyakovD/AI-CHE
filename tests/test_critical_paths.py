@@ -748,3 +748,72 @@ class TestSolutionsOrchestra:
         # 2 упоминания в коде: один в run_orchestra, один в restage
         assert src.count('"generate_image"') >= 2
         assert "_run_generate_image" in src
+
+    def test_compare_endpoints(self):
+        """Compare-endpoints зарегистрированы."""
+        import main
+        paths = {r.path for r in main.app.routes if hasattr(r, "path")}
+        assert "/solutions/{solution_id}/orchestra/start-compare" in paths
+        assert "/solutions/compare/{compare_group}" in paths
+
+
+class TestMarketplace:
+    """Marketplace ботов: модели, endpoints, share-логика."""
+
+    def test_marketplace_endpoints_registered(self):
+        import main
+        paths = {r.path for r in main.app.routes if hasattr(r, "path")}
+        assert "/marketplace/listings" in paths
+        assert "/marketplace/listings/{listing_id}" in paths
+        assert "/marketplace/listings/{listing_id}/install" in paths
+        assert "/marketplace/listings/{listing_id}/review" in paths
+        assert "/marketplace/my-listings" in paths
+        assert "/marketplace/admin/pending" in paths
+        assert "/marketplace/admin/listings/{listing_id}/approve" in paths
+
+    def test_marketplace_models_importable(self):
+        from server.models import (BotMarketplaceListing,
+                                    BotMarketplaceInstall)
+        assert BotMarketplaceListing.__tablename__ == "bot_marketplace_listings"
+        assert BotMarketplaceInstall.__tablename__ == "bot_marketplace_installs"
+
+
+class TestPublicAPI:
+    """Public API: токены + endpoints."""
+
+    def test_api_endpoints_registered(self):
+        import main
+        paths = {r.path for r in main.app.routes if hasattr(r, "path")}
+        assert "/api-tokens" in paths
+        assert "/api-tokens/{token_id}" in paths
+        assert "/api/v1/me" in paths
+        assert "/api/v1/proposals/generate" in paths
+        assert "/api/v1/proposals/{proposal_id}" in paths
+
+    def test_api_token_secret_hashed(self):
+        """Секрет НЕ должен храниться в plain — только hash."""
+        from server.routes.public_api import _hash_secret
+        h1 = _hash_secret("abc123")
+        h2 = _hash_secret("abc123")
+        h3 = _hash_secret("abc124")
+        assert h1 == h2  # детерминированный
+        assert h1 != h3  # разные secrets → разные hash
+        assert len(h1) == 64  # sha256 hex
+
+    def test_api_token_authenticate_invalid(self):
+        from fastapi.testclient import TestClient
+        import main
+        client = TestClient(main.app)
+        # Без токена — 401
+        r = client.get("/api/v1/me")
+        assert r.status_code == 401
+        # Не bearer — 401
+        r = client.get("/api/v1/me", headers={"Authorization": "Basic xxx"})
+        assert r.status_code == 401
+        # Неправильный префикс — 401
+        r = client.get("/api/v1/me", headers={"Authorization": "Bearer wrong_token"})
+        assert r.status_code == 401
+        # Правильный формат, но несуществующий токен
+        r = client.get("/api/v1/me",
+                        headers={"Authorization": "Bearer ai_che_aaaaaaaa_" + "f"*48})
+        assert r.status_code == 401

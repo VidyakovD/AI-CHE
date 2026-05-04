@@ -292,6 +292,54 @@ class OrchestraStartBody(BaseModel):
     attachments: list[OrchestraAttachment] | None = None
 
 
+class OrchestraCompareBody(BaseModel):
+    """Параллельный запуск одного Solution на N моделях для сравнения."""
+    input: str
+    attachments: list[OrchestraAttachment] | None = None
+    models: list[str]   # 2-3 модели: например ["claude-sonnet", "claude-opus"]
+
+
+def _validate_attachments(atts: list | None) -> list[dict]:
+    """Общая валидация attachments из orchestra-запросов.
+
+    Каждый file_url должен указывать на /uploads/*, реально существовать
+    на диске, быть в безопасных пределах размера. Возвращает нормализованный
+    список dict-ов для записи в SolutionRun.attachments_json.
+    """
+    if not atts:
+        return []
+    from pathlib import Path as _P
+    import os as _os
+    proj_root = _P(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))).resolve()
+    uploads_root = (proj_root / "uploads").resolve()
+    out: list[dict] = []
+    for att in atts[:5]:
+        url = (att.file_url or "").strip()
+        if not url.startswith("/uploads/") or len(url) > 500:
+            raise HTTPException(400, f"Некорректный file_url: {url[:60]}")
+        try:
+            abs_p = (proj_root / url.lstrip("/")).resolve()
+            abs_p.relative_to(uploads_root)
+        except (ValueError, OSError):
+            raise HTTPException(400, "Файл вне разрешённой директории")
+        if not abs_p.is_file():
+            raise HTTPException(404, f"Файл не найден: {att.name or url}")
+        try:
+            size_bytes = abs_p.stat().st_size
+        except OSError:
+            size_bytes = att.size or 0
+        if size_bytes > 25 * 1024 * 1024:
+            raise HTTPException(413, f"Файл больше 25 МБ: {att.name or url}")
+        kind = (att.kind or "doc").strip()
+        if kind not in ("doc", "image", "sheet", "other"):
+            kind = "doc"
+        out.append({
+            "file_url": url, "name": (att.name or "")[:200],
+            "mime": (att.mime or "")[:100], "kind": kind, "size": size_bytes,
+        })
+    return out
+
+
 @router.post("/solutions/{solution_id}/orchestra/start")
 async def orchestra_start(solution_id: int, body: OrchestraStartBody,
                            db: Session = Depends(get_db),
@@ -317,41 +365,7 @@ async def orchestra_start(solution_id: int, body: OrchestraStartBody,
     if get_balance(db, user.id) < 200:  # минимум 2 ₽ "на пробу"
         raise HTTPException(402, "Недостаточно средств. Минимум для запуска — 2 ₽.")
 
-    # Валидация attachments: каждый file_url должен указывать на /uploads/*,
-    # реально существовать на диске и быть в безопасных пределах размера.
-    attachments_payload: list[dict] = []
-    if body.attachments:
-        from pathlib import Path as _P
-        import os as _os
-        proj_root = _P(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))).resolve()
-        uploads_root = (proj_root / "uploads").resolve()
-        for att in body.attachments[:5]:  # макс 5 файлов на запуск
-            url = (att.file_url or "").strip()
-            if not url.startswith("/uploads/") or len(url) > 500:
-                raise HTTPException(400, f"Некорректный file_url: {url[:60]}")
-            try:
-                abs_p = (proj_root / url.lstrip("/")).resolve()
-                abs_p.relative_to(uploads_root)
-            except (ValueError, OSError):
-                raise HTTPException(400, "Файл вне разрешённой директории")
-            if not abs_p.is_file():
-                raise HTTPException(404, f"Файл не найден: {att.name or url}")
-            try:
-                size_bytes = abs_p.stat().st_size
-            except OSError:
-                size_bytes = att.size or 0
-            if size_bytes > 25 * 1024 * 1024:
-                raise HTTPException(413, f"Файл больше 25 МБ: {att.name or url}")
-            kind = (att.kind or "doc").strip()
-            if kind not in ("doc", "image", "sheet", "other"):
-                kind = "doc"
-            attachments_payload.append({
-                "file_url": url,
-                "name": (att.name or "")[:200],
-                "mime": (att.mime or "")[:100],
-                "kind": kind,
-                "size": size_bytes,
-            })
+    attachments_payload = _validate_attachments(body.attachments)
 
     chat_id = uuid.uuid4().hex[:16]
     run = SolutionRun(
@@ -375,6 +389,136 @@ async def orchestra_start(solution_id: int, body: OrchestraStartBody,
     # Запуск в фоне — НЕ ждём окончания. Фронт подключается к SSE-потоку.
     from server.solutions_orchestra import run_orchestra
     asyncio.create_task(run_orchestra(run.id))
+
+
+# Whitelist моделей для сравнительного запуска. Только Claude/GPT — иначе
+# сравнение нерепрезентативно (Perplexity/Grok заточены под другие задачи).
+_COMPARE_MODEL_WHITELIST = {
+    "claude", "claude-sonnet", "claude-opus", "claude-haiku",
+    "gpt", "gpt-4o",
+}
+
+
+@router.post("/solutions/{solution_id}/orchestra/start-compare")
+async def orchestra_start_compare(solution_id: int, body: OrchestraCompareBody,
+                                    db: Session = Depends(get_db),
+                                    user: User = Depends(current_user)):
+    """Параллельный запуск одного Solution на N моделях для сравнения
+    качества. Полезно когда юзер хочет увидеть «а если Opus вместо Sonnet?»
+
+    Создаёт N независимых SolutionRun'ов с переопределённой default_model
+    и связывает их через общий compare_group (chat_id с префиксом cmp_).
+    Списание: каждый run списывается отдельно (стоимость × N).
+    """
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    solution = db.query(Solution).filter_by(id=solution_id, is_active=True).first()
+    if not solution or not solution.orchestra_json:
+        raise HTTPException(404, "Решение не найдено или нет orchestra")
+    user_input = (body.input or "").strip()
+    if len(user_input) < 10:
+        raise HTTPException(400, "Минимум 10 символов")
+    if len(user_input) > 20_000:
+        raise HTTPException(413, "Слишком длинный input")
+
+    models = [m.strip() for m in (body.models or []) if m and m.strip()]
+    models = [m for m in models if m in _COMPARE_MODEL_WHITELIST]
+    if len(models) < 2 or len(models) > 3:
+        raise HTTPException(400,
+            f"Выбери 2-3 модели из: {sorted(_COMPARE_MODEL_WHITELIST)}")
+    if len(set(models)) != len(models):
+        raise HTTPException(400, "Модели должны быть разные")
+
+    # N×4 ₽ минимум — пред-проверка
+    if get_balance(db, user.id) < 200 * len(models):
+        raise HTTPException(402, f"Минимум для compare — {2 * len(models)} ₽")
+
+    attachments_payload = _validate_attachments(body.attachments)
+
+    # Загружаем оригинальный orchestra и для каждой модели делаем копию
+    # с переопределённой default_model.
+    try:
+        orch = json.loads(solution.orchestra_json)
+    except Exception:
+        raise HTTPException(500, "Некорректная orchestra-конфигурация")
+
+    # compare_group_id — общий идентификатор для UI (отображает все runs
+    # вместе как «сравнение»). Кладём в chat_id с префиксом для удобства.
+    cmp_group = f"cmp_{uuid.uuid4().hex[:12]}"
+
+    runs_info: list[dict] = []
+    for model in models:
+        # Делаем deep-copy orchestra с переопределённой моделью
+        custom = json.loads(json.dumps(orch))
+        custom["default_model"] = model
+        # Создаём run с custom orchestra прямо в его context (мы не меняем
+        # Solution в БД — это плохо для других юзеров). Чтобы run использовал
+        # эту orchestra, run_orchestra читает Solution.orchestra_json.
+        # Решение: создадим temporary marker и подменим в run_orchestra
+        # через custom-load. Пока проще — клонируем orchestra в run.context.
+        chat_id = f"{cmp_group}_{model}"
+        run = SolutionRun(
+            user_id=user.id, solution_id=solution_id,
+            chat_id=chat_id, status="running",
+            user_input=user_input,
+            attachments_json=(json.dumps(attachments_payload, ensure_ascii=False)
+                               if attachments_payload else None),
+            # Сохраняем custom orchestra в context — runtime прочитает
+            context=json.dumps({"_compare_orchestra": custom,
+                                 "_compare_group": cmp_group,
+                                 "_compare_model": model},
+                               ensure_ascii=False),
+        )
+        db.add(run); db.commit(); db.refresh(run)
+        runs_info.append({"run_id": run.id, "model": model, "chat_id": chat_id})
+
+    try:
+        from server.audit_log import log_action
+        log_action("solution.orchestra_compare", user_id=user.id,
+                   target_type="solution", target_id=str(solution_id),
+                   details={"group": cmp_group, "models": models,
+                             "run_ids": [r["run_id"] for r in runs_info]})
+    except Exception:
+        pass
+
+    # Запускаем параллельно
+    from server.solutions_orchestra import run_orchestra
+    for r in runs_info:
+        asyncio.create_task(run_orchestra(r["run_id"]))
+
+    return {"compare_group": cmp_group, "runs": runs_info, "status": "running"}
+
+
+@router.get("/solutions/compare/{compare_group}")
+def orchestra_compare_get(compare_group: str,
+                            db: Session = Depends(get_db),
+                            user: User = Depends(current_user)):
+    """Снимок состояния compare-группы: список runs с метаданными."""
+    if not compare_group.startswith("cmp_") or len(compare_group) > 32:
+        raise HTTPException(400, "Некорректный compare_group")
+    runs = (db.query(SolutionRun)
+              .filter(SolutionRun.user_id == user.id,
+                      SolutionRun.chat_id.like(f"{compare_group}_%"))
+              .order_by(SolutionRun.id.asc()).all())
+    if not runs:
+        raise HTTPException(404, "Compare-группа не найдена")
+    out = []
+    for r in runs:
+        # Извлекаем модель из chat_id (cmp_xxx_<model>)
+        model = r.chat_id.replace(f"{compare_group}_", "", 1)
+        state = {}
+        if r.stages_state:
+            try: state = json.loads(r.stages_state)
+            except Exception: state = {}
+        out.append({
+            "run_id": r.id, "model": model, "status": r.status,
+            "stages": state.get("stages", {}),
+            "final_output": r.final_output,
+            "pdf_path": r.pdf_path,
+            "total_cost_kop": r.total_cost_kop or 0,
+            "user_mark": r.user_mark,
+        })
+    return {"compare_group": compare_group, "runs": out}
 
     return {"run_id": run.id, "chat_id": chat_id, "status": "running"}
 

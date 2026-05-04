@@ -3201,6 +3201,10 @@ async function launchSolution(id,title,stepsCount,isOrchestra){
 let _orchestraStream = null;
 let _orchestraAttachments = []; // {file_url, name, mime, kind, size}
 
+// Compare mode state
+let _compareGroup = null;     // если задан — мы в compare-режиме
+let _compareRunIds = [];
+
 async function launchOrchestra(solutionId, title){
   // Шаг 1: показать форму ввода (используем существующую runModal с пометкой PRO)
   document.getElementById("runTitle").textContent = title + " ✨";
@@ -3232,10 +3236,187 @@ async function launchOrchestra(solutionId, title){
   renderOrchestraAttachmentsBlock(solutionId, attSpec);
   // Блок «Запустить из шаблона» (если есть сохранённые шаблоны под это решение)
   renderOrchestraTemplatesBlock(solutionId);
+  // Блок «Сравнить модели»
+  renderOrchestraCompareBlock(solutionId);
   // Подменяем continueRun → orchestraStart
   document.getElementById("runContinueBtn").onclick = () => orchestraStart(solutionId, attSpec);
   openM("runModal");
   document.getElementById("runInput").focus();
+}
+
+function renderOrchestraCompareBlock(solutionId){
+  let block = document.getElementById("orchCmpBlock");
+  if(!block){
+    block = document.createElement("div");
+    block.id = "orchCmpBlock";
+    block.className = "mt-3";
+    document.getElementById("runContinueBtn").parentNode.insertBefore(
+      block, document.getElementById("runContinueBtn"));
+  }
+  block.innerHTML = `
+    <details class="bg-surface2 rounded-lg border border-outline/20 px-3 py-2">
+      <summary class="text-xs cursor-pointer text-on-dim hover:text-primary">
+        🔬 Сравнить модели (запустить параллельно на 2-3 моделях)
+      </summary>
+      <div class="mt-2 space-y-2">
+        <p class="text-[11px] text-on-surface-dim/70">
+          Запустим этот же ввод на разных моделях параллельно — увидишь
+          разницу в качестве и стоимости. Списание × N (за каждый запуск).
+        </p>
+        <div class="flex flex-wrap gap-2 text-xs">
+          <label class="flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" class="cmp-model" value="claude-sonnet" checked/> Claude Sonnet
+          </label>
+          <label class="flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" class="cmp-model" value="claude-opus"/> Claude Opus
+          </label>
+          <label class="flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" class="cmp-model" value="claude-haiku"/> Claude Haiku
+          </label>
+          <label class="flex items-center gap-1 cursor-pointer">
+            <input type="checkbox" class="cmp-model" value="gpt-4o"/> GPT-4o
+          </label>
+        </div>
+        <button onclick="orchestraStartCompare(${solutionId})"
+                class="text-xs px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 transition border border-primary/30">
+          🔬 Сравнить выбранные
+        </button>
+      </div>
+    </details>`;
+}
+
+async function orchestraStartCompare(solutionId){
+  const input = document.getElementById("runInput").value.trim();
+  const errEl = document.getElementById("runErr");
+  if(input.length < 10){
+    errEl.textContent = "Минимум 10 символов";
+    errEl.classList.remove("hidden");
+    return;
+  }
+  const models = Array.from(document.querySelectorAll(".cmp-model:checked"))
+                       .map(c => c.value);
+  if(models.length < 2 || models.length > 3){
+    errEl.textContent = "Выбери 2 или 3 модели"; errEl.classList.remove("hidden");
+    return;
+  }
+  const attachments = _orchestraAttachments.filter(a=>a);
+  errEl.classList.add("hidden");
+  try{
+    const r = await apiPost(`/solutions/${solutionId}/orchestra/start-compare`,
+                              {input, attachments, models});
+    _compareGroup = r.compare_group;
+    _compareRunIds = r.runs.map(x => x.run_id);
+    activeRun = {orchestra: true, compare: true, group: r.compare_group,
+                  solution_id: solutionId};
+    // Скрываем форму, показываем compare-progress
+    document.getElementById("runInputArea").classList.add("hidden");
+    document.getElementById("runContinueBtn").classList.add("hidden");
+    document.getElementById("orchCmpBlock")?.classList.add("hidden");
+    document.getElementById("orchAttBlock")?.classList.add("hidden");
+    document.getElementById("orchTplBlock")?.classList.add("hidden");
+    document.getElementById("runStepLabel").textContent =
+      `🔬 Сравнение ${r.runs.length} моделей...`;
+    document.getElementById("runHint").textContent =
+      "Каждая модель работает параллельно. Сравним результаты в конце.";
+    document.getElementById("runProgress").innerHTML = "";
+    renderCompareProgress(r.runs);
+    pollCompareGroup(r.compare_group);
+  }catch(e){
+    errEl.textContent = e.message || "Ошибка"; errEl.classList.remove("hidden");
+  }
+}
+
+function renderCompareProgress(runs){
+  let cmpEl = document.getElementById("runCompareGrid");
+  if(!cmpEl){
+    cmpEl = document.createElement("div");
+    cmpEl.id = "runCompareGrid";
+    cmpEl.className = "grid gap-3 mt-3";
+    cmpEl.style.gridTemplateColumns = `repeat(${runs.length}, minmax(0, 1fr))`;
+    document.getElementById("runProgress").parentNode.insertBefore(
+      cmpEl, document.getElementById("runProgress").nextSibling);
+  }
+  cmpEl.style.gridTemplateColumns = `repeat(${runs.length}, minmax(0, 1fr))`;
+  cmpEl.innerHTML = runs.map(r => `
+    <div data-cmp-run="${r.run_id}" class="bg-surface2 border border-outline/20 rounded-lg p-2.5">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-[11px] font-bold uppercase tracking-wider">${esc(r.model||r.run_id)}</div>
+        <div class="cmp-status text-[10px] text-on-surface-dim/60">⏳</div>
+      </div>
+      <div class="cmp-stages text-[10px] space-y-1 max-h-48 overflow-y-auto"></div>
+      <div class="cmp-cost text-[10px] text-primary mt-1"></div>
+    </div>`).join("");
+}
+
+async function pollCompareGroup(group){
+  for(let i=0; i<300; i++){
+    let data;
+    try{ data = await api(`/solutions/compare/${group}`); }
+    catch(e){ console.warn("[compare] poll", e); break; }
+    let allDone = true;
+    for(const r of data.runs){
+      const el = document.querySelector(`[data-cmp-run="${r.run_id}"]`);
+      if(!el) continue;
+      const statusEl = el.querySelector(".cmp-status");
+      const stagesEl = el.querySelector(".cmp-stages");
+      const costEl = el.querySelector(".cmp-cost");
+      const stages = r.stages || {};
+      const ids = Object.keys(stages);
+      stagesEl.innerHTML = ids.map(sid => {
+        const s = stages[sid];
+        const ic = s.status==='done'?'✅':s.status==='running'?'⏳':s.status==='error'?'❌':'⏸';
+        return `<div class="${s.status==='running'?'text-primary':''}">${ic} ${esc(s.label||sid)}</div>`;
+      }).join("");
+      const totalCost = (r.total_cost_kop||0)/100;
+      if(r.status === "done"){
+        statusEl.textContent = "✅ готово";
+        statusEl.className = "cmp-status text-[10px] text-green-400";
+        costEl.textContent = `Списано: ${totalCost.toFixed(2)} ₽`;
+      }else if(r.status === "error"){
+        statusEl.textContent = "❌ ошибка";
+        statusEl.className = "cmp-status text-[10px] text-error";
+        allDone = true; // не зависим
+      }else{
+        statusEl.textContent = "⏳ работает";
+        allDone = false;
+        if(totalCost > 0) costEl.textContent = `Пока: ${totalCost.toFixed(2)} ₽`;
+      }
+    }
+    if(allDone){
+      finalizeCompare(data.runs);
+      return;
+    }
+    await new Promise(r=>setTimeout(r,1500));
+  }
+}
+
+function finalizeCompare(runs){
+  const cmpEl = document.getElementById("runCompareGrid");
+  if(!cmpEl) return;
+  // К каждой колонке добавляем кнопки «Открыть отчёт» / «Скачать PDF»
+  runs.forEach(r => {
+    const el = cmpEl.querySelector(`[data-cmp-run="${r.run_id}"]`);
+    if(!el) return;
+    const acts = document.createElement("div");
+    acts.className = "flex flex-wrap gap-1.5 mt-2";
+    acts.innerHTML = `
+      <button onclick="openCompareReport(${r.run_id})" class="text-[10px] px-2 py-1 rounded-md bg-primary/20 hover:bg-primary/30 transition">📄 Отчёт</button>
+      ${r.pdf_path?`<a href="${esc(r.pdf_path)}" target="_blank" class="text-[10px] px-2 py-1 rounded-md bg-surface3 hover:bg-surface3/70 transition">PDF</a>`:''}
+    `;
+    el.appendChild(acts);
+  });
+  document.getElementById("runStepLabel").textContent = "✅ Сравнение готово";
+  document.getElementById("runHint").textContent =
+    "Открой отчёты и выбери лучший. 👍/👎 учитывается отдельно для каждой модели.";
+  if(authToken) fetchMe();
+}
+
+function openCompareReport(runId){
+  // Простое решение: открываем результат в alert/modal с прокруткой.
+  api(`/solutions/runs/${runId}`).then(data => {
+    const txt = (data.final_output || "Отчёт пуст").slice(0, 8000);
+    aiAlert(txt, "info");
+  }).catch(e => aiAlert("Ошибка: "+(e.message||e), "error"));
 }
 
 async function renderOrchestraTemplatesBlock(solutionId){

@@ -35,6 +35,11 @@ from server.routes.assistant import router as assistant_router
 from server.routes.qr_login import router as qr_login_router
 from server.routes.mobile import router as mobile_router
 from server.routes.knowledge import router as knowledge_router
+from server.routes.marketplace import router as marketplace_router
+from server.routes.public_api import (
+    mgmt_router as api_tokens_router,
+    api_router as public_api_router,
+)
 
 load_dotenv()
 
@@ -304,6 +309,9 @@ app.include_router(assistant_router)
 app.include_router(qr_login_router)
 app.include_router(mobile_router)
 app.include_router(knowledge_router)
+app.include_router(marketplace_router)
+app.include_router(api_tokens_router)
+app.include_router(public_api_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")

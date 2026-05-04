@@ -794,6 +794,17 @@ async def run_orchestra(run_id: int) -> dict:
             orchestra = json.loads(solution.orchestra_json)
         except Exception as e:
             return {"status": "error", "error": f"Invalid orchestra_json: {e}"}
+        # Compare-runs: если в context есть _compare_orchestra — используем
+        # её вместо solution.orchestra_json (с переопределённой моделью).
+        # Это позволяет одному Solution иметь N runs с разными моделями.
+        try:
+            ctx_seed = json.loads(run.context or "{}")
+            if isinstance(ctx_seed, dict) and ctx_seed.get("_compare_orchestra"):
+                orchestra = ctx_seed["_compare_orchestra"]
+                log.info(f"[orchestra] run={run_id} using compare-orchestra "
+                         f"with model={ctx_seed.get('_compare_model')}")
+        except Exception:
+            pass
         user_id = run.user_id
         user_input = run.user_input or ""
         # Attachments юзера (PDF/DOCX/картинки) — для file_extract / vision_describe
