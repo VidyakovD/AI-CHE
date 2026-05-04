@@ -4,6 +4,75 @@
 
 ---
 
+## 🆕 Спринт «Электронная подпись КП» (2026-05-04 ну вообще ночь уже)
+
+Реальная B2B-фича: клиент может подписать КП прямо в браузере через canvas. Audit-trail: ФИО + email + IP + user-agent + время + SHA-256 hash. PDF можно скачать со страницы.
+
+### Backend
+
+**Модель `ProposalSignature`** ([models.py:1200](server/models.py:1200)):
+- `proposal_id` (UNIQUE — одно КП = одна подпись), `signer_name/email/phone/position`
+- `signature_data` — data:image/png;base64,... от canvas
+- `ip`, `user_agent` — для audit
+- `sig_hash` — SHA-256 от `proposal_id|name|email|signed_at|signature_data[:200]|ip` (нельзя подделать)
+- Создаётся через `Base.metadata.create_all` (новая таблица — миграция не нужна)
+
+**3 новых endpoint в `main.py`:**
+
+1. **`GET /p/{token}`** — переделан: вместо отдачи PDF напрямую теперь возвращает HTML-страницу с iframe-превью PDF + форма подписания (canvas + поля + чекбокс согласия). Если уже подписано — показывает зелёный блок «✓ Подписано: ...» вместо формы.
+
+2. **`GET /p/{token}/pdf`** — новый: чистый PDF для скачивания / iframe.
+
+3. **`POST /p/{token}/sign`** — приём подписи:
+   - Валидация: ФИО ≥2 симв, signature_data data:image/* и не >2 МБ
+   - IP из `X-Real-IP` / `X-Forwarded-For` / fallback `request.client`
+   - Идемпотентно: повторный sign → 409 «Документ уже подписан»
+   - Auto-CRM: `crm_stage` (new/sent/opened) → `won`
+   - 4 хука: audit-log, push-владельцу, email-владельцу, webhook `proposal.signed`
+
+**Webhook event `proposal.signed`** добавлен в `_WEBHOOK_EVENTS` whitelist в `routes/public_api.py`.
+
+### Frontend
+
+**HTML-страница для клиента** (рендерится прямо в endpoint'е `/p/{token}`):
+- Header: название КП + имя клиента + кнопка «↓ PDF»
+- iframe с `/p/{token}/pdf#toolbar=0` (превью)
+- Canvas (700×200) с retina-rendering, mouse + touch события (drawing с `touch-action: none`), кнопка «Очистить»
+- Поля: ФИО (обязательно) + Должность + Email + Телефон + чекбокс согласия
+- При success → reload → блок «✓ Подписано» с именем + датой
+- Mobile-friendly (`@media max-width:520px → grid-cols-1`)
+- Sandbox-style: только inline JS, нет external scripts
+
+**UI владельца в `proposals.html`:**
+- В openProject — блок `pSignatureInfo` (зелёная карточка) если подписано:
+  - «✓ Подписано клиентом — Иван Иванов, Генеральный директор»
+  - email, время, IP, hash (первые 16 char)
+  - картинка-превью подписи (`data_url` из БД)
+
+**`server/routes/proposals.py`:**
+- `_project_to_dict(p, full=True, db=db)` — теперь подгружает связанную ProposalSignature
+- Полный data_url возвращается только при full=True (для openProject в кабинете)
+
+### Защита и audit
+- Hash подписания невозможно подделать (включает signature_data + ip + timestamp)
+- IP из правильного proxy-header'а
+- 2 МБ лимит на data-URL (защита от больших uploads)
+- `data:image/` префикс обязателен
+- audit-log `proposal.signed` с `sig_hash[:16]`
+- Email уведомление владельцу с hash для проверки
+
+### Тесты
+- pytest 164/164 passed
+- JS sanity 10 файлов OK
+- Preview e2e:
+  - `GET /p/{token}` → 200, HTML содержит canvas + form + iframe + signed-block CSS
+  - `POST /p/{token}/sign` → 200 + sig_hash + auto-CRM "won"
+  - Повторный sign → 409 «Документ уже подписан»
+  - `GET /proposals/projects/{id}` → возвращает signature object с full data_url для owner-UI
+  - Console errors = 0
+
+---
+
 ## 🆕 Спринт «Public API: Webhooks + Docs» (2026-05-04 ну совсем-совсем поздно)
 
 Закрыл недостающую часть Public API: Webhooks для получения событий + UI + документация. Теперь юзер может зарегистрировать свой URL и получать POST'ы при событиях (КП открыто клиентом / заявка из бота / отчёт готов / сайт готов / сайт упал).

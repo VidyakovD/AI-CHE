@@ -225,6 +225,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
       </div>
       <p id="pSentInfo" class="text-xs text-on-dim hidden mb-2"></p>
       <p id="pPublicInfo" class="text-xs text-on-dim hidden mb-2"></p>
+      <div id="pSignatureInfo" class="hidden mb-3 p-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-sm"></div>
       <!-- Режим превью: iframe с готовым HTML -->
       <div id="pResultIframeWrap" class="rounded-lg overflow-hidden bg-white" style="height:60vh">
         <iframe id="pResultIframe" sandbox="allow-same-origin" class="w-full h-full border-0"></iframe>
@@ -806,6 +807,31 @@ async function openProject(id){
       pubInfo.classList.remove('hidden');
     } else {
       pubInfo.classList.add('hidden');
+    }
+  }
+  // Электронная подпись клиента (если КП подписано)
+  const sigInfo = document.getElementById('pSignatureInfo');
+  if (sigInfo){
+    if (p.signature){
+      const s = p.signature;
+      const when = s.signed_at ? new Date(s.signed_at).toLocaleString('ru-RU') : '';
+      const sigImg = s.data_url ? `<img src="${s.data_url}" alt="подпись" style="height:60px;background:#fff;border-radius:6px;padding:4px;display:block;margin-top:4px"/>` : '';
+      sigInfo.innerHTML =
+        `<div class="flex items-start gap-3">
+          <div class="text-2xl">✓</div>
+          <div class="flex-1">
+            <div class="font-bold text-emerald-300">Подписано клиентом</div>
+            <div class="text-xs mt-1">
+              <b>${esc(s.signer_name||'')}</b>${s.signer_position?', '+esc(s.signer_position):''}<br>
+              ${s.signer_email?esc(s.signer_email)+' · ':''}${when}<br>
+              <span class="text-on-dim/60">IP: ${esc(s.ip||'—')} · hash: <code>${esc(s.sig_hash||'')}…</code></span>
+            </div>
+            ${sigImg}
+          </div>
+        </div>`;
+      sigInfo.classList.remove('hidden');
+    } else {
+      sigInfo.classList.add('hidden');
     }
   }
   if(p.status === 'done' && p.generated_html){

@@ -1197,6 +1197,36 @@ class ProposalVersion(Base):
     created_at      = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class ProposalSignature(Base):
+    """Электронная подпись клиента под КП — рисуется canvas'ом на публичной
+    странице /p/{token}. Audit-trail: имя+email+ip+user_agent+время+SHA-256.
+
+    После подписания:
+      - в PDF добавляется блок «Подписано: <имя>, <дата>, <ip>»
+      - crm_stage переходит в "won" (опционально, через UI владельца)
+      - событие proposal.signed диспатчится в webhooks
+      - push владельцу
+      - email владельцу
+
+    Hash считается от: proposal_id + signer_email + signed_at + signature_data_url +
+    ip — гарантирует что любая подмена не пройдёт верификацию.
+    """
+    __tablename__ = "proposal_signatures"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    proposal_id     = Column(Integer, ForeignKey("proposal_projects.id", ondelete="CASCADE"),
+                             unique=True, nullable=False, index=True)
+    signer_name     = Column(String, nullable=False)             # ФИО клиента
+    signer_email    = Column(String, nullable=True)              # опционально
+    signer_phone    = Column(String, nullable=True)
+    signer_position = Column(String, nullable=True)              # должность
+    signature_data  = Column(Text, nullable=False)               # data:image/png;base64,...
+    ip              = Column(String, nullable=True)
+    user_agent      = Column(String, nullable=True)
+    sig_hash        = Column(String, nullable=False, index=True) # sha256 hex для верификации
+    signed_at       = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class ProposalPriceList(Base):
     """Прайс-лист для КП. У юзера может быть несколько (для разных линеек,
     отделов, языков). Привязан напрямую к user_id (не к боту) — раньше

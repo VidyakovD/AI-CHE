@@ -239,7 +239,7 @@ class ProposalCreateBody(BaseModel):
     header_layout: str | None = None  # classic | banner | centered | minimal
 
 
-def _project_to_dict(p: ProposalProject, full: bool = False) -> dict:
+def _project_to_dict(p: ProposalProject, full: bool = False, db=None) -> dict:
     base = {
         "id": p.id, "name": p.name, "status": p.status,
         "brand_id": p.brand_id, "bot_id": p.bot_id,
@@ -257,6 +257,24 @@ def _project_to_dict(p: ProposalProject, full: bool = False) -> dict:
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }
     base["header_layout"] = getattr(p, "header_layout", None) or "classic"
+    # Подпись клиента (если есть)
+    if db is not None:
+        try:
+            from server.models import ProposalSignature as _Sig
+            sig = db.query(_Sig).filter_by(proposal_id=p.id).first()
+            if sig:
+                base["signature"] = {
+                    "signer_name": sig.signer_name,
+                    "signer_email": sig.signer_email,
+                    "signer_position": sig.signer_position,
+                    "signer_phone": sig.signer_phone,
+                    "ip": sig.ip,
+                    "signed_at": sig.signed_at.isoformat() if sig.signed_at else None,
+                    "sig_hash": (sig.sig_hash or "")[:16],
+                    "data_url": sig.signature_data if full else None,
+                }
+        except Exception:
+            pass
     if full:
         base.update({
             "client_request": p.client_request,
@@ -353,7 +371,7 @@ def create_project(body: ProposalCreateBody, db: Session = Depends(get_db),
     db.add(p); db.commit(); db.refresh(p)
     log_action("proposal.created", user_id=user.id,
                target_type="proposal", target_id=str(p.id))
-    return _project_to_dict(p, full=True)
+    return _project_to_dict(p, full=True, db=db)
 
 
 @router.get("/projects/{project_id}")
@@ -362,7 +380,7 @@ def get_project(project_id: int, db: Session = Depends(get_db),
     p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
-    return _project_to_dict(p, full=True)
+    return _project_to_dict(p, full=True, db=db)
 
 
 @router.put("/projects/{project_id}")
@@ -407,7 +425,7 @@ def update_project(project_id: int, body: ProposalCreateBody,
         if layout in ("classic", "banner", "centered", "minimal"):
             p.header_layout = layout
     db.commit(); db.refresh(p)
-    return _project_to_dict(p, full=True)
+    return _project_to_dict(p, full=True, db=db)
 
 
 @router.post("/projects/{project_id}/duplicate")
@@ -433,7 +451,7 @@ def duplicate_project(project_id: int, db: Session = Depends(get_db),
     log_action("proposal.duplicated", user_id=user.id,
                target_type="proposal", target_id=str(new.id),
                details={"source_id": project_id})
-    return _project_to_dict(new, full=True)
+    return _project_to_dict(new, full=True, db=db)
 
 
 @router.delete("/projects/{project_id}")
@@ -571,7 +589,7 @@ def generate_proposal_endpoint(project_id: int, db: Session = Depends(get_db),
         db.commit()
         raise HTTPException(503, f"Не удалось сгенерировать КП: {type(e).__name__}. Деньги возвращены.")
 
-    return _project_to_dict(p, full=True)
+    return _project_to_dict(p, full=True, db=db)
 
 
 @router.get("/projects/{project_id}/pdf")
@@ -702,7 +720,7 @@ def save_proposal_html(project_id: int, body: SaveHtmlBody,
     log_action("proposal.html_edited", user_id=user.id,
                target_type="proposal", target_id=str(p.id),
                details={"html_size": len(new_html)})
-    return _project_to_dict(p, full=True)
+    return _project_to_dict(p, full=True, db=db)
 
 
 # ── AI-правка одной секции (real × 5, без фикс-минимума) ──────────────────
@@ -807,7 +825,7 @@ def edit_section_endpoint(project_id: int, body: EditSectionBody,
     log_action("proposal.section_edited", user_id=user.id,
                target_type="proposal", target_id=str(p.id),
                details={"cost_kop": cost, "input_tok": input_tok, "output_tok": output_tok})
-    return {**_project_to_dict(p, full=True), "cost_kop": cost,
+    return {**_project_to_dict(p, full=True, db=db), "cost_kop": cost,
             "new_section": new_section}
 
 
@@ -874,7 +892,7 @@ def restore_version(project_id: int, version_id: int,
     log_action("proposal.version_restored", user_id=user.id,
                target_type="proposal", target_id=str(p.id),
                details={"version_id": version_id})
-    return _project_to_dict(p, full=True)
+    return _project_to_dict(p, full=True, db=db)
 
 
 # ── Manual send by email ───────────────────────────────────────────────────

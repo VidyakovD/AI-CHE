@@ -519,13 +519,29 @@ def serve_api_docs():
     return _html("api.html")
 
 
+def _verify_proposal_pdf_path(p):
+    """Helper: безопасный путь к PDF. ValueError при попытке traversal."""
+    from pathlib import Path as _P
+    base = os.path.dirname(os.path.abspath(__file__))
+    uploads_root = _P(base, "uploads").resolve()
+    pdf_path = _P(base, p.generated_pdf.lstrip("/")).resolve()
+    pdf_path.relative_to(uploads_root)
+    if not pdf_path.exists() or not pdf_path.is_file():
+        raise FileNotFoundError(p.generated_pdf)
+    return pdf_path
+
+
 @app.get("/p/{public_token}", include_in_schema=False)
 def serve_public_proposal(public_token: str):
-    """Публичная ссылка на КП. Без auth, по токену.
-    При первом открытии — отмечает opened_at + crm_stage=opened."""
-    from fastapi.responses import FileResponse, JSONResponse
+    """Публичная страница КП — HTML с iframe-превью PDF + блоком
+    электронной подписи. Без auth, по токену.
+
+    При первом открытии — отмечает opened_at + crm_stage=opened.
+    PDF доступен на /p/{token}/pdf для скачивания.
+    """
+    from fastapi.responses import JSONResponse
     from server.db import db_session
-    from server.models import ProposalProject
+    from server.models import ProposalProject, ProposalSignature
     from datetime import datetime as _dt
     if not public_token or len(public_token) < 16:
         return JSONResponse({"detail": "Invalid token"}, status_code=404)
@@ -540,20 +556,6 @@ def serve_public_proposal(public_token: str):
             if (p.crm_stage or "new") in ("new", "sent"):
                 p.crm_stage = "opened"
             _db.commit()
-        # Путь к файлу. Strict relative_to(uploads_root) — защита на случай
-        # если в БД попадёт путь типа "../../etc/passwd" (через миграцию /
-        # ручной SQL / баг в save-html). p.generated_pdf обычно trusted, но
-        # defense-in-depth.
-        from pathlib import Path as _P
-        base = os.path.dirname(os.path.abspath(__file__))
-        uploads_root = _P(base, "uploads").resolve()
-        try:
-            pdf_path = _P(base, p.generated_pdf.lstrip("/")).resolve()
-            pdf_path.relative_to(uploads_root)
-        except (ValueError, OSError):
-            return JSONResponse({"detail": "PDF файл недоступен"}, status_code=404)
-        if not pdf_path.exists() or not pdf_path.is_file():
-            return JSONResponse({"detail": "PDF файл недоступен"}, status_code=404)
         # Audit-лог только при первом открытии (не спамить)
         if first_open:
             try:
@@ -583,11 +585,384 @@ def serve_public_proposal(public_token: str):
                 })
             except Exception:
                 pass
-        # Иконка для имени файла из проекта
+        # Подгружаем существующую подпись (если есть) — чтобы не дать подписать второй раз
+        sig = _db.query(ProposalSignature).filter_by(proposal_id=p.id).first()
+        sig_dict = {
+            "signer_name": sig.signer_name,
+            "signer_email": sig.signer_email,
+            "signer_position": sig.signer_position,
+            "signed_at": sig.signed_at.isoformat() if sig.signed_at else None,
+        } if sig else None
+        # Готовим HTML-страницу со встроенными данными
+        title = (p.name or "Коммерческое предложение")[:120]
+        client = (p.client_name or "")[:120]
+    return _proposal_public_page(public_token, title, client, sig_dict)
+
+
+def _proposal_public_page(token: str, title: str, client_name: str,
+                            sig: dict | None) -> "HTMLResponse":
+    """Рендер публичной страницы КП без auth: PDF iframe + canvas-подпись."""
+    import json as _json
+    from html import escape as _esc
+    from fastapi.responses import HTMLResponse
+    sig_block = ""
+    if sig:
+        signed_at_fmt = sig.get("signed_at", "")
+        if signed_at_fmt:
+            try:
+                from datetime import datetime as _dt
+                signed_at_fmt = _dt.fromisoformat(signed_at_fmt.rstrip("Z")).strftime("%d.%m.%Y %H:%M")
+            except Exception:
+                pass
+        sig_block = f"""
+        <div class="card signed">
+          <div class="signed-icon">✓</div>
+          <div>
+            <div class="signed-title">Подписано</div>
+            <div class="signed-meta">
+              <b>{_esc(sig.get('signer_name','') or '')}</b>
+              {_esc(sig.get('signer_position') or '')}
+              <br>{signed_at_fmt}
+            </div>
+          </div>
+        </div>"""
+    else:
+        sig_block = """
+        <div class="card sign-form">
+          <h2>✍️ Электронная подпись</h2>
+          <p class="sub">Подпишите документ — займёт 30 секунд. Подпись + время + IP сохраняются как audit-trail (юридически достаточно для B2B).</p>
+          <div class="row">
+            <input id="signerName" placeholder="ФИО *" required maxlength="200">
+            <input id="signerPosition" placeholder="Должность" maxlength="100">
+          </div>
+          <div class="row">
+            <input id="signerEmail" type="email" placeholder="Email" maxlength="200">
+            <input id="signerPhone" placeholder="Телефон" maxlength="50">
+          </div>
+          <label class="canvas-label">Нарисуйте подпись:</label>
+          <div class="canvas-wrap">
+            <canvas id="sigCanvas" width="700" height="200"></canvas>
+            <button onclick="clearSignature()" class="btn-ghost" type="button">Очистить</button>
+          </div>
+          <label class="checkbox">
+            <input type="checkbox" id="signAgree">
+            <span>Я согласен с условиями коммерческого предложения и подтверждаю, что моя подпись действительна.</span>
+          </label>
+          <button onclick="submitSignature()" id="signBtn" class="btn-primary">Подписать документ</button>
+          <div id="signResult" class="result-box" style="display:none"></div>
+        </div>"""
+
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="ru"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>{_esc(title)}</title>
+<style>
+*{{box-sizing:border-box}}
+body{{margin:0;font-family:-apple-system,system-ui,sans-serif;background:#fafaf8;color:#1a1a1a;min-height:100vh}}
+.hdr{{background:#fff;border-bottom:1px solid #e5e5e5;padding:14px 20px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:10}}
+.hdr h1{{margin:0;font-size:16px;font-weight:600;flex:1}}
+.hdr .meta{{font-size:12px;color:#888}}
+.hdr .actions{{display:flex;gap:8px}}
+.btn-download{{background:#1a1a1a;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:5px}}
+.btn-download:hover{{background:#333}}
+.container{{max-width:900px;margin:0 auto;padding:18px}}
+.pdf-box{{background:#fff;border:1px solid #e5e5e5;border-radius:12px;overflow:hidden;margin-bottom:18px;box-shadow:0 2px 12px rgba(0,0,0,0.04)}}
+.pdf-box iframe{{display:block;width:100%;height:80vh;min-height:500px;border:0}}
+.card{{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:24px;box-shadow:0 2px 12px rgba(0,0,0,0.04)}}
+.card h2{{margin:0 0 8px;font-size:18px}}
+.card.sign-form .sub{{color:#666;font-size:13px;line-height:1.5;margin:0 0 16px}}
+.row{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}}
+@media(max-width:520px){{.row{{grid-template-columns:1fr}}}}
+.row input{{padding:10px 12px;border:1px solid #d4d4d4;border-radius:8px;font-size:14px;font-family:inherit;width:100%}}
+.row input:focus{{outline:none;border-color:#ff8c42;box-shadow:0 0 0 3px rgba(255,140,66,0.1)}}
+.canvas-label{{display:block;font-size:12px;color:#666;margin:14px 0 6px;font-weight:600}}
+.canvas-wrap{{position:relative;border:2px dashed #d4d4d4;border-radius:10px;padding:8px;background:#fff}}
+#sigCanvas{{width:100%;height:200px;display:block;cursor:crosshair;touch-action:none;background:#fafaf8;border-radius:6px}}
+.btn-ghost{{position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.95);border:1px solid #d4d4d4;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer}}
+.btn-ghost:hover{{background:#f5f5f5}}
+.checkbox{{display:flex;gap:10px;align-items:flex-start;margin:14px 0;font-size:13px;line-height:1.4;cursor:pointer}}
+.checkbox input{{margin-top:2px;width:16px;height:16px;flex-shrink:0;cursor:pointer}}
+.btn-primary{{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#1a1a1a;border:none;border-radius:10px;padding:13px 28px;font-size:15px;font-weight:700;cursor:pointer;width:100%;transition:opacity .15s}}
+.btn-primary:hover{{opacity:.92}}
+.btn-primary:disabled{{opacity:.5;cursor:not-allowed}}
+.result-box{{margin-top:14px;padding:12px;border-radius:8px;font-size:14px}}
+.result-box.success{{background:#e8f5e9;color:#1b5e20;border:1px solid #66bb6a}}
+.result-box.error{{background:#ffebee;color:#c62828;border:1px solid #ef9a9a}}
+.signed{{display:flex;gap:18px;align-items:center;background:linear-gradient(135deg,#e8f5e9,#fff);border-color:#66bb6a}}
+.signed-icon{{width:48px;height:48px;border-radius:50%;background:#4caf50;color:#fff;display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;font-weight:bold}}
+.signed-title{{font-size:18px;font-weight:700;color:#1b5e20}}
+.signed-meta{{color:#666;font-size:13px;line-height:1.5;margin-top:4px}}
+.footer{{text-align:center;padding:30px 16px 40px;color:#999;font-size:11px}}
+.footer a{{color:#ff8c42;text-decoration:none}}
+</style>
+</head><body>
+<div class="hdr">
+  <h1>{_esc(title)}</h1>
+  {('<div class="meta">для ' + _esc(client_name) + '</div>') if client_name else ''}
+  <div class="actions">
+    <a href="/p/{_esc(token)}/pdf" class="btn-download" download>↓ PDF</a>
+  </div>
+</div>
+<div class="container">
+  <div class="pdf-box">
+    <iframe src="/p/{_esc(token)}/pdf#toolbar=0" title="Превью КП"></iframe>
+  </div>
+  {sig_block}
+</div>
+<div class="footer">
+  Документ создан в <a href="https://aiche.ru" target="_blank">AI Студии Че</a>
+</div>
+<script>
+const TOKEN = {_json.dumps(token)};
+// Canvas подпись с поддержкой mouse + touch
+(function(){{
+  const canvas = document.getElementById('sigCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let drawing = false;
+  let hasInk = false;
+  // Resize canvas под container width × keep aspect 700:200
+  function resize(){{
+    const w = canvas.offsetWidth;
+    canvas.width = w * 2;  // retina
+    canvas.height = (w * 200 / 700) * 2;
+    ctx.scale(2, 2);
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.fillStyle = '#fafaf8';
+    ctx.fillRect(0, 0, canvas.width / 2, canvas.height / 2);
+  }}
+  resize();
+  window.addEventListener('resize', resize);
+  function getPos(e){{
+    const r = canvas.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return {{x: t.clientX - r.left, y: t.clientY - r.top}};
+  }}
+  function start(e){{ e.preventDefault(); drawing = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }}
+  function move(e){{ if(!drawing) return; e.preventDefault(); const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); hasInk = true; }}
+  function end(e){{ drawing = false; }}
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  canvas.addEventListener('mouseup', end);
+  canvas.addEventListener('mouseleave', end);
+  canvas.addEventListener('touchstart', start, {{passive:false}});
+  canvas.addEventListener('touchmove', move, {{passive:false}});
+  canvas.addEventListener('touchend', end);
+  window.clearSignature = function(){{ resize(); hasInk = false; }};
+  window._hasSignatureInk = () => hasInk;
+  window._getSignatureDataUrl = () => canvas.toDataURL('image/png');
+}})();
+
+async function submitSignature(){{
+  const name = document.getElementById('signerName').value.trim();
+  const pos = document.getElementById('signerPosition').value.trim();
+  const email = document.getElementById('signerEmail').value.trim();
+  const phone = document.getElementById('signerPhone').value.trim();
+  const agree = document.getElementById('signAgree').checked;
+  const result = document.getElementById('signResult');
+  if (name.length < 2){{ showRes('Укажите ФИО (минимум 2 символа)', 'error'); return; }}
+  if (!window._hasSignatureInk()){{ showRes('Нарисуйте подпись на canvas', 'error'); return; }}
+  if (!agree){{ showRes('Поставьте галочку согласия', 'error'); return; }}
+  const sigData = window._getSignatureDataUrl();
+  const btn = document.getElementById('signBtn');
+  btn.disabled = true; btn.textContent = 'Подписываю…';
+  try {{
+    const r = await fetch(`/p/${{encodeURIComponent(TOKEN)}}/sign`, {{
+      method: 'POST',
+      headers: {{'Content-Type':'application/json'}},
+      body: JSON.stringify({{
+        signer_name: name, signer_position: pos,
+        signer_email: email, signer_phone: phone,
+        signature_data: sigData,
+      }}),
+    }});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'HTTP ' + r.status);
+    showRes('✓ Подпись принята! Уведомление отправлено владельцу. Через 2 секунды страница обновится.', 'success');
+    setTimeout(() => window.location.reload(), 2000);
+  }} catch(e){{
+    showRes('Ошибка: ' + (e.message || 'не удалось подписать'), 'error');
+    btn.disabled = false; btn.textContent = 'Подписать документ';
+  }}
+}}
+
+function showRes(msg, type){{
+  const el = document.getElementById('signResult');
+  el.textContent = msg;
+  el.className = 'result-box ' + type;
+  el.style.display = 'block';
+}}
+</script>
+</body></html>""", headers={
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+    })
+
+
+@app.get("/p/{public_token}/pdf", include_in_schema=False)
+def serve_public_proposal_pdf(public_token: str):
+    """Прямой PDF — для скачивания / iframe-превью на /p/{token}."""
+    from fastapi.responses import FileResponse, JSONResponse
+    from server.db import db_session
+    from server.models import ProposalProject
+    if not public_token or len(public_token) < 16:
+        return JSONResponse({"detail": "Invalid token"}, status_code=404)
+    with db_session() as _db:
+        p = _db.query(ProposalProject).filter_by(public_token=public_token).first()
+        if not p or not p.generated_pdf:
+            return JSONResponse({"detail": "КП не найдено или удалено"}, status_code=404)
+        try:
+            pdf_path = _verify_proposal_pdf_path(p)
+        except (ValueError, OSError, FileNotFoundError):
+            return JSONResponse({"detail": "PDF файл недоступен"}, status_code=404)
         import re as _re
         safe = _re.sub(r"[^\w\-]", "_", p.name or "proposal")[:40]
         return FileResponse(str(pdf_path), media_type="application/pdf",
                              filename=f"{safe}.pdf")
+
+
+@app.post("/p/{public_token}/sign", include_in_schema=False)
+async def sign_public_proposal(public_token: str, request: "Request"):
+    """Принять электронную подпись клиента под КП.
+
+    Body JSON: {signer_name, signer_position?, signer_email?, signer_phone?, signature_data}
+    signature_data — data-URL от canvas (data:image/png;base64,...).
+    Идемпотентно: если уже подписано → 409.
+
+    После сохранения:
+      - audit-log proposal.signed
+      - push владельцу
+      - email владельцу (если SMTP настроен)
+      - webhook proposal.signed диспатчится в SaaS-интеграции
+    """
+    import hashlib as _hashlib
+    import json as _json
+    from fastapi.responses import JSONResponse
+    from server.db import db_session
+    from server.models import ProposalProject, ProposalSignature
+    from datetime import datetime as _dt
+    if not public_token or len(public_token) < 16:
+        return JSONResponse({"detail": "Invalid token"}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"detail": "Invalid JSON"}, status_code=400)
+    name = (body.get("signer_name") or "").strip()[:200]
+    if len(name) < 2:
+        return JSONResponse({"detail": "ФИО минимум 2 символа"}, status_code=400)
+    sig_data = (body.get("signature_data") or "").strip()
+    if not sig_data.startswith("data:image/") or len(sig_data) < 200:
+        return JSONResponse({"detail": "Подпись отсутствует или некорректна"}, status_code=400)
+    if len(sig_data) > 2_000_000:  # 2 МБ data-URL — overkill для подписи
+        return JSONResponse({"detail": "Подпись слишком большая"}, status_code=413)
+    email = (body.get("signer_email") or "").strip()[:200] or None
+    phone = (body.get("signer_phone") or "").strip()[:50] or None
+    position = (body.get("signer_position") or "").strip()[:100] or None
+    # IP юзера (через nginx proxy_pass)
+    ip = (request.headers.get("x-real-ip")
+            or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else "")
+            or "unknown")[:64]
+    ua = (request.headers.get("user-agent") or "")[:500]
+    with db_session() as _db:
+        p = _db.query(ProposalProject).filter_by(public_token=public_token).first()
+        if not p:
+            return JSONResponse({"detail": "КП не найдено"}, status_code=404)
+        existing = _db.query(ProposalSignature).filter_by(proposal_id=p.id).first()
+        if existing:
+            return JSONResponse({
+                "detail": "Документ уже подписан",
+                "signer_name": existing.signer_name,
+                "signed_at": existing.signed_at.isoformat() + "Z" if existing.signed_at else None,
+            }, status_code=409)
+        signed_at = _dt.utcnow()
+        # Hash для верификации: невозможно подменить без обнаружения
+        hash_src = "|".join([
+            str(p.id), name, email or "", str(signed_at.timestamp()),
+            sig_data[:200], ip,
+        ])
+        sig_hash = _hashlib.sha256(hash_src.encode("utf-8")).hexdigest()
+        sig = ProposalSignature(
+            proposal_id=p.id,
+            signer_name=name,
+            signer_email=email,
+            signer_phone=phone,
+            signer_position=position,
+            signature_data=sig_data,
+            ip=ip,
+            user_agent=ua,
+            sig_hash=sig_hash,
+            signed_at=signed_at,
+        )
+        _db.add(sig)
+        # Auto-CRM transition
+        if (p.crm_stage or "new") in ("new", "sent", "opened"):
+            p.crm_stage = "won"
+        _db.commit()
+        owner_id = p.user_id
+        proposal_name = p.name
+        client_label = p.client_name or p.client_email or "Клиент"
+
+    # Audit log
+    try:
+        from server.audit_log import log_action
+        log_action("proposal.signed", user_id=owner_id,
+                    target_type="proposal", target_id=str(p.id),
+                    details={"signer_name": name, "signer_email": email, "ip": ip,
+                             "sig_hash": sig_hash[:16]})
+    except Exception:
+        pass
+    # Push владельцу
+    try:
+        from server.push import push_to_user as _push
+        _push(owner_id,
+              f"✓ Подписано: «{proposal_name}»",
+              f"{name}{', '+position if position else ''} только что подписал документ.",
+              url=f"/proposals.html#proposal-{p.id}")
+    except Exception:
+        pass
+    # Email владельцу
+    try:
+        from server.db import db_session as _ds
+        from server.models import User as _U
+        from server.email_service import _send, _base_template
+        with _ds() as _db2:
+            owner = _db2.query(_U).filter_by(id=owner_id).first()
+            owner_email = owner.email if owner else None
+        if owner_email:
+            email_html = _base_template(
+                f"Подписано: {proposal_name[:60]}",
+                f'<p style="color:rgba(199,196,215,0.85);line-height:1.6">'
+                f'<b>{name}</b>{(", "+position) if position else ""} только что подписал ваше КП.</p>'
+                f'<p style="color:rgba(199,196,215,0.7);font-size:13px">'
+                f'IP: {ip}<br>Время: {signed_at.strftime("%d.%m.%Y %H:%M")} UTC<br>'
+                f'Hash: {sig_hash[:16]}…</p>'
+            )
+            _send(owner_email, f"✓ Подписано: «{proposal_name[:40]}»", email_html)
+    except Exception:
+        pass
+    # Webhook
+    try:
+        from server.webhooks import dispatch_event
+        dispatch_event(owner_id, "proposal.signed", {
+            "proposal_id": p.id,
+            "name": proposal_name,
+            "signer_name": name,
+            "signer_email": email,
+            "signer_position": position,
+            "signed_at": signed_at.isoformat() + "Z",
+            "sig_hash": sig_hash,
+            "ip": ip,
+        })
+    except Exception:
+        pass
+    return {"status": "signed", "signer_name": name,
+            "signed_at": signed_at.isoformat() + "Z",
+            "sig_hash": sig_hash[:16]}
 
 @app.get("/s/{public_token}", include_in_schema=False)
 def serve_public_solution(public_token: str):

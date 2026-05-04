@@ -129,7 +129,7 @@ def token_revoke(token_id: int, db: Session = Depends(get_db),
 # События: см. _WEBHOOK_EVENTS. HMAC-подпись в заголовке X-Aiche-Signature.
 
 _WEBHOOK_EVENTS = {
-    "proposal.opened", "proposal.sent",
+    "proposal.opened", "proposal.sent", "proposal.signed",
     "record.created",
     "solution.done",
     "site.done", "site.failed",
