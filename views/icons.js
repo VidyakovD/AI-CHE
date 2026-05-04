@@ -222,11 +222,21 @@
      * @param {object|string} body — JSON-ответ или строка от .text()
      * @returns {string} человеческое сообщение
      */
+    // Generic технические тексты, которые НЕ показываем юзеру —
+    // FastAPI/Starlette шлёт их по умолчанию для unhandled-исключений.
+    // Лучше показать наш более дружеский label из _STATUS_LABELS.
+    const _GENERIC_DETAILS = new Set([
+      'Internal Server Error', 'Bad Gateway', 'Service Unavailable',
+      'Gateway Timeout', 'Bad Request', 'Method Not Allowed',
+      'Not Found', 'Unauthorized', 'Forbidden',
+    ]);
     window.aiHttpError = function (status, body) {
-      // Если бек прислал явный detail и он короткий — используем его
+      // Если бек прислал явный detail и он короткий и не «Internal Server Error» —
+      // используем его. Иначе fallback на _STATUS_LABELS.
       if (body && typeof body === 'object' && body.detail
           && typeof body.detail === 'string'
           && body.detail.length < 200
+          && !_GENERIC_DETAILS.has(body.detail.trim())
           && !/^[A-Z][A-Za-z]*Error/.test(body.detail)) {
         return body.detail;
       }
@@ -733,12 +743,11 @@
         const r = await fetch('/auth/me', {credentials:'same-origin'});
         if (!r.ok) return null;
         const d = await r.json();
-        // /auth/me возвращает {user: {...tokens_balance: kop}}
-        const u = d && d.user;
-        if (u && typeof u.tokens_balance === 'number') return u.tokens_balance;
-        // Fallback на flat-структуру (на случай если позже изменим)
-        if (typeof d.tokens_balance === 'number') return d.tokens_balance;
-        if (typeof d.balance_kop === 'number') return d.balance_kop;
+        // /auth/me возвращает {user: {balance_kopecks: N}}
+        const u = (d && d.user) || d || {};
+        if (typeof u.balance_kopecks === 'number') return u.balance_kopecks;
+        if (typeof u.tokens_balance === 'number') return u.tokens_balance;
+        if (typeof u.balance_kop === 'number') return u.balance_kop;
         return null;
       } catch(e){ return null; }
     }
