@@ -252,7 +252,47 @@
       if (/network|failed to fetch|timeout/i.test(msg)) {
         return 'Нет связи с сервером. Проверьте интернет.';
       }
+      // Если Error с message типа «Ошибка 402» — пробуем извлечь код
+      const m = msg.match(/(\d{3})/);
+      if (m){
+        const code = parseInt(m[1]);
+        if (_STATUS_LABELS[code]) return _STATUS_LABELS[code];
+      }
+      // Питоновские исключения наружу — заменяем на дружеское
+      if (/Internal Server Error|Traceback|Exception/i.test(msg)){
+        return 'Что-то пошло не так на сервере. Попробуйте через минуту.';
+      }
       return msg || 'Что-то пошло не так. Попробуйте ещё раз.';
+    };
+  }
+  if (!window.humanizeError) {
+    /**
+     * Универсальный wrapper. Принимает что угодно (Error/Response/строка/null)
+     * и возвращает Promise<string> — человеческое сообщение.
+     * Просто alias для aiFetchError, чтобы было понятнее по имени в коде.
+     */
+    window.humanizeError = window.aiFetchError;
+  }
+  if (!window.aiAlertError) {
+    /**
+     * Сокращение для самого частого паттерна:
+     *   catch(e){ await aiAlertError(e); }
+     * Эквивалент: aiAlert(await humanizeError(e), 'error').
+     * Если ошибка — это HTTP 402 → автоматически открывает aiNeedTopup.
+     */
+    window.aiAlertError = async function(errOrResp){
+      // Особый кейс: 402 → top-up modal вместо alert'а
+      if (errOrResp && typeof errOrResp === 'object'
+          && 'status' in errOrResp && errOrResp.status === 402){
+        if (window.aiNeedTopup){
+          return await window.aiNeedTopup();
+        }
+      }
+      const msg = await window.humanizeError(errOrResp);
+      if (window.aiAlert){
+        return await window.aiAlert(msg, 'error');
+      }
+      alert(msg);
     };
   }
 
@@ -664,6 +704,485 @@
     }
     return _origFetch(input, init);
   };
+
+  // ── Cost-preview helpers + sticky-balance индикатор ──────────────────────
+  // 1. window.aiCostHint(costKop) — возвращает HTML для подписи под кнопкой:
+  //      «Спишется 50 ₽ · Баланс 730 ₽ → останется 680 ₽»
+  //    или, если денег не хватает: «Не хватает 220 ₽ — пополнить?»
+  // 2. window.aiBalance — sticky-плашка в правом верхнем углу (рядом с
+  //    колокольчиком). Цвет меняется по уровню. Click → /index.html#tokens.
+  if (!window.aiBalance) {
+    let _cachedKop = null;
+    let _slotEl = null;
+
+    function _color(kop){
+      if (kop == null) return '#888';
+      if (kop < 10000)  return '#ff5252';   // <100 ₽
+      if (kop < 50000)  return '#ffb347';   // <500 ₽
+      return '#7ed957';                      // ≥500 ₽
+    }
+    function _fmt(kop){
+      if (kop == null) return '— ₽';
+      const r = kop / 100;
+      if (r >= 100) return Math.round(r) + ' ₽';
+      return r.toFixed(2).replace(/\.?0+$/, '') + ' ₽';
+    }
+
+    async function _fetchBalance(){
+      try {
+        const r = await fetch('/me', {credentials:'same-origin'});
+        if (!r.ok) return null;
+        const d = await r.json();
+        // /me возвращает обычно tokens_balance в копейках
+        if (typeof d.tokens_balance === 'number') return d.tokens_balance;
+        if (typeof d.balance_kop === 'number') return d.balance_kop;
+        return null;
+      } catch(e){ return null; }
+    }
+
+    function _render(){
+      if (!_slotEl) return;
+      const c = _color(_cachedKop);
+      _slotEl.style.background = 'rgba(20,20,22,.72)';
+      _slotEl.style.borderColor = c;
+      _slotEl.style.color = c;
+      _slotEl.querySelector('.bal-num').textContent = _fmt(_cachedKop);
+    }
+
+    function _ensureSlot(){
+      if (_slotEl) return _slotEl;
+      if (!document.body) return null;
+      // Не показываем на anon-страницах
+      if (!_readCookie('csrf_token') && !_readCookie('access_token')) return null;
+      // Не показываем на отдельных страницах (terms, qr_confirm)
+      if (document.body.hasAttribute('data-no-balance')) return null;
+
+      const css = `
+#ai-balance-pill{position:fixed;top:12px;right:62px;z-index:99996;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:rgba(20,20,22,.72);backdrop-filter:blur(8px);font:12px/1 system-ui,-apple-system,sans-serif;font-weight:600;cursor:pointer;transition:transform .15s,box-shadow .15s;text-decoration:none;color:#fff}
+#ai-balance-pill:hover{transform:scale(1.04);box-shadow:0 4px 14px rgba(0,0,0,.3)}
+#ai-balance-pill .bal-em{font-size:13px;line-height:1}
+#ai-balance-pill .bal-num{font-variant-numeric:tabular-nums}
+@media(max-width:640px){#ai-balance-pill{top:8px;right:54px;padding:5px 9px;font-size:11px}}
+@media(max-width:380px){#ai-balance-pill{display:none}}
+`;
+      const style = document.createElement('style');
+      style.id = 'ai-balance-style';
+      style.textContent = css;
+      document.head.appendChild(style);
+
+      const a = document.createElement('a');
+      a.id = 'ai-balance-pill';
+      a.href = '/?tab=tokens';
+      a.title = 'Баланс — клик для пополнения';
+      a.innerHTML = `<span class="bal-em">💰</span><span class="bal-num">— ₽</span>`;
+      document.body.appendChild(a);
+      _slotEl = a;
+      return a;
+    }
+
+    window.aiBalance = {
+      async refresh(){
+        _ensureSlot();
+        const k = await _fetchBalance();
+        _cachedKop = k;
+        _render();
+        return k;
+      },
+      // Caller-update — например после YooKassa-webhook или списания.
+      set(kop){
+        if (typeof kop === 'number'){
+          _cachedKop = kop;
+          _ensureSlot();
+          _render();
+        }
+      },
+      get(){ return _cachedKop; },
+    };
+
+    // window.aiCostHint(costKop, [{enough?: bool, balance?: number}])
+    // Возвращает HTML-фрагмент подписи стоимости.
+    window.aiCostHint = function(costKop, opts){
+      opts = opts || {};
+      const balance = (opts.balance != null) ? opts.balance : _cachedKop;
+      const cost = parseInt(costKop) || 0;
+      if (balance == null){
+        return `<span style="color:rgba(255,255,255,.55)">Спишется ${_fmt(cost)}</span>`;
+      }
+      const after = balance - cost;
+      if (after < 0){
+        const need = -after;
+        return `<span style="color:#ff5252">Не хватает ${_fmt(need)} · <a href="/?tab=tokens" style="color:#ff8c42;text-decoration:underline">пополнить</a></span>`;
+      }
+      const afterColor = after < 10000 ? '#ffb347' : 'rgba(255,255,255,.55)';
+      return `<span style="color:rgba(255,255,255,.55)">Спишется <b style="color:#fff">${_fmt(cost)}</b> · Баланс <b style="color:#fff">${_fmt(balance)}</b> → останется <b style="color:${afterColor}">${_fmt(after)}</b></span>`;
+    };
+
+    // Авто-инициализация баланса
+    if (document.readyState === 'loading'){
+      document.addEventListener('DOMContentLoaded', () => window.aiBalance.refresh());
+    } else {
+      setTimeout(() => window.aiBalance.refresh(), 0);
+    }
+    // Обновляем каждые 60 сек (юзер может пополнить или потратить)
+    setInterval(() => window.aiBalance.refresh(), 60000);
+  }
+
+
+  // ── Welcome-tour для новичков (4-шаговый онбординг) ──────────────────────
+  // Показывается ОДИН РАЗ при первом входе. Хранит флаг на сервере
+  // (User.onboarding_completed) — синхронизируется между устройствами.
+  // Юзер может пропустить «Пропустить тур» в углу.
+  //
+  // Использование:
+  //   window.aiTour.maybeStart(steps);
+  // Где steps — массив объектов {title, body, cta?, onCta?}.
+  if (!window.aiTour) {
+    window.aiTour = {
+      _steps: null, _idx: 0, _root: null,
+      async maybeStart(steps){
+        if (!Array.isArray(steps) || !steps.length) return;
+        // Проверяем серверный флаг — если уже видел, не показываем
+        try {
+          const r = await fetch('/user/onboarding', {credentials:'same-origin'});
+          if (r.ok){
+            const d = await r.json();
+            if (d && d.completed) return;
+          } else if (r.status === 401){
+            // Не залогинен — тур не показываем
+            return;
+          }
+        } catch(e){ return; }
+        // Локальный fallback: если сервер недоступен — показать раз и сохранить в LS
+        if (localStorage.getItem('aiche_tour_seen') === '1') return;
+        this._steps = steps; this._idx = 0;
+        this._render();
+      },
+      // Силой показать тур (например по кнопке в кабинете «Повторить тур»)
+      start(steps){
+        if (!Array.isArray(steps) || !steps.length) return;
+        this._steps = steps; this._idx = 0;
+        this._render();
+      },
+      _ensureRoot(){
+        if (this._root) return this._root;
+        const css = `
+#ai-tour-bg{position:fixed;inset:0;background:rgba(10,10,12,.78);z-index:99997;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);padding:20px;animation:ai-tour-fade .25s ease}
+@keyframes ai-tour-fade{from{opacity:0}to{opacity:1}}
+#ai-tour-card{max-width:480px;width:100%;background:#1a1a1d;color:#e6e4f0;border:1px solid rgba(255,140,66,.3);border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden;font:14px/1.55 system-ui,-apple-system,sans-serif}
+#ai-tour-hero{padding:24px 24px 0;text-align:center}
+#ai-tour-hero .em{font-size:46px;line-height:1;margin-bottom:10px}
+#ai-tour-hero h2{font-size:20px;font-weight:700;margin:0 0 8px;color:#fff}
+#ai-tour-body{padding:8px 24px 6px;color:rgba(230,228,240,.8);text-align:center}
+#ai-tour-body p{margin:0 0 8px}
+#ai-tour-foot{padding:18px 24px 22px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid rgba(255,255,255,.05);margin-top:14px}
+#ai-tour-dots{display:flex;gap:6px}
+#ai-tour-dots span{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.18)}
+#ai-tour-dots span.active{background:#ff8c42;width:18px;border-radius:4px;transition:width .2s}
+#ai-tour-actions{display:flex;gap:8px;align-items:center}
+#ai-tour-skip{background:transparent;border:none;color:rgba(230,228,240,.55);font-size:12px;cursor:pointer;padding:6px 8px}
+#ai-tour-skip:hover{color:rgba(230,228,240,.85)}
+#ai-tour-next{background:linear-gradient(135deg,#ffb347,#ff8c42);border:none;color:#1e1a14;font-weight:700;padding:9px 18px;border-radius:10px;cursor:pointer;font-size:13px;transition:transform .12s}
+#ai-tour-next:hover{transform:translateY(-1px)}
+@media(max-width:480px){
+  #ai-tour-card{border-radius:14px}
+  #ai-tour-hero{padding:20px 18px 0}
+  #ai-tour-foot{padding:14px 18px 18px}
+}`;
+        const style = document.createElement('style');
+        style.id = 'ai-tour-style';
+        style.textContent = css;
+        document.head.appendChild(style);
+        const bg = document.createElement('div');
+        bg.id = 'ai-tour-bg';
+        bg.innerHTML = `
+          <div id="ai-tour-card" role="dialog" aria-label="Знакомство с платформой">
+            <div id="ai-tour-hero">
+              <div class="em" id="ai-tour-em">👋</div>
+              <h2 id="ai-tour-title">Заголовок</h2>
+            </div>
+            <div id="ai-tour-body"><p id="ai-tour-text"></p></div>
+            <div id="ai-tour-foot">
+              <div id="ai-tour-dots"></div>
+              <div id="ai-tour-actions">
+                <button id="ai-tour-skip">Пропустить</button>
+                <button id="ai-tour-next">Дальше →</button>
+              </div>
+            </div>
+          </div>`;
+        document.body.appendChild(bg);
+        bg.querySelector('#ai-tour-skip').addEventListener('click', () => this._end(false));
+        bg.querySelector('#ai-tour-next').addEventListener('click', () => this._next());
+        // Esc → пропустить
+        document.addEventListener('keydown', (e) => {
+          if (this._root && this._root.style.display !== 'none' && e.key === 'Escape'){
+            this._end(false);
+          }
+        });
+        this._root = bg;
+        return bg;
+      },
+      _render(){
+        const root = this._ensureRoot();
+        const s = this._steps[this._idx];
+        if (!s){ this._end(true); return; }
+        root.querySelector('#ai-tour-em').textContent = s.emoji || '✨';
+        root.querySelector('#ai-tour-title').textContent = s.title || '';
+        root.querySelector('#ai-tour-text').textContent = s.body || '';
+        const dots = root.querySelector('#ai-tour-dots');
+        dots.innerHTML = this._steps.map((_, i) =>
+          `<span class="${i===this._idx?'active':''}"></span>`).join('');
+        const nextBtn = root.querySelector('#ai-tour-next');
+        nextBtn.textContent = (this._idx === this._steps.length - 1)
+          ? 'Понятно, поехали 🚀' : 'Дальше →';
+        root.style.display = 'flex';
+      },
+      _next(){
+        const s = this._steps[this._idx];
+        if (s && typeof s.onCta === 'function'){
+          try { s.onCta(); } catch(e){}
+        }
+        this._idx++;
+        if (this._idx >= this._steps.length){ this._end(true); return; }
+        this._render();
+      },
+      async _end(completed){
+        if (this._root) this._root.style.display = 'none';
+        try { localStorage.setItem('aiche_tour_seen', '1'); } catch(e){}
+        // Серверный флаг — фиксируем что юзер прошёл (либо пропустил)
+        if (completed){
+          try {
+            await fetch('/user/onboarding/complete',
+              {method:'POST', credentials:'same-origin'});
+          } catch(e){}
+        }
+      },
+    };
+  }
+
+
+  // ── Auto-save черновиков форм в localStorage ────────────────────────────
+  // Спасает от случайного reload / закрытия вкладки во время заполнения
+  // длинной формы (КП, бот, агент). Хранит JSON-объект с timestamp.
+  // TTL по умолчанию 24ч — старые черновики не предлагаем восстановить.
+  //
+  // Использование в форме:
+  //   const draft = window.aiDraft.load('proposal_new');
+  //   if (draft) showRestorePrompt(draft);  // Восстановить от 14:03? (5 мин назад)
+  //   window.aiDraft.attach('proposal_new', formEl, () => collectFormData());
+  //   // ... после успешной отправки:
+  //   window.aiDraft.clear('proposal_new');
+  if (!window.aiDraft) {
+    const NS = 'aiche_draft_';
+    const TTL_MS = 24 * 60 * 60 * 1000;
+    const _debounce = (fn, ms) => {
+      let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+    };
+    window.aiDraft = {
+      save(key, data){
+        try {
+          localStorage.setItem(NS + key,
+            JSON.stringify({ts: Date.now(), data}));
+        } catch(e) { /* quota / private mode */ }
+      },
+      load(key, ttlMs){
+        const raw = localStorage.getItem(NS + key);
+        if (!raw) return null;
+        try {
+          const obj = JSON.parse(raw);
+          if (!obj || !obj.ts) return null;
+          if (Date.now() - obj.ts > (ttlMs || TTL_MS)){
+            localStorage.removeItem(NS + key);
+            return null;
+          }
+          return {ts: obj.ts, data: obj.data,
+                  ageMin: Math.floor((Date.now() - obj.ts) / 60000)};
+        } catch(e){ return null; }
+      },
+      clear(key){
+        try { localStorage.removeItem(NS + key); } catch(e){}
+      },
+      // Подключает auto-save к форме: следит за input/change-событиями
+      // на форме и каждые 1500мс сохраняет результат collectFn().
+      attach(key, formEl, collectFn){
+        if (!formEl || typeof collectFn !== 'function') return;
+        const _save = _debounce(() => {
+          try {
+            const data = collectFn();
+            if (data === null || data === undefined) return;
+            this.save(key, data);
+          } catch(e){}
+        }, 1500);
+        formEl.addEventListener('input', _save);
+        formEl.addEventListener('change', _save);
+        // Save при unload — последний шанс
+        const _unloadSave = () => {
+          try { this.save(key, collectFn()); } catch(e){}
+        };
+        window.addEventListener('beforeunload', _unloadSave);
+        // Чтобы caller мог отключить:
+        return () => {
+          formEl.removeEventListener('input', _save);
+          formEl.removeEventListener('change', _save);
+          window.removeEventListener('beforeunload', _unloadSave);
+        };
+      },
+      // Удобный prompt: «Найден черновик от 14:03 (5 мин назад). Восстановить?»
+      // Возвращает Promise<bool>.
+      async confirmRestore(key, ttlMs){
+        const d = this.load(key, ttlMs);
+        if (!d) return false;
+        const dt = new Date(d.ts);
+        const fmt = dt.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+        const ago = d.ageMin <= 0 ? 'минуту назад'
+                  : d.ageMin < 60 ? d.ageMin + ' мин назад'
+                  : Math.floor(d.ageMin/60) + ' ч назад';
+        if (window.aiConfirm){
+          return await window.aiConfirm(
+            `Найден несохранённый черновик от ${fmt} (${ago}). Восстановить?`,
+            {okLabel: 'Восстановить', cancelLabel: 'Начать с нуля'}
+          );
+        }
+        return confirm(`Восстановить черновик от ${fmt}?`);
+      },
+    };
+  }
+
+
+  // ── Колокольчик уведомлений (in-app notifications bell) ────────────────────
+  // Floating кнопка в правом ВЕРХНЕМ углу. Бейдж = непрочитанные ивенты
+  // за 14 дней. Click → dropdown с 10 последними событиями.
+  // Источник — /user/notifications/recent (фильтрует ActionLog).
+  // Не показывается если юзер не залогинен (нет cookie access_token).
+  function _initNotificationsBell() {
+    if (!document.body) return;
+    if (document.getElementById('ai-notif-root')) return;
+    // Не показываем на страницах где есть data-no-notif (например terms)
+    if (document.body.hasAttribute('data-no-notif')) return;
+    // Не показываем если нет access cookie (anon)
+    if (!_readCookie('access_token') && !_readCookie('csrf_token')) return;
+
+    const css = `
+#ai-notif-root{position:fixed;top:10px;right:10px;z-index:99996;font:13px/1.4 system-ui,-apple-system,sans-serif}
+@media (max-width:640px){#ai-notif-root{top:6px;right:6px}}
+#ai-notif-btn{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.12);background:rgba(20,20,22,.72);backdrop-filter:blur(8px);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:20px;transition:transform .15s,border-color .15s;padding:0;line-height:1}
+#ai-notif-btn:hover{transform:scale(1.06);border-color:#ff8c42}
+#ai-notif-btn[data-unread]{animation:ai-notif-pulse 2.4s ease-in-out infinite}
+@keyframes ai-notif-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,140,66,.45)}50%{box-shadow:0 0 0 8px rgba(255,140,66,0)}}
+#ai-notif-badge{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#ff5252;color:#fff;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;box-shadow:0 0 0 2px rgba(20,20,22,.92);line-height:1}
+#ai-notif-badge.has{display:flex}
+#ai-notif-panel{position:absolute;top:50px;right:0;width:340px;max-width:calc(100vw - 20px);max-height:480px;background:#1a1a1d;color:#e6e4f0;border:1px solid rgba(255,255,255,.08);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.45);overflow:hidden;display:none;flex-direction:column}
+#ai-notif-panel.open{display:flex}
+#ai-notif-hdr{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;font-weight:600;background:#15151a}
+#ai-notif-hdr button{background:transparent;border:none;color:rgba(230,228,240,.7);font-size:12px;cursor:pointer;padding:4px 8px;border-radius:6px}
+#ai-notif-hdr button:hover{background:rgba(255,255,255,.06);color:#fff}
+#ai-notif-list{overflow-y:auto;padding:6px 0;flex:1}
+.ai-notif-item{padding:10px 14px;display:flex;gap:10px;border-bottom:1px solid rgba(255,255,255,.04);align-items:flex-start;transition:background .15s;cursor:default}
+.ai-notif-item.unread{background:rgba(255,140,66,.06)}
+.ai-notif-item .em{font-size:18px;line-height:1.2;flex-shrink:0;margin-top:1px}
+.ai-notif-item .text{flex:1;min-width:0}
+.ai-notif-item .lbl{font-size:13px;color:#e6e4f0;line-height:1.35}
+.ai-notif-item .ts{font-size:11px;color:rgba(230,228,240,.5);margin-top:2px}
+.ai-notif-item.unread .lbl{font-weight:600}
+#ai-notif-empty{padding:24px 16px;text-align:center;color:rgba(230,228,240,.55);font-size:13px}
+`;
+    const style = document.createElement('style');
+    style.id = 'ai-notif-style';
+    style.textContent = css;
+    document.head.appendChild(style);
+
+    const root = document.createElement('div');
+    root.id = 'ai-notif-root';
+    root.innerHTML = `
+      <button id="ai-notif-btn" aria-label="Уведомления" title="Уведомления">
+        🔔
+        <span id="ai-notif-badge"></span>
+      </button>
+      <div id="ai-notif-panel" role="dialog" aria-label="Уведомления">
+        <div id="ai-notif-hdr">
+          <span>Уведомления</span>
+          <button id="ai-notif-mark">Отметить прочитанными</button>
+        </div>
+        <div id="ai-notif-list"></div>
+      </div>
+    `;
+    document.body.appendChild(root);
+
+    const btn = root.querySelector('#ai-notif-btn');
+    const badge = root.querySelector('#ai-notif-badge');
+    const panel = root.querySelector('#ai-notif-panel');
+    const list = root.querySelector('#ai-notif-list');
+    const markBtn = root.querySelector('#ai-notif-mark');
+
+    function _fmtAgo(iso){
+      if (!iso) return '';
+      const t = new Date(iso).getTime();
+      const dt = (Date.now() - t) / 1000;
+      if (dt < 60) return 'только что';
+      if (dt < 3600) return Math.floor(dt/60) + ' мин назад';
+      if (dt < 86400) return Math.floor(dt/3600) + ' ч назад';
+      if (dt < 86400*7) return Math.floor(dt/86400) + ' д назад';
+      return new Date(iso).toLocaleDateString('ru-RU');
+    }
+
+    async function _refresh(){
+      try {
+        const r = await fetch('/user/notifications/recent', {credentials:'same-origin'});
+        if (!r.ok) return;
+        const d = await r.json();
+        const items = d.items || [];
+        const unread = d.unread || 0;
+        if (unread > 0){
+          badge.textContent = unread > 99 ? '99+' : String(unread);
+          badge.classList.add('has');
+          btn.setAttribute('data-unread', '');
+        } else {
+          badge.classList.remove('has');
+          btn.removeAttribute('data-unread');
+        }
+        if (!items.length){
+          list.innerHTML = '<div id="ai-notif-empty">Пока ничего не происходило 🌱<br><br>Здесь появятся новые заявки от ботов, открытия КП клиентами и готовые отчёты.</div>';
+          return;
+        }
+        list.innerHTML = items.map(it => {
+          const cls = it.unread ? 'ai-notif-item unread' : 'ai-notif-item';
+          const em = window.escAttr(it.emoji || '📌');
+          const lbl = window.escHtml(it.label || it.action);
+          const ts = window.escHtml(_fmtAgo(it.ts));
+          return `<div class="${cls}"><div class="em">${em}</div><div class="text"><div class="lbl">${lbl}</div><div class="ts">${ts}</div></div></div>`;
+        }).join('');
+      } catch (e) {
+        // 401 / network — тихо
+      }
+    }
+
+    btn.addEventListener('click', async () => {
+      const isOpen = panel.classList.contains('open');
+      if (isOpen){ panel.classList.remove('open'); return; }
+      await _refresh();
+      panel.classList.add('open');
+    });
+    document.addEventListener('click', (e) => {
+      if (!root.contains(e.target)) panel.classList.remove('open');
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') panel.classList.remove('open');
+    });
+    markBtn.addEventListener('click', async () => {
+      try {
+        await fetch('/user/notifications/seen', {method:'POST', credentials:'same-origin'});
+      } catch {}
+      badge.classList.remove('has');
+      btn.removeAttribute('data-unread');
+      panel.querySelectorAll('.ai-notif-item.unread').forEach(el => el.classList.remove('unread'));
+    });
+    // Первичная загрузка + опрос раз в 60 сек
+    _refresh();
+    setInterval(_refresh, 60000);
+
+    // Public API — другие модули могут форснуть refresh после своих действий
+    window.aiNotifRefresh = _refresh;
+  }
+
 
   // ── Контекстный помощник по разделам ────────────────────────────────────
   // Плавающая кнопка-bubble в правом нижнем углу. Клик → открывает чат-панель.
@@ -1192,10 +1711,14 @@
   }
 
   // Инициализация после загрузки DOM (включая body с data-assistant-section)
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _initAssistant);
-  } else {
+  function _initAll() {
     _initAssistant();
+    _initNotificationsBell();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _initAll);
+  } else {
+    _initAll();
   }
 
   // ── Welcome hints: бренд-маскот приветствует на каждой странице ─────────

@@ -4,6 +4,41 @@
 
 ---
 
+## 🆕 Спринт «Friendly UX — 5 quick wins» (2026-05-04 ночью)
+
+Юзер запросил «предложения по friendly-дизайну для пользователей». Сделал 5 параллельных улучшений в одном спринте — всё через `views/icons.js` (загружается на каждой странице) + новые endpoints в `server/routes/user.py`.
+
+### #1. Колокольчик уведомлений + dashboard «Недавнее»
+- **Backend:** новые endpoints `/user/notifications/recent` (последние 30 событий за 14 дней + счётчик непрочитанных) и `/user/notifications/seen` (сбросить бейдж). Источник — `ActionLog` отфильтрованный по whitelist `_NOTIFY_USER_ACTIONS` (record.created, proposal.opened, solution.orchestra_done и т.д.). Маппинг action → emoji + русская фраза в `_NOTIFY_LABELS`.
+- **Backend:** `/user/recent-objects` — последние 3 бота / 3 КП / 3 сайта.
+- **Модель:** `User.notifications_last_seen_at` (DateTime nullable) + миграция.
+- **Фронт (icons.js):** `_initNotificationsBell()` — floating-кнопка `🔔` в правом верхнем углу всех страниц, бейдж с числом непрочитанных, dropdown с 10 событиями. Пульсирующая анимация при unread > 0. Обновление каждые 60 сек. Esc / клик вне — закрытие.
+- **index.html welcome:** под кнопками «Начать диалог / Бизнес-решения» — 6 quick-action чипов (`Пост в соцсети`, `Письмо клиенту`, `Скрипт звонка`, `Идея бизнеса`, `SWOT`, `Описание оффера`) + блок «Недавнее» с тремя секциями (боты/КП/сайты) — подгружается из `/user/recent-objects` если есть хоть один объект.
+
+### #2. Auto-save черновиков (localStorage)
+- **icons.js:** `window.aiDraft` — четыре метода: `save(key, data)`, `load(key, ttlMs=24h)`, `clear(key)`, `attach(formEl, collectFn)` (debounced 1.5s + auto-save при `beforeunload`), `confirmRestore(key)` (промпт «Найден черновик от 14:03 (5 мин назад). Восстановить?»).
+- **proposals.html:** в `openCreate()` — проверка черновика → restore prompt → `attach`. После успешного `saveProject()` — `clear('proposal_new')`.
+- TTL: 24 часа. NS: `aiche_draft_<key>` в localStorage.
+
+### #3. Welcome-tour для новичков
+- **icons.js:** `window.aiTour.maybeStart(steps)` — проверяет `/user/onboarding` и localStorage flag, если не видел — показывает 4-шаговый overlay (emoji + title + body + dots-progress). Кнопки «Пропустить» / «Дальше →» / «Понятно, поехали 🚀». Esc = пропустить.
+- **Модель:** `User.onboarding_completed` (Boolean default 0) + миграция. Endpoints `/user/onboarding` (GET) и `/user/onboarding/complete` (POST).
+- **index.html:** при `renderWelcome()` для залогиненого юзера — 4 шага: «Привет → Чат с моделями → Бизнес-решения → Боты/КП/Сайты».
+
+### #4. Cost preview + sticky-balance
+- **icons.js:** `window.aiBalance` — sticky-плашка `💰 730 ₽` рядом с колокольчиком в правом верхнем углу. Цвет зелёный/жёлтый/красный по уровню. Click → `/?tab=tokens`. Refresh каждые 60 сек или вручную через `aiBalance.refresh()`.
+- **icons.js:** `window.aiCostHint(costKop)` — возвращает HTML «Спишется 50 ₽ · Баланс 730 ₽ → останется 680 ₽» или «Не хватает 220 ₽ — пополнить» (с кнопкой) если денег нет.
+- **proposals.html:** под кнопкой «Сгенерировать (50 ₽)» — `<div id="pGenCostHint">` с aiCostHint. Обновляется через `updateGenButton(p)`.
+
+### #5. humanizeError + массовая замена `aiAlert(e.message)`
+- **icons.js:** расширил `aiFetchError` — теперь распознаёт «Ошибка 402 NNN», `Internal Server Error`, traceback'и Python и заменяет на дружеский текст. Алиас `window.humanizeError` для понятности. Новый `window.aiAlertError(e)` — shortcut: `catch(e){ aiAlertError(e); }` + автоматический `aiNeedTopup()` modal на 402.
+- **Mass-replace:** во всех 7 user-facing views (admin/agents/chatbots/index/presentations/proposals/sites) заменил **50 вхождений** `aiAlert(e.message, 'error')` → `aiAlertError(e)`. PowerShell regex с UTF-8 без BOM, не сломал JS-синтаксис (sanity-check Node прошёл).
+
+### Тесты
+164/164 passed после всех правок. JS-syntax-check 8 файлов — OK. Локальный smoke (Python 3.14 bcrypt-conflict не даёт сделать login локально, но endpoint'ы зарегистрированы и возвращают 401 без auth — корректно).
+
+---
+
 ## 🆕 Спринт «Аудит-фиксы» (2026-05-04 вечером)
 
 Прошлая сессия запросила полный аудит проекта (тесты + security + новые идеи + баги). Найдено и закрыто 13 пунктов:

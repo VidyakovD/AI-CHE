@@ -763,7 +763,7 @@ async function toggleBan(userId,email){
     const r=await post(`/admin/users/${userId}/toggle-ban`,{ban:true});
     await aiAlert(r.is_banned?`${email} заблокирован`:`${email} разбанен`, 'info');
     await loadUsers();
-  }catch(e){await aiAlert(e.message,"error");}
+  }catch(e){await aiAlertError(e);}
 }
 async function respondSupportReq(id){
   const resp=await aiPrompt("Текст ответа пользователю:", "", {title: 'Ответ на запрос', okLabel: 'Отправить'});
@@ -771,13 +771,13 @@ async function respondSupportReq(id){
   try{
     await post(`/admin/support-requests/${id}`,{admin_response:resp,status:"resolved"});
     await loadSupport();
-  }catch(e){await aiAlert(e.message,"error");}
+  }catch(e){await aiAlertError(e);}
 }
 async function rejectSupportReq(id){
   try{
     await post(`/admin/support-requests/${id}`,{status:"rejected"});
     await loadSupport();
-  }catch(e){await aiAlert(e.message,"error");}
+  }catch(e){await aiAlertError(e);}
 }
 
 // ── Support Requests ───────────────────────────────────────────────────────

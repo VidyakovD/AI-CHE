@@ -918,7 +918,7 @@ async function editBot(id){
     }
     document.getElementById('bot_err').classList.add('hidden');
     document.getElementById('createModal').classList.add('show');
-  }catch(e){await aiAlert(e.message,'error');}
+  }catch(e){await aiAlertError(e);}
 }
 
 function closeCreate(){document.getElementById('createModal').classList.remove('show');}
@@ -1683,7 +1683,7 @@ async function bp_save(idx){
     }
     Object.assign(_bpItems[idx], data);
     toast('✓ Позиция сохранена', 'success');
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 async function bp_delete(idx){
@@ -1887,7 +1887,7 @@ async function _deleteBotAsset(id){
     const r = await fetch(`${API}/assets/${id}`, {method:'DELETE', headers, credentials:'same-origin'});
     if(!r.ok) throw new Error('Ошибка удаления');
     await _loadBotAssets();
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 function _copyBaUrl(url, btn){

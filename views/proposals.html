@@ -243,13 +243,16 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:10
 
     <div class="flex items-center justify-between gap-3 p-5 border-t border-outline/15 flex-wrap">
       <button id="pDeleteBtn" onclick="deleteCurrentProject()" class="btn-d text-sm hidden">Удалить</button>
-      <div class="flex gap-2 ml-auto flex-wrap">
-        <button onclick="closeProject()" class="btn-g text-sm">Закрыть</button>
-        <button id="pSaveBtn" onclick="saveProject(false)" class="btn-g text-sm">Сохранить</button>
-        <button id="pGenBtn" onclick="generateProposal()" class="btn-p text-sm">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
-          <span id="pGenBtnLabel">Сгенерировать (50 ₽)</span>
-        </button>
+      <div class="flex flex-col gap-1 ml-auto items-end">
+        <div class="flex gap-2 flex-wrap">
+          <button onclick="closeProject()" class="btn-g text-sm">Закрыть</button>
+          <button id="pSaveBtn" onclick="saveProject(false)" class="btn-g text-sm">Сохранить</button>
+          <button id="pGenBtn" onclick="generateProposal()" class="btn-p text-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
+            <span id="pGenBtnLabel">Сгенерировать (50 ₽)</span>
+          </button>
+        </div>
+        <div id="pGenCostHint" class="text-[11px]"></div>
       </div>
     </div>
   </div>
@@ -668,7 +671,7 @@ async function duplicateProject(id){
     await loadProjects();
     await openProject(newProj.id);
     await aiAlert('Копия создана. Заполни поля клиента и нажми «Сгенерировать».', 'success');
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 async function quickStage(id, stage){
@@ -684,7 +687,7 @@ async function quickStage(id, stage){
       throw new Error(d.detail || 'Ошибка ' + r.status);
     }
     await loadProjects();
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 function setHeaderLayout(layout){
@@ -697,7 +700,34 @@ function setHeaderLayout(layout){
   });
 }
 
-function openCreate(){
+// Все поля формы КП — для auto-save / restore.
+const _PROPOSAL_FIELDS = ['pNa','pClientName','pClientEmail','pClientReq',
+                           'pClientSite','pNotes','pBrand','pBot','pPriceList'];
+
+function _collectProposalDraft(){
+  const o = {};
+  for (const id of _PROPOSAL_FIELDS){
+    const el = document.getElementById(id);
+    if (el) o[id] = el.value || '';
+  }
+  o._headerLayout = document.getElementById('pHeaderLayout')?.value
+    || (document.querySelector('[data-header-layout].active')?.dataset.headerLayout)
+    || 'classic';
+  return o;
+}
+
+function _restoreProposalDraft(d){
+  if (!d) return;
+  for (const id of _PROPOSAL_FIELDS){
+    const el = document.getElementById(id);
+    if (el && d[id] != null) el.value = d[id];
+  }
+  if (d._headerLayout) setHeaderLayout(d._headerLayout);
+}
+
+let _proposalDraftDetach = null;
+
+async function openCreate(){
   currentProjectId = null;
   document.getElementById('projectModalTitle').textContent = 'Новое КП';
   ['pNa','pClientName','pClientEmail','pClientReq','pClientSite','pNotes'].forEach(id => document.getElementById(id).value = '');
@@ -712,6 +742,22 @@ function openCreate(){
   hideResult();
   updateGenButton(null);
   document.getElementById('projectModal').classList.add('show');
+
+  // Auto-save: проверяем есть ли черновик новее 24ч и предлагаем восстановить.
+  if (window.aiDraft){
+    const restore = await window.aiDraft.confirmRestore('proposal_new');
+    if (restore){
+      const d = window.aiDraft.load('proposal_new');
+      if (d?.data) _restoreProposalDraft(d.data);
+    } else {
+      window.aiDraft.clear('proposal_new');
+    }
+    // Подключаем continuous-save на форму (поля внутри modal)
+    if (_proposalDraftDetach) try { _proposalDraftDetach(); } catch{}
+    const modal = document.getElementById('projectModal');
+    _proposalDraftDetach = window.aiDraft.attach(
+      'proposal_new', modal, _collectProposalDraft);
+  }
 }
 
 async function openProject(id){
@@ -784,10 +830,24 @@ function _autoFillName(){
 
 function updateGenButton(p){
   const label = document.getElementById('pGenBtnLabel');
+  const hint = document.getElementById('pGenCostHint');
+  let costKop;
   if(p && p.status === 'done'){
     label.textContent = 'Перегенерировать (5 ₽)';
+    costKop = 500;
   } else {
     label.textContent = 'Сгенерировать (50 ₽)';
+    costKop = 5000;
+  }
+  // Подпись под кнопкой: спишется X · Баланс Y → останется Z
+  if (hint && window.aiCostHint){
+    hint.innerHTML = window.aiCostHint(costKop);
+    // Обновим хинт после получения свежего баланса
+    if (window.aiBalance && window.aiBalance.get() == null){
+      window.aiBalance.refresh().then(() => {
+        hint.innerHTML = window.aiCostHint(costKop);
+      });
+    }
   }
 }
 
@@ -967,7 +1027,7 @@ async function aiEditSection(sectionHtml){
     await aiAlert(`Блок переписан. Списано ${cost} ₽. PDF пересобран.`, 'success');
     await loadProjects();
   }catch(e){
-    await aiAlert(e.message, 'error');
+    await aiAlertError(e);
   }finally{
     if(btn) btn.disabled = false;
   }
@@ -1053,7 +1113,7 @@ async function saveEditedHtml(){
     await aiAlert('Сохранено. PDF пересобран.', 'success');
     await loadProjects();
   }catch(e){
-    await aiAlert(e.message, 'error');
+    await aiAlertError(e);
   }finally{
     btn.disabled = false;
     btn.textContent = oldLabel;
@@ -1085,7 +1145,7 @@ async function generateProposal(){
     showResult(data.generated_html || '');
     updateGenButton(data);
     await loadProjects();
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
   finally{
     btn.disabled = false;
     document.getElementById('pGenBtnLabel').textContent = oldLabel;
@@ -1106,7 +1166,7 @@ async function downloadPdf(){
     a.download = (document.getElementById('pNa').value || 'proposal') + '.pdf';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 // Публичная ссылка (B.8)
@@ -1137,7 +1197,7 @@ async function togglePublicLink(){
                     {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
         await aiAlert('Публичная ссылка отозвана. Старый URL больше не работает.', 'info');
         document.getElementById('pPublicInfo').classList.add('hidden');
-      }catch(e){ await aiAlert(e.message, 'error'); }
+      }catch(e){ await aiAlertError(e); }
     }
     return;
   }
@@ -1160,7 +1220,7 @@ async function togglePublicLink(){
     const info = document.getElementById('pPublicInfo');
     info.innerHTML = `🔗 Публичная: <a href="${data.url}" target="_blank" rel="noopener" class="text-primary hover:underline">${data.url}</a>`;
     info.classList.remove('hidden');
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 // История версий (A.4)
@@ -1215,7 +1275,7 @@ async function restoreVersion(versionId){
     closeVersions();
     await aiAlert('Версия восстановлена. PDF пересобран.', 'success');
     await loadProjects();
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 async function openPdfTab(){
@@ -1228,7 +1288,7 @@ async function openPdfTab(){
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank', 'noopener,noreferrer');
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 function openSendEmail(){
@@ -1285,7 +1345,7 @@ async function sendEmail(){
     await aiAlert(`КП отправлено на ${data.to}`, 'success');
     await loadProjects();
   }catch(e){
-    await aiAlert(e.message, 'error');
+    await aiAlertError(e);
   }finally{
     btn.disabled = false;
     btn.textContent = oldLabel;
@@ -1322,6 +1382,8 @@ async function saveProject(silent){
     if(!currentProjectId && data && data.id){
       currentProjectId = data.id;
       document.getElementById('pDeleteBtn').classList.remove('hidden');
+      // КП успешно создан → черновик больше не нужен
+      try { window.aiDraft && window.aiDraft.clear('proposal_new'); } catch(e){}
     }
     if(!silent){
       closeProject();
@@ -1332,7 +1394,7 @@ async function saveProject(silent){
     }
     return true;
   }catch(e){
-    await aiAlert(e.message, 'error');
+    await aiAlertError(e);
     return false;
   }
 }
@@ -1344,7 +1406,7 @@ async function deleteCurrentProject(){
     await fetch(`${API}/proposals/projects/${currentProjectId}`, {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
     closeProject();
     await loadProjects();
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 // ── Brands ──────────────────────────────────────────────────────────────────
@@ -1480,7 +1542,7 @@ async function uploadLogo(ev){
     const d = await r.json();
     document.getElementById('bLogoUrl').value = d.url;
     setLogoPreview(d.url);
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
   finally { ev.target.value = ''; }
 }
 
@@ -1518,7 +1580,7 @@ async function uploadSignature(ev){
     const d = await r.json();
     document.getElementById('bSigUrl').value = d.url;
     setSignaturePreview(d.url);
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
   finally { ev.target.value = ''; }
 }
 
@@ -1561,7 +1623,7 @@ async function saveBrand(){
     }
     closeBrand();
     await loadBrands();
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 async function deleteCurrentBrand(){
@@ -1571,7 +1633,7 @@ async function deleteCurrentBrand(){
     await fetch(`${API}/proposals/brands/${currentBrandId}`, {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
     closeBrand();
     await loadBrands();
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -1760,7 +1822,7 @@ async function savePriceList(){
     closePriceListModal();
     await loadPriceLists();
     await aiAlert('Прайс сохранён', 'success');
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 async function deleteCurrentPriceList(){
@@ -1770,7 +1832,7 @@ async function deleteCurrentPriceList(){
     await fetch(`${API}/proposals/price-lists/${currentPriceListId}`, {method:'DELETE', headers: hdrs(), credentials:'same-origin'});
     closePriceListModal();
     await loadPriceLists();
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 async function importPriceCsv(ev){
@@ -1793,7 +1855,7 @@ async function importPriceCsv(ev){
     if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
     await openPriceListModal(currentPriceListId);
     await aiAlert(`Импортировано ${data.added} позиций`, 'success');
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
   finally{ ev.target.value = ''; }
 }
 

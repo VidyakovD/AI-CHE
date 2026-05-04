@@ -1808,7 +1808,7 @@ async function addApiKey(provider){
   try{
     await apiPost('/user/api-keys', {provider, api_key: key});
     cabTab('apikeys');
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 async function deleteApiKey(id){
@@ -1818,7 +1818,7 @@ async function deleteApiKey(id){
     const r = await fetch(API+'/user/api-keys/' + id, {method:'DELETE', headers:h, credentials:'same-origin'});
     if(!r.ok) throw new Error('Ошибка ' + r.status);
     cabTab('apikeys');
-  }catch(e){ await aiAlert(e.message, 'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 // ── Files tab: загруженные файлы / лидмагниты ──────────────────────────────
@@ -1972,7 +1972,7 @@ async function deleteAsset(id){
     });
     if(!r.ok) throw new Error('Ошибка удаления');
     renderFilesTab(document.getElementById('cabContent'));
-  } catch(e){ await aiAlert(e.message, 'error'); }
+  } catch(e){ await aiAlertError(e); }
 }
 
 async function restoreAsset(id){
@@ -1986,7 +1986,7 @@ async function restoreAsset(id){
     const d = await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(d.detail || 'Не удалось восстановить');
     renderFilesTab(document.getElementById('cabContent'));
-  } catch(e){ await aiAlert(e.message, 'error'); }
+  } catch(e){ await aiAlertError(e); }
 }
 
 function copyAssetUrl(url, btn){
@@ -2055,7 +2055,7 @@ async function downloadTxCsv(){
     a.download = r.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'transactions.csv';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  }catch(e){ await aiAlert(e.message, "error"); }
+  }catch(e){ await aiAlertError(e); }
 }
 function renderUsageTab(el){
   const breakdown = cabinetData?.spend_by_module;
@@ -2505,7 +2505,7 @@ async function _genTgLinkCode(){
         <button onclick="_copyTgCode('${esc(r.code)}')" class="btn-g text-xs mt-3">📋 Скопировать команду</button>
       </div>
       <button onclick="_renderTgLinkStatus()" class="btn-g text-xs mt-2">🔄 Обновить статус</button>`;
-  }catch(e){ aiAlert(e.message, 'error'); }
+  }catch(e){ aiAlertError(e); }
 }
 
 async function _copyTgCode(code){
@@ -2520,7 +2520,7 @@ async function _unlinkTg(){
   try{
     await apiPost('/user/tg-link/unlink', {});
     await _renderTgLinkStatus();
-  }catch(e){ aiAlert(e.message, 'error'); }
+  }catch(e){ aiAlertError(e); }
 }
 
 async function _saveTgNotify(){
@@ -2536,7 +2536,7 @@ async function _saveTgNotify(){
         ...(tok ? {'Authorization': 'Bearer '+tok} : {})},
       credentials: 'same-origin', body: JSON.stringify(body),
     });
-  }catch(e){ aiAlert(e.message, 'error'); }
+  }catch(e){ aiAlertError(e); }
 }
 
 async function doChangePass(){
@@ -2944,18 +2944,33 @@ async function loadMessages(chatId){
 }
 
 // ── render ─────────────────────────────────────────────────────────────────
+// 6 быстрых сценариев — типичные «холодные» запросы, чтобы новичок мог
+// сразу попробовать AI без размышлений «а что вообще писать».
+const _WELCOME_PROMPTS = [
+  {label:"📝 Пост для соцсети", text:"Напиши пост в Instagram про "},
+  {label:"📧 Письмо клиенту",   text:"Напиши вежливое письмо клиенту о "},
+  {label:"📞 Скрипт звонка",    text:"Сделай скрипт холодного звонка для продажи "},
+  {label:"💡 Идея бизнеса",     text:"Предложи 5 идей небольшого бизнеса в "},
+  {label:"📊 SWOT-анализ",       text:"Сделай SWOT-анализ для проекта: "},
+  {label:"🎯 Описание оффера",  text:"Сформулируй продающее описание услуги: "},
+];
+
 function renderWelcome(){
   showWelcome();
   const m=MODELS.find(x=>x.id===currentModel);
+  const chips=_WELCOME_PROMPTS.map(p=>
+    `<button onclick="promptExample(${JSON.stringify(p.text).replace(/"/g,'&quot;')})"
+       class="px-3 py-1.5 rounded-lg bg-surface2 border border-outline/20 text-xs hover:border-primary/40 hover:text-primary transition">${p.label}</button>`
+  ).join('');
   document.getElementById("chatContainer").innerHTML=`
-    <div class="welcome-screen flex flex-col items-center justify-center min-h-[70vh] text-center px-6">
+    <div class="welcome-screen flex flex-col items-center justify-center min-h-[60vh] text-center px-6 pt-6">
       <div class="w-20 h-20 rounded-3xl sig flex items-center justify-center mb-6 shadow-[0_0_60px_rgba(255,140,66,0.25)]">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:38px;height:38px;color:#1e1a14"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
       </div>
       <h1 class="text-4xl font-extrabold font-headline mb-2 tracking-tight">AI Студия Че</h1>
       <p class="sig-text text-lg font-bold font-headline mb-5">${m?.label||currentModel}</p>
-      <p class="text-on-surface-dim/70 max-w-sm text-sm leading-relaxed mb-8">Задайте вопрос, загрузите файл или выберите готовое решение</p>
-      <div class="flex flex-wrap gap-3 justify-center">
+      <p class="text-on-surface-dim/70 max-w-sm text-sm leading-relaxed mb-6">Задайте вопрос, загрузите файл или выберите готовое решение</p>
+      <div class="flex flex-wrap gap-3 justify-center mb-7">
         <button onclick="startChatOrLogin()" class="px-5 py-2.5 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition flex items-center gap-2">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>Начать диалог
         </button>
@@ -2963,7 +2978,77 @@ function renderWelcome(){
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:18px;height:18px"><path d="M10 16v-1H3.01L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-4h-7v1h-4zm10-9h-4.01V5l-2-2h-4l-2 2v2H4c-1.1 0-2 .9-2 2v3c0 1.1.9 2 2 2h6v-2h4v2h6c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2zm-6 0h-4V5h4v2z"/></svg>Бизнес-решения
         </button>
       </div>
+      <div class="text-xs text-on-surface-dim/50 mb-3 uppercase tracking-wider">Или попробуйте быстрый сценарий:</div>
+      <div class="flex flex-wrap gap-2 justify-center max-w-2xl mb-8">${chips}</div>
+      <div id="welcomeRecent" class="w-full max-w-3xl"></div>
     </div>`;
+  // Подгрузим блок «Недавнее» (только для залогиненых)
+  if (authToken){
+    loadWelcomeRecent();
+    // Welcome-tour для новых юзеров (показывается ОДИН РАЗ)
+    if (window.aiTour) {
+      window.aiTour.maybeStart([
+        {emoji:"👋", title:"Добро пожаловать в AI Студию Че!",
+         body:"Это твой AI-помощник для бизнеса. За 60 секунд покажу самое важное."},
+        {emoji:"💬", title:"Чат с любой моделью",
+         body:"GPT-4o, Claude Sonnet/Opus/Haiku, Perplexity, Grok, Imagen, Veo. Можешь задать вопрос, попросить картинку или видео — всё в одном окне."},
+        {emoji:"🎯", title:"Готовые бизнес-решения",
+         body:"30+ сценариев под кнопкой «Бизнес-решения»: SWOT, контент-план, аудит лендинга, юр.проверка договора. Каждый запускает несколько AI-агентов параллельно."},
+        {emoji:"🤖", title:"Боты, КП, сайты — отдельные модули",
+         body:"В верхнем меню найдёшь конструктор чат-ботов (TG/WhatsApp), генератор КП с брендингом и фоновую сборку сайтов. Удачи!"},
+      ]);
+    }
+  }
+}
+
+// Блок «Недавнее» на welcome-экране: 3 последних бота / КП / сайта.
+// Показывается только если есть хотя бы один объект — иначе пустота не нужна.
+async function loadWelcomeRecent(){
+  const slot = document.getElementById("welcomeRecent");
+  if (!slot) return;
+  try {
+    const r = await fetch("/user/recent-objects", {credentials:"same-origin"});
+    if (!r.ok) return;
+    const d = await r.json();
+    const blocks = [];
+    if ((d.bots||[]).length){
+      blocks.push(_recentBlock("🤖 Мои боты", "/chatbots.html", d.bots.map(b =>
+        `<a href="/chatbots.html" class="recent-item"><span>${escHtml(b.name||"Без имени")}</span><span class="recent-meta">${b.status==="active"?"🟢":"⚪"}</span></a>`
+      ).join("")));
+    }
+    if ((d.proposals||[]).length){
+      blocks.push(_recentBlock("📄 Мои КП", "/proposals.html", d.proposals.map(p =>
+        `<a href="/proposals.html" class="recent-item"><span>${escHtml(p.name||"Без имени")}</span><span class="recent-meta">${escHtml(p.client_name||"")}</span></a>`
+      ).join("")));
+    }
+    if ((d.sites||[]).length){
+      blocks.push(_recentBlock("🌐 Мои сайты", "/sites.html", d.sites.map(s =>
+        `<a href="/sites.html" class="recent-item"><span>${escHtml(s.name||"Без имени")}</span><span class="recent-meta">${s.gen_status==="done"?"✅":(s.gen_status==="running"?"⏳":"")}</span></a>`
+      ).join("")));
+    }
+    if (!blocks.length) return;
+    slot.innerHTML =
+      `<div class="text-xs text-on-surface-dim/50 mb-3 uppercase tracking-wider">Недавнее</div>
+       <div class="grid grid-cols-1 sm:grid-cols-${Math.min(blocks.length,3)} gap-3 text-left">
+         ${blocks.join("")}
+       </div>
+       <style>
+         .recent-card{background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:6px}
+         .recent-card-hdr{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:rgba(255,255,255,.85);margin-bottom:4px}
+         .recent-card-hdr a{font-size:11px;color:rgba(255,140,66,.85);text-decoration:none}
+         .recent-card-hdr a:hover{color:#ff8c42}
+         .recent-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;font-size:12px;color:rgba(255,255,255,.78);text-decoration:none;transition:background .15s}
+         .recent-item:hover{background:rgba(255,255,255,.04);color:#fff}
+         .recent-meta{font-size:11px;color:rgba(255,255,255,.5);flex-shrink:0;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+       </style>`;
+  } catch(e){ /* тихо */ }
+}
+
+function _recentBlock(title, link, body){
+  return `<div class="recent-card">
+    <div class="recent-card-hdr"><span>${title}</span><a href="${link}">все →</a></div>
+    ${body}
+  </div>`;
 }
 
 function promptExample(text){

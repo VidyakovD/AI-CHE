@@ -66,6 +66,11 @@ class User(Base):
     tg_notify_proposals = Column(Boolean, default=True)   # уведомлять о новых КП
     tg_notify_records   = Column(Boolean, default=True)   # о новых заявках
     tg_notify_errors    = Column(Boolean, default=True)   # об ошибках/refund'ах
+    # In-app колокольчик уведомлений: всё новее этого таймстампа = непрочитано.
+    # Устанавливается клиентом через POST /user/notifications/seen.
+    notifications_last_seen_at = Column(DateTime, nullable=True)
+    # Welcome-tour: показывали ли юзеру 4-шаговый онбординг при первом входе.
+    onboarding_completed = Column(Boolean, default=False)
     created_at       = Column(DateTime, default=datetime.utcnow)
 
     messages      = relationship("Message",      back_populates="user")

@@ -182,6 +182,10 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # WhatsApp через Wazzup24 — новый канал в чат-ботах
     ("chatbots", "wazzup_api_key", "VARCHAR"),
     ("chatbots", "wazzup_channel_id", "VARCHAR"),
+    # In-app колокольчик уведомлений: всё новее этого ts = непрочитано.
+    ("users", "notifications_last_seen_at", "DATETIME"),
+    # Welcome-tour для новичков: 4-шаговый онбординг на главной.
+    ("users", "onboarding_completed", "BOOLEAN DEFAULT 0"),
 ]
 
 # Note: push_subscriptions / solution_run_templates создаются Base.metadata.create_all

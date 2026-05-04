@@ -532,7 +532,7 @@ async function saveProject(silent){
     if(!silent){ closeProject(); await loadProjects(); }
     else { loadProjects(); }
     return true;
-  }catch(e){ await aiAlert(e.message,'error'); return false; }
+  }catch(e){ await aiAlertError(e); return false; }
 }
 
 async function generatePresentation(){
@@ -555,7 +555,7 @@ async function generatePresentation(){
     document.getElementById('pGenBtnLabel').textContent = 'Перегенерировать';
     await loadProjects();
   }catch(e){
-    await aiAlert(e.message,'error');
+    await aiAlertError(e);
     document.getElementById('pGenBtnLabel').textContent = oldLabel;
   }finally{ btn.disabled = false; }
 }
@@ -634,7 +634,7 @@ async function deleteCurrentProject(){
     await fetch(`${API}/presentations/projects/${currentProjectId}`,
                 {method:'DELETE', headers:hdrs(), credentials:'same-origin'});
     closeProject(); await loadProjects();
-  }catch(e){ await aiAlert(e.message,'error'); }
+  }catch(e){ await aiAlertError(e); }
 }
 
 // ── Brief Assistant ──
@@ -675,7 +675,7 @@ async function runBriefAssist(){
       <p class="text-xs text-on-dim/70 mt-2">Списано ${(d.cost_kop/100).toFixed(2)} ₽</p>
     `;
     document.getElementById('bResult').classList.remove('hidden');
-  }catch(e){ await aiAlert(e.message,'error'); }
+  }catch(e){ await aiAlertError(e); }
   finally{ btn.disabled = false; btn.textContent = 'Получить бриф'; }
 }
 

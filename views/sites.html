@@ -823,7 +823,7 @@ async function approveSpec(){
     await loadProjectImages();
   }catch(e){
     hideAllPhases();
-    aiAlert(e.message, 'error');
+    aiAlertError(e);
   }
 }
 
@@ -931,7 +931,7 @@ async function generateCode(){
     await pollGenerationStatus();
   }catch(e){
     hideAllPhases();
-    aiAlert(e.message, 'error');
+    aiAlertError(e);
     isGenerating = false;
   }
   // isGenerating снимется в pollGenerationStatus когда статус done/failed.
@@ -1112,7 +1112,7 @@ async function attachBotToSite(botId){
       addChatMessage('system', '🤖 Чат-бот отвязан от сайта.');
     }
   }catch(e){
-    aiAlert(e.message, 'error');
+    aiAlertError(e);
   }
 }
 
@@ -1139,7 +1139,7 @@ async function iterateCode(){
     currentProject = await getProjectDetail();
     document.getElementById('detailCost').textContent = fmtRub(currentProject.price_tokens||0);
   }catch(e){
-    aiAlert(e.message, 'error');
+    aiAlertError(e);
   }
 
   hideLoading();
@@ -1187,7 +1187,7 @@ async function saveCode(opts){
     }
     return true;
   }catch(e){
-    if(!opts.silent) aiAlert(e.message, 'error');
+    if(!opts.silent) aiAlertError(e);
     return false;
   } finally {
     if(!opts.silent){
@@ -1500,7 +1500,7 @@ async function aiEditBlock(blockId, blockHtml){
     if(window.refreshBalance) window.refreshBalance();
     refreshPreview();
   }catch(e){
-    aiAlert(e.message, 'error');
+    aiAlertError(e);
   }
   hideLoading();
 }
@@ -1755,7 +1755,7 @@ async function hostSite(){
     currentProject.hosted_path = data.url;
     updateDoneBottomBar();
   }catch(e){
-    aiAlert(e.message, 'error');
+    aiAlertError(e);
   }
   btn.disabled = false;
 }
@@ -1818,7 +1818,7 @@ async function startRename(){
     currentProject.name = newName.trim();
     await loadProjects();
   }catch(e){
-    aiAlert(e.message, 'error');
+    aiAlertError(e);
   }
 }
 
@@ -1832,7 +1832,7 @@ async function deleteProjectFromList(id, name){
     if(!r.ok) throw new Error('Ошибка удаления');
     await loadProjects();
   }catch(e){
-    aiAlert(e.message, 'error');
+    aiAlertError(e);
   }
 }
 
@@ -1848,7 +1848,7 @@ async function deleteCurrentProject(){
     closeDetail();
     await loadProjects();
   }catch(e){
-    aiAlert(e.message, 'error');
+    aiAlertError(e);
   }
 }
 

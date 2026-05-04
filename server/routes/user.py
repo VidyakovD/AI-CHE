@@ -504,3 +504,134 @@ def push_test(user: User = Depends(current_user)):
     n = push_to_user(user.id, "AI Студия Че", "Тестовое уведомление 🎉",
                       url="/")
     return {"delivered": n}
+
+
+# ── In-app уведомления (колокольчик) ────────────────────────────────────────
+# Источник данных — ActionLog. Колокольчик показывает события релевантные
+# юзеру за последние 14 дней + бейдж = сколько с момента last_seen.
+
+# Какие действия попадают в feed колокольчика. Технические action.* / auth.*
+# / payment.* фильтруем — юзеру они неинтересны.
+_NOTIFY_USER_ACTIONS = {
+    "record.created",         # новая заявка из бота
+    "proposal.sent",          # КП отправлено
+    "proposal.opened",        # клиент открыл КП по public-link
+    "site.generate_done",     # сайт готов
+    "site.generate_failed",
+    "solution.orchestra_started",
+    "solution.orchestra_done",
+    "solution.orchestra_compare",
+    "marketplace.installed",  # установили шаблон
+    "marketplace.published",  # принят/отклонён модератором
+    "presentation.done",
+    "ai.refund",              # авто-возврат при ошибке
+}
+
+# Маппинг action → emoji + русская фраза для UI
+_NOTIFY_LABELS = {
+    "record.created":            ("📨", "Новая заявка от бота"),
+    "proposal.sent":             ("📤", "Коммерческое предложение отправлено"),
+    "proposal.opened":           ("👀", "Клиент открыл ваше КП"),
+    "site.generate_done":        ("🌐", "Сайт сгенерирован"),
+    "site.generate_failed":      ("⚠️", "Генерация сайта не удалась"),
+    "solution.orchestra_started":("🚀", "Запущено бизнес-решение"),
+    "solution.orchestra_done":   ("✅", "Готов отчёт по решению"),
+    "solution.orchestra_compare":("🔬", "Сравнение моделей запущено"),
+    "marketplace.installed":     ("📥", "Шаблон установлен из Marketplace"),
+    "marketplace.published":     ("📤", "Шаблон опубликован в Marketplace"),
+    "presentation.done":         ("🎬", "Презентация готова"),
+    "ai.refund":                 ("↩️", "Возврат за неудачную генерацию"),
+}
+
+
+@router.get("/notifications/recent")
+def notifications_recent(db: Session = Depends(get_db),
+                          user: User = Depends(current_user)):
+    """Список последних 30 событий пользователя за 14 дней + счётчик
+    непрочитанных (новее `notifications_last_seen_at`)."""
+    from server.models import ActionLog
+    cutoff = datetime.utcnow() - timedelta(days=14)
+    rows = (db.query(ActionLog)
+              .filter(ActionLog.user_id == user.id,
+                      ActionLog.action.in_(list(_NOTIFY_USER_ACTIONS)),
+                      ActionLog.ts >= cutoff)
+              .order_by(ActionLog.ts.desc())
+              .limit(30).all())
+    last_seen = user.notifications_last_seen_at
+    items: list[dict] = []
+    unread = 0
+    for r in rows:
+        emoji, label = _NOTIFY_LABELS.get(r.action, ("📌", r.action))
+        is_unread = (last_seen is None) or (r.ts and r.ts > last_seen)
+        if is_unread:
+            unread += 1
+        items.append({
+            "id": r.id,
+            "action": r.action,
+            "emoji": emoji,
+            "label": label,
+            "target_type": r.target_type,
+            "target_id": r.target_id,
+            "ts": r.ts.isoformat() if r.ts else None,
+            "unread": is_unread,
+        })
+    return {"items": items, "unread": unread}
+
+
+@router.post("/notifications/seen")
+def notifications_mark_seen(db: Session = Depends(get_db),
+                             user: User = Depends(current_user)):
+    """Отметить все уведомления прочитанными — обнуляет бейдж колокольчика."""
+    user.notifications_last_seen_at = datetime.utcnow()
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.get("/recent-objects")
+def recent_objects(db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    """Последние 3 бота / 3 КП / 3 сайта пользователя — для блока
+    «Недавнее» на главной (welcome-экран). Возвращает только метаданные."""
+    from server.models import (ChatBot as _CB, ProposalProject as _PP,
+                                SiteProject as _SP)
+    bots = (db.query(_CB).filter_by(user_id=user.id)
+              .order_by(_CB.created_at.desc()).limit(3).all())
+    proposals = (db.query(_PP).filter_by(user_id=user.id)
+                   .order_by(_PP.created_at.desc()).limit(3).all())
+    sites = (db.query(_SP).filter_by(user_id=user.id)
+               .order_by(_SP.created_at.desc()).limit(3).all())
+    return {
+        "bots": [{
+            "id": b.id, "name": b.name, "status": b.status,
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+        } for b in bots],
+        "proposals": [{
+            "id": p.id, "name": p.name,
+            "client_name": p.client_name,
+            "crm_stage": p.crm_stage, "status": p.status,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        } for p in proposals],
+        "sites": [{
+            "id": s.id, "name": s.name,
+            "gen_status": s.gen_status, "hosted_path": s.hosted_path,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        } for s in sites],
+    }
+
+
+# ── Onboarding flag ─────────────────────────────────────────────────────────
+
+
+@router.get("/onboarding")
+def onboarding_status(user: User = Depends(current_user)):
+    """Видел ли юзер welcome-tour. Используется фронтом для авто-показа."""
+    return {"completed": bool(user.onboarding_completed)}
+
+
+@router.post("/onboarding/complete")
+def onboarding_complete(db: Session = Depends(get_db),
+                         user: User = Depends(current_user)):
+    """Юзер прошёл/закрыл welcome-tour. Больше не показываем."""
+    user.onboarding_completed = True
+    db.commit()
+    return {"status": "ok"}

@@ -1381,7 +1381,7 @@ async function deployAgentAsBot(agentId) {
       window.location.href = '/chatbots.html';
     }
   } catch (e) {
-    await aiAlert(e.message, 'error');
+    await aiAlertError(e);
   }
 }
 
@@ -1488,7 +1488,7 @@ async function saveAndDeployAgent() {
       await deployAgentAsBot(just.id);
     }
   } catch (e) {
-    await aiAlert(e.message, 'error');
+    await aiAlertError(e);
   } finally {
     deployBtn.disabled = false; saveBtn.disabled = false;
     deployBtn.textContent = origText;
