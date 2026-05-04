@@ -4,6 +4,49 @@
 
 ---
 
+## 🆕 Спринт «Marketplace UI» (2026-05-04 совсем поздно ночью)
+
+Backend Marketplace был готов с прошлого спринта (`75e2462`), но UI не было — каталог, публикация, модерация. Закрыл UI:
+
+### `views/marketplace.html` (НОВЫЙ файл)
+- 2 вкладки: «🛍 Каталог» + «📤 Мои публикации».
+- **Каталог:** фильтры по категории (Продажи / Поддержка / Бронирование / Контент / HR / Другое) + чекбокс «Только бесплатные». Карточки с обложкой, рейтингом ★★★★☆, ценой, счётчиком установок. Skeleton-loaders на загрузке.
+- **Detail-модалка:** обложка крупная, описание, метрики (📦 N установок, ⭐ X.Y), цена + кнопка «📥 Установить». Использует `aiCostHint` для preview списания. При попытке установить свой бот — кнопка disabled «Это ваш бот».
+- **Мои публикации:** карточки с бэйджами «⏳ На модерации» / «✓ Опубликовано» / «📦 Снято» + кнопка «🗑 Снять».
+
+### `chatbots.html` — кнопка «📤» в действиях бота
+- Tooltip объясняет revenue-split 70%.
+- Модалка `publishModal` с полями: Название, Описание, Категория (select), Цена (number), URL обложки. Все ограничения как в backend (≤100/2000/10 000 ₽).
+- При успехе → `aiToast('Отправлено на модерацию!', 'success')`.
+
+### `index.html` навигация
+- Sidebar: новый пункт «🛍 Marketplace» между «Чат-боты» и «Создание сайтов».
+- Tooltip объясняет «70% автору с каждой установки».
+- В command palette (Ctrl+K) добавлена строчка «Marketplace ботов 🛍».
+
+### `admin.html` — секция «Marketplace · Модерация»
+- Сайдбар: пункт «🛍 Marketplace» рядом с Audit Log.
+- Список pending-листингов (`/marketplace/admin/pending` requires admin): автор, цена, описание, превью system_prompt в `<details>`.
+- Кнопки «✓ Одобрить» / «✗ Отклонить» вызывают правильные пути `/marketplace/admin/listings/{id}/approve|reject`.
+
+### Регрессии найдены и исправлены до коммита
+- В первой версии UI обращался на `/admin/listings/...` без префикса `/marketplace` — поправил, потому что роутер имеет `prefix="/marketplace"`.
+- В первой версии UI ожидал `it.author_email` от backend, а backend отдаёт только `author_id` — поправил.
+- Backend `admin/pending` возвращает `system_prompt_preview` (300 chars) и `has_workflow` (bool), не полные объекты — UI адаптирован.
+
+### `main.py`
+- Добавлен `serve_marketplace` endpoint для `/marketplace.html`.
+
+### Тесты
+- 164/164 passed (новый файл — pure UI, без backend-изменений)
+- JS sanity — 9 файлов OK
+- Preview-сверка с залогиненым юзером:
+  - `/marketplace.html` грузится, title корректный, все DOM-элементы (catalogGrid / listingModal / 2 таба) на месте
+  - `/marketplace/listings` → 200, `/marketplace/my-listings` → 200, `/marketplace/admin/pending` → 403 (юзер не админ — ожидаемо)
+  - Console errors = 0, server errors = 0
+
+---
+
 ## 🆕 Спринт «UX добавки — 6 фич» (2026-05-04 поздно ночью)
 
 После предыдущего спринта (5 quick wins) юзер дал «делай что можешь». Сделал ещё 6 mid-priority улучшений в одном коммите.

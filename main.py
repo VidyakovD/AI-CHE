@@ -510,6 +510,10 @@ def serve_presentations():
 def serve_proposals():
     return _html("proposals.html")
 
+@app.get("/marketplace.html", include_in_schema=False)
+def serve_marketplace():
+    return _html("marketplace.html")
+
 
 @app.get("/p/{public_token}", include_in_schema=False)
 def serve_public_proposal(public_token: str):

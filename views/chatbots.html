@@ -542,6 +542,58 @@ select.inp option{background:#272018;color:#f0e6d8}
   </div>
 </div>
 
+<!-- ── Marketplace Publish Modal ── -->
+<div id="publishModal" class="modal-bg" role="dialog" aria-modal="true">
+  <div class="bg-surface rounded-2xl w-full max-w-lg border border-outline/25 shadow-2xl mx-4">
+    <div class="sig px-5 py-4 flex items-center justify-between rounded-t-2xl">
+      <h3 class="font-headline font-bold text-[#1e1a14]">📤 Опубликовать в Marketplace</h3>
+      <button onclick="closePublishModal()" class="text-[#1e1a14] text-xl bg-black/10 w-7 h-7 rounded-full flex items-center justify-center">✕</button>
+    </div>
+    <div class="p-5 space-y-3">
+      <div class="text-xs text-on-dim leading-relaxed bg-surface2 p-3 rounded-lg border border-outline/20">
+        💡 Снимок текущего system_prompt и workflow станет шаблоном.
+        Другие юзеры смогут установить копию (без вашей БД и токенов TG/VK).
+        Если установите цену — вы получите <b class="text-primary">70%</b> с каждой установки.
+        После публикации админ проверит и одобрит — обычно за 24 часа.
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-on-dim mb-1">Название в каталоге</label>
+        <input id="pubName" class="inp" placeholder="Бот для записи на маникюр" maxlength="100">
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-on-dim mb-1">Описание (что бот умеет)</label>
+        <textarea id="pubDesc" class="inp" rows="3" placeholder="Принимает заявки, спрашивает имя/телефон/удобное время, сохраняет в записях..." maxlength="2000"></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-bold text-on-dim mb-1">Категория</label>
+          <select id="pubCategory" class="inp">
+            <option value="">— не выбрано —</option>
+            <option value="sales">Продажи</option>
+            <option value="support">Поддержка</option>
+            <option value="booking">Бронирование</option>
+            <option value="content">Контент</option>
+            <option value="hr">HR</option>
+            <option value="other">Другое</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-on-dim mb-1">Цена за установку, ₽</label>
+          <input id="pubPrice" class="inp" type="number" min="0" max="10000" step="50" value="0" placeholder="0 = бесплатно">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-on-dim mb-1">Обложка (URL картинки, опционально)</label>
+        <input id="pubCover" class="inp" placeholder="https://example.com/cover.jpg">
+      </div>
+    </div>
+    <div class="px-5 pb-5 flex items-center justify-end gap-2">
+      <button onclick="closePublishModal()" class="btn-g">Отмена</button>
+      <button id="pubSubmitBtn" onclick="submitPublish()" class="btn-p">Опубликовать</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Summary Modal ── -->
 <div id="summaryModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="summaryModalTitle">
   <div class="bg-surface rounded-2xl w-full max-w-lg border border-outline/25 shadow-2xl mx-4">
@@ -848,6 +900,7 @@ function render(){
             <button onclick="openBotPrice(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Прайс-лист бота" aria-label="Прайс">₽</button>
             <button onclick="event.stopPropagation();openBotKnowledge(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="База знаний — загрузите PDF/XLSX/DOCX, бот будет искать в них при ответах" aria-label="База знаний">📚</button>
             <button onclick="showSummary(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Пересказ диалогов" aria-label="Пересказ">${_i('chat')}</button>
+            <button onclick="event.stopPropagation();openPublishModal(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center" title="Опубликовать в Marketplace ботов — другие юзеры смогут установить вашу копию (вы получите 70% при платных установках)" aria-label="Опубликовать в Marketplace">📤</button>
           </div>
         </div>
         <div class="flex items-center gap-2 mb-2">
@@ -2092,6 +2145,58 @@ if(typeof apiPost !== 'function'){
 }
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+// ── Marketplace: публикация бота ────────────────────────────────────────────
+let _publishingBotId = null;
+
+function openPublishModal(botId, botName){
+  _publishingBotId = botId;
+  document.getElementById('pubName').value = botName || '';
+  document.getElementById('pubDesc').value = '';
+  document.getElementById('pubCategory').value = '';
+  document.getElementById('pubPrice').value = '0';
+  document.getElementById('pubCover').value = '';
+  document.getElementById('publishModal').classList.add('show');
+}
+function closePublishModal(){
+  document.getElementById('publishModal').classList.remove('show');
+  _publishingBotId = null;
+}
+
+async function submitPublish(){
+  if (!_publishingBotId) return;
+  const body = {
+    bot_id: _publishingBotId,
+    name: document.getElementById('pubName').value.trim(),
+    description: document.getElementById('pubDesc').value.trim() || null,
+    category: document.getElementById('pubCategory').value.trim() || null,
+    price_kop: Math.max(0, parseInt((parseFloat(document.getElementById('pubPrice').value || '0') * 100)) || 0),
+    cover_image_url: document.getElementById('pubCover').value.trim() || null,
+  };
+  if (body.name.length < 3){
+    await aiAlert('Минимум 3 символа в названии', 'warn'); return;
+  }
+  if (body.price_kop > 1000000){
+    await aiAlert('Максимум 10 000 ₽ за установку', 'warn'); return;
+  }
+  const btn = document.getElementById('pubSubmitBtn');
+  btn.disabled = true; btn.textContent = 'Отправляю…';
+  try {
+    const r = await fetch('/marketplace/listings', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      credentials: 'same-origin', body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'HTTP ' + r.status);
+    closePublishModal();
+    if (window.aiToast) aiToast('Отправлено на модерацию! Появится в каталоге после проверки админом (обычно 24ч).', 'success');
+    else await aiAlert('Отправлено на модерацию!', 'success');
+  } catch(e){
+    if (window.aiAlertError) await aiAlertError(e); else await aiAlert(e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Опубликовать';
+  }
+}
 
 document.getElementById('createModal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeCreate();});
 document.getElementById('summaryModal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeSummary();});
