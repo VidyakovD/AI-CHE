@@ -1,139 +1,217 @@
 # TODO — задачи в работе и на очереди
 
-_Последнее обновление: 2026-05-02 (после спринтов «Security audit», «Refresh single-use + sites public_token + RAG billing», «РФ Compliance»)_
+_Последнее обновление: 2026-05-04 (после спринтов «Multi-Agent Orchestra», «Глубокий ресёрч», «UX-полировка», «Production апгрейды», «WhatsApp + Web Push», «Compare runs», «Marketplace», «Public API»)_
 
 ---
 
-## 🔴 БЛОКЕР юзеру: SMTP не работает
+## 🟢 Работа Claude закрыта (всё что мог в одиночку)
 
-**Сейчас на проде нет SMTP** → юзеры регистрируются, но **не получают** код подтверждения email → не могут попасть в чат / КП / презентации.
+Из исходного списка идей, который юзер дал в чате — **закрыто всё кроме монетизации** (юзер попросил пропустить):
 
-**Решение** (выбери одного из российских провайдеров):
+| # | Идея | Статус |
+|---|---|---|
+| 1 | Multi-Agent Solutions | ✅ 8 пилотов (`5a91f68`+`bcc4cf3`) |
+| 2 | Глубокий ресёрч (file_extract / vision / browse) | ✅ |
+| 3 | UX-полировка (re-run, templates, share, reactions) | ✅ |
+| 4 | Сравнение N запусков | ✅ (`75e2462`) |
+| 5.1 | Streaming output финального stage | ✅ |
+| 5.2 | DOCX + Excel экспорты | ✅ оба |
+| 5.3 | Inline-картинки (DALL-E stage) | ✅ |
+| 5.4 | 👍/👎 + auto-flagging | ✅ |
+| 6 | Новые типы Solutions | ✅ 8 пилотов всего |
+| 7.1 | WhatsApp Wazzup24 | ✅ backend |
+| 7.2 | Web Push VAPID | ✅ |
+| 7.3 | Marketplace ботов | ✅ backend (нужен UI каталога) |
+| 7.4 | Public API для SaaS | ✅ |
+| 8 | Монетизация PRO | (юзер попросил не делать) |
+
+---
+
+## 🔴 БЛОКЕР функциональности — действия юзера
+
+### 1. SMTP не работает на проде → юзеры не могут зарегистрироваться
+
+На `/root/AI-CHE/.env` нет `SMTP_HOST`. Из-за этого:
+- Юзер регистрируется → **не получает** verification-код → не может попасть в чат / КП / презентации
+- Login alerts при новом IP не уходят
+- Reset password не работает
+- Email-уведомление при привязке TG management не уходит
+
+**Решение** — выбери один российский провайдер:
 - **Unisender Go** ~0.30 ₽/письмо, в реестре РКН
-- **SendPulse** бесплатно до 12k/мес
+- **SendPulse** бесплатно до 12k/мес, РФ-инфра
 - **Yandex 360 для бизнеса** от 249 ₽/мес, на твоём `aiche.ru`
 
-Действия:
-1. Зарегистрируйся, возьми SMTP-кредeнтиалы.
-2. На проде:
-   ```bash
-   ssh root@194.104.9.219
-   cat >> /root/AI-CHE/.env <<'EOF'
-   SMTP_HOST=smtp.unisender.com
-   SMTP_PORT=587
-   SMTP_USER=<логин>
-   SMTP_PASS=<пароль>
-   SMTP_FROM=AI Студия Че <noreply@aiche.ru>
-   EOF
-   systemctl restart ai-che
-   ```
-3. Проверь — зарегистрируй тестовый аккаунт, должен прийти код.
+Затем:
+```bash
+ssh root@194.104.9.219
+cat >> /root/AI-CHE/.env <<'EOF'
+SMTP_HOST=smtp.unisender.com
+SMTP_PORT=587
+SMTP_USER=<логин>
+SMTP_PASS=<пароль>
+SMTP_FROM=AI Студия Че <noreply@aiche.ru>
+EOF
+systemctl restart ai-che
+```
 
 ---
 
-## ⚠️ 152-ФЗ / 54-ФЗ — действия юзера руками
+## ⚠️ 152-ФЗ / 54-ФЗ — юр. процессы
 
-Полный документ: [docs/compliance_ru.md](docs/compliance_ru.md).
+См. полный документ [docs/compliance_ru.md](docs/compliance_ru.md).
 
-| # | Что | Как сделать |
+| # | Что | Как |
 |---|---|---|
-| 1 | **🔑 Сохранить ключ шифрования бэкапов в 1Password / Vault** | Ключ выведен в чате (или: `ssh root@... cat /root/AI-CHE/.backup_encryption_key`). Опционально: положить в `BACKUP_ENCRYPTION_KEY` env и удалить файл. |
-| 2 | **Подключить ОФД в ЛК ЮKassa** | [https://yookassa.ru/my/](https://yookassa.ru/my/) → Настройки → Кассовый чек → подключи ОФД (Атол Онлайн / Контур.ОФД). Без этого `receipt`-объект, который мы передаём, никуда не пойдёт. |
-| 3 | **Настроить env-переменные ЮKassa под налоговую систему** | В `.env`: `YOOKASSA_VAT_CODE=1` (Без НДС/УСН) или `4` (НДС 20%/ОСН); `YOOKASSA_TAX_SYSTEM_CODE=2` (УСН доходы) или `1` (ОСН). |
-| 4 | **Регистрация оператора ПДн в РКН** | https://pd.rkn.gov.ru/ — обязательно для коммерческих сервисов. |
-| 5 | **Обновить политику конфиденциальности** | Указать обработчиков: ЮKassa, Anthropic, OpenAI, SMTP-провайдер, Yandex (если будут бэкапы там). См. шаблон в [docs/compliance_ru.md](docs/compliance_ru.md). |
-| 6 | **Бэкапы вне РФ-сервера / переезд primary в РФ** | Минимум: настроить ежедневную выгрузку зашифрованного backup'а в Yandex Object Storage. Лучше: миграция `aiche.ru` на VPS в РФ (Selectel/Yandex Cloud/Reg.ru). |
+| 2 | **🔑 Сохранить ключ шифрования бэкапов в 1Password** | Hex-ключ выведен в чате при настройке (значение в файле `/root/AI-CHE/.backup_encryption_key`). Опционально: положить в env `BACKUP_ENCRYPTION_KEY` и удалить файл. |
+| 3 | **Подключить ОФД в ЛК ЮKassa** | https://yookassa.ru/my/ → Настройки → Кассовый чек. Без ОФД мои `receipt`-объекты никуда не идут. Настроить env `YOOKASSA_VAT_CODE` (1 для УСН, 4 для ОСН) + `YOOKASSA_TAX_SYSTEM_CODE`. |
+| 4 | **Регистрация оператора ПДн в РКН** | https://pd.rkn.gov.ru/ |
+| 5 | **Обновить политику конфиденциальности** | Указать обработчиков: ЮKassa, Anthropic, OpenAI, SMTP-провайдер, Yandex (если будет backup). Шаблон в `docs/compliance_ru.md`. |
+| 6 | **Бэкапы вне РФ-сервера / миграция primary в РФ** | Минимум: ежедневная выгрузка `chat.db.YYYY-MM-DD.enc` в Yandex Object Storage (~1 ГБ/мес). Лучше: миграция на VPS в РФ (Selectel/Yandex Cloud/Reg.ru). |
 
 ---
 
-## 🟡 Действия юзера для готовых фич
+## 🟡 Готовые фичи — ждут аккаунтов / договоров юзера
 
 | # | Что | Действия |
 |---|---|---|
-| 7 | **TG management-бот не запущен на проде** | Создать через @BotFather → `TG_MGMT_BOT_TOKEN` + `TG_MGMT_BOT_USERNAME` в `.env` + `setWebhook`. Инструкция в HANDOVER.md. |
-| 8 | **15 видео-туториалов в UI** | Снять MP4 → положить в `views/static/tutorials/<slug>.mp4` (список в `docs/gif_tutorials.md`). После этого я подключу lightbox с автоплеем. |
-| 9 | **Прод ЮKassa** | Сейчас тестовый shop. Заменить `YOOKASSA_SHOP_ID` + `YOOKASSA_SECRET_KEY` на live. |
-| 10 | **OAuth keys (Google/VK)** | `GOOGLE_CLIENT_ID/SECRET` + `VK_CLIENT_ID` в `.env`. |
-| 11 | **Ротировать засвеченный Google `AIza…` ключ** | Был в старых journalctl до фильтра `_SecretFilter`. |
+| 7 | **Wazzup24 (WhatsApp)** | Заключить договор, получить API key + создать channel в их ЛК → задать в карточке бота `wazzup_api_key` + `wazzup_channel_id`. Webhook URL: `https://aiche.ru/webhook/wazzup/<bot_id>?secret=<HMAC>` (secret = `tg_webhook_secret(api_key)`) |
+| 8 | **TG management-бот** | Создать через @BotFather → `TG_MGMT_BOT_TOKEN` + `TG_MGMT_BOT_USERNAME` в `.env` + `setWebhook` |
+| 9 | **15 видео-туториалов** | Снять MP4 → положить в `views/static/tutorials/<slug>.mp4` (список в `docs/gif_tutorials.md`). После этого подключим lightbox |
+| 10 | **Прод ЮKassa** | Сейчас тестовый shop. Заменить `YOOKASSA_SHOP_ID` + `YOOKASSA_SECRET_KEY` на live |
+| 11 | **OAuth keys (Google/VK)** | `GOOGLE_CLIENT_ID/SECRET` + `VK_CLIENT_ID` в `.env` |
+| 12 | **Web Push: подписаться** | В кабинете → Настройки → 🔔 «Подписаться» → разрешить браузеру (сервер уже настроен с VAPID) |
+| 13 | **Ротировать `AIza…` ключ** | Был в старых journalctl до фильтра `_SecretFilter` |
 
 ---
 
-## 🟢 Что я могу сделать в следующих сессиях (на твой выбор)
+## 🟢 Что Claude может делать в новых сессиях
 
-### Security (отложенные с security-аудита)
-- **JWT `aud`/`iss` strict verification** — сейчас `verify_aud=False`, токен без claims проходит. Нужен grace-period для уже выданных токенов.
-- **starlette upgrade** — CVE-2024-47874, CVE-2025-54121. Pinned в FastAPI 0.111 → апгрейд до 0.115+ с проверкой breaking changes.
+### Marketplace UI (продолжение спринта)
+- **Страница `/marketplace.html`** с карточками + фильтрами (категория, цена, рейтинг) + кнопкой «Установить» (платно через `/marketplace/listings/{id}/install`)
+- **Кнопка «📤 Опубликовать в Marketplace»** в карточке бота на `/chatbots.html` → POST `/marketplace/listings`
+- **«📂 Мои публикации»** в кабинете
+- **Админ-страница** `/admin.html` → вкладка «Marketplace» → pending listings + approve/reject
+
+### Документация Public API
+- `docs/public-api.md` или Swagger UI с примерами curl
+- Вкладка «🔌 Public API» в кабинете → создать токен + список своих + примеры curl
+
+### UX-улучшения (мелочи)
+- В `/chatbots.html` карточка бота показывает все 6 каналов (TG/VK/Avito/MAX/Widget/WhatsApp) с переключателями
+- В `/proposals.html` показывать список push-подписчиков
+- Кнопка «👍/👎» добавить и в legacy plain solutions (не только orchestra)
+
+### Качество пилотов orchestra
+- **Тестирование**: прогнать каждый из 8 пилотов на реальных кейсах юзера, найти слабые места в промптах
+- При обнаружении 👎 — подкручивать orchestra_json соответствующего Solution через seed-скрипт
+- Добавить fallback в parallel_browse: если URL вернул 404 — пробовать без trailing-slash или с www-префиксом
+
+### Security (отложенное)
+- **JWT `aud`/`iss` strict verification** — сейчас `verify_aud=False`. Нужен grace-period (накопить токены с aud, потом включить strict).
+- **starlette upgrade** — pinned в FastAPI 0.111. CVE-2024-47874, CVE-2025-54121. Апгрейд до 0.115+ с проверкой breaking changes.
 - **2FA админки (TOTP через pyotp)** — отдельный flow при логине admin@.
-- **Idempotency через Redis** — сейчас in-process, для multi-worker нужен общий стор.
-- **`/admin/reencrypt-secrets` endpoint** — для ротации `JWT_SECRET` (сейчас задумано в комментариях, но не реализовано).
+- **Idempotency через Redis** — сейчас in-process. Для multi-worker нужен общий стор.
+- **`/admin/reencrypt-secrets`** endpoint для ротации `JWT_SECRET`.
 - **systemd `User=aiche`** — отвязать сервис от root.
+- **Cloudflare/CDN+WAF** — DDoS-защита + кэш статики.
 
-### Большие фичи
-- **WhatsApp канал через Wazzup24** — самый востребованный из «🔮 Скоро» каналов.
-- **Web Push API через VAPID** — push в браузер без TG (sw.js уже умеет push, нужен subscription endpoint + ключи).
-- **Native push в TG management-боте расширить** — голосовой ввод (Whisper), генерация КП в чате, low-balance/новые юзеры/платежи админу.
-- **PPTX лучше оформление** — gradient overlays, анимации, иконки секций, hero-фоны.
-- **Standalone .exe / .dmg / .AppImage (Electron)** — если PWA недостаточно.
+### Marketplace расширения
+- Реальный платёжный flow для marketplace (привязка к ЮKassa, не просто списание баланса)
+- Withdrawal для авторов: `User.balance_kop` за установки можно вывести на карту через ЮKassa или платформенный механизм
+- Категории listing'ов с UI-фильтрами
 
-### Operations
-- **Cloudflare/CDN+WAF** — DDoS-защита + кэш статики (DNS-редирект на CF).
-- **Web Push subscription endpoint** + VAPID-ключи — оживить push-handler в `sw.js`.
-- **Архивация asset'ов** — прогон в проде, проверить cutoff.
-- **Embeddings → pgvector / FAISS** при росте >500 позиций.
-- **Убрать legacy `localStorage.obs_token`** — миграция на cookie уже завершена.
+### Public API расширения
+- Webhook'и для events (на API-токен можно подписаться: «дёрни мне URL когда КП открыли»)
+- Endpoint `/api/v1/proposals/{id}/email` — отправить КП клиенту через API
+- Endpoint `/api/v1/solutions/{id}/run-orchestra` — запуск бизнес-решений через API
+- Endpoint `/api/v1/knowledge/{owner}/{owner_id}/upload` — загрузка KB-файла через API
 
----
-
-## ✅ Закрыто за последние 3 спринта
-
-### Спринт «Security audit» (`cc5afa5`)
-- VK webhook требует `vk_secret` + `compare_digest`
-- SSRF в agent `tool_browse_url` + presentation `_add_remote_image` (DNS-rebinding защита + revalidate редиректов)
-- `/knowledge/search` лимит длины `q` (1000 симв)
-- RAG лимиты (50 → 20 файлов, 500 МБ/юзер) — потом подняты обратно с биллингом
-- bleach-санитизация generated_html КП в legacy fallback + edit-section + save-html
-- `/agent/{id}/ws` и `/stream` — owner-check
-- `/auth/login` не возвращает `user_id`; `/resend-verify` не палит enumeration
-- TG-link rate-limit (10/10мин на TG-user) + email-alert при привязке
-- `/p/{token}` PDF — `relative_to(uploads_root)` (defense-in-depth)
-- `is_verified` check в `brief-assist` и `/voice/parse`
-
-### Спринт «Refresh single-use + sites public_token + RAG billing» (`d90e2f1`)
-- Refresh-token rotation single-use: `User.refresh_jtis` (JSON list, до 10 multi-device)
-  - Reuse-detection = revoke ALL sessions + audit-лог critical
-  - `/reset-password` revoke ALL refresh-сессий
-  - Grace-period для legacy токенов
-- `/sites/hosted/{int_id}` → `/sites/hosted/{public_token}` (~160 bit unguessable)
-  - Backfill миграция при старте: для уже опубликованных сайтов
-  - Убран StaticFiles mount `/sites/hosted` (он обходил sandbox-обёртку)
-- Storage-биллинг для RAG-файлов: `KnowledgeFile.last_billed_at` + миграция
-  - Лимиты подняты обратно: 50 файлов × 50 МБ × 2 ГБ/юзер
-  - Просрочка >7д → `enabled=False` (не в RAG, файл цел)
-  - Просрочка >37д → hard-delete
-
-### Спринт «РФ Compliance» (`a2bffc0`)
-- AES-256-GCM шифрование бэкапов БД (152-ФЗ ПДн): `_db_backup_tick`
-  + утилита `scripts/restore_backup.py`
-- Чек 54-ФЗ в ЮKassa: `payment_subject="service"` + `payment_mode="full_payment"`
-  + `tax_system_code` (env) + `vat_code` (env)
-- `User.marketing_consent` + `marketing_consent_at` отдельно от оферты
-  + endpoint GET/PUT `/user/marketing-consent`
-  + UI чекбокс в форме регистрации + toggle в кабинете → Настройки
-- Из payment-логов убраны суммы (только `payment_id`)
-- `docs/compliance_ru.md` — что закрыто, что юзер делает руками
+### Большие фичи / новые направления
+- **Электронная подпись КП** — клиент в `/p/{token}` ставит подпись (canvas) → подписанный PDF + audit-trail
+- **Видео-приветствие в КП** — генерим короткое видео (Veo) на лету персонализированное под клиента
+- **Voice-режим в чате с ИИ** — Whisper input + ElevenLabs TTS output (как ChatGPT Voice)
+- **Calendar integration** — авто-создание встречи при ответе клиента «давайте созвонимся»
+- **CRM-интеграции** — Bitrix24 / amoCRM webhooks (создание лида при `save_record`)
 
 ---
 
-## 📋 Заметки для следующей сессии
+## ✅ Полный список закрытого за все эти спринты
 
-- **Все цены в БД** `pricing_config` — менять через `POST /admin/pricing` без редеплоя. Список ключей и дефолтов — в `server/pricing.py:DEFAULTS`.
+### Спринты 2026-05-02 → 2026-05-04 (бизнес-оркестра)
+- 8 orchestra-пилотов: Конкурентный анализ / SWOT / Контент-план / Аудит лендинга / Юр.договор / Аудит соцсети / Финансовый аудит / Холодная email
+- Стейдж-типы: web_search / browse_url / parallel_browse / extract_urls / llm / synthesize / parallel_llm / file_extract / vision_describe / generate_image
+- Streaming финального synthesize через AsyncAnthropic
+- Templates / Re-run / Share / Reactions / DOCX / XLSX / PDF / Compare моделей
+- Auto-flagging: 3+ 👎 за 7 дней → email админу
+- WhatsApp канал через Wazzup24
+- Web Push VAPID + UI subscribe/test + хуки на новую заявку и открытие КП
+- Marketplace ботов (backend) + Public API + 70/30 revenue split
+
+### Спринты ранее (security + compliance)
+- AES-256-GCM шифрование бэкапов БД
+- 54-ФЗ чек в YooKassa (vat_code + tax_system_code из env)
+- Маркетинговое согласие отдельно от оферты + UI чекбокс
+- Refresh-token rotation single-use + revoke_all_refresh_jtis
+- Sites public_token (вместо int_id) + backfill миграция
+- Storage-биллинг для RAG-файлов
+- Security audit: VK webhook secret / SSRF / XSS / IDOR / TG-link rate-limit / 13 пунктов
+
+### Базовые модули (полностью работают)
+- Чат с AI (8 моделей)
+- 30 plain Solutions (legacy) + 8 orchestra Solutions
+- КП-конструктор + brands + price-lists + 4 шапки + JSON-first
+- Презентации v2
+- Сайты с WYSIWYG + sandbox-iframe + public_token
+- Чат-боты (TG/VK/Avito/MAX/Widget/WhatsApp) + workflow + 7 шаблонов + RAG + semantic search цен
+- AI-агенты с очередью + 25+ ролей в registry
+- PWA + Desktop standalone + TG management + push
+- QR-логин + lite-режим со смартфона + voice
+- Marketplace ботов backend + Public API
+- 164 теста проходят
+
+---
+
+## 📋 Заметки для следующей сессии Claude
+
+### Запуск тестов
+```bash
+cd .claude/worktrees/festive-goldwasser-d084fe/
+DEV_MODE=true APP_ENV=dev JWT_SECRET=test-jwt-secret-32-chars-long-yes \
+ALLOWED_ORIGINS=http://localhost:8000 \
+python -m pytest tests/ --tb=line
+```
+
+### Ресид orchestra-пилотов после изменений в `seed_orchestra_solutions.py`
+```bash
+ssh root@194.104.9.219 "cd /root/AI-CHE && /root/AI-CHE/venv/bin/python scripts/seed_orchestra_solutions.py"
+```
+
+### Деплой
+```bash
+git push origin claude/festive-goldwasser-d084fe:main
+ssh root@194.104.9.219 "cd /root/AI-CHE && git pull origin main && systemctl restart ai-che"
+```
+
+### Полезные команды
+- **Audit-log дамп**: `curl https://aiche.ru/admin/actions.txt?since_hours=72&limit=2000 -H "Authorization: Bearer <token>"`
+- **JS syntax check после правок views/*.html**: см. `HANDOVER.md` секция «Полезные команды»
+- **JS sanity import + миграции**: см. `HANDOVER.md`
+
+### Соглашения
+- **Все цены в БД** `pricing_config` — менять через `POST /admin/pricing` без редеплоя
 - **Свои API-ключи юзера** — вкладка «Свои API» в кабинете
 - **Прайс-листы для КП** — вкладка «📋 Прайсы» в `/proposals.html`
-- **Прайс-лист бота** — кнопка `₽` в карточке бота в `/chatbots.html` (отдельно от КП)
-- **Native dialogs запрещены** — везде использовать `aiAlert/aiConfirm/aiPrompt` из icons.js
-- **WYSIWYG-редактор** — стандарт для всех редакторов (sites + proposals): `contenteditable=true` на body, медиа отключаются
-- **Margin ×7 для презентаций** — внутри presentation_builder, в UI не показывается
-- **JSON-first генерация для КП** — AI возвращает данные, не HTML. Шаблон/шапка/подвал стабильные.
-- **Бэкапы шифруются AES-GCM** — ключ в `.backup_encryption_key` или env `BACKUP_ENCRYPTION_KEY`. Для restore — `scripts/restore_backup.py`.
-- **Refresh-token rotation single-use** — после `register_refresh_jti` jti должен быть в наборе. Тесты с `create_refresh_token` напрямую — добавить `register_refresh_jti`.
-- **Опубликованные сайты** — URL вида `/sites/hosted/{public_token}/`, не int_id (защита от enumeration).
+- **Прайс-лист бота** — кнопка `₽` в карточке бота в `/chatbots.html`
+- **Native dialogs запрещены** — везде `aiAlert/aiConfirm/aiPrompt`
+- **WYSIWYG-редактор** — стандарт для sites + proposals: `contenteditable=true` на body
+- **Margin ×7 для презентаций** — внутри `presentation_builder`, в UI не показывается
+- **Margin ×5 для orchestra-стадий** — `ai.improve_margin_pct=500`
+- **JSON-first генерация** для КП и orchestra-стадий — AI возвращает данные, не HTML/markdown без валидации
+- **Бэкапы шифруются AES-GCM** — ключ в `.backup_encryption_key` или env. Restore: `scripts/restore_backup.py`
+- **Refresh-token single-use** — после `register_refresh_jti` jti должен быть в наборе
+- **Опубликованные сайты** — URL `/sites/hosted/{public_token}/`, не int_id
+- **Public API auth** — `Bearer ai_che_<prefix>_<secret>`, scope-проверка через `authenticate_token(required_scope=...)`
+- **Web Push** — VAPID-ключи в `.env`: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY_FILE=/root/AI-CHE/.vapid_private.pem`
+- **WhatsApp** — secret webhook = `tg_webhook_secret(wazzup_api_key)`
+- **Compare runs** — chat_id формат `cmp_<group>_<model>`, custom orchestra хранится в `run.context._compare_orchestra`

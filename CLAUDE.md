@@ -14,91 +14,110 @@
 5. `git log --oneline -25` — последние коммиты.
 
 ## Краткое описание
-**B2B AI-платформа для бизнеса.** Веб-приложение FastAPI + HTML SPA + PWA + Telegram-бот управления.
+**B2B AI-платформа для бизнеса.** Веб-приложение FastAPI + HTML SPA + PWA + Telegram-бот управления + Public REST API.
 
 **Главные продукты:**
 - **Чат** с моделями: GPT-4o / Claude Sonnet+Opus+Haiku / Perplexity / Grok / GPT-image / Imagen 4 / Veo 3
-- **Бизнес-решения** (Solutions) — 30 экспертных промптов с фикс-ценой 50/100 ₽
-- **Чат-боты** TG / VK / Avito / MAX с workflow + 7 шаблонов + прайс-лист с semantic search
-- **AI-агенты** с очередью + AI-сборка графа
-- **Сайты** — фикс 1500/1990 ₽, фоновая генерация, **WYSIWYG-редактор (body-level contenteditable)**
-- **🟢 КП (Proposals)** — отдельный модуль `/proposals.html`: 4 пресета оформления, бренды, прайсы, JSON-first генерация, WYSIWYG-правка, AI-правка секций, версии, CRM-стадии, email-оркестратор, public-link, threading
-- **🟢 Презентации v2** — `/presentations.html`: PPTX/HTML/PDF, color picker, vision-анализ фото, графики, ТЗ-визард, парсинг сайта клиента
-- **Платежи** ЮKassa
+- **🆕 Бизнес-решения PRO** (multi-agent orchestra) — **8 пилотов** работают параллельно через несколько специализированных агентов с реальным ресёрчем (web_search, browse_url, file_extract, vision)
+- **Чат-боты** TG / VK / Avito / MAX / Widget / **🆕 WhatsApp (Wazzup24)** с workflow + 7 шаблонов + прайс-лист с semantic search
+- **AI-агенты** с очередью + AI-сборка графа + 25+ специализированных ролей в `server/agents/registry.py`
+- **Сайты** — фикс 1500/1990 ₽, фоновая генерация, WYSIWYG-редактор, sandbox-iframe + **public_token** в URL
+- **🟢 КП (Proposals)** — отдельный модуль `/proposals.html`: 4 пресета + 4 шапки, бренды, прайсы, JSON-first генерация, WYSIWYG, AI-правка секций, версии, CRM-стадии, email-оркестратор, public-link
+- **🟢 Презентации v2** — `/presentations.html`: PPTX/HTML/PDF, color picker, vision-анализ фото, графики, ТЗ-визард
+- **🆕 Marketplace ботов** — публикация шаблонов с revenue-split 70/30 + админ-модерация
+- **🆕 Public API** для SaaS-интеграций — `Bearer ai_che_<token>`, scopes, rate-limit
+- **Платежи** ЮKassa с **54-ФЗ чеком** через ОФД
 - **Админка** + аудит-лог + pricing_config
 - **Свои API-ключи юзера** (-80% скидка)
-- **Storage assets** (50 ₽/мес за 100 МБ)
+- **Storage assets** (50 ₽/мес за 100 МБ) — теперь учитывает RAG-файлы тоже
 - **🟢 PWA** — manifest + sw.js, install-prompt
 - **🟢 Desktop standalone** — draggable titlebar, window-controls-overlay
 - **🟢 TG management-бот** — push + управление, привязка через 6-знач код
+- **🆕 Web Push API (VAPID)** — push в браузер при новой заявке/открытии КП
+- **🟢 RAG база знаний** — bot/agent KnowledgeFile с embeddings + storage-биллинг
 
 ## Стек
-- **Backend:** Python 3.12, FastAPI, SQLAlchemy, SQLite (`chat.db`)
-- **Frontend:** HTML / Tailwind CDN / vanilla JS
+- **Backend:** Python 3.12, FastAPI 0.111, SQLAlchemy 2.0, SQLite (`chat.db`)
+- **Frontend:** HTML / Tailwind CDN / vanilla JS (SPA)
 - **AI:**
   - OpenAI (gpt-4o, gpt-image-1, dall-e-3)
-  - Anthropic (claude-sonnet-4-6, claude-opus-4-1, claude-haiku-4)
+  - Anthropic (claude-sonnet-4-6, claude-opus-4-1, claude-haiku-4) — для streaming используется AsyncAnthropic
   - Grok (xai), Perplexity (sonar)
   - Google AI Studio через прокси (Imagen 4, Veo 2/3)
 - **PDF:** xhtml2pdf + DejaVu Sans + Liberation Sans/Serif + Noto Sans/Serif (5 семейств для кириллицы)
+- **DOCX:** python-docx 1.1.2 (heading 1-4, bold, lists, tables, разделители)
+- **XLSX:** openpyxl (одна таблица = один лист)
 - **PPTX:** python-pptx (нативные графики, speaker notes)
-- **Авторизация:** JWT в httpOnly cookie + CSRF (double-submit)
+- **Push:** pywebpush 2.0.0 (VAPID)
+- **Шифрование:** AES-256-GCM (cryptography из python-jose), HKDF от JWT_SECRET
+- **Авторизация:** JWT в httpOnly cookie + CSRF (double-submit) + refresh single-use rotation
+- **Public API auth:** Bearer ai_che_<prefix>_<secret> с sha256-hash + scope-проверкой
 
 ## Структура файлов
 
 ### Backend (server/)
 | Файл | Что |
 |---|---|
-| `main.py` (516 строк) | Entry point, роутеры, CSP, middleware (rate-limit/CSRF/request-id), PWA endpoints (manifest/sw/icon), `/p/{token}` для публичных КП |
-| `auth.py` | JWT, httpOnly cookies, CSRF |
-| `db.py` | SQLAlchemy + LIGHTWEIGHT_MIGRATIONS |
-| `models.py` (953 строк) | ORM: User (+ tg_*), ChatBot, ProposalBrand, ProposalProject, ProposalVersion, ProposalPriceList, ProposalPriceItem, PresentationProject (расширена) |
-| `billing.py` | Атомарные списания + бонусы |
-| `security.py` | Rate-limit, validate_password (10+ симв), tg_webhook_secret, _csv_safe |
-| `pricing.py` | Динамические цены через `pricing_config` |
-| `scheduler.py` | Cron-воркеры (storage-billing, db_backup, audit cleanup) |
-| `ai.py` | MODEL_REGISTRY, generate_response, _SecretFilter (на root-handler) |
-| `chatbot_engine.py` (3045 строк) | Движок ботов + workflow + ноды + auto_proposal |
-| `bot_templates.py` | 7 шаблонов (lead/sales/faq/booking/quiz/content/auto_proposal_email) |
-| `pdf_builder.py` | html_to_pdf_bytes + 5 семейств шрифтов + resolve_pdf_font |
-| **🟢 `proposal_builder.py`** (997 строк) | КП: parse_client_site, JSON-first prompt v3, _render_proposal_json → HTML, _PRESET_CSS (4 пресета), edit_section, signature/tagline/usp/guarantees |
-| **🟢 `presentation_builder.py`** (1061 строк) | Презентации v2: estimate/calc cost (margin ×7 внутри), Claude prompt v3 с JSON-слайдами, _render_html_preview_inner с SVG-графиками, build_pptx_with_palette, _render_pdf_html, describe_image_via_claude (vision), parse_client_site_for_style, _resolve_colors_for_project (HEX > пресет), _build_custom_palette |
-| **🟢 `tg_management.py`** (513 строк) | TG-бот управления: send_message_sync/async, generate/consume_link_code, handle_update (/start /link /unlink /me /stats /menu + callback), notify_user(user_id, text, kind) |
+| `main.py` | Entry point, роутеры, CSP, middleware (rate-limit/CSRF/request-id), PWA endpoints, `/p/{token}` КП, `/s/{token}` Solution, `/qr/{token}`, race-safe `create_all` |
+| `auth.py` | JWT + refresh single-use rotation (User.refresh_jtis JSON список до 10 сессий) + revoke_all_refresh_jtis (logout-everywhere при reset_password) |
+| `db.py` | SQLAlchemy + LIGHTWEIGHT_MIGRATIONS + backfill site public_token |
+| `models.py` | ORM: User, ChatBot (+ wazzup_*), ProposalBrand, ProposalProject (+ public_token, header_layout), SolutionRun (+ stages_state, attachments_json, public_token, user_mark), `SolutionRunTemplate`, `BotMarketplaceListing/Install`, `ApiToken`, `PushSubscription`, KnowledgeFile (+ last_billed_at) |
+| `billing.py` | Атомарные списания + бонусы (deduct_strict/atomic, credit_atomic) |
+| `security.py` | Rate-limit, validate_password, tg_webhook_secret, _csv_safe, _SecretFilter |
+| `pricing.py` | Динамические цены через `pricing_config` (DEFAULTS) |
+| `scheduler.py` | Cron-воркеры: scheduler/apikey/pdf/db_backup (AES-GCM) /conv/audit/storage-billing (StoredAsset + KnowledgeFile UNION) |
+| `ai.py` | MODEL_REGISTRY, generate_response, _SecretFilter |
+| `chatbot_engine.py` (3100+ строк) | Движок ботов + workflow + ноды + send_telegram/vk/max/whatsapp/avito/site + send_whatsapp (Wazzup24) |
+| `bot_templates.py` | 7 шаблонов |
+| `pdf_builder.py` | html_to_pdf_bytes + 5 семейств шрифтов + markdown_to_pdf |
+| **`docx_builder.py`** | Markdown→DOCX (heading, bold, lists, tables, разделители) |
+| **`xlsx_builder.py`** | Markdown→XLSX (каждая таблица — отдельный лист, главный лист «Отчёт» с резюме) |
+| **`solutions_orchestra.py`** (~700 строк) | Multi-agent runtime: 7 stage-типов (web_search/browse_url/llm/synthesize/parallel_llm/file_extract/vision_describe/extract_urls/parallel_browse/generate_image), streaming AsyncAnthropic, restage(), pub/sub для SSE |
+| **`push.py`** | Web Push (VAPID) — push_to_user, dedup expired 410/404 |
+| `proposal_builder.py` (~1200 строк) | КП: parse_client_site, JSON-first prompt v3, _render_proposal_json → HTML, _PRESET_CSS (4 пресета), 4 header_layout, edit_section, bleach-санитизация |
+| `presentation_builder.py` (~1100 строк) | Презентации v2 |
+| `tg_management.py` | TG-бот управления |
 | `email_service.py` | SMTP + send_with_attachment + login alerts |
-| `email_imap.py` | IMAP-trigger + email threading (In-Reply-To → ProposalProject.outbox_message_id) |
+| `email_imap.py` | IMAP-trigger + email threading |
 | `secrets_crypto.py` | Шифрование через HKDF(JWT_SECRET) |
+| `agent_runner.py` | Оркестратор AI-агентов + tool_browse_url (SSRF-safe) + tool_web_search + tool_run_llm + tool_generate_image |
 
 ### Routes (server/routes/)
 | Роут | Что |
 |---|---|
-| `auth.py` | Регистрация/login (с TG login alert при новом IP) |
-| `payments.py` | YooKassa init + webhook (HMAC обязателен) |
-| `chat.py` | `/message` /upload, auto-refund при ошибке |
-| `sites.py` | Сайты + path-traversal guard в ZIP |
-| `chatbots.py` | CRUD + 7 шаблонов + аналитика (1 SQL вместо 9) + records (с _csv_safe) + ZIP export |
-| `assets.py` | Storage с биллингом |
-| `user_apikeys.py` | Свои API-ключи юзера |
-| `user.py` | Кабинет + transactions.csv (P0 fix) + **TG-link endpoints** (status/code/unlink/notifications) |
-| **🟢 `proposals.py`** | brands CRUD, projects CRUD, generate (JSON-first + edit_section AI-правка + версии), public-link, send-email, stage (CRM), price-lists CRUD + CSV-импорт, save-html (WYSIWYG), duplicate |
-| **🟢 `presentations.py`** | generate (JSON слайды → HTML/PPTX/PDF), estimate-cost (динамика), pptx, preview-html, pdf, brief-assist (ТЗ-визард через Claude Haiku) |
-| `webhook.py` | TG/VK/Avito/MAX webhooks + **`/webhook/tg-mgmt/{secret}`** (path_secret + X-Telegram-Bot-Api-Secret-Token) |
+| `auth.py` | Регистрация/login + refresh single-use + revoke + marketing_consent в register |
+| `payments.py` | YooKassa init + webhook (HMAC) + 54-ФЗ receipt (vat_code, tax_system_code из env) |
+| `chat.py` | `/message` /upload, auto-refund |
+| `sites.py` | Сайты + ZIP + sandbox-iframe + **public_token** lookup |
+| `chatbots.py` | CRUD + 7 шаблонов |
+| `assets.py` | Storage |
+| `user_apikeys.py` | Свои API-ключи |
+| `user.py` | Кабинет + transactions.csv + TG-link + **marketing-consent** + **push (subscribe/test/etc)** |
+| `proposals.py` | brands CRUD, projects CRUD, generate, public-link, send-email, stage, price-lists |
+| `presentations.py` | generate, estimate-cost, pptx, pdf, brief-assist |
+| `webhook.py` | TG/VK/Avito/MAX webhooks + tg-mgmt + **wazzup24** |
 | `widget.py` | Виджет на сайт + WS Origin-whitelist |
-| `solutions.py`, `agent.py`, `public.py`, `oauth.py`, `admin.py` | Соответствующие модули |
+| **`solutions.py`** | 30 готовых решений (legacy plain) + **8 orchestra-пилотов**: start, stream (SSE), restage, save-template/run-template, share, reaction, docx/xlsx, **start-compare/compare/{group}** |
+| **`marketplace.py`** | Публикация ботов + каталог + install (70/30 split) + review + admin-модерация |
+| **`public_api.py`** | mgmt: /api-tokens CRUD; api: /api/v1/me, /api/v1/proposals/generate+get |
+| `assistant.py` | AI-помощник по разделам с feedback |
+| `qr_login.py` | QR-логин |
+| `mobile.py` | Lite-режим + voice |
+| `knowledge.py` | RAG база знаний |
+| `solutions.py`, `agent.py`, `public.py`, `oauth.py`, `admin.py` | Прочие |
 
 ### Frontend (views/)
 | Файл | Что |
 |---|---|
-| `index.html` | Главная: чат + бизнес-решения + кабинет (вкладка **«📲 Приложение»**). Draggable titlebar в standalone. WYSIWYG-режим |
-| `admin.html`, `agents.html`, `chatbots.html` | Соответствующие модули |
-| `sites.html` | Сайты с WYSIWYG-редактором (contenteditable=true на body), AI-правка блока, замена картинок (cache-bust) и иконок (SVG/FA/Lucide) |
-| **🟢 `proposals.html`** | КП: 3 вкладки (Мои КП / Оформление / Прайсы) + CRM-фильтры + WYSIWYG + AI-правка секций + версии + публичная ссылка + email + дубль |
-| **🟢 `presentations.html`** | Презентации v2: topic/audience/slide_count slider + extra_info + URL клиента + 4 color picker + 4 пресета + графики + ТЗ-визард + динамическая цена |
-| `presentations.html` (legacy) | Старые КП через doc_type='kp' — фильтруются, есть совет открыть /proposals.html |
+| `index.html` | Главная: чат + бизнес-решения (с **🔬 Compare** и **PRO orchestra**) + кабинет (+ **📬 marketing-consent**, **🔔 Web Push subscribe/test**) |
+| `admin.html`, `agents.html`, `chatbots.html`, `mobile.html`, `qr_confirm.html` | Соответствующие модули |
+| `sites.html` | Сайты с WYSIWYG-редактором |
+| `proposals.html` | КП: 3 вкладки + WYSIWYG + AI-правка + версии + публичная ссылка + email + дубль |
+| `presentations.html` | Презентации v2 |
 | `terms.html` | Оферта |
-| `icons.js` | SVG-иконки + brand_* лого + fetch-shim CSRF + textarea autopatch + **PWA-tags автоустановка** + **aiAlert/aiConfirm/aiPrompt** (custom modals) + install-prompt API |
-| **🟢 `manifest.json`** | PWA: name/icons/start_url/shortcuts, display:standalone, window-controls-overlay |
-| **🟢 `sw.js`** | Service Worker: static cache-first, HTML network-first + offline fallback, push handler |
-| **🟢 `icon.svg`** | Стилизованная Ч (maskable) |
+| `icons.js` | SVG-иконки + brand_* лого + CSRF + autopatch + **PWA-tags** + **aiAlert/aiConfirm/aiPrompt** + install-prompt |
+| `manifest.json`, `sw.js`, `icon.svg`, `logo-*.png`, `favicon.png` | PWA + Web Push handler |
+| `knowledge-ui.js` | UI RAG (общая для агентов и ботов) |
 
 ## Запуск (local dev)
 ```bash
@@ -115,14 +134,14 @@ HOME="C:\\Users\\Денис" ssh -i 'C:\\Users\\Денис\\.ssh\\id_ed25519' \
   "cd /root/AI-CHE && git pull origin main && systemctl restart ai-che"
 ```
 
-⚠️ **uvicorn слушает только 127.0.0.1** (после security audit). Внешний :8000 закрыт UFW. Доступ только через nginx.
+⚠️ **uvicorn слушает только 127.0.0.1**. Внешний :8000 закрыт UFW. Доступ только через nginx.
 
 ## Деньги — РУБЛИ + КОПЕЙКИ
 - Баланс юзера = `User.tokens_balance` в **копейках** (1 ₽ = 100 коп)
 - Поля называются `tokens_balance`, `tokens_delta`, `ch_per_1k_*` — это legacy имена, **значение = копейки**
 - UI: `window.fmtRub(kop)` → "X.XX ₽"
 
-### Тарифы (актуально на 2026-04-28, все цены в БД `pricing_config`)
+### Тарифы (актуально на 2026-05-04, все цены в БД `pricing_config`)
 | Что | Цена | Pricing-key |
 |---|---|---|
 | Создание бота с нуля | бесплатно | `bot.scratch_create=0` |
@@ -131,7 +150,7 @@ HOME="C:\\Users\\Денис" ssh -i 'C:\\Users\\Денис\\.ssh\\id_ed25519' \
 | AI-доработка / правки | real × 5 | `ai.improve_margin_pct=500` |
 | Реальные диалоги бота | real × 3 | `ai.reply_margin_pct=300` |
 | Edit-block в сайте | real × 5 | `ai.improve_margin_pct=500` |
-| Storage файлов | 50 ₽/мес за 100 МБ | `storage.per_100mb_month=5_000` |
+| Storage файлов (включая RAG) | 50 ₽/мес за 100 МБ | `storage.per_100mb_month=5_000` |
 | Сайт Sonnet | 1500 ₽ | `site.standard=150_000` |
 | Сайт Opus | 1990 ₽ | `site.premium=199_000` |
 | Свой API-ключ юзера | -80% (платит 20%) | `ai.user_key_discount_pct=20` |
@@ -140,104 +159,85 @@ HOME="C:\\Users\\Денис" ssh -i 'C:\\Users\\Денис\\.ssh\\id_ed25519' \
 | **🟢 КП AI-правка секции** | real × 5 | `ai.improve_margin_pct=500` |
 | **🟢 КП авто-генерация** | 50 ₽ | `proposal.auto_create=5000` |
 | **🟢 Презентация (по факту)** | real × 7 (margin внутри, в UI не показываем) | `presentation.margin_pct=700` |
+| **🆕 Бизнес-решение orchestra (по stage'ам)** | real × 5 за каждый llm-stage | `ai.improve_margin_pct=500` |
+| **🆕 Аудит лендинга** | до 250 ₽ | accumulated over stages |
+| **🆕 Юр. проверка договора** | до 350 ₽ | accumulated |
+| **🆕 Финансовый аудит Excel** | до 300 ₽ | accumulated |
+| **🆕 Аудит соцсети канала** | до 250 ₽ | accumulated |
+| **🆕 Холодная email-рассылка** | до 250 ₽ | accumulated |
+| **🆕 Compare моделей** | × N (за каждый запуск) | per-stage real × margin |
+| **🆕 Marketplace install** | price_kop листинга (70% автору) | per listing |
 
-## 🟢 КП-конструктор (proposals)
+## 🆕 Multi-agent Orchestra для Solutions
 
-### Модели
-- `ProposalBrand` — name/logo/3 цвета/шрифт/preset/реквизиты + tagline/usp_list/guarantees/tone(business/friendly/premium/tech)/intro_phrase/cta_phrase
-- `ProposalProject` — name/brand/bot/price_list/client_*/extra_notes/generated_html|pdf/crm_stage(new/sent/opened/replied/won/lost)/sent_at/opened_at/replied_at/won_at/lost_at/public_token/outbox_message_id
-- `ProposalVersion` — снапшоты до 10 на КП с note
-- `ProposalPriceList` + `ProposalPriceItem` — отдельный модуль прайсов (не из бота)
+`Solution.orchestra_json` содержит JSON-граф stage'ов. 7 типов stage:
+- `web_search` — `tool_web_search(query, num_results)` (без списания)
+- `browse_url` — `tool_browse_url(url)` с SSRF-защитой
+- `parallel_browse` — N параллельных browse_url через asyncio.gather
+- `extract_urls` — regex-выдёргивание URL из output stage'а
+- `llm` / `synthesize` — `generate_response`, у synthesize в финале есть **streaming** через AsyncAnthropic
+- `parallel_llm` — N параллельных llm с разными branches
+- `file_extract` — PDF/DOCX/XLSX → text через `knowledge.extract_text`
+- `vision_describe` — картинка → описание Claude Haiku
+- `generate_image` — DALL-E через `tool_generate_image` → возвращает `![](url)` markdown
 
-### Pipeline генерации
-1. Pre-validation (длина 30-25000, валидный URL)
-2. Парсинг сайта клиента (если задан) → `parse_client_site` → текст-контекст
-3. Прайс: `fetch_price_from_list(price_list_id)` (новый) → fallback `fetch_price_from_bot(bot_id)` (legacy)
-4. Claude prompt v3 → JSON {hero, understanding, offering, pricing, timeline, cta}
-5. Backend рендерит в HTML по фиксированному шаблону + preset_css (minimal/classic/bold/compact)
-6. PDF через xhtml2pdf
-7. Снапшот в ProposalVersion
+Промпт-шаблоны: `{{input}}`, `{{<id>.output}}`, `{{<id>.outputs[i]}}`, `{{<id>.outputs}}` — заменяются на текст из контекста.
 
-### Фишки
-- **WYSIWYG**: contenteditable=true на body — юзер кликает в любой текст, печатает
-- **AI-правка секции**: клик по блоку → AI переписывает только его (real × 5)
-- **Версионирование**: до 10 версий, можно откатиться
-- **Email-orchestration** (нода `auto_proposal`): IMAP → детект ключевых слов → генерация → SMTP-ответ с PDF + threading
-- **Whitelist**: `cfg.email_whitelist=domain1.ru` для авто-режима
-- **Pre-approval mode** в auto: вместо отправки шлёт владельцу TG-уведомление
-- **Публичная ссылка**: `/p/{public_token}` без auth, при первом открытии → `crm_stage='opened'`
-- **Threading**: IMAP-watcher парсит `In-Reply-To`/`References` → находит proposal по `outbox_message_id` → `crm_stage='replied'`
-- **8 готовых палитр** B2B (Че, B2B классика, Изумруд, Бургунди, Графит, Стальной, Тёплый беж, Виноград)
-- **5 семейств шрифтов** в PDF (DejaVu, Liberation Sans/Serif, Noto Sans/Serif)
-- **TG push** при отправке КП → inline-кнопки «Выиграно/Отказ»
+**8 orchestra-пилотов** (см. `scripts/seed_orchestra_solutions.py`):
+1. **Конкурентный анализ ниши** (150 ₽) — web_search → 5 параллельных browse → 5 deep-аналитиков → стратег
+2. **Полный SWOT-анализ** (150 ₽) — web_search контекст → 4 параллельных квадранта (S/W/O/T) → Opus-стратег
+3. **Контент-план месяц** (200 ₽) — trend-scout → 3 параллельных копирайтера (VK/TG/Insta) → планировщик
+4. **Аудит лендинга** (250 ₽) — extract_urls + parallel_browse + опц. vision-скриншот → 3 аналитика (UX/SEO/CRO) → план + готовые тексты
+5. **Юр. проверка договора** (350 ₽) — file_extract DOCX → структуризация + web_search норм → 3 юриста (риски/существенные/императивные) → ПРОТОКОЛ РАЗНОГЛАСИЙ со ссылками на ГК РФ
+6. **Аудит соцсети канала** (250 ₽) — browse_url канала + опц. vision → 3 аналитика (контент/engagement/монетизация) → стратегия 90 дней
+7. **Финансовый аудит Excel** (300 ₽) — file_extract XLSX → 3 аналитика (тренды/юнит-эк/риски) → 5 действий с цифрами
+8. **Холодная email-рассылка** (250 ₽) — extract_urls + parallel_browse 5 сайтов → разведчик с фактами → parallel_llm копирайтеров → 5 писем + план кампании
 
-## 🟢 Презентации v2 (presentations)
+**UX-фичи orchestra:**
+- Live-progress через SSE (`/solutions/runs/{id}/stream`) с heartbeat 1s
+- ↻ Re-run отдельного stage с extra_instruction (real × margin)
+- ⭐ Save as template (input + attachments) → 1 клик повторить
+- 🔗 Share через `public_token` → `/s/{token}` без auth (отдаёт PDF/markdown)
+- 📄 PDF / 📝 DOCX / 📊 XLSX экспорты (один markdown → разные форматы)
+- 👍/👎/💡 reaction + auto-flagging (3+ 👎 за 7 дней → email админу)
+- 🔬 Compare: запустить на 2-3 моделях параллельно
 
-### Поля PresentationProject
-topic / audience / slide_count(3-40) / extra_info / color_scheme(legacy) / **bg_color / text_color / accent_color / title_color** (HEX, кастомные приоритетнее) / **client_site_url / client_site_ctx** (парсинг сайта для стиля под клиента) / **custom_charts** (JSON массив явных графиков) / slides_json / pptx_path / html_preview / pdf_path
+## 🆕 WhatsApp канал (Wazzup24)
 
-### Pipeline
-1. Парсинг сайта клиента → site_ctx (опц.)
-2. **Vision-описания** загруженных фото через Claude Haiku (≤8 картинок)
-3. Custom charts → подаются в prompt + страховка добавления если AI забыл
-4. Claude prompt v3 → JSON со слайдами 7 типов: title/section/content/two_column/chart/quote/cta
-5. `_resolve_colors_for_project` → кастомная палитра (через `_build_custom_palette` из 4 hex → авто panel/accent2/muted)
-6. **HTML preview** (карусель + SVG-графики bar/line/pie)
-7. **PPTX** (`build_pptx_with_palette`) — нативные графики через python-pptx + speaker notes + картинки
-8. **PDF** (xhtml2pdf, landscape A4)
+Поля `ChatBot.wazzup_api_key` (encrypted) + `wazzup_channel_id`. Webhook `POST /webhook/wazzup/{bot_id}` с HMAC-secret в URL. `send_whatsapp(api_key, channel_id, chat_id, text)` в `chatbot_engine.py`. Все 7 шаблонов работают через WhatsApp.
 
-### Цены
-- **Маржа ×7** внутри (`presentation.margin_pct=700`) — но **НЕ показывается в UI**
-- В UI динамическая «≈ X-Y ₽» (зависит от слайдов / extra_info / images_count / has_site)
-- Endpoint `/presentations/estimate-cost` принимает {slide_count, extra_info_len, images_count, has_site}
+## 🆕 Web Push API (VAPID)
 
-### ТЗ-визард (`/presentations/brief-assist`)
-Юзер пишет идею в свободной форме → Claude Haiku → JSON {topic, audience, extra_info, suggested_slide_count, structure_hint, questions} → кнопка «Применить» подставляет в форму.
+Браузер регистрируется через `PushManager.subscribe(applicationServerKey)`. Endpoints `/user/push/{vapid-public, subscribe, unsubscribe, status, test}`. Хуки: новая заявка из бота → push владельцу; клиент открыл `/p/{token}` КП → push.
 
-### UX
-- Color picker × 4 (фон/акцент/заголовки/текст) + 4 быстрых пресета (Тёмная/Светлая/Корп/Белая)
-- URL сайта клиента → AI считывает стиль/тон, адаптирует лексику
-- Vision: AI описывает каждое фото 1 предложением
-- Графики: inline-форма kind/title/labels/values
-- 3 формата: PPTX / HTML / PDF
+VAPID-ключи на проде:
+- `VAPID_PUBLIC_KEY=...`
+- `VAPID_PRIVATE_KEY_FILE=/root/AI-CHE/.vapid_private.pem` (0o400)
+- `VAPID_SUBJECT=mailto:admin@aiche.ru`
 
-## 🟢 Три приложения (PWA + Desktop + TG)
+## 🆕 Marketplace ботов
 
-### PWA (мобильное и десктоп)
-- `views/manifest.json` + `views/sw.js` + `views/icon.svg` (раздаются через main.py)
-- `display:standalone` + `display_override:[window-controls-overlay,...]`
-- Shortcuts: Чат / Боты / КП / Сайты — в меню приложения
-- Service worker: static cache-first, HTML network-first + offline-fallback, API не кэшируется
-- В кабинете → вкладка «📲 Приложение» — кросс-платформенная инструкция (iOS/Android/Mac/Windows)
+`BotMarketplaceListing` (snapshot system_prompt + workflow_json + price + cover) проходит через `is_approved` админа. При install создаётся новый ChatBot у юзера; платный режим: списание + 70% автору / 30% платформе.
 
-### Desktop standalone-режим
-- `@media (display-mode: standalone|window-controls-overlay)` в index.html включает `.app-titlebar.standalone-only` — draggable titlebar (`-webkit-app-region: drag`) с эмодзи и градиентом
+Endpoints в `server/routes/marketplace.py`:
+- `POST /marketplace/listings` — опубликовать
+- `GET /marketplace/listings` — публичный каталог одобренных
+- `GET /marketplace/my-listings` — свои
+- `POST /marketplace/listings/{id}/install` — установить
+- `POST /marketplace/listings/{id}/review` — рейтинг 1-5
+- `GET /marketplace/admin/pending`, `POST /admin/listings/{id}/approve|reject`
 
-### TG management-бот
-- Отдельный бот (env `TG_MGMT_BOT_TOKEN` + `TG_MGMT_BOT_USERNAME`)
-- Webhook: `POST /webhook/tg-mgmt/{secret}` (path_secret + header secret)
-- Привязка: 6-знач код 10 мин TTL → `/link XXXXXX` или deep-link
-- Команды: `/start /link /unlink /me /stats /menu`
-- Inline-меню: профиль, стата 7 дней, последние КП/заявки, toggle подписок
-- **Push-уведомления** через `notify_user(user_id, text, kind)`:
-  - При отправке КП → push с inline-кнопками «Выиграно/Отказ»
-  - При новой заявке через `save_record`
-  - Респектит `User.tg_notify_*` флаги
-- Setup: `setWebhook` через Telegram API с `secret_token=<derived from TG_MGMT_BOT_TOKEN>`
+UI каталога ещё не сделан.
 
-## AI провайдеры
+## 🆕 Public API для SaaS
 
-### OpenAI/Anthropic/Grok
-Прямые ключи в БД `api_keys`. Подгружаются на старте через `_load_all_apikeys_from_db`.
-
-### Google (Imagen + Veo) — ВАЖНО
-- Хостинг прода в NL — Google AI Studio блочит ASN
-- Решение: прокси `GOOGLE_HTTPS_PROXY` в env
-- Используется ТОЛЬКО для Google-вызовов
-- Модели: Imagen 4 fast/std/ultra, Veo 2/3.0/3.0-fast/3.1 + audio + i2v
+`ApiToken` (prefix + sha256-hash секрета + scopes CSV). Auth: `Authorization: Bearer ai_che_<prefix>_<secret>`. Управление в кабинете через `/api-tokens` (mgmt_router). Доступные endpoints:
+- `GET /api/v1/me` — баланс
+- `POST /api/v1/proposals/generate {name, client_request, brand_id, ...}` → proposal_id + pdf_url, синхронно, списание `proposal.create` (50 ₽), auto-refund при ошибке
+- `GET /api/v1/proposals/{id}` — статус
 
 ## Ноды workflow (chatbot_engine.py)
-**Триггеры:** trigger_tg, trigger_vk, trigger_avito, trigger_max, trigger_webhook, **trigger_imap**, trigger_schedule, trigger_manual
+**Триггеры:** trigger_tg, trigger_vk, trigger_avito, trigger_max, trigger_webhook, trigger_imap, trigger_schedule, trigger_manual
 
 **AI:** node_gpt, node_claude, node_gemini, node_grok, prompt, orchestrator
 
@@ -251,73 +251,68 @@ topic / audience / slide_count(3-40) / extra_info / color_scheme(legacy) / **bg_
 
 **Богатый UX:** request_contact, request_location, output_photo, edit_message, chat_action_typing
 
-**Универсальный:** save_record (lead/booking/order/quiz/ticket/subscriber/proposal_sent)
+**Универсальный:** save_record (lead/booking/order/quiz/ticket/subscriber/proposal_sent) — теперь с push владельцу
 
-**Мета:** bot_constructor, **🟢 auto_proposal** (генерит КП из IMAP-письма + опц. SMTP-ответ + TG approval flow + whitelist по доменам/keywords)
+**Мета:** bot_constructor, **🟢 auto_proposal** (генерит КП из IMAP-письма + опц. SMTP-ответ + TG approval flow)
 
 ## Аудит-лог
-Таблица `action_logs` — все значимые действия пишутся через `server.audit_log.log_action()`.
+Таблица `action_logs`. **Что логируется:** auth.* / payment.* / ai.* / proposal.* / **solution.\*** (orchestra_started, restage, reaction, auto_flagged, orchestra_compare) / **marketplace.\*** (published/installed/approved/rejected) / **api_token.\*** (created/revoked) / **knowledge.\*** / qr.* / record.created / asset.*
 
-**Что логируется:** auth.* / payment.* / ai.* / **proposal.*** (created/generated/manual_sent/auto_sent/section_edited/html_edited/version_restored/stage_changed/duplicated/client_replied/public_opened/...) / record.created / asset.* / proposal.pricelist_*
-
-**Эндпоинты:**
-- `GET /admin/actions?since_hours=72&limit=500` — JSON
-- `GET /admin/actions.txt?since_hours=72&limit=2000` — plain text для чата
-- `GET /admin/actions.jsonl` — JSONL
-
-**Cleanup:** info — 30 дней, error/critical — 90 дней, forensic (auth/payment/record) — 365 дней
+**Эндпоинты:** `/admin/actions(.txt|.jsonl)`. Cleanup retention в scheduler (info 30д, auth/payment 365д, error 90д).
 
 ## Безопасность
 
 ### Network/Infra
-- ✅ HTTPS-only + HSTS (1 год), HTTP→HTTPS redirect 301
-- ✅ UFW активен (только 22/80/443)
-- ✅ uvicorn слушает 127.0.0.1 (был 0.0.0.0)
-- ✅ fail2ban на SSH
-- ✅ nginx server_tokens off
-- ✅ apt auto updates
+- ✅ HTTPS-only + HSTS
+- ✅ UFW активен (22/80/443)
+- ✅ uvicorn 127.0.0.1
+- ✅ fail2ban + nginx server_tokens off
 
 ### Auth
-- ✅ bcrypt + timing-safe verify
-- ✅ Password policy: 10+ симв, 2 класса, чёрный список
-- ✅ JWT в httpOnly cookie + CSRF (double-submit, hmac.compare_digest)
-- ✅ Login alert email при новом IP (User.last_login_ip)
-- ✅ Refresh token rotation
-- ✅ Audience/issuer claims
+- ✅ bcrypt + timing-safe verify + dummy-hash на login
+- ✅ Password policy 10+ симв
+- ✅ JWT в httpOnly cookie + CSRF (double-submit)
+- ✅ **Refresh token rotation single-use** (User.refresh_jtis JSON, до 10 multi-device, reuse → revoke ALL)
+- ✅ Login alert email при новом IP
+- ✅ Aud/iss claims (но проверка пока не strict — отложено)
 
 ### Application
-- ✅ SQLAlchemy ORM (все запросы препаред)
-- ✅ CSRF middleware
-- ✅ IDOR: `filter_by(user_id=user.id)` везде
-- ✅ Path traversal protection: ZIP сайтов + storage cleanup используют `Path.resolve().relative_to(uploads_root)`
-- ✅ CSV-injection: `_csv_safe()` префиксит `=+-@\t\r` апострофом
-- ✅ CSV-import: верхняя граница 1 млрд ₽
-- ✅ `_SecretFilter` на root-handler — ловит секреты во всех логгерах
-- ✅ Storage billing race fix
-- ✅ Welcome / referral бонусы — atomic gates
+- ✅ SQLAlchemy ORM везде, CSRF, IDOR-проверки `filter_by(user_id=user.id)`
+- ✅ Path traversal protection (ZIP, storage, /p/{token}, KB)
+- ✅ CSV-injection: `_csv_safe`
+- ✅ `_SecretFilter` на root-handler
+- ✅ Storage billing race fix (UNION StoredAsset + KnowledgeFile)
 - ✅ UNIQUE-индексы на yookassa_payment_id
-- ✅ Worker_lock fail-CLOSED
-- ✅ TG webhook требует `X-Telegram-Bot-Api-Secret-Token`
-- ✅ MAX webhook требует `?secret=`
-- ✅ YooKassa webhook HARD-FAIL без `YOOKASSA_SECRET_KEY`
-- ✅ OAuth state-параметр для CSRF
+- ✅ **Sites enumeration → `public_token`** (~160bit вместо int_id)
+- ✅ **VK webhook требует `vk_secret` + compare_digest**
+- ✅ **SSRF в agent tool_browse_url** (DNS rebinding + revalidate redirects)
+- ✅ **bleach-санитизация** generated_html КП (legacy fallback + edit-section + save-html)
+- ✅ **Agent /ws + /stream IDOR-защита** (cookie/query token)
+- ✅ **TG-link rate-limit + email-alert** при привязке/перепривязке
 - ✅ Iframe sandbox без allow-same-origin (sites preview)
 - ✅ HKDF для Fernet-ключа
-- ✅ SVG sanitization
 - ✅ http_request нода: двойной DNS + CIDR блок-лист
-- ✅ code_python sandbox: whitelist AST + wallclock timeout
-- ✅ Native dialogs убраны → custom modals (aiAlert/aiConfirm/aiPrompt)
+- ✅ code_python sandbox
+
+### Compliance (152-ФЗ + 54-ФЗ)
+- ✅ AES-256-GCM шифрование DB-бэкапов (`scheduler._db_backup_tick`, ключ в `.backup_encryption_key` 0o400)
+- ✅ 54-ФЗ receipt в YooKassa: payment_subject + payment_mode + tax_system_code + vat_code (env)
+- ✅ Маркетинговое согласие отдельно от оферты (User.marketing_consent, не предзаполняется)
+- ✅ Из payment-логов убраны суммы (только payment_id)
+- ⚠ SMTP не настроен на проде → юзеры не получают verification (нужен Unisender/SendPulse)
+- ⚠ Прод в Нидерландах → нужна миграция в РФ (152-ФЗ ст. 18)
+- ⚠ Регистрация в РКН — задача юзера
 
 ### Dependencies
-- ✅ python-jose 3.4.0, multipart 0.0.26, dotenv 1.2.2, markdown 3.8.1
-- ⚠️ starlette 0.37.2 (CVE-2024-47874, 2025-54121) — pinned в FastAPI 0.111
-- ⚠️ xhtml2pdf 0.2.16 (CVE-2024-25885) — нет fix-версии
+- ✅ python-jose 3.4.0, multipart 0.0.26, dotenv 1.2.2, markdown 3.8.1, bleach 6.1.0
+- ✅ python-docx 1.1.2, pywebpush 2.0.0
+- ⚠️ starlette 0.37.2 (CVE pinned в FastAPI 0.111) — отдельный спринт upgrade
 
 ## Production-readiness
 - ✅ Sentry (guarded `SENTRY_DSN`)
 - ✅ Structured logs (`STRUCTURED_LOGS=1` → JSON)
 - ✅ X-Request-ID middleware
-- ✅ Auto-backup chat.db с PRAGMA integrity_check, retention 14 дней
+- ✅ Auto-backup chat.db **с AES-GCM** + PRAGMA integrity_check, retention 14 дней
 - ✅ Audit log с эшелонированной retention
 - ✅ Idempotency-Key в /message
 - ✅ CI workflow с pytest + ruff + pip-audit
@@ -325,10 +320,12 @@ topic / audience / slide_count(3-40) / extra_info / color_scheme(legacy) / **bg_
 ## Инфра
 - Прод: `root@194.104.9.219` (Дронтен, NL, Clouvider), путь `/root/AI-CHE`
 - venv: `/root/AI-CHE/venv/bin/python`
-- env: `/root/AI-CHE/.env` — все API-ключи, `JWT_SECRET`, `YOOKASSA_*`, `APP_URL=https://aiche.ru`, **`TG_MGMT_BOT_TOKEN`** (опц.), **`TG_MGMT_BOT_USERNAME`**, `GOOGLE_HTTPS_PROXY`
-- Шрифты: установлены `fonts-liberation` + `fonts-noto-core` через apt
+- env: `/root/AI-CHE/.env` — все API-ключи, `JWT_SECRET`, `YOOKASSA_*`, `APP_URL=https://aiche.ru`, `TG_MGMT_BOT_TOKEN` (опц.), `GOOGLE_HTTPS_PROXY`, **`VAPID_PUBLIC_KEY`**, **`VAPID_PRIVATE_KEY_FILE`**
+- `.backup_encryption_key` (0o400) — резервная копия в **1Password / Vault** обязательна
+- `.vapid_private.pem` (0o400)
+- Шрифты: `fonts-liberation` + `fonts-noto-core` через apt
 - Деплой: `git pull origin main && systemctl restart ai-che`
-- БД: SQLite `chat.db` + WAL. Бэкапы автоматом в `/root/AI-CHE/backups/chat.db.YYYY-MM-DD`
+- БД: SQLite `chat.db` + WAL. Бэкапы автоматом в `/root/AI-CHE/backups/chat.db.YYYY-MM-DD.enc`
 
 ## Правила разработки
 - Ответы на русском
@@ -338,21 +335,24 @@ topic / audience / slide_count(3-40) / extra_info / color_scheme(legacy) / **bg_
 - **Сессии БД вне FastAPI Depends:** только через `with db_session() as db:`
 - **Секреты в БД:** через `EncryptedString`
 - **Миграции схемы:** `LIGHTWEIGHT_MIGRATIONS` в `server/db.py`
-- **Webhooks:** TG/MAX через secret-token; ЮKassa через HMAC
+- **Webhooks:** TG/MAX/Wazzup24 через secret-token; ЮKassa через HMAC
 - **Картинки** в `/uploads/` (КОРЕНЬ проекта)
 - **Логи действий:** `log_action(...)` в новые endpoint'ы
 - **Native dialogs запрещены** — везде `aiAlert/aiConfirm/aiPrompt`
 - **Деплой:** `git push origin main && ssh ... git pull && systemctl restart ai-che`. NEVER `db.drop_all()`, NEVER reset api_keys/users/transactions
+- **Public API endpoints должны быть scope-aware** через `authenticate_token(request, db, required_scope=...)`
 
 ## Тесты
-`pytest tests/` — **89 проходят** (актуально на 2026-04-28).
-- `tests/test_api.py` — auth, chat, chatbots CRUD, security, webhooks, CookieAuth, YooKassaWebhookSignature
+`pytest tests/` — **164 проходят, 2 skipped** (актуально на 2026-05-04). Skipped — DOCX/XLSX builders когда python-docx/openpyxl не установлены в dev (на проде есть).
+- `tests/test_api.py` — auth, chat, chatbots CRUD, security, webhooks, refresh single-use
 - `tests/test_billing.py` — atomic gates, race conditions, widget Origin
-- `tests/test_critical_paths.py` — promo, conversation, try_with_keys, secrets HKDF, edit-block refund, **TestUserApiKeys** (3), **TestBotPriceList** (3)
-- `tests/conftest.py` — DEV_MODE + APP_ENV=dev + JWT_SECRET + apply migrations + `_clear_cookies_and_rl`
+- `tests/test_critical_paths.py` — promo, conversation, try_with_keys, secrets HKDF, edit-block refund, **TestSolutionsOrchestra**, **TestMarketplace**, **TestPublicAPI**
+- `tests/test_assistant.py` — AI-помощник
+- `tests/test_knowledge.py` — RAG
+- `tests/test_mobile.py`, `tests/test_qr_login.py`
 
 ```bash
-cd .claude/worktrees/eloquent-carson-885bc0/
+cd .claude/worktrees/festive-goldwasser-d084fe/
 DEV_MODE=true APP_ENV=dev JWT_SECRET=test-jwt-secret-32-chars-long-yes \
 ALLOWED_ORIGINS=http://localhost:8000 \
 python -m pytest tests/ --tb=line
@@ -360,7 +360,7 @@ python -m pytest tests/ --tb=line
 
 ## Деплой workflow
 ```bash
-git push origin claude/eloquent-carson-885bc0:main
+git push origin claude/festive-goldwasser-d084fe:main
 
 HOME="C:\\Users\\Денис" ssh -i "C:\\Users\\Денис\\.ssh\\id_ed25519" \
   -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -369,21 +369,26 @@ HOME="C:\\Users\\Денис" ssh -i "C:\\Users\\Денис\\.ssh\\id_ed25519" \
    systemctl restart ai-che && systemctl is-active ai-che"
 ```
 
-## Свежие коммиты (топ-15 на 2026-04-28)
-- `d1d8e41` — feat(presentations): color picker + сайт клиента + vision + графики + ТЗ-визард
-- `03d842b` — feat(presentations): полная переработка модуля — слайды, графики, PPTX
-- `8714682` — feat(apps): три приложения — PWA + Desktop standalone + TG management bot
-- `ea7487c` — feat(proposals): JSON-first генерация — стабильное оформление + 4 пресета
-- `ba30acf` — feat(proposals): свой раздел прайсов в КП — независимый от ботов
-- `2bbddd9` — fix(editor): полная правка текста + замена картинки + понятные кнопки
-- `5f1465e` — fix(ui): WYSIWYG-правка КП + 14 sync->async функций
-- `b241bba` — feat(proposals): B.5-B.8 + C.9-C.11 + D.12-D.13 — CRM/версии/threading/шрифты
-- `e93ec13` — feat(proposals): A.1-A.4 — edit-режим, AI-правка секций, валидация, версии
-- `7f5c4d6` — feat(proposals): улучшения КП — отправка email, лучший шаблон, prompt v2
-- `3dc580b` — fix(pdf+ui): кириллица в PDF + кастомные модалки
-- `e24d96a` — feat(proposals): email-orchestration — нода auto_proposal + шаблон IMAP→SMTP
-- `4e00538` — feat(proposals): генерация PDF + парсинг сайта клиента + UI с превью
-- `1657f0a` — feat(proposals): отдельный модуль КП + бренды + контекст клиента
-- `99377aa` — deps: фикс 11 CVE — python-jose, multipart, dotenv, markdown
+При добавлении новых orchestra-решений:
+```bash
+ssh ... "cd /root/AI-CHE && /root/AI-CHE/venv/bin/python scripts/seed_orchestra_solutions.py"
+```
+
+## Свежие коммиты (топ-15 на 2026-05-04)
+- `963c365` — fix(startup): catch table-already-exists race в create_all
+- `75e2462` — feat: сравнение моделей + Marketplace ботов + Public API
+- `1126e50` — feat: XLSX/streaming/auto-flag + inline images + WhatsApp + Web Push
+- `bcc4cf3` — feat(orchestra-pro): re-run + templates + reactions + DOCX + 3 новых решения (соцсеть/Excel/cold-email)
+- `5a91f68` — feat(orchestra): глубокий ресерч (file_extract / vision / browse) + 2 новых решения (аудит лендинга/юр.договор)
+- `fa85629` — feat(solutions): multi-agent orchestra — параллельные специализированные агенты (3 пилота: SWOT/Comp/Content)
+- `da5aee6` — feat(ui+docs): UI чекбокс маркетинговой рассылки + обновление HANDOVER/TODO
+- `a2bffc0` — feat(compliance): РФ-чеклист — 152-ФЗ + 54-ФЗ + шифрование бэкапов
+- `d90e2f1` — feat(security): refresh-rotation single-use + sites public_token + RAG billing
+- `cc5afa5` — fix(security): аудит-чек-лист — XSS/SSRF/IDOR/auth-leak/abuse
+- `48b8ed0` — feat(kp): конструктор шапки КП — 4 стиля
+- `1a70a2c` — fix(image-gen): качество HD/high по умолчанию
+- `21dfe81` — feat: единый маскот для всех приветствий + фиксы КП
+- `516ddaf` — feat: welcome-маскот, фикс PDF/PPTX
+- `e84a9f2` — feat(quick-wins): экономия + UX-помощь новичкам
 
 Полный лог: `git log --oneline -30`. Развёрнутый разбор спринтов — `HANDOVER.md`.

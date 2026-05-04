@@ -1,6 +1,235 @@
 # HANDOVER — для нового AI-ассистента
 
-Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-05-02 после трёх спринтов: «Security audit», «Refresh single-use + sites public_token + RAG billing», «РФ Compliance»**.
+Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-05-04 после большой серии спринтов по бизнес-решениям, marketplace, public API**.
+
+---
+
+## 🆕 Спринт «Сравнение моделей + Marketplace + Public API» (2026-05-04, `75e2462` + `963c365`)
+
+### Сравнение моделей (compare runs)
+- `POST /solutions/{id}/orchestra/start-compare {input, attachments, models[]}` запускает 2-3 параллельных runs одного Solution на разных моделях (whitelist: claude-sonnet/opus/haiku, gpt-4o).
+- Каждый run хранит свою «кастомную» orchestra в `run.context._compare_orchestra` (deep-copy с переопределённой `default_model`). Runtime подхватывает custom orchestra если она есть в context.
+- `chat_id` имеет префикс `cmp_<group>_<model>` для группировки.
+- `GET /solutions/compare/{group}` → снимок состояния всех runs группы.
+- UI: details «🔬 Сравнить модели» в orchestra-форме с чекбоксами + N-колоночный grid с прогрессом каждой модели + кнопки «Открыть отчёт» / «PDF» по каждой.
+
+### Marketplace ботов
+- `BotMarketplaceListing` (snapshot system_prompt + workflow_json + name + price_kop + cover_image_url + is_approved + installs_count + rating_sum/count)
+- `BotMarketplaceInstall` (listing_id + installer_id + paid_kop + rating + review)
+- 12 endpoints в `server/routes/marketplace.py`: публикация, каталог, my-listings, install (с 70/30 revenue split), review, admin pending/approve/reject.
+- UI каталога ещё не сделан — только backend.
+
+### Public API
+- `ApiToken` (prefix 8-hex + sha256(secret) + scopes CSV + last_used_at + requests_count)
+- Управление в кабинете: `mgmt_router` /api-tokens (POST/GET/DELETE)
+- Public endpoints: `api_router` /api/v1/me, /api/v1/proposals/generate, /api/v1/proposals/{id}
+- Auth: `Authorization: Bearer ai_che_<prefix>_<secret>` через `authenticate_token(request, db, required_scope=...)` с hmac.compare_digest на sha256.
+- CSRF middleware пропускает Bearer >10 символов — наш токен ~56 символов работает.
+
+### Race-condition fix
+Multi-worker uvicorn: 2 процесса вызывают `Base.metadata.create_all` одновременно после новых таблиц → один проходит, второй падает с «table already exists». Catch'им и игнорируем — это норма.
+
+### Тесты
+164/164 (+6 новых: compare endpoints, marketplace endpoints+models, api_token hash, api_token authenticate_invalid).
+
+---
+
+## 🆕 Спринт «Production апгрейды + WhatsApp + Web Push» (2026-05-03, `1126e50` + `d2e5e4c`)
+
+### XLSX-экспорт финального отчёта
+- `server/xlsx_builder.py` — markdown→XLSX с разнесением каждой таблицы на отдельный лист; первый лист «Отчёт» с резюме (3-5 первых параграфов).
+- `GET /solutions/runs/{id}/xlsx` → blob-скачивание + кнопка 📊 XLSX в UI.
+
+### Streaming output финального synthesize-stage'а
+- `_llm_call_stream_anthropic` через `AsyncAnthropic.messages.stream` — токены идут по мере генерации.
+- Throttle нотификаций 600мс (не флудить SSE).
+- Активируется автоматически для финального synthesize если model=claude*. Иначе fallback на non-stream.
+- Юзер видит как пишется итоговый отчёт live, не ждёт минуту до конца.
+
+### Stage type `generate_image` (DALL-E)
+- `_run_generate_image` через `tool_generate_image` → возвращает `![](url)` markdown.
+- Synthesizer может вставить inline-картинку — markdown_to_pdf через xhtml2pdf автоматически рендерит.
+
+### Auto-flagging низкого качества
+- При 3+ 👎 на одно решение за 7 дней → email админу через `_send` + audit-лог `solution.auto_flagged`.
+- Дедуп по solution_id раз в 24ч (in-memory).
+
+### WhatsApp канал через Wazzup24
+- `ChatBot.wazzup_api_key` (encrypted) + `wazzup_channel_id`
+- `send_whatsapp(api_key, channel_id, chat_id, text)` в `chatbot_engine.py` — POST в `https://api.wazzup24.com/v3/message`
+- Webhook `POST /webhook/wazzup/{bot_id}` с HMAC-secret в URL, парсит `messages[]`, фильтрует inbound + matching channelId, зовёт `handle_message(platform="whatsapp")`.
+- Все 7 шаблонов работают через WhatsApp без изменений.
+
+### Web Push API через VAPID
+- `PushSubscription` (endpoint + p256dh + auth + user_agent)
+- `server/push.py: push_to_user` через pywebpush, удаление 410/404 endpoint'ов
+- 6 endpoints `/user/push/{vapid-public, subscribe, unsubscribe, status, test}`
+- UI: блок «🔔 Push-уведомления» в кабинете → Настройки
+- Хуки: новая заявка из бота (`save_record` нода) → push владельцу; клиент открыл КП по `/p/{token}` → push.
+- VAPID-ключи на проде: `VAPID_PUBLIC_KEY=BMWIjDEoiE4DrybHWJ5q3NOsSR5Q...`, `VAPID_PRIVATE_KEY_FILE=/root/AI-CHE/.vapid_private.pem` (0o400).
+
+### requirements.txt
+- + `python-docx==1.1.2`
+- + `pywebpush==2.0.0`
+
+### Тесты
+158/158 (+5 новых: XLSX builder, generate_image dispatch, new endpoints registered, send_whatsapp helper).
+
+---
+
+## 🆕 Спринт «UX-полировка orchestra + 3 новых решения» (2026-05-03, `bcc4cf3`)
+
+### Re-run отдельного stage'а
+- `solutions_orchestra.restage(run_id, stage_id, extra_instruction)` — сбрасывает target stage и все следующие, перезапускает их с extra_instruction в user_prompt target'а, обновляет final_output.
+- `POST /solutions/runs/{id}/restage {stage_id, extra_instruction}` — endpoint.
+- UI: «↻ перегенерировать» рядом с каждой готовой стадией → prompt → запуск.
+
+### Templates: сохранить запуск как шаблон
+- `SolutionRunTemplate` (user_id + solution_id + name + user_input + attachments_json)
+- 4 endpoints: save-template, list, delete, run-template
+- UI: блок «📂 Запустить из шаблона» в orchestra-форме с чипами + ✕ удаления.
+
+### Reactions 👍/👎/💡
+- `SolutionRun.user_mark` + `user_comment` + миграции
+- `POST /solutions/runs/{id}/reaction {mark, comment}` — `up/down/idea/clear`
+- UI: ряд кнопок под отчётом + prompt комментария при 👎/💡
+
+### DOCX-экспорт
+- `server/docx_builder.py` — markdown→DOCX через python-docx (heading H1-H4, **bold**, lists, tables с шапкой, разделители)
+- `GET /solutions/runs/{id}/docx` → blob-скачивание
+
+### 3 новых orchestra-решения
+- **Аудит лендинга** (250 ₽, 7 stages): extract_urls + parallel_browse + опц. vision-скриншот → 3 параллельных аналитика (UX/SEO/CRO) → план + ГОТОВЫЕ ТЕКСТЫ (3 варианта H1, CTA, блок «Почему мы»)
+- **Юридическая проверка договора** (350 ₽, 7 stages): file_extract DOCX/PDF → структуризация (стороны, предмет, сроки) с цитатами → web_search применимых норм → 3 параллельных юриста (риски/существенные/императивные нормы) → ПРОТОКОЛ РАЗНОГЛАСИЙ со ссылками на статьи ГК РФ + текст для отправки контрагенту
+- **Конкурентный анализ ниши** (углублён): теперь реально качает 5 сайтов через parallel_browse, анализирует реальный текст с их страниц.
+
+### Расширение runtime новыми stage-типами
+- `file_extract` (PDF/DOCX/XLSX/CSV/TXT через `knowledge.extract_text`, селектор attachments)
+- `vision_describe` (картинка → Claude Haiku через `describe_image_via_claude`)
+- `extract_urls` (regex)
+- `parallel_browse` (asyncio.gather с N URL'ов)
+
+### Attachments в Solution Run
+- `SolutionRun.attachments_json` (JSON массив {file_url, name, mime, kind, size})
+- В `Solution.orchestra_json` поле `requires_attachments[]` — описание для UI: kind/label/accept/required/hint
+- API `POST /orchestra/start` принимает `attachments[]` с валидацией (path-traversal защита, лимит 25 МБ × 5)
+- UI: блок «📎 Дополнительные данные» в orchestra-модалке, file-input + статус загрузки + required-валидация
+
+### Тесты: 154 → 155 → 158 → 164 (последовательно по спринтам)
+
+---
+
+## 🆕 Спринт «Multi-Agent Orchestra v1» (2026-05-02, `fa85629`)
+
+Концепт: Solution.orchestra_json содержит JSON-граф stage'ов. Stage'и идут по порядку; внутри parallel_llm — N веток через asyncio.gather. Промпты ссылаются на предыдущие stage'и через `{{<id>.output}}` / `{{<id>.outputs[i]}}`.
+
+### Runtime (`server/solutions_orchestra.py`)
+- 5 stage-типов: web_search / browse_url / llm / synthesize / parallel_llm
+- Биллинг: каждый llm-stage списывается по реальным токенам × margin (×5 из ai.improve_margin_pct). web_search/browse_url бесплатны.
+- Стриминг: subscribe_run/unsubscribe_run с asyncio.Queue для SSE-подписчиков. Throttle нотификаций.
+- Функция _calc_cost_kop: формула real ≈ in*0.08 + out*0.30 коп / 1k токенов (Sonnet baseline) × margin_pct.
+
+### 3 пилотных решения
+- **Конкурентный анализ ниши** (150 ₽): web_search → 5 параллельных deep-аналитиков → стратег с картой рынка
+- **Полный SWOT-анализ** (150 ₽): web_search контекст → 4 параллельных квадранта (S/W/O/T) → Opus-стратег с TOWS + ТОП-3 приоритетами
+- **Контент-план на месяц** (200 ₽): trend-scout → 3 параллельных копирайтера (VK/TG/Insta) → планировщик с единым календарём
+
+### API (`server/routes/solutions.py`)
+- `POST /solutions/{id}/orchestra/start { input } → run_id` (фон-таска через asyncio.create_task)
+- `GET /solutions/runs/{id}` → снимок stages_state + final_output
+- `GET /solutions/runs/{id}/stream` → SSE live-progress
+- `POST /solutions/runs/{id}/share` → public_token + share_url
+- `GET /s/{public_token}` → публичный PDF/markdown без auth
+
+### UI (`views/index.html`)
+- Бэйдж «✨ PRO · Multi-Agent» на orchestra-карточках в `/index.html` (виден сразу когда открываешь «Бизнес-решения»)
+- Цена «до X ₽» для orchestra
+- Live-progress: список stages с иконками ⏸ ⏳ ✅ ❌ + стоимость каждого
+- SSE-стрим (cookie auth) с fallback на 1.5s polling
+- Кнопки «📄 Скачать PDF» и «🔗 Поделиться»
+
+### Модель
+- `Solution.orchestra_json` (TEXT) + миграция
+- `SolutionRun.stages_state` + `final_output` + `pdf_path` + `total_cost_kop` + `user_input` + `public_token`
+
+### Тесты: 154/154 (+6 новых для orchestra)
+
+---
+
+## Спринт «РФ Compliance» (2026-05-02, `a2bffc0`)
+
+### Что закрыто кодом
+- **AES-256-GCM шифрование бэкапов БД** (`scheduler._db_backup_tick`): chat.db шифруется перед записью в `/backups/*.enc`. Plaintext `.tmp` удаляется сразу. Ключ из env `BACKUP_ENCRYPTION_KEY` или auto-generated файла `.backup_encryption_key` (0o400). Утилита расшифровки — `scripts/restore_backup.py`.
+- **Чек 54-ФЗ в ЮKassa**: payment_subject="service" + payment_mode="full_payment" + tax_system_code (env, default 2=УСН доходы) + vat_code (env, default 1=Без НДС). Юзер настраивает через `YOOKASSA_VAT_CODE` и `YOOKASSA_TAX_SYSTEM_CODE`.
+- **Маркетинговое согласие отдельно от оферты**: `User.marketing_consent` + `marketing_consent_at`, миграция, чекбокс в форме регистрации (НЕ предзаполнен), toggle в кабинете → Настройки → 📬 Маркетинговая рассылка.
+- **Из payment-логов убраны суммы**: `payment.webhook` и `payment.confirm` логируют только `payment_id` (суммы остаются в Transaction).
+- Документ `docs/compliance_ru.md`.
+
+### Что юзер обязан сделать руками
+1. **🔴 БЛОКЕР: подключить SMTP** — на проде SMTP_HOST не задан, юзеры не получают verification-код. Решение: Unisender / SendPulse / Yandex 360.
+2. **Сохранить ключ шифрования бэкапов** в 1Password (значение в чате, плюс файл `/root/AI-CHE/.backup_encryption_key`).
+3. **Подключить ОФД** в ЛК ЮKassa (Атол Онлайн / Контур.ОФД).
+4. **Регистрация в РКН** как оператор ПДн (https://pd.rkn.gov.ru/).
+5. **Обновить политику конфиденциальности**: ЮKassa, Anthropic, OpenAI, SMTP-провайдер, Yandex.
+6. **Бэкапы вне РФ-сервера** или миграция primary в РФ.
+
+---
+
+## Спринт «Refresh single-use + sites public_token + RAG billing» (2026-05-02, `d90e2f1`)
+
+### A. Refresh-token rotation single-use
+- `User.refresh_jtis` (JSON-список до 10 активных jti, multi-device)
+- `create_refresh_token(user_id, email, jti=None)` принимает jti
+- `register_refresh_jti` / `revoke_refresh_jti` / `revoke_all_refresh_jtis` / `is_refresh_jti_active` в `auth.py`
+- `/auth/login`, `/verify-email`, `/reset-password`, `/oauth/exchange`, `/qr-login/poll` — все вызывают `register_refresh_jti` после issue
+- `/auth/refresh` — проверяет jti в наборе. **Reuse-detection** (jti уже использован) = security-incident → `revoke_all_refresh_jtis` + audit-лог critical + 401
+- `/auth/logout` — revoke текущий jti
+- `/auth/reset-password` — revoke ВСЕ refresh-сессии после смены пароля
+- Grace-period для legacy токенов без jti
+
+### B. Sites public_token (вместо int_id)
+- `SiteProject.public_token` (~160 bit `secrets.token_urlsafe(20)`)
+- Backfill в `apply_lightweight_migrations`: для уже опубликованных сайтов с `hosted_path != NULL` генерим token и переписываем hosted_path. Старые URL `/sites/hosted/{int_id}/` после деплоя возвращают 404 — юзер должен зайти в `/sites.html` и взять новую ссылку.
+- Endpoint `/sites/hosted/{public_token}/{full_path:path}` валидирует token (16-64 alnum/-_), lookup → физическая папка `_sites_host_base/<project.id>/`. Sandbox-обёртка для HTML с null-origin сохранена.
+- Убран `app.mount('/sites/hosted', StaticFiles(...))` из `main.py` (он обходил sandbox + token-проверку).
+
+### C. Storage-биллинг для RAG-файлов
+- `KnowledgeFile.last_billed_at` + миграция
+- Лимиты в `knowledge.py`: 50 файлов × 50 МБ × 2 ГБ/юзер
+- `_storage_billing_tick` в `scheduler.py` — UNION SUM(StoredAsset) + SUM(KnowledgeFile) за один проход, общий лимит 100 МБ chunks на user
+- Просрочка >7д: `KnowledgeFile.enabled=False` (не в RAG, файл цел)
+- Просрочка >37д: hard-delete файла + строки + чанков (cascade)
+
+---
+
+## 🆕 Спринт «Security audit» (2026-04-30 → 2026-05-02, `cc5afa5`)
+
+Юзер запросил security-review через subagent + ручной чеклист. Найдено + зафикшено 13 пунктов:
+
+### P1 (критичные)
+- VK webhook без secret → требуем `vk_secret` обязательным + `compare_digest`
+- SSRF в agent `tool_browse_url`: добавлен `_host_resolves_to_private`, scheme whitelist, revalidate редиректов
+- SSRF в `presentation_builder._add_remote_image` — то же
+- `/knowledge/search` лимит длины `q` (1000 симв) — иначе abuse OpenAI embeddings
+- RAG лимиты сначала ужесточены до 20×20×500МБ (потом подняты обратно с биллингом)
+- `is_verified` check в `brief-assist`, `/voice/parse`
+
+### P2 (XSS / IDOR / info-leak)
+- bleach-санитизация `generated_html` КП в legacy fallback + `edit_section` + `save-html`
+- `/agent/{id}/ws` + `/stream` — owner-check (cookie `access_token` или `?token=`)
+- `/auth/login` не возвращает `user_id` для unverified
+- `/resend-verify` принимает email + не палит существование
+- TG-link: rate-limit (10/10мин на tg_user_id) + email-alert при привязке/перепривязке
+
+### P3 (hardening)
+- `/p/{token}` PDF — `relative_to(uploads_root)`
+- YooKassa race — validated false-positive
+
+### Что отложено отдельным спринтом
+- ⏸ JWT `aud`/`iss` strict verify — нужен grace-period
+- ⏸ starlette upgrade — pinned в FastAPI 0.111
+
+---
 
 ---
 
