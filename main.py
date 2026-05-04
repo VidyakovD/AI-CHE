@@ -122,7 +122,18 @@ def _setup_sentry():
 
 _setup_sentry()
 
-models.Base.metadata.create_all(bind=engine)
+# create_all с защитой от race-condition: при многих uvicorn workers оба
+# процесса вызывают create_all одновременно. SQLAlchemy checkfirst=True
+# делает SELECT FROM sqlite_master, потом CREATE TABLE — между этим
+# происходит гонка и второй worker падает с «table already exists».
+# Catch'им и игнорируем — таблица УЖЕ создана первым worker'ом.
+try:
+    models.Base.metadata.create_all(bind=engine)
+except Exception as _e:
+    if "already exists" in str(_e).lower():
+        log.debug(f"create_all race (table already exists): {_e!s:.120}")
+    else:
+        raise
 from server.db import apply_lightweight_migrations  # noqa: E402
 apply_lightweight_migrations()
 
