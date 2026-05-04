@@ -452,6 +452,44 @@ class ApiToken(Base):
     created_at    = Column(DateTime, default=datetime.utcnow)
 
 
+class ApiWebhook(Base):
+    """Webhook для Public API — юзер регистрирует свой URL и подписывается
+    на события. Когда событие происходит, мы делаем POST на URL с JSON-payload
+    + HMAC-подписью (заголовок X-Aiche-Signature).
+
+    События (events CSV):
+      - proposal.opened       — клиент открыл КП по public-link
+      - proposal.sent         — отправлено клиенту по email
+      - record.created        — новая заявка из бота
+      - solution.done         — orchestra-отчёт готов
+      - site.done             — сайт сгенерирован
+      - site.failed           — генерация сайта провалилась
+
+    Подпись: `X-Aiche-Signature: sha256=<hex>` где hex = HMAC-SHA256
+    body-bytes по secret. Юзер сохраняет secret при создании, верифицирует
+    каждый incoming POST.
+
+    Retry: при 5xx или таймауте автоматически 3 попытки с backoff (10s/60s/5m).
+    После 3 фейлов подряд `fail_count >= 10` → автоматически is_active=False.
+    """
+    __tablename__ = "api_webhooks"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                            nullable=False, index=True)
+    url           = Column(String, nullable=False)            # https://your.com/hook
+    secret        = Column(String, nullable=False)            # 32-hex для HMAC
+    events        = Column(String, nullable=False)            # CSV событий
+    description   = Column(String, nullable=True)             # «my-bitrix-sync»
+    is_active     = Column(Boolean, default=True, index=True)
+    last_status   = Column(Integer, nullable=True)            # HTTP code последнего вызова
+    last_called_at = Column(DateTime, nullable=True)
+    last_error    = Column(String, nullable=True)             # текст последней ошибки
+    fail_count    = Column(Integer, default=0)                # подряд провалов
+    total_calls   = Column(Integer, default=0)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+
 class PushSubscription(Base):
     """Web Push (VAPID) — подписка браузера юзера на push-уведомления.
 

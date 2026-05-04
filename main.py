@@ -514,6 +514,10 @@ def serve_proposals():
 def serve_marketplace():
     return _html("marketplace.html")
 
+@app.get("/api.html", include_in_schema=False)
+def serve_api_docs():
+    return _html("api.html")
+
 
 @app.get("/p/{public_token}", include_in_schema=False)
 def serve_public_proposal(public_token: str):
@@ -565,6 +569,18 @@ def serve_public_proposal(public_token: str):
                       f"Клиент открыл КП «{p.name}»",
                       f"{p.client_name or p.client_email or 'Клиент'} только что посмотрел документ.",
                       url=f"/proposals.html#proposal-{p.id}")
+            except Exception:
+                pass
+            # Public API webhook: proposal.opened
+            try:
+                from server.webhooks import dispatch_event
+                dispatch_event(p.user_id, "proposal.opened", {
+                    "proposal_id": p.id,
+                    "name": p.name,
+                    "client_name": p.client_name,
+                    "client_email": p.client_email,
+                    "opened_at": p.opened_at.isoformat() + "Z" if p.opened_at else None,
+                })
             except Exception:
                 pass
         # Иконка для имени файла из проекта

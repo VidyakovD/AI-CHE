@@ -1492,6 +1492,22 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                     )
                 except Exception:
                     pass
+                # Public API webhook: record.created — для интеграции с
+                # внешними CRM (Bitrix24/amoCRM/etc).
+                try:
+                    from server.webhooks import dispatch_event
+                    dispatch_event(ctx["bot"].user_id, "record.created", {
+                        "bot_id": ctx["bot"].id,
+                        "bot_name": ctx["bot"].name,
+                        "record_type": rec_type,
+                        "customer_name": ctx.get("customer_name"),
+                        "customer_phone": ctx.get("customer_phone"),
+                        "customer_email": ctx.get("customer_email"),
+                        "platform": ctx.get("platform"),
+                        "chat_id": ctx.get("chat_id"),
+                    })
+                except Exception:
+                    pass
         except Exception as e:
             log.error(f"[save_record] failed: {e}")
             return f"⚠ Не удалось сохранить заявку. Попробуйте ещё раз."

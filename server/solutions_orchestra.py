@@ -993,6 +993,17 @@ async def run_orchestra(run_id: int) -> dict:
                   url="/index.html#solutions")
         except Exception:
             pass
+        # Public API webhook: solution.done
+        try:
+            from server.webhooks import dispatch_event
+            dispatch_event(owner_id, "solution.done", {
+                "run_id": run_id,
+                "solution_title": sol_title,
+                "total_cost_kop": total_cost,
+                "pdf_url": pdf_url,
+            })
+        except Exception:
+            pass
 
     log.info(f"[orchestra] run={run_id} DONE total_cost={total_cost}коп stages={len(stages)}")
     return {"status": "done", "final_output": final_text,

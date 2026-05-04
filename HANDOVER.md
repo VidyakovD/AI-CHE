@@ -4,6 +4,91 @@
 
 ---
 
+## 🆕 Спринт «Public API: Webhooks + Docs» (2026-05-04 ну совсем-совсем поздно)
+
+Закрыл недостающую часть Public API: Webhooks для получения событий + UI + документация. Теперь юзер может зарегистрировать свой URL и получать POST'ы при событиях (КП открыто клиентом / заявка из бота / отчёт готов / сайт готов / сайт упал).
+
+### Backend
+
+**Модель `ApiWebhook`** ([models.py:455](server/models.py:455)):
+- `user_id`, `url`, `secret` (32-hex для HMAC), `events` (CSV из 6 вариантов), `description`
+- `is_active`, `last_status`, `last_called_at`, `last_error`, `fail_count`, `total_calls`
+- Создаётся через `Base.metadata.create_all` (новая таблица — миграция не нужна)
+
+**Helper `server/webhooks.py`** (новый файл):
+- `dispatch_event(user_id, event, data)` — public API: найти все ApiWebhook у юзера с этим событием → fire-and-forget POST
+- `deliver_webhook(id, payload, sync)` — sync-вариант для test-эндпоинта
+- HMAC-SHA256 подпись `X-Aiche-Signature: sha256=<hex>` от body bytes
+- Timeout 10 сек. Auto-disable после 10 ошибок подряд.
+- Логика fail_count: `delivered → 0`, `not delivered → +1`, `>=10 → is_active=False`
+
+**Endpoints в `routes/public_api.py`** (4 новых):
+- `POST /api-tokens/webhooks` — создать (возвращает secret один раз)
+- `GET /api-tokens/webhooks` — список с метриками
+- `DELETE /api-tokens/webhooks/{id}` — удалить
+- `POST /api-tokens/webhooks/{id}/test` — отправить тестовый POST на URL
+
+**Защита от SSRF** в `_validate_webhook_url`:
+- Только `http://` / `https://`
+- Блок `localhost`, `127.x`, `0.0.0.0`, `::1`, `10.x`, `172.16-31.x`, `192.168.x`, `169.254.x` (AWS-metadata)
+
+**4 хука на события** (везде fire-and-forget, обёрнуты в try/except):
+- `proposal.opened` — [main.py:566](main.py:566) при первом открытии `/p/{token}`
+- `record.created` — [chatbot_engine.py:1497](server/chatbot_engine.py:1497) после `save_record` ноды
+- `solution.done` — [solutions_orchestra.py:986](server/solutions_orchestra.py:986) после готового orchestra-отчёта
+- `site.done` / `site.failed` — [routes/sites.py:702/745](server/routes/sites.py) при завершении генерации сайта
+
+### Frontend
+
+**Новая страница `views/api.html`** (3 вкладки):
+
+1. **🔑 Токены** — управление ApiToken:
+   - Список с prefix, статусом, scope-tags, last_used_at, requests_count
+   - Модалка создания с чекбоксами scope (proposals/knowledge/solutions/bots)
+   - При создании — отдельная модалка «⚠️ Сохраните секрет» с кнопкой «📋 Копировать»
+   - Кнопка «Отозвать» с danger-confirm
+
+2. **🔗 Webhooks** — управление ApiWebhook:
+   - Список с URL, events-tags, last_status (зелёный/красный), last_called_at, fail_count
+   - Модалка создания с URL, описанием, чекбоксами 6 событий
+   - Кнопка «🧪 Тест» — отправляет POST с фиктивным `event=test.ping` payload, показывает результат как toast/alert
+   - Кнопка «Удалить» с confirm
+   - last_error показывается красным под строкой если есть
+
+3. **📖 Документация** — статичная страница:
+   - Авторизация (Bearer ai_che_xxx)
+   - Список endpoints (`/api/v1/me`, `/api/v1/proposals/generate|{id}`)
+   - Пример curl для генерации КП + JSON-ответ
+   - Webhooks: payload-схема, список 6 событий, Python-snippet верификации `hmac.compare_digest(...)`
+   - Лимиты и защита
+
+**Навигация:**
+- Sidebar в `index.html` — пункт «🔌 Public API» сразу после «Marketplace»
+- Command palette (Ctrl+K) — пункт «Public API + Webhooks 🔌»
+
+**`main.py`** — endpoint `serve_api_docs` для `/api.html`.
+
+### Тесты
+- 164/164 pytest passed
+- JS sanity 10 файлов OK
+- Preview e2e под залогиненым юзером:
+  - `/api.html` грузится, все 3 таба + 3 модалки на месте, refreshTokens/refreshWebhooks функции определены
+  - `POST /api-tokens/webhooks` → 200 + secret + webhook_id, появляется в списке
+  - `POST /api-tokens/webhooks/{id}/test` → корректно вызывает HMAC POST на URL, возвращает `{delivered, status, error}` (404 от webhook.site/test-aiche — ожидаемо)
+  - `DELETE /api-tokens/webhooks/{id}` → удаляется
+  - Console errors = 0, server errors = 0
+
+### Полный flow юзера:
+1. Юзер открывает `/api.html` → вкладка «🔗 Webhooks» → «+ Новый webhook»
+2. Вводит URL `https://my-crm.com/aiche-hook`, чекает `proposal.opened` + `record.created`
+3. Backend сохраняет ApiWebhook + secret, показывает secret один раз
+4. Юзер встраивает secret в свой обработчик (Python/Node/PHP) — верифицирует через `hmac.compare_digest`
+5. Когда клиент открывает КП по public-link → backend вызывает `dispatch_event(user_id, "proposal.opened", {...})` → POST на URL юзера
+6. Юзер видит в кабинете: last_status=200, fail_count=0, total_calls=1
+7. Если URL упадёт 10 раз — webhook auto-disable, юзер увидит «отключён» статус
+
+---
+
 ## 🆕 Спринт «Marketplace UI» (2026-05-04 совсем поздно ночью)
 
 Backend Marketplace был готов с прошлого спринта (`75e2462`), но UI не было — каталог, публикация, модерация. Закрыл UI:

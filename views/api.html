@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Public API</title>
+<script src="https://cdn.tailwindcss.com/3.4.0"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
+<style>
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
+*::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+body{background:#1C1C1C;color:#f0e6d8;font-family:Inter,sans-serif;min-height:100vh}
+.sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
+.sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;font-family:inherit;transition:border-color .2s}
+.inp:focus{border-color:#ff8c42}.inp::placeholder{color:#a89880}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.btn-d{background:rgba(255,107,107,0.1);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-d:hover{background:rgba(255,107,107,0.2)}
+.card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
+.tab-switch{display:flex;background:#272018;border-radius:10px;padding:3px;gap:2px}
+.tab-sw-btn{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .15s;color:#a89880;background:transparent}
+.tab-sw-btn.active{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
+.modal-bg.show{display:flex}
+code{font-family:'JetBrains Mono','Fira Code',monospace;background:#272018;padding:1px 6px;border-radius:4px;font-size:12px;color:#ffb347}
+pre{font-family:'JetBrains Mono','Fira Code',monospace;background:#272018;padding:12px;border-radius:8px;font-size:11px;line-height:1.5;overflow-x:auto;color:#f0e6d8;border:1px solid rgba(74,63,47,0.3)}
+.api-row{display:flex;align-items:center;gap:8px;padding:10px;border-radius:8px;border:1px solid rgba(74,63,47,0.3);background:#1e1a14}
+.method-badge{font-family:monospace;font-weight:700;font-size:11px;padding:2px 8px;border-radius:4px}
+.method-get{background:rgba(34,197,94,.15);color:#86efac}
+.method-post{background:rgba(255,140,66,.15);color:#ff8c42}
+.method-delete{background:rgba(255,107,107,.15);color:#ff6b6b}
+.scope-tag{font-size:10px;background:rgba(168,85,247,.12);color:#d8b4fe;padding:2px 6px;border-radius:4px}
+.event-tag{font-family:monospace;font-size:11px;background:rgba(168,85,247,.1);color:#d8b4fe;padding:2px 8px;border-radius:6px;border:1px solid rgba(168,85,247,.25)}
+.empty{padding:48px 24px;text-align:center;color:#a89880}
+.status-ok{color:#86efac}.status-fail{color:#ff6b6b}.status-pending{color:#a89880}
+</style>
+<script src="/icons.js" defer></script>
+</head>
+<body class="dark" data-assistant-section="api" data-assistant-label="Public API · документация">
+
+<div class="max-w-6xl mx-auto px-5 py-8">
+
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div class="flex items-center gap-4">
+      <a href="index.html" class="btn-g text-xs">← Назад</a>
+      <div>
+        <h1 class="text-2xl font-extrabold font-headline">Public <span class="sig-text">API</span></h1>
+        <p class="text-sm text-on-dim">Интегрируйте AI Студию Че в ваш SaaS, CRM или сайт.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-3 mb-5">
+    <div class="tab-switch">
+      <button class="tab-sw-btn active" id="tab-tokens" onclick="switchTab('tokens')">🔑 Токены</button>
+      <button class="tab-sw-btn" id="tab-webhooks" onclick="switchTab('webhooks')">🔗 Webhooks</button>
+      <button class="tab-sw-btn" id="tab-docs" onclick="switchTab('docs')">📖 Документация</button>
+    </div>
+  </div>
+
+  <!-- ── Tab: Tokens ─────────────────────────────────────────────────────── -->
+  <div id="paneTokens">
+    <div class="flex items-center justify-between mb-4">
+      <p class="text-sm text-on-dim">Авторизация по `Authorization: Bearer ai_che_&lt;prefix&gt;_&lt;secret&gt;`. Лимит 10 активных.</p>
+      <button onclick="openCreateToken()" class="btn-p text-sm">+ Новый токен</button>
+    </div>
+    <div id="tokensList" class="space-y-3"></div>
+    <div id="tokensEmpty" class="empty hidden">У вас ещё нет токенов. Создайте первый.</div>
+  </div>
+
+  <!-- ── Tab: Webhooks ───────────────────────────────────────────────────── -->
+  <div id="paneWebhooks" class="hidden">
+    <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+      <p class="text-sm text-on-dim flex-1 min-w-[200px]">Получайте POST-уведомления на свой URL когда происходят события (КП открыто, заявка пришла, отчёт готов).</p>
+      <button onclick="openCreateWebhook()" class="btn-p text-sm">+ Новый webhook</button>
+    </div>
+    <div id="webhooksList" class="space-y-3"></div>
+    <div id="webhooksEmpty" class="empty hidden">У вас ещё нет webhooks. Создайте первый.</div>
+  </div>
+
+  <!-- ── Tab: Docs ───────────────────────────────────────────────────────── -->
+  <div id="paneDocs" class="hidden space-y-6">
+
+    <div class="card p-5">
+      <h2 class="font-bold font-headline text-lg mb-3">🔑 Авторизация</h2>
+      <p class="text-sm text-on-dim mb-3">Все запросы к <code>/api/v1/*</code> требуют заголовок:</p>
+      <pre>Authorization: Bearer ai_che_&lt;prefix&gt;_&lt;secret&gt;</pre>
+      <p class="text-sm text-on-dim mt-3">Получите токен на вкладке «🔑 Токены». Секрет показывается ОДИН РАЗ при создании.</p>
+    </div>
+
+    <div class="card p-5">
+      <h2 class="font-bold font-headline text-lg mb-3">📋 Эндпоинты</h2>
+      <div class="space-y-3">
+        <div class="api-row"><span class="method-badge method-get">GET</span><code>/api/v1/me</code><span class="text-xs text-on-dim ml-auto">Профиль + баланс</span></div>
+        <div class="api-row"><span class="method-badge method-post">POST</span><code>/api/v1/proposals/generate</code><span class="scope-tag">proposals</span><span class="text-xs text-on-dim ml-auto">Сгенерировать КП</span></div>
+        <div class="api-row"><span class="method-badge method-get">GET</span><code>/api/v1/proposals/{id}</code><span class="scope-tag">proposals</span><span class="text-xs text-on-dim ml-auto">Получить КП</span></div>
+      </div>
+    </div>
+
+    <div class="card p-5">
+      <h2 class="font-bold font-headline text-lg mb-3">💡 Пример: создать КП</h2>
+      <pre>curl -X POST https://aiche.ru/api/v1/proposals/generate \
+  -H "Authorization: Bearer ai_che_xxxx_yyyy" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "КП для ИП Иванов",
+    "client_name": "ИП Иванов",
+    "client_email": "ivanov@example.com",
+    "client_request": "Нужен лендинг для онлайн-курсов по дизайну",
+    "client_site_url": "https://ivanov.com"
+  }'</pre>
+      <p class="text-sm text-on-dim mt-3">Ответ:</p>
+      <pre>{
+  "proposal_id": 123,
+  "name": "КП для ИП Иванов",
+  "pdf_url": "/uploads/proposals/proposal_123.pdf",
+  "cost_kop": 5000
+}</pre>
+    </div>
+
+    <div class="card p-5">
+      <h2 class="font-bold font-headline text-lg mb-3">🔗 Webhooks: получение событий</h2>
+      <p class="text-sm text-on-dim mb-3">Когда событие происходит (КП открыто клиентом, заявка из бота...), мы делаем POST на ваш URL с JSON-payload:</p>
+      <pre>{
+  "event": "proposal.opened",
+  "timestamp": "2026-05-04T14:23:11Z",
+  "data": {
+    "proposal_id": 123,
+    "name": "КП для ИП Иванов",
+    "client_name": "ИП Иванов",
+    "client_email": "ivanov@example.com",
+    "opened_at": "2026-05-04T14:23:11Z"
+  }
+}</pre>
+      <h3 class="text-sm font-bold mt-4 mb-2">События:</h3>
+      <div class="flex flex-wrap gap-2 mb-4">
+        <span class="event-tag">proposal.opened</span>
+        <span class="event-tag">proposal.sent</span>
+        <span class="event-tag">record.created</span>
+        <span class="event-tag">solution.done</span>
+        <span class="event-tag">site.done</span>
+        <span class="event-tag">site.failed</span>
+      </div>
+
+      <h3 class="text-sm font-bold mt-4 mb-2">Верификация подписи:</h3>
+      <p class="text-sm text-on-dim mb-2">Каждый POST приходит с заголовком <code>X-Aiche-Signature</code>:</p>
+      <pre>X-Aiche-Signature: sha256=&lt;hmac-sha256-hex&gt;</pre>
+      <p class="text-sm text-on-dim mt-3 mb-2">Где hex = HMAC-SHA256(secret, request.body). Пример Python:</p>
+      <pre>import hmac, hashlib
+def verify(secret, body_bytes, signature_header):
+    expected = "sha256=" + hmac.new(
+        secret.encode(), body_bytes, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature_header)</pre>
+
+      <h3 class="text-sm font-bold mt-4 mb-2">Retry:</h3>
+      <p class="text-sm text-on-dim">Таймаут 10 сек. Если ваш сервер вернул 5xx или не ответил — у webhook увеличивается <code>fail_count</code>. После 10 неудач подряд webhook автоматически отключается (видно в этом разделе).</p>
+    </div>
+
+    <div class="card p-5">
+      <h2 class="font-bold font-headline text-lg mb-3">⚠️ Лимиты и защита</h2>
+      <ul class="text-sm text-on-dim space-y-1 list-disc pl-5">
+        <li>Лимит 10 активных API-токенов на юзера</li>
+        <li>Лимит 10 активных webhooks на юзера</li>
+        <li>Webhook URL должен быть публичным (private/loopback запрещены)</li>
+        <li>Webhook timeout 10 сек, body ≤ 1 МБ</li>
+        <li>Списание балансe юзера за каждый AI-вызов через API (как из UI)</li>
+        <li>Refund при ошибке генерации (HTTP 503 от нас → деньги вернутся)</li>
+        <li>Hash-сравнение через <code>hmac.compare_digest</code> — защита от timing-атак</li>
+      </ul>
+    </div>
+
+  </div>
+
+</div>
+
+
+<!-- ── Modal: Создать токен ────────────────────────────────────────────────-->
+<div id="createTokenModal" class="modal-bg">
+  <div class="card max-w-md w-full p-6">
+    <div class="flex items-start justify-between mb-4">
+      <h2 class="text-xl font-extrabold font-headline">🔑 Новый API-токен</h2>
+      <button onclick="closeM('createTokenModal')" class="btn-g text-xs">✕</button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs font-bold text-on-dim mb-1 block">Название</label>
+        <input id="tknName" class="inp" placeholder="my-saas-integration" maxlength="80">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-on-dim mb-1 block">Доступы (scopes) — пусто = все</label>
+        <div class="space-y-1.5">
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" value="proposals" class="tkn-scope">
+            <span><b>proposals</b> — создание/чтение КП</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" value="knowledge" class="tkn-scope">
+            <span><b>knowledge</b> — RAG база знаний</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" value="solutions" class="tkn-scope">
+            <span><b>solutions</b> — бизнес-решения</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" value="bots" class="tkn-scope">
+            <span><b>bots</b> — чат-боты</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5 pt-3 border-t border-outline/25">
+      <button onclick="closeM('createTokenModal')" class="btn-g">Отмена</button>
+      <button onclick="submitToken()" id="tknSubmit" class="btn-p">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: Показать секрет один раз ────────────────────────────────────-->
+<div id="secretModal" class="modal-bg">
+  <div class="card max-w-md w-full p-6">
+    <div class="flex items-start justify-between mb-3">
+      <h2 class="text-xl font-extrabold font-headline">⚠️ Сохраните секрет!</h2>
+    </div>
+    <p class="text-sm text-on-dim mb-3">Секрет показывается <b>один раз</b>. Сохраните в безопасном месте — мы его больше не покажем.</p>
+    <pre id="secretBox" class="text-xs"></pre>
+    <div class="flex justify-end gap-2 mt-4">
+      <button onclick="copySecret()" class="btn-g text-xs">📋 Копировать</button>
+      <button onclick="closeM('secretModal');refreshTokens()" class="btn-p">Сохранил</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: Создать webhook ─────────────────────────────────────────────-->
+<div id="createWebhookModal" class="modal-bg">
+  <div class="card max-w-md w-full p-6">
+    <div class="flex items-start justify-between mb-4">
+      <h2 class="text-xl font-extrabold font-headline">🔗 Новый Webhook</h2>
+      <button onclick="closeM('createWebhookModal')" class="btn-g text-xs">✕</button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs font-bold text-on-dim mb-1 block">URL для POST</label>
+        <input id="whUrl" class="inp" placeholder="https://your.com/webhooks/aiche" maxlength="2000">
+        <p class="text-xs text-on-dim/60 mt-1">Публичный HTTPS URL. Должен возвращать 2xx за ≤10 сек.</p>
+      </div>
+      <div>
+        <label class="text-xs font-bold text-on-dim mb-1 block">Описание (опционально)</label>
+        <input id="whDesc" class="inp" placeholder="my-bitrix-sync" maxlength="200">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-on-dim mb-1 block">События</label>
+        <div class="space-y-1.5">
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" value="proposal.opened" class="wh-event" checked>
+            <span><code>proposal.opened</code> — клиент открыл КП</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" value="proposal.sent" class="wh-event">
+            <span><code>proposal.sent</code> — КП отправлено клиенту</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" value="record.created" class="wh-event" checked>
+            <span><code>record.created</code> — заявка из бота</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" value="solution.done" class="wh-event">
+            <span><code>solution.done</code> — отчёт готов</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" value="site.done" class="wh-event">
+            <span><code>site.done</code> — сайт сгенерирован</span>
+          </label>
+          <label class="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" value="site.failed" class="wh-event">
+            <span><code>site.failed</code> — ошибка генерации</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5 pt-3 border-t border-outline/25">
+      <button onclick="closeM('createWebhookModal')" class="btn-g">Отмена</button>
+      <button onclick="submitWebhook()" id="whSubmit" class="btn-p">Создать</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function closeM(id){ document.getElementById(id).classList.remove('show'); }
+function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function escAttr(s){return escHtml(s);}
+
+function switchTab(name){
+  document.getElementById('tab-tokens').classList.toggle('active', name === 'tokens');
+  document.getElementById('tab-webhooks').classList.toggle('active', name === 'webhooks');
+  document.getElementById('tab-docs').classList.toggle('active', name === 'docs');
+  document.getElementById('paneTokens').classList.toggle('hidden', name !== 'tokens');
+  document.getElementById('paneWebhooks').classList.toggle('hidden', name !== 'webhooks');
+  document.getElementById('paneDocs').classList.toggle('hidden', name !== 'docs');
+  if (name === 'tokens') refreshTokens();
+  else if (name === 'webhooks') refreshWebhooks();
+}
+
+// ── Tokens ───────────────────────────────────────────────────────────────
+async function refreshTokens(){
+  const wrap = document.getElementById('tokensList');
+  const emp = document.getElementById('tokensEmpty');
+  wrap.innerHTML = window.aiSkeleton ? window.aiSkeleton('cards', 2) : '...';
+  emp.classList.add('hidden');
+  try {
+    const r = await fetch('/api-tokens', {credentials:'same-origin'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const items = await r.json();
+    if (!items.length){
+      wrap.innerHTML = '';
+      emp.classList.remove('hidden');
+      return;
+    }
+    wrap.innerHTML = items.map(t => {
+      const used = t.last_used_at
+        ? new Date(t.last_used_at).toLocaleString('ru-RU')
+        : '<span class="text-on-dim/60">не использован</span>';
+      const status = t.is_active
+        ? '<span class="status-ok">активен</span>'
+        : '<span class="status-fail">отозван</span>';
+      const scopes = t.scopes
+        ? t.scopes.split(',').map(s => `<span class="scope-tag">${escHtml(s)}</span>`).join(' ')
+        : '<span class="scope-tag">все</span>';
+      return `<div class="card p-4 flex items-center gap-4 flex-wrap">
+        <div class="flex-1 min-w-[200px]">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="font-bold">${escHtml(t.name)}</span>
+            ${status}
+          </div>
+          <div class="text-xs text-on-dim mb-1"><code>ai_che_${escHtml(t.prefix)}_***</code></div>
+          <div class="flex flex-wrap gap-1 text-xs">${scopes}</div>
+          <div class="text-xs text-on-dim/70 mt-2">${t.requests_count} вызовов · ${used}</div>
+        </div>
+        <button ${!t.is_active ? 'disabled' : ''} onclick="revokeToken(${t.id})" class="btn-d text-xs">Отозвать</button>
+      </div>`;
+    }).join('');
+  } catch(e){
+    wrap.innerHTML = `<div class="empty">${escHtml(e.message)}</div>`;
+  }
+}
+
+function openCreateToken(){
+  document.getElementById('tknName').value = '';
+  document.querySelectorAll('.tkn-scope').forEach(c => c.checked = false);
+  document.getElementById('createTokenModal').classList.add('show');
+}
+
+let _lastSecret = '';
+async function submitToken(){
+  const name = document.getElementById('tknName').value.trim();
+  if (name.length < 2){
+    if (window.aiAlert) await aiAlert('Минимум 2 символа в имени', 'warn');
+    return;
+  }
+  const scopes = [...document.querySelectorAll('.tkn-scope:checked')].map(c => c.value);
+  const btn = document.getElementById('tknSubmit');
+  btn.disabled = true; btn.textContent = '...';
+  try {
+    const r = await fetch('/api-tokens', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name, scopes: scopes.length ? scopes : null}),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'HTTP ' + r.status);
+    closeM('createTokenModal');
+    _lastSecret = data.secret;
+    document.getElementById('secretBox').textContent = data.secret;
+    document.getElementById('secretModal').classList.add('show');
+  } catch(e){
+    if (window.aiAlertError) await aiAlertError(e); else alert(e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Создать';
+  }
+}
+
+function copySecret(){
+  navigator.clipboard.writeText(_lastSecret).then(() => {
+    if (window.aiToast) aiToast('Скопировано в буфер', 'success');
+  });
+}
+
+async function revokeToken(id){
+  if (!await aiConfirm('Отозвать этот токен? Все клиенты, использующие его, потеряют доступ.', {okLabel: 'Отозвать', danger: true})) return;
+  try {
+    const r = await fetch(`/api-tokens/${id}`, {method:'DELETE', credentials:'same-origin'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (window.aiToast) aiToast('Токен отозван', 'info');
+    refreshTokens();
+  } catch(e){ if (window.aiAlertError) await aiAlertError(e); }
+}
+
+// ── Webhooks ─────────────────────────────────────────────────────────────
+async function refreshWebhooks(){
+  const wrap = document.getElementById('webhooksList');
+  const emp = document.getElementById('webhooksEmpty');
+  wrap.innerHTML = window.aiSkeleton ? window.aiSkeleton('cards', 2) : '...';
+  emp.classList.add('hidden');
+  try {
+    const r = await fetch('/api-tokens/webhooks', {credentials:'same-origin'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const items = await r.json();
+    if (!items.length){
+      wrap.innerHTML = '';
+      emp.classList.remove('hidden');
+      return;
+    }
+    wrap.innerHTML = items.map(w => {
+      const status = w.is_active
+        ? '<span class="status-ok">активен</span>'
+        : '<span class="status-fail">отключён (10+ ошибок)</span>';
+      const lastCall = w.last_called_at
+        ? new Date(w.last_called_at).toLocaleString('ru-RU')
+        : 'не вызывался';
+      const lastResult = w.last_status
+        ? `<span class="${w.last_status >= 200 && w.last_status < 300 ? 'status-ok' : 'status-fail'}">${w.last_status}</span>`
+        : '<span class="status-pending">—</span>';
+      const events = (w.events || []).filter(Boolean).map(e =>
+        `<span class="event-tag">${escHtml(e)}</span>`
+      ).join(' ');
+      const errLine = w.last_error
+        ? `<div class="text-xs text-error mt-1">⚠️ ${escHtml(w.last_error.slice(0, 100))}</div>`
+        : '';
+      return `<div class="card p-4">
+        <div class="flex items-start justify-between gap-3 mb-2 flex-wrap">
+          <div class="flex-1 min-w-[200px]">
+            <div class="flex items-center gap-2 mb-1">
+              <code class="text-xs">${escHtml(w.url)}</code>
+              ${status}
+            </div>
+            ${w.description ? `<p class="text-xs text-on-dim mb-2">${escHtml(w.description)}</p>` : ''}
+            <div class="flex flex-wrap gap-1 mb-2">${events}</div>
+            <div class="text-xs text-on-dim/70">
+              ${w.total_calls} вызовов · последний: ${lastCall} → ${lastResult}
+              ${w.fail_count > 0 ? ` · ⚠️ ${w.fail_count} ошибок подряд` : ''}
+            </div>
+            ${errLine}
+          </div>
+          <div class="flex gap-2 flex-shrink-0">
+            <button onclick="testWebhook(${w.id})" class="btn-g text-xs">🧪 Тест</button>
+            <button onclick="deleteWebhook(${w.id})" class="btn-d text-xs">Удалить</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e){
+    wrap.innerHTML = `<div class="empty">${escHtml(e.message)}</div>`;
+  }
+}
+
+function openCreateWebhook(){
+  document.getElementById('whUrl').value = '';
+  document.getElementById('whDesc').value = '';
+  document.getElementById('createWebhookModal').classList.add('show');
+}
+
+async function submitWebhook(){
+  const url = document.getElementById('whUrl').value.trim();
+  if (!url || !/^https?:\/\//.test(url)){
+    if (window.aiAlert) await aiAlert('URL должен начинаться с http:// или https://', 'warn');
+    return;
+  }
+  const events = [...document.querySelectorAll('.wh-event:checked')].map(c => c.value);
+  if (!events.length){
+    if (window.aiAlert) await aiAlert('Выберите хотя бы одно событие', 'warn');
+    return;
+  }
+  const description = document.getElementById('whDesc').value.trim();
+  const btn = document.getElementById('whSubmit');
+  btn.disabled = true; btn.textContent = '...';
+  try {
+    const r = await fetch('/api-tokens/webhooks', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({url, events, description: description || null}),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'HTTP ' + r.status);
+    closeM('createWebhookModal');
+    _lastSecret = data.secret;
+    document.getElementById('secretBox').textContent = 'Secret для X-Aiche-Signature:\n' + data.secret;
+    document.getElementById('secretModal').classList.add('show');
+    refreshWebhooks();
+  } catch(e){
+    if (window.aiAlertError) await aiAlertError(e); else alert(e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Создать';
+  }
+}
+
+async function testWebhook(id){
+  if (window.aiToast) aiToast('Отправляю тест-call…', 'info');
+  try {
+    const r = await fetch(`/api-tokens/webhooks/${id}/test`, {method:'POST', credentials:'same-origin'});
+    const data = await r.json();
+    if (data.delivered){
+      if (window.aiToast) aiToast(`✓ Доставлено! HTTP ${data.status}`, 'success');
+    } else {
+      const msg = data.error || `HTTP ${data.status}`;
+      if (window.aiAlert) await aiAlert('Не доставлено: ' + msg, 'error');
+    }
+    refreshWebhooks();
+  } catch(e){ if (window.aiAlertError) await aiAlertError(e); }
+}
+
+async function deleteWebhook(id){
+  if (!await aiConfirm('Удалить webhook? События перестанут отправляться на этот URL.', {okLabel: 'Удалить', danger: true})) return;
+  try {
+    const r = await fetch(`/api-tokens/webhooks/${id}`, {method:'DELETE', credentials:'same-origin'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (window.aiToast) aiToast('Webhook удалён', 'info');
+    refreshWebhooks();
+  } catch(e){ if (window.aiAlertError) await aiAlertError(e); }
+}
+
+refreshTokens();
+</script>
+
+</body>
+</html>

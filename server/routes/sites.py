@@ -700,6 +700,16 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
                           url="/sites.html")
                 except Exception:
                     pass
+                # Public API webhook: site.done
+                try:
+                    from server.webhooks import dispatch_event
+                    dispatch_event(p.user_id, "site.done", {
+                        "site_id": p.id, "name": p.name,
+                        "hosted_path": p.hosted_path,
+                        "tier": quality,
+                    })
+                except Exception:
+                    pass
         log.info(f"[Sites/bg] project {project_id} done tier={quality} ({len(content)} symbols)")
 
     except Exception as e:
@@ -728,6 +738,15 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
                       "Не удалось сгенерировать сайт",
                       "Деньги возвращены на баланс. Попробуйте уточнить ТЗ и запустить снова.",
                       url="/sites.html")
+            except Exception:
+                pass
+            # Public API webhook: site.failed
+            try:
+                from server.webhooks import dispatch_event
+                dispatch_event(owner_id, "site.failed", {
+                    "site_id": project_id,
+                    "error_type": type(e).__name__,
+                })
             except Exception:
                 pass
 

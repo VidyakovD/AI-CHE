@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db, current_user
 from server.models import (
-    User, ApiToken, ProposalProject, ProposalBrand,
+    User, ApiToken, ApiWebhook, ProposalProject, ProposalBrand,
 )
 
 log = logging.getLogger(__name__)
@@ -122,6 +122,131 @@ def token_revoke(token_id: int, db: Session = Depends(get_db),
     except Exception:
         pass
     return {"status": "revoked"}
+
+
+# ── Webhooks management ─────────────────────────────────────────────────────
+# Юзер регистрирует свой URL и получает на него POST'ы при событиях.
+# События: см. _WEBHOOK_EVENTS. HMAC-подпись в заголовке X-Aiche-Signature.
+
+_WEBHOOK_EVENTS = {
+    "proposal.opened", "proposal.sent",
+    "record.created",
+    "solution.done",
+    "site.done", "site.failed",
+}
+
+
+class WebhookCreateBody(BaseModel):
+    url: str = Field(..., max_length=2000)
+    events: list[str]
+    description: str | None = Field(None, max_length=200)
+
+
+def _validate_webhook_url(url: str) -> str:
+    """Проверка URL: только http(s), не private/localhost (защита от
+    SSRF / накрутки внутренних эндпоинтов)."""
+    s = (url or "").strip()
+    if not s:
+        raise HTTPException(400, "URL обязателен")
+    low = s.lower()
+    if not (low.startswith("http://") or low.startswith("https://")):
+        raise HTTPException(400, "URL должен начинаться с http:// или https://")
+    # Запрещаем private/loopback в продакшене
+    import re as _re
+    blocked = [
+        r"^https?://(localhost|127\.|0\.0\.0\.0|\[::1\])",
+        r"^https?://10\.", r"^https?://192\.168\.",
+        r"^https?://172\.(1[6-9]|2[0-9]|3[0-1])\.",
+        r"^https?://169\.254\.",  # AWS metadata
+    ]
+    for pat in blocked:
+        if _re.match(pat, low):
+            raise HTTPException(400, "Private/loopback адреса запрещены")
+    return s
+
+
+@mgmt_router.post("/webhooks")
+def webhook_create(body: WebhookCreateBody, db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    """Зарегистрировать новый webhook. Возвращает secret — сохраните
+    его, он понадобится для верификации входящих сигнатур."""
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    cnt = db.query(ApiWebhook).filter_by(user_id=user.id, is_active=True).count()
+    if cnt >= 10:
+        raise HTTPException(409, "Лимит 10 активных webhooks")
+    url = _validate_webhook_url(body.url)
+    valid_events = [e for e in (body.events or []) if e in _WEBHOOK_EVENTS]
+    if not valid_events:
+        raise HTTPException(400,
+            f"Минимум одно событие из: {sorted(_WEBHOOK_EVENTS)}")
+    secret = secrets.token_hex(16)  # 32 hex
+    w = ApiWebhook(
+        user_id=user.id, url=url, secret=secret,
+        events=",".join(sorted(set(valid_events))),
+        description=(body.description or "").strip()[:200] or None,
+    )
+    db.add(w); db.commit(); db.refresh(w)
+    try:
+        from server.audit_log import log_action
+        log_action("api_webhook.created", user_id=user.id,
+                   target_type="webhook", target_id=str(w.id),
+                   details={"url": url[:100], "events": valid_events})
+    except Exception:
+        pass
+    return {
+        "id": w.id, "url": w.url, "events": valid_events,
+        "secret": secret,
+        "warning": "Сохраните secret — он понадобится для проверки входящих X-Aiche-Signature.",
+    }
+
+
+@mgmt_router.get("/webhooks")
+def webhook_list(db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    rows = (db.query(ApiWebhook).filter_by(user_id=user.id)
+              .order_by(ApiWebhook.id.desc()).all())
+    return [{
+        "id": w.id, "url": w.url,
+        "events": (w.events or "").split(","),
+        "description": w.description,
+        "is_active": bool(w.is_active),
+        "last_status": w.last_status,
+        "last_called_at": w.last_called_at.isoformat() if w.last_called_at else None,
+        "last_error": (w.last_error or "")[:200] or None,
+        "fail_count": w.fail_count or 0,
+        "total_calls": w.total_calls or 0,
+        "created_at": w.created_at.isoformat() if w.created_at else None,
+    } for w in rows]
+
+
+@mgmt_router.delete("/webhooks/{webhook_id}")
+def webhook_delete(webhook_id: int, db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    w = db.query(ApiWebhook).filter_by(id=webhook_id, user_id=user.id).first()
+    if not w:
+        raise HTTPException(404, "Webhook не найден")
+    db.delete(w)
+    db.commit()
+    return {"status": "deleted"}
+
+
+@mgmt_router.post("/webhooks/{webhook_id}/test")
+def webhook_test(webhook_id: int, db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    """Послать тестовый вызов на этот webhook. Полезно проверить что URL
+    корректный и подпись верифицируется. Не привязан к реальному событию."""
+    w = db.query(ApiWebhook).filter_by(id=webhook_id, user_id=user.id).first()
+    if not w:
+        raise HTTPException(404, "Webhook не найден")
+    from server.webhooks import deliver_webhook
+    payload = {
+        "event": "test.ping",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "data": {"message": "Это тестовое событие. Если получили — всё работает!"},
+    }
+    res = deliver_webhook(w.id, payload, sync=True)
+    return res
 
 
 # ── Public API endpoints (auth via X-API-Key) ──────────────────────────────
