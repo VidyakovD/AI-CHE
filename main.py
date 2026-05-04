@@ -40,6 +40,7 @@ from server.routes.public_api import (
     mgmt_router as api_tokens_router,
     api_router as public_api_router,
 )
+from server.routes.schedules import router as schedules_router
 
 load_dotenv()
 
@@ -329,6 +330,7 @@ app.include_router(knowledge_router)
 app.include_router(marketplace_router)
 app.include_router(api_tokens_router)
 app.include_router(public_api_router)
+app.include_router(schedules_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")

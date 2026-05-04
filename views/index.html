@@ -3494,7 +3494,67 @@ function renderOrchestraCompareBlock(solutionId){
           🔬 Сравнить выбранные
         </button>
       </div>
+    </details>
+    <details class="mt-3">
+      <summary class="cursor-pointer text-xs text-on-dim hover:text-primary inline-flex items-center gap-1">
+        📅 Запускать по расписанию (автоматически, без вашего участия)
+      </summary>
+      <div class="mt-3 p-3 bg-surface2 rounded-lg space-y-2">
+        <p class="text-[11px] text-on-dim">
+          AI автоматически запустит это решение в выбранное время с тем
+          же запросом. Готовый отчёт придёт в кабинет + push на устройство.
+          Лимит 5 активных расписаний на юзера.
+        </p>
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <label class="text-on-dim">Частота:</label>
+          <select id="orchSchedFreq" class="inp" style="padding:4px 8px;font-size:12px;width:auto">
+            <option value="daily_09">Каждый день · 12:00 МСК</option>
+            <option value="daily_18">Каждый день · 21:00 МСК</option>
+            <option value="weekly_mon_09" selected>Каждый понедельник · 12:00 МСК</option>
+            <option value="weekly_mon_18">Каждый понедельник · 21:00 МСК</option>
+            <option value="weekly_fri_09">Каждую пятницу · 12:00 МСК</option>
+            <option value="weekly_fri_18">Каждую пятницу · 21:00 МСК</option>
+            <option value="monthly_1_09">1-го числа · 12:00 МСК</option>
+            <option value="monthly_15_09">15-го числа · 12:00 МСК</option>
+          </select>
+        </div>
+        <button onclick="orchestraSchedule(${solutionId})"
+                class="text-xs px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 transition border border-primary/30">
+          📅 Создать расписание
+        </button>
+      </div>
     </details>`;
+}
+
+async function orchestraSchedule(solutionId){
+  const input = document.getElementById("runInput").value.trim();
+  const errEl = document.getElementById("runErr");
+  if (input.length < 10){
+    errEl.textContent = "Опишите задачу — минимум 10 символов";
+    errEl.classList.remove("hidden");
+    return;
+  }
+  const freq = document.getElementById("orchSchedFreq").value;
+  const attachments = _orchestraAttachments.filter(a => a);
+  try {
+    const r = await fetch("/orchestra-schedules", {
+      method: "POST", credentials: "same-origin",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        solution_id: solutionId,
+        user_input: input,
+        frequency: freq,
+        attachments: attachments.length ? attachments : null,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "HTTP " + r.status);
+    if (window.aiToast) aiToast(`✓ Расписание создано! Следующий запуск: ${new Date(data.next_run_at).toLocaleString("ru-RU")}`, "success");
+    else if (window.aiAlert) await aiAlert(`Расписание создано! Следующий запуск: ${new Date(data.next_run_at).toLocaleString("ru-RU")}`, "success");
+  } catch(e){
+    if (window.aiAlertError) await aiAlertError(e);
+    else { errEl.textContent = e.message; errEl.classList.remove("hidden"); }
+  }
 }
 
 async function orchestraStartCompare(solutionId){

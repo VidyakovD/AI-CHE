@@ -457,6 +457,47 @@ class ApiToken(Base):
     created_at    = Column(DateTime, default=datetime.utcnow)
 
 
+class OrchestraSchedule(Base):
+    """Пользовательское расписание автоматического запуска orchestra-решения.
+
+    Сценарий: юзер хочет «каждый понедельник в 09:00 запусти конкурентный
+    анализ моей ниши и пришли отчёт на email». Сохраняет user_input +
+    attachments + cron-expression. scheduler.py раз в минуту проверяет
+    next_run_at и стартует orchestra.
+
+    Frequency формат — simple presets (НЕ полный cron):
+      - 'daily_09'    → каждый день 09:00
+      - 'weekly_mon_09' → каждый понедельник 09:00
+      - 'weekly_fri_18' → каждую пятницу 18:00
+      - 'monthly_1_09'  → 1-го числа 09:00
+      - 'monthly_15_09' → 15-го числа 09:00
+
+    После запуска:
+      - last_run_at = now
+      - next_run_at = вычисляется по frequency
+      - запускается run_orchestra(...) в фоне
+      - email + push владельцу когда отчёт готов (через стандартные хуки)
+      - run учитывается в audit-логе как обычный orchestra-старт
+    """
+    __tablename__ = "orchestra_schedules"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                          nullable=False, index=True)
+    solution_id = Column(Integer, ForeignKey("solutions.id", ondelete="CASCADE"),
+                          nullable=False)
+    name        = Column(String, nullable=True)            # юзерское название
+    user_input  = Column(Text, nullable=False)             # будет передан как input
+    attachments_json = Column(Text, nullable=True)         # JSON массив attachments
+    frequency   = Column(String, nullable=False)           # daily_09 / weekly_mon_09 / ...
+    is_active   = Column(Boolean, default=True, index=True)
+    last_run_at = Column(DateTime, nullable=True)
+    last_run_id = Column(Integer, nullable=True)           # ID последнего SolutionRun
+    next_run_at = Column(DateTime, nullable=True, index=True)
+    total_runs  = Column(Integer, default=0)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+
 class ApiWebhook(Base):
     """Webhook для Public API — юзер регистрирует свой URL и подписывается
     на события. Когда событие происходит, мы делаем POST на URL с JSON-payload

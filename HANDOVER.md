@@ -4,6 +4,58 @@
 
 ---
 
+## 🆕 Спринт «Cron-планировщик orchestra» (2026-05-04 ещё один)
+
+Превращает разовые покупки в подписку: юзер настраивает «каждый понедельник запускай SWOT-анализ моей ниши» → отчёт автоматически генерится + push на устройство.
+
+### Backend
+
+**Модель `OrchestraSchedule`** ([models.py:455](server/models.py:455)):
+- `user_id`, `solution_id`, `name`, `user_input`, `attachments_json`
+- `frequency` (CSV-CHARFIELD из 8 пресетов: daily_09/18, weekly_mon_09/18, weekly_fri_09/18, monthly_1_09, monthly_15_09)
+- `is_active`, `last_run_at`, `last_run_id`, `next_run_at` (index'ed для быстрой выборки в worker'е), `total_runs`
+- Создаётся через Base.metadata.create_all (новая таблица — миграция не нужна)
+
+**Endpoints `server/routes/schedules.py`** (новый файл):
+- `POST /orchestra-schedules` — создать. Лимит 5 активных на юзера. Solution должен быть orchestra. user_input ≥10 символов
+- `GET /orchestra-schedules` — список со связанным solution_title
+- `DELETE /orchestra-schedules/{id}` — удалить
+- `PUT /orchestra-schedules/{id}/toggle` — включить/отключить без удаления
+- `_calc_next_run(freq, after)` — корректно вычисляет следующий момент запуска для всех 8 пресетов (учитывает weekday, конец месяца через day≤28)
+
+**Worker `_orchestra_schedules_tick` в scheduler.py:**
+- Раз в минуту (`asyncio.sleep(60)`) под `worker_lock("orchestra_schedules", ttl=55)` — защита от двойного запуска при multi-worker
+- Выбирает все active schedules с `next_run_at <= now` (limit 20)
+- Pre-check: balance ≥ 200 коп → если нет, скиппает сегодня (но не отключает — юзер пополнит) + сдвигает next_run_at
+- Pre-check: user.is_active + solution.orchestra_json есть → иначе disable schedule
+- Создаёт `SolutionRun` с chat_id `sched_{id}_{uuid}` + context `{_scheduled_from: schedule_id}`
+- После commit'а запускает `asyncio.create_task(run_orchestra(run_id))` (fire-and-forget)
+- Audit-log `orchestra_schedule.fired` с run_id
+
+### Frontend
+
+**В orchestra-модалке** ([index.html](views/index.html)):
+- Новый details-блок «📅 Запускать по расписанию» рядом с «🔬 Сравнить модели»
+- Select из 8 frequency-пресетов (label на русском с временем МСК)
+- Кнопка «📅 Создать расписание» → POST → toast «✓ Расписание создано! Следующий запуск: ...»
+
+**Поведение:**
+- При создании schedule использует тот же `runInput` (юзер заполняет один раз)
+- Использует те же attachments что для текущего запуска
+
+### Тесты
+- pytest 164/164 passed
+- JS sanity 10 файлов OK
+- Preview e2e (с тестовым solution в БД):
+  - `POST /orchestra-schedules` → 200 + id + frequency_label «каждый понедельник, 09:00 UTC (12:00 МСК)» + next_run_at вычислен правильно («2026-05-11T09:00:00Z» для weekly_mon_09)
+  - `GET /orchestra-schedules` → list с созданной записью
+  - `PUT /toggle {is_active: false}` → 200, обновление статуса
+  - `DELETE` → удалено
+  - Validation: неверная частота → 400 со списком доступных
+  - Console + server errors = 0
+
+---
+
 ## 🆕 Спринт «Voice-режим: Whisper + TTS» (2026-05-04 совсем-совсем закроем)
 
 ChatGPT-Voice-style опыт прямо в платформе: голосовой ввод (Whisper) + голосовые ответы AI (OpenAI TTS).
