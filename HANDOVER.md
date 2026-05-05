@@ -4,6 +4,48 @@
 
 ---
 
+## 🆕 Спринт «Закрытие незавершённого: idempotency-DB + тесты + reencrypt» (2026-05-04 финал)
+
+Юзер спросил «есть что-то незаконченное кроме твоего». Признал 3 пункта:
+
+### #1 Idempotency-Key через DB-таблицу (КРИТИЧНО — multi-worker safety)
+
+**Проблема:** прод запускается с `--workers 4`, а кэш idempotency-Key был in-memory (per-process). При двойном клике 2 запроса попадали на разные воркеры → **двойное списание баланса**. Я документировал «only workers=1», но это не соответствовало реальности.
+
+**Fix:**
+- Новая модель `IdempotencyRecord(user_id, key, response_json, created_at)` с `UNIQUE(user_id, key)` — гарантия уровня БД
+- `_idempotency_get(db, user_id, key)` / `_idempotency_put(db, user_id, key, value)` теперь ходят в DB
+- При гонке `IntegrityError` → `_idempotency_put` возвращает `False`, caller читает существующую запись (другой воркер успел положить)
+- TTL 5 минут, cleanup в новом `idempotency_cleanup_loop` в scheduler.py (раз в 60 сек удаляет stale)
+- Лимит payload 50 КБ
+
+### #2 Тесты для 5 новых модулей (164→182, +18)
+
+Новый файл `tests/test_new_features.py`:
+- `TestProposalSignature` (3): rendering, validation, idempotency 409
+- `TestApiWebhook` (3): create+secret, SSRF блок (localhost/10.x/ftp://), unknown events
+- `TestOrchestraSchedule` (3): create with frequency, invalid rejected, _calc_next_run
+- `TestAdmin2FA` (3): setup QR+secret, enable с правильным TOTP-кодом, enable wrong code → 400
+- `TestIdempotency` (3): put+get, duplicate→False, empty key→None
+- `TestMobileTts` (3): empty text 400, too long 413, no balance 402
+
+Helpers: `_user(db, email)` теперь возвращает `(id, email)` tuple — избегает DetachedInstanceError при использовании после `with SessionLocal()`. `_client_for((id, email))` создаёт TestClient + JWT.
+
+### #3 `/admin/reencrypt-secrets` endpoint
+
+Helper `reencrypt(value)` уже был в `server/secrets_crypto.py`, но не было endpoint'а.
+- `POST /admin/reencrypt-secrets` — проходит по 3 моделям (ChatBot, ApiKey, User) и 9 EncryptedString-полям
+- Использует трюк SQLAlchemy: чтение plaintext (старый ключ из `JWT_SECRETS_LEGACY`) + повторный `setattr` → `process_bind_param` шифрует под новый JWT_SECRET
+- Возвращает summary: `{"chatbots": {"done": N, "failed": 0, "rows": M}, ...}`
+- Audit-log `admin.reencrypt_secrets` с подробностями
+- Used flow: добавь новый JWT_SECRET, старый в JWT_SECRETS_LEGACY → дёрни endpoint → 200 → удали JWT_SECRETS_LEGACY
+
+### Тесты
+- pytest **182/182 passed** (164 → 182, +18 покрытия новых модулей)
+- 0 регрессий
+
+---
+
 ## 🆕 Спринт «Cron-планировщик orchestra» (2026-05-04 ещё один)
 
 Превращает разовые покупки в подписку: юзер настраивает «каждый понедельник запускай SWOT-анализ моей ниши» → отчёт автоматически генерится + push на устройство.

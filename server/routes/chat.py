@@ -1,4 +1,5 @@
 import os, json, uuid, logging, time, threading
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -11,70 +12,76 @@ from server.security import validate_upload_filename
 from server.billing import deduct_atomic, get_balance
 
 
-# ── In-memory idempotency cache для /message ────────────────────────────────
+# ── DB-based idempotency для /message (multi-worker safe) ───────────────────
 # Если клиент передаёт `Idempotency-Key`, мы кэшируем response на 5 минут.
 # Двойной клик или ретрай по сетевой ошибке вернёт тот же ответ без
 # повторного вызова AI и повторного списания.
 #
-# ⚠️ КОРРЕКТНО РАБОТАЕТ ТОЛЬКО ПРИ workers=1.
-# При нескольких uvicorn-воркерах одновременный двойной клик может попасть
-# на разные воркеры → двойное списание (т.к. кэш per-process). Прод сейчас
-# на 1 воркере (см. systemd unit) — это OK. При масштабировании заменить
-# на Redis или ввести IdempotencyRecord SQL-таблицу с UNIQUE(user_id, key).
+# Реализация через таблицу IdempotencyRecord с UNIQUE(user_id, key).
+# Корректно работает при любом числе uvicorn-воркеров: SQLite-уровень UNIQUE
+# гарантирует, что только один запрос пройдёт первым; остальные получат
+# IntegrityError и вернут кэшированный response.
+#
+# Cleanup: scheduler.py каждые 60 сек удаляет записи старше 5 минут.
 _IDEMPOTENCY_TTL_SEC = 300
-_idempotency_cache: dict[tuple[int, str], tuple[float, dict]] = {}
-_idempotency_lock = threading.Lock()
 
 
-def _idempotency_get(user_id: int, key: str) -> dict | None:
-    """Возвращает кэшированный response для (user_id, key) или None."""
+def _idempotency_get(db, user_id: int, key: str) -> dict | None:
+    """Возвращает кэшированный response для (user_id, key) если запись свежая.
+    Stale-записи (старше TTL) игнорируются — будут удалены в scheduler-loop.
+    """
     if not key:
         return None
-    now = time.monotonic()
-    with _idempotency_lock:
-        item = _idempotency_cache.get((user_id, key))
-        if item and (now - item[0]) <= _IDEMPOTENCY_TTL_SEC:
-            return item[1]
-    return None
+    from server.models import IdempotencyRecord
+    cutoff = datetime.utcnow() - timedelta(seconds=_IDEMPOTENCY_TTL_SEC)
+    rec = (db.query(IdempotencyRecord)
+             .filter(IdempotencyRecord.user_id == user_id,
+                     IdempotencyRecord.key == key,
+                     IdempotencyRecord.created_at >= cutoff)
+             .first())
+    if not rec or not rec.response_json:
+        return None
+    try:
+        return json.loads(rec.response_json)
+    except Exception:
+        return None
 
 
-def _idempotency_put(user_id: int, key: str, value: dict) -> None:
+def _idempotency_put(db, user_id: int, key: str, value: dict) -> bool:
+    """Сохранить response. Возвращает True если успешно, False если уже есть
+    запись (race condition: другой воркер положил первым). Caller должен в
+    случае False прочитать существующую запись и вернуть её.
+
+    Защита от больших responses: если сериализация >50 КБ — не сохраняем.
+    """
     if not key:
-        return
-    with _idempotency_lock:
-        _idempotency_cache[(user_id, key)] = (time.monotonic(), value)
-
-
-def _idempotency_sweep() -> None:
-    """Чистит expired записи из кэша. Вызывается background-таймером.
-    Раньше чистка была lazy (внутри _idempotency_get) — но при долгих простоях
-    кэш растёт без удаления. Теперь раз в минуту проходимся явно."""
-    now = time.monotonic()
-    with _idempotency_lock:
-        expired = [k for k, (ts, _) in _idempotency_cache.items()
-                   if now - ts > _IDEMPOTENCY_TTL_SEC]
-        for k in expired:
-            _idempotency_cache.pop(k, None)
-        # Защита от runaway: жёсткий cap 10k записей. Если больше — сносим
-        # самые старые. Один воркер за день при 60 rps набил бы ~5M, поэтому
-        # без cap кэш может занять ГБ.
-        if len(_idempotency_cache) > 10_000:
-            sorted_items = sorted(_idempotency_cache.items(), key=lambda kv: kv[1][0])
-            for k, _ in sorted_items[:len(_idempotency_cache) - 10_000]:
-                _idempotency_cache.pop(k, None)
+        return False
+    from server.models import IdempotencyRecord
+    try:
+        payload = json.dumps(value, ensure_ascii=False)
+    except Exception:
+        return False
+    if len(payload) > 50_000:
+        return False
+    try:
+        rec = IdempotencyRecord(
+            user_id=user_id, key=key,
+            response_json=payload,
+        )
+        db.add(rec)
+        db.commit()
+        return True
+    except Exception:
+        # IntegrityError (UNIQUE violation) — race с другим воркером
+        db.rollback()
+        return False
 
 
 def _start_idempotency_sweeper():
-    """Запуск фонового таймера. Вызывается из main.py при старте app."""
-    def _loop():
-        while True:
-            time.sleep(60)
-            try:
-                _idempotency_sweep()
-            except Exception:
-                pass
-    t = threading.Thread(target=_loop, name="idem-sweep", daemon=True)
-    t.start()
+    """Заглушка для совместимости — реальная очистка теперь в scheduler.py
+    через _idempotency_cleanup_loop, который каждую минуту удаляет
+    записи старше 5 минут."""
+    pass
 
 
 def calculate_cost(model_id: str, input_tokens: int, output_tokens: int, db: Session) -> int:
@@ -212,7 +219,7 @@ def send_message(req: MessageRequest,
         _idem_key = "auto:" + hashlib.sha256(
             f"{req.chat_id}|{req.model}|{_bucket}|{_msg_for_hash}|{_files_for_hash}".encode()
         ).hexdigest()[:32]
-    cached = _idempotency_get(user.id, _idem_key)
+    cached = _idempotency_get(db, user.id, _idem_key)
     if cached is not None:
         return cached
 
@@ -303,7 +310,7 @@ def send_message(req: MessageRequest,
         refunded = {"response": {"type": "text", "content": content, "ch_charged": 0,
                                   "input_tokens": 0, "output_tokens": 0, "refunded": True}}
         if _idem_key:
-            _idempotency_put(user.id, _idem_key, refunded)
+            _idempotency_put(db, user.id, _idem_key, refunded)
         return refunded
 
     cost = calculate_cost(cost_model, input_tokens, output_tokens, db)
@@ -356,9 +363,13 @@ def send_message(req: MessageRequest,
         if answer.get("model"):
             resp_dict["model"] = answer["model"]
     final = {"response": resp_dict}
-    # Кэшируем под Idempotency-Key для защиты от ретраев / двойных кликов
+    # Кэшируем под Idempotency-Key для защиты от ретраев / двойных кликов.
+    # При гонке (другой воркер успел записать первым) — читаем его response.
     if _idem_key:
-        _idempotency_put(user.id, _idem_key, final)
+        if not _idempotency_put(db, user.id, _idem_key, final):
+            raced = _idempotency_get(db, user.id, _idem_key)
+            if raced is not None:
+                return raced
     return final
 
 

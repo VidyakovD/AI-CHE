@@ -889,6 +889,38 @@ async def orchestra_schedules_loop():
         await asyncio.sleep(60)
 
 
+async def _idempotency_cleanup_tick():
+    """Удаляем idempotency-записи старше 5 минут (TTL).
+    Без cleanup таблица будет расти вечно — при 60 RPS это +5M записей/день."""
+    from server.db import db_session
+    from server.models import IdempotencyRecord
+    cutoff = datetime.utcnow() - timedelta(seconds=300)
+    try:
+        with db_session() as db:
+            n = (db.query(IdempotencyRecord)
+                   .filter(IdempotencyRecord.created_at < cutoff)
+                   .delete(synchronize_session=False))
+            db.commit()
+            if n > 0:
+                log.info(f"[idempotency] cleaned {n} stale records")
+    except Exception as e:
+        log.error(f"[idempotency] cleanup error: {type(e).__name__}: {e}")
+
+
+async def idempotency_cleanup_loop():
+    """Раз в минуту чистит expired idempotency-записи (5 мин TTL)."""
+    from server.worker_lock import worker_lock
+    await asyncio.sleep(120)  # 2 мин после старта
+    while True:
+        try:
+            with worker_lock("idempotency_cleanup", ttl_sec=55) as acquired:
+                if acquired:
+                    await _idempotency_cleanup_tick()
+        except Exception as e:
+            log.error(f"[idempotency] loop error: {e}")
+        await asyncio.sleep(60)
+
+
 def start_scheduler():
     """Фоновые задачи: scheduler / health / cleanup PDF / backup / conv / audit."""
     asyncio.create_task(scheduler_loop())
@@ -899,3 +931,4 @@ def start_scheduler():
     asyncio.create_task(audit_cleanup_loop())
     asyncio.create_task(storage_billing_loop())
     asyncio.create_task(orchestra_schedules_loop())
+    asyncio.create_task(idempotency_cleanup_loop())

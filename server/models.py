@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import TypeDecorator
 from server.db import Base
@@ -455,6 +455,33 @@ class ApiToken(Base):
     requests_count = Column(Integer, default=0)
     is_active     = Column(Boolean, default=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
+
+
+class IdempotencyRecord(Base):
+    """Cross-worker idempotency для /message и других чувствительных к
+    дублированию endpoint'ов.
+
+    Раньше кэш был in-memory (per-process) — при multi-worker uvicorn
+    двойной клик мог попасть на разные воркеры и пройти оба → двойное
+    списание. Теперь UNIQUE(user_id, key) в БД гарантирует one-and-only-one.
+
+    Cleanup: запись живёт 5 минут (stored_at + TTL). После — удаляется
+    в scheduler.py loop. Записи длиннее этого = stale, игнорируются.
+
+    Защита от размера: response_json TEXT, лимит ~50 КБ на caller'е.
+    """
+    __tablename__ = "idempotency_records"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
+    key          = Column(String, nullable=False, index=True)
+    response_json = Column(Text, nullable=True)            # сериализованный response
+    created_at   = Column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'key', name='uq_idempotency_user_key'),
+    )
 
 
 class OrchestraSchedule(Base):

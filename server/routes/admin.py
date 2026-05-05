@@ -1223,3 +1223,82 @@ def admin_2fa_status(user: User = Depends(current_user)):
     """Включен ли 2FA у текущего админа."""
     require_admin(user)
     return {"enabled": bool(user.totp_enabled)}
+
+
+# ── Re-encrypt секретов после ротации JWT_SECRET ────────────────────────────
+# Когда меняем JWT_SECRET (плановая ротация / компрометация), все секреты в
+# БД зашифрованы старым ключом. Этот endpoint проходит по всем
+# EncryptedString-полям, расшифровывает старым ключом из JWT_SECRETS_LEGACY
+# и пере-шифрует текущим. После этого старый ключ можно удалить из env.
+#
+# Использование:
+#   1. Добавить новый ключ в JWT_SECRET, старый перенести в JWT_SECRETS_LEGACY
+#   2. Дернуть POST /admin/reencrypt-secrets (только админ)
+#   3. После 200 OK можно удалить JWT_SECRETS_LEGACY из env
+#
+# Формат ENV:
+#   JWT_SECRET=<новый>
+#   JWT_SECRETS_LEGACY=<старый1>,<старый2>  # csv до 5 ключей
+
+@router.post("/reencrypt-secrets")
+def admin_reencrypt_secrets(user: User = Depends(current_user),
+                              db: Session = Depends(get_db)):
+    """Пере-шифровать все EncryptedString-поля под текущий JWT_SECRET.
+    Возвращает количество обработанных + provided/failed/skipped по таблицам."""
+    require_admin(user)
+    from server.secrets_crypto import reencrypt
+    from server.models import (
+        ChatBot as _CB, ApiKey as _AK, User as _U,
+    )
+
+    # Какие модели + какие поля в них зашифрованы
+    targets = [
+        (_CB, ["tg_token", "vk_token", "vk_secret", "avito_client_secret",
+                "max_token", "wazzup_api_key", "widget_secret"]),
+        (_AK, ["api_key"]),
+        (_U, ["totp_secret"]),
+    ]
+
+    summary = {}
+    total_done = 0
+    total_failed = 0
+
+    for Model, fields in targets:
+        tname = Model.__tablename__
+        rows = db.query(Model).all()
+        done = 0
+        failed = 0
+        for row in rows:
+            for fname in fields:
+                # Достаём raw из БД (через __dict__ обходим EncryptedString
+                # decryption). Хм, нет — SQLAlchemy уже расшифровал при
+                # SELECT. Поэтому просто читаем атрибут — он plaintext —
+                # и заново присваиваем (process_bind_param re-зашифрует
+                # текущим JWT_SECRET).
+                try:
+                    plain = getattr(row, fname, None)
+                    if plain is None or plain == "":
+                        continue
+                    # Re-set чтобы триггернуть EncryptedString.process_bind_param
+                    setattr(row, fname, plain)
+                    done += 1
+                except Exception as e:
+                    log.warning(f"[reencrypt] {tname}.{fname} id={row.id}: {type(e).__name__}: {e}")
+                    failed += 1
+        summary[tname] = {"done": done, "failed": failed, "rows": len(rows)}
+        total_done += done
+        total_failed += failed
+
+    db.commit()
+    from server.audit_log import log_action
+    log_action("admin.reencrypt_secrets", user_id=user.id, level="warn",
+               target_type="system", target_id="all",
+               details={"total_done": total_done, "total_failed": total_failed,
+                        "summary": summary})
+    return {
+        "status": "ok",
+        "total_done": total_done,
+        "total_failed": total_failed,
+        "summary": summary,
+        "next_step": "Если total_failed = 0, можно удалить JWT_SECRETS_LEGACY из env.",
+    }
