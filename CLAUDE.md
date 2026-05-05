@@ -82,16 +82,16 @@
   - `_openai_client_kwargs(provider)` — http_client с прокси для SDK
 - Применено в: OpenAI (chat + images), Anthropic, Google (был), Grok, Perplexity
 
-### DNS
-- **Регистратор:** см. в env / у юзера (REG.RU?)
-- **A-запись `aiche.ru`** была `194.104.9.219`, юзер переключил → новый IP
-- **Распространение DNS:** в момент написания этого файла ещё идёт (TTL до 30 минут)
-- **TTL:** должен быть низкий (300 сек) для быстрого отката
+### DNS ✅ DONE (2026-05-05)
+- **A-запись `aiche.ru` + `www.aiche.ru` → 193.187.92.147** (пропагировалась)
+- **TTL:** низкий (300 сек) — для быстрого отката если что
 
-### SSL (TODO после полного DNS)
-- certbot 1.21.0 + python-certbot-nginx уже установлены
-- Команда: `certbot --nginx -d aiche.ru -d www.aiche.ru --email vidyakov@obsidian.ai --agree-tos --no-eff-email`
-- После SSL заменить `nginx.conf` на `nginx-ssl.conf`: `sed 's|__DOMAIN__|aiche.ru|g' /root/AI-CHE/deploy/nginx-ssl.conf > /etc/nginx/sites-available/aiche.ru && nginx -t && systemctl reload nginx`
+### SSL ✅ DONE (2026-05-05)
+- Let's Encrypt сертификат на `aiche.ru` + `www.aiche.ru` (expires 2026-08-03)
+- `/etc/letsencrypt/live/aiche.ru/{fullchain,privkey}.pem`
+- **Auto-renew:** `certbot.timer` (next: 2026-05-06 07:41 UTC, потом каждый день — обновит за 30 дней до expiry)
+- Применён `deploy/nginx-ssl.conf`: TLSv1.2/1.3, HSTS preload (2 года), CSP, redirect HTTP→HTTPS
+- Минор-warning «ssl_stapling ignored» — у Let's Encrypt сейчас нет OCSP responder URL, не критично
 
 ## Структура файлов
 

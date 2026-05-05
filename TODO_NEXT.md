@@ -1,39 +1,81 @@
 # TODO — задачи в работе и на очереди
 
-_Последнее обновление: 2026-05-05 после миграции в РФ_
+_Последнее обновление: 2026-05-05 после fix-сессии (race-conditions + SSL + production-nginx)_
 
 ---
 
-## 🔴 Срочные действия юзера (для запуска)
+## ✅ ЗАКРЫТО ЭТОЙ СЕССИЕЙ (2026-05-05)
 
-### 1. SSL-сертификат после DNS
+- ✅ **DNS** пропагировался: `aiche.ru` + `www.aiche.ru` → `193.187.92.147`
+- ✅ **SSL Let's Encrypt** выпущен (expires 2026-08-03), auto-renew через `certbot.timer`
+- ✅ **Production nginx-ssl.conf** применён: HSTS preload (2 года), CSP, redirect HTTP→HTTPS
+- ✅ **fail2ban** починен (`backend = systemd` для Ubuntu 22.04) — уже забанил 1 IP-сканер
+- ✅ **Race-fixes**: marketplace anti-pump, webhooks/CRM atomic fail_count, signature IntegrityError → 409
+- ✅ **Anti-DoS**: OpenAI timeout=30/60s, rate-limit на /mobile/voice/tts и /admin/2fa/
+- ✅ **A11y**: aria-label на close-кнопках в index.html
+- ✅ **Тесты**: 187 passed (+5 новых)
+- ✅ **Деплой**: код на проде, `systemctl is-active ai-che` = active
 
-**Триггер:** когда `nslookup aiche.ru` покажет `193.187.92.147`.
+**Проверка:** `curl -I https://aiche.ru/healthz` → `HTTP/2 200` + HSTS header.
 
+---
+
+## 🔴 БЛОКЕРЫ для коммерческого запуска — ТОЛЬКО ЮЗЕР МОЖЕТ
+
+Делать НЕ Claude — нужны личные кабинеты, договоры, аккаунты.
+
+### 1. SMTP (без него юзеры не зарегистрируются)
+
+На `/root/AI-CHE/.env` нет `SMTP_HOST` → verification email не уходят, reset password не работает, login alerts молчат.
+
+Выбрать российский провайдер:
+- **Unisender Go** ~0.30 ₽/письмо, в реестре РКН ← рекомендую
+- **SendPulse** бесплатно до 12k/мес, РФ-инфра
+- **Yandex 360 для бизнеса** от 249 ₽/мес, на твоём `aiche.ru`
+
+После регистрации:
 ```bash
-ssh root@193.187.92.147
-
-# 1. Получить сертификат через certbot (у нас уже установлен)
-certbot --nginx -d aiche.ru -d www.aiche.ru \
-    --email vidyakov@obsidian.ai --agree-tos --no-eff-email
-
-# 2. Заменить nginx конфиг на SSL-вариант
-sed 's|__DOMAIN__|aiche.ru|g' /root/AI-CHE/deploy/nginx-ssl.conf > /etc/nginx/sites-available/aiche.ru
-nginx -t && systemctl reload nginx
-
-# 3. Проверить
-curl -I https://aiche.ru/healthz
+ssh -i 'C:\Users\Денис\.ssh\id_ed25519' root@193.187.92.147
+cat >> /root/AI-CHE/.env <<'EOF'
+SMTP_HOST=smtp.unisender.com
+SMTP_PORT=587
+SMTP_USER=<логин>
+SMTP_PASS=<пароль>
+SMTP_FROM=AI Студия Че <noreply@aiche.ru>
+EOF
+systemctl restart ai-che
 ```
 
-certbot настроит автообновление через cron — больше делать ничего не нужно.
+### 2. Прод-shop ЮKassa (сейчас тестовый)
 
-### 2. Выключить старый сервер (через 24-48ч после новой работы)
+`https://yookassa.ru/my/` → заявка на live-shop. 1–3 дня одобрения. Потом:
+```bash
+sed -i 's/^YOOKASSA_SHOP_ID=.*/YOOKASSA_SHOP_ID=<новый_live>/' /root/AI-CHE/.env
+sed -i 's/^YOOKASSA_SECRET_KEY=.*/YOOKASSA_SECRET_KEY=<новый_live>/' /root/AI-CHE/.env
+systemctl restart ai-che
+```
+
+### 3. ОФД для 54-ФЗ чеков
+
+В ЛК ЮKassa → Настройки → Кассовый чек → подключить **Атол Онлайн** или **Контур.ОФД**. Без этого `receipt`-объекты в наших платежах никуда не идут.
+
+Добавить в `.env` (если ещё нет):
+- `YOOKASSA_VAT_CODE=1` (без НДС) или `4` (НДС 20%)
+- `YOOKASSA_TAX_SYSTEM_CODE=2` (УСН доходы)
+
+### 4. РКН — регистрация оператора ПДн
+
+`https://pd.rkn.gov.ru/` → подать заявление. **152-ФЗ ст. 22**. Сервер в РФ — упрощает.
+
+### 5. Бэкапы в Yandex Object Storage (152-ФЗ ст. 18)
+
+Сейчас бэкапы только локальные `/root/AI-CHE/backups/*.enc`. Нужна РФ-облачная копия. Юзер делает аккаунт Yandex Cloud → bucket → скрипт уже готов в TODO_NEXT строка 90+.
+
+### 6. Выключить старый сервер NL (когда убедишься что новый стабильный)
 
 ```bash
-ssh root@194.104.9.219
-systemctl stop ai-che
-systemctl disable ai-che
-# VM можно держать выключенной 30 дней как backup, потом удалить через панель Clouvider
+ssh root@194.104.9.219 "systemctl stop ai-che && systemctl disable ai-che"
+# VM держать выключенной 30 дней как backup, потом удалить через Clouvider
 ```
 
 ---
