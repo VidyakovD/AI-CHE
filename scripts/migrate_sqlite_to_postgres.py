@@ -101,11 +101,18 @@ def main():
     ordered = Base.metadata.sorted_tables
     total_copied = 0
     skipped = []
+
+    from sqlalchemy import Boolean as _Bool
+
     for table in ordered:
         tname = table.name
         if tname not in sqlite_tables:
             skipped.append(tname)
             continue
+        # Для каждой колонки этой таблицы фиксируем нужно ли преобразование
+        # SQLite-int (0/1) → postgres bool (False/True). SQLite хранит boolean
+        # как INTEGER, postgres строгий BOOLEAN — без cast будет DatatypeMismatch.
+        bool_cols = {c.name for c in table.columns if isinstance(c.type, _Bool)}
         try:
             with sqlite_engine.connect() as sconn:
                 rows = list(sconn.execute(text(f"SELECT * FROM {tname}")))
@@ -113,14 +120,22 @@ def main():
                     log.info(f"    {tname}: 0 (пусто)")
                     continue
                 cols = list(rows[0]._mapping.keys())
-            # Вставка в postgres батчами через executemany
+            # Преобразуем boolean-поля
+            payload = []
+            for r in rows:
+                d = dict(r._mapping)
+                for bc in bool_cols:
+                    if bc in d and d[bc] is not None and not isinstance(d[bc], bool):
+                        d[bc] = bool(d[bc])
+                payload.append(d)
+            # Вставка в postgres
             with pg_engine.begin() as pconn:
                 cols_csv = ", ".join(f'"{c}"' for c in cols)
                 placeholders = ", ".join(f":{c}" for c in cols)
                 stmt = text(f'INSERT INTO "{tname}" ({cols_csv}) VALUES ({placeholders})')
-                payload = [dict(r._mapping) for r in rows]
                 pconn.execute(stmt, payload)
-            log.info(f"    {tname}: {len(rows)} строк скопировано")
+            log.info(f"    {tname}: {len(rows)} строк скопировано"
+                      + (f" (bool fix: {len(bool_cols)})" if bool_cols else ""))
             total_copied += len(rows)
         except Exception as e:
             log.error(f"    {tname}: ОШИБКА {type(e).__name__}: {str(e)[:300]}")
