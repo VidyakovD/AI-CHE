@@ -1,33 +1,53 @@
 import contextlib
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = "sqlite:///./chat.db"
+# DATABASE_URL: через env. По умолчанию SQLite для dev; на проде задаётся
+# `postgresql://aiche:pwd@localhost:5432/aiche` в .env. SQLAlchemy
+# автоматически выбирает нужный диалект по схеме URL.
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./chat.db").strip()
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+IS_POSTGRES = DATABASE_URL.startswith("postgresql")
 
-engine = create_engine(
-    DATABASE_URL,
+if IS_SQLITE:
     # 30s busy_timeout — спасает от "database is locked" под нагрузкой
     # (несколько uvicorn workers + scheduler + IMAP параллельно).
-    connect_args={"check_same_thread": False, "timeout": 30},
-)
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+else:
+    # PostgreSQL: pool_pre_ping чтобы переустанавливать stale connections
+    # после рестарта postgres / network blip. pool_size=10, overflow=20 —
+    # с запасом для 4 uvicorn workers × несколько одновременных запросов.
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
+        pool_recycle=3600,
+    )
 
 
-# WAL + foreign_keys включаем на каждое новое соединение.
+# SQLite-only: WAL + foreign_keys на каждое новое соединение.
 # WAL: writers не блокируют readers (критично для длинных AI-вызовов).
 # foreign_keys: SQLite по умолчанию ВЫКЛ — без этого CASCADE/FK не работают.
+# PostgreSQL: FK всегда ON, MVCC сам разруливает readers/writers — pragma не нужны.
 from sqlalchemy import event as _sa_event
 
 
-@_sa_event.listens_for(engine, "connect")
-def _sqlite_pragma_on_connect(dbapi_connection, _connection_record):
-    cur = dbapi_connection.cursor()
-    try:
-        cur.execute("PRAGMA journal_mode=WAL")
-        cur.execute("PRAGMA synchronous=NORMAL")  # баланс между скоростью и надёжностью
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.execute("PRAGMA busy_timeout=30000")
-    finally:
-        cur.close()
+if IS_SQLITE:
+    @_sa_event.listens_for(engine, "connect")
+    def _sqlite_pragma_on_connect(dbapi_connection, _connection_record):
+        cur = dbapi_connection.cursor()
+        try:
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA synchronous=NORMAL")  # баланс скорость/надёжность
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA busy_timeout=30000")
+        finally:
+            cur.close()
 
 
 SessionLocal = sessionmaker(bind=engine)
@@ -261,25 +281,53 @@ def _backfill_site_public_tokens(conn) -> None:
         _log.info(f"migration: backfilled public_token for {n} hosted site(s)")
 
 
+def _existing_columns(conn, table: str) -> set[str]:
+    """Возвращает set имён колонок таблицы. Работает на SQLite + PostgreSQL."""
+    from sqlalchemy import text
+    if IS_SQLITE:
+        rows = list(conn.execute(text(f"PRAGMA table_info({table})")))
+        return {row[1] for row in rows}
+    # PostgreSQL: information_schema
+    rows = list(conn.execute(text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = current_schema() AND table_name = :t"
+    ), {"t": table}))
+    return {row[0] for row in rows}
+
+
+def _normalize_sql_type(sql_type: str) -> str:
+    """Подгоняет SQL-type к диалекту. SQLite принимает почти всё, postgres строже:
+    BOOLEAN DEFAULT 0/1 → BOOLEAN DEFAULT FALSE/TRUE.
+    Прочие типы (INTEGER/TEXT/VARCHAR/DATETIME) понимаются обоими.
+    """
+    if IS_POSTGRES:
+        # BOOLEAN DEFAULT 0/1 → FALSE/TRUE
+        return (sql_type
+                .replace("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE")
+                .replace("BOOLEAN DEFAULT 1", "BOOLEAN DEFAULT TRUE"))
+    return sql_type
+
+
 def apply_lightweight_migrations():
-    """Идемпотентно добавляет недостающие колонки и индексы (SQLite)."""
+    """Идемпотентно добавляет недостающие колонки и индексы.
+    Работает на SQLite (через PRAGMA) и PostgreSQL (через information_schema)."""
     from sqlalchemy import text
     import logging
     log = logging.getLogger(__name__)
     with engine.connect() as conn:
         for table, col, sql_type in LIGHTWEIGHT_MIGRATIONS:
             try:
-                rows = list(conn.execute(text(f"PRAGMA table_info({table})")))
+                existing = _existing_columns(conn, table)
             except Exception as e:
                 log.warning(f"migration: cannot read {table}: {e}")
                 continue
-            existing = {row[1] for row in rows}
             if col in existing:
                 continue
+            normalized = _normalize_sql_type(sql_type)
             try:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {sql_type}"))
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {normalized}"))
                 conn.commit()
-                log.info(f"migration: added {table}.{col} {sql_type}")
+                log.info(f"migration: added {table}.{col} {normalized}")
             except Exception as e:
                 log.error(f"migration: failed to add {table}.{col}: {e}")
         # Indexes
@@ -299,6 +347,10 @@ def apply_lightweight_migrations():
         # Теперь поддерживаем агентов через owner_type/owner_id, и для агента
         # bot_id=NULL. SQLite ALTER не умеет менять NULL/NOT NULL — пересоздаём
         # таблицу. Идемпотентно: проверяем pragma и работаем только если NOT NULL.
+        # На PostgreSQL свежая схема создаётся через Base.metadata.create_all уже
+        # с правильным NULLable bot_id, поэтому миграцию пропускаем.
+        if not IS_SQLITE:
+            return
         try:
             rows = list(conn.execute(text("PRAGMA table_info(knowledge_files)")))
             for row in rows:

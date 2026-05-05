@@ -376,26 +376,22 @@ def _encrypt_file(src_path: str, dst_path: str, key: bytes) -> None:
 
 
 async def _db_backup_tick():
-    """Делает hot-backup chat.db через sqlite3.backup() — не блокирует writes.
-    Шифрует AES-256-GCM перед записью на диск (152-ФЗ требование для ПДн).
+    """Делает hot-backup БД и шифрует AES-256-GCM (152-ФЗ для ПДн).
+    Backend выбирается по DATABASE_URL:
+      - SQLite → sqlite3.backup() (atomic, не блокирует writes)
+      - PostgreSQL → pg_dump --format=custom (consistent snapshot, MVCC)
 
-    Сохраняет в /backups/chat.db.YYYY-MM-DD.enc; старше 14 дней удаляет.
-    Plaintext SQLite-копия удаляется сразу после шифрования.
-
-    Restore: см. scripts/restore_backup.sh — расшифровка через тот же ключ.
+    Файлы: /backups/chat.db.YYYY-MM-DD.enc; retention 14 дней.
+    Restore: scripts/restore_backup.py — расшифровка через тот же ключ.
     """
-    import os, sqlite3, datetime, glob
+    import os, datetime, glob, subprocess
+    from server.db import IS_SQLITE, IS_POSTGRES, DATABASE_URL
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    src = os.path.join(base, "chat.db")
-    if not os.path.exists(src):
-        return
 
-    # Берём ключ ДО создания бэкапа — иначе можем сделать незашифрованный
-    # plaintext-файл и не успеть зашифровать.
     enc_key = _get_backup_encryption_key()
     if enc_key is None:
         log.error("[db-backup] нет encryption key — пропускаем backup, "
-                   "иначе остался бы незашифрованный SQLite на диске")
+                   "иначе остался бы незашифрованный дамп на диске")
         return
 
     backup_dir = os.path.join(base, "backups")
@@ -404,30 +400,57 @@ async def _db_backup_tick():
     dst_plain = os.path.join(backup_dir, f"chat.db.{today}.tmp")
     dst_enc = os.path.join(backup_dir, f"chat.db.{today}.enc")
     if os.path.exists(dst_enc):
-        return  # уже сделали сегодня (например рестарт сервера)
+        return  # уже сделали сегодня
+
     try:
-        # SQLite-native backup API
-        src_conn = sqlite3.connect(src)
-        dst_conn = sqlite3.connect(dst_plain)
-        try:
-            with dst_conn:
-                src_conn.backup(dst_conn)
-        finally:
-            src_conn.close()
-            dst_conn.close()
-        # Проверка целостности
-        check_conn = sqlite3.connect(dst_plain)
-        try:
-            cur = check_conn.execute("PRAGMA integrity_check")
-            row = cur.fetchone()
-            integrity_ok = bool(row and row[0] == "ok")
-        finally:
-            check_conn.close()
-        if not integrity_ok:
-            log.error(f"[db-backup] integrity_check FAILED for {dst_plain} — removing")
-            try: os.remove(dst_plain)
-            except Exception: pass
+        if IS_SQLITE:
+            import sqlite3
+            src = os.path.join(base, "chat.db")
+            if not os.path.exists(src):
+                return
+            src_conn = sqlite3.connect(src)
+            dst_conn = sqlite3.connect(dst_plain)
+            try:
+                with dst_conn:
+                    src_conn.backup(dst_conn)
+            finally:
+                src_conn.close()
+                dst_conn.close()
+            check_conn = sqlite3.connect(dst_plain)
+            try:
+                cur = check_conn.execute("PRAGMA integrity_check")
+                row = cur.fetchone()
+                integrity_ok = bool(row and row[0] == "ok")
+            finally:
+                check_conn.close()
+            if not integrity_ok:
+                log.error(f"[db-backup] integrity_check FAILED for {dst_plain} — removing")
+                try: os.remove(dst_plain)
+                except Exception: pass
+                return
+        elif IS_POSTGRES:
+            # pg_dump --format=custom: бинарный формат с compression, поддерживает
+            # параллельный restore. Передаём DATABASE_URL прямо ему.
+            # Перед запуском смотрим есть ли pg_dump в PATH.
+            pg_dump = "pg_dump"
+            try:
+                res = subprocess.run(
+                    [pg_dump, "--format=custom", "--no-owner", "--no-privileges",
+                     "--file=" + dst_plain, DATABASE_URL],
+                    check=True, capture_output=True, timeout=600,
+                )
+            except FileNotFoundError:
+                log.error("[db-backup] pg_dump не установлен (apt install postgresql-client)")
+                return
+            except subprocess.CalledProcessError as e:
+                log.error(f"[db-backup] pg_dump failed: {e.stderr.decode('utf-8', 'ignore')[:500]}")
+                try: os.remove(dst_plain)
+                except Exception: pass
+                return
+        else:
+            log.error("[db-backup] неизвестный backend — пропускаем")
             return
+
         # Шифруем + удаляем plaintext
         _encrypt_file(dst_plain, dst_enc, enc_key)
         try:
@@ -439,7 +462,8 @@ async def _db_backup_tick():
         except Exception as e:
             log.warning(f"[db-backup] cannot remove plaintext {dst_plain}: {e}")
         size_mb = os.path.getsize(dst_enc) / 1024 / 1024
-        log.info(f"[db-backup] {dst_enc} ({size_mb:.1f} MB) encrypted=AES-256-GCM integrity=ok")
+        backend = "sqlite" if IS_SQLITE else "postgres"
+        log.info(f"[db-backup] {dst_enc} ({size_mb:.1f} MB) backend={backend} encrypted=AES-256-GCM")
     except Exception as e:
         log.error(f"[db-backup] failed: {e}")
         for p in (dst_plain, dst_enc):
@@ -448,14 +472,12 @@ async def _db_backup_tick():
                 except Exception: pass
         return
 
-    # Retention: удаляем backup-ы старше 14 дней (включая legacy plaintext)
+    # Retention: удаляем backup-ы старше 14 дней
     cutoff = (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
     removed = 0
     for path in glob.glob(os.path.join(backup_dir, "chat.db.*")):
         try:
             name = os.path.basename(path)
-            # Поддерживаем оба формата: chat.db.YYYY-MM-DD (legacy plaintext)
-            # и chat.db.YYYY-MM-DD.enc (новый зашифрованный).
             tag = name.replace("chat.db.", "").replace(".enc", "").replace(".tmp", "")
             if len(tag) == 10 and tag < cutoff:
                 os.remove(path)

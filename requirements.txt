@@ -39,3 +39,7 @@ PyPDF2==3.0.1
 # Опциональный мониторинг ошибок: ставится только если SENTRY_DSN задан
 # (init guarded в main.py); без DSN импорт не происходит, но колесо в env есть.
 sentry-sdk[fastapi]==2.15.0
+# PostgreSQL driver — опциональный: используется когда DATABASE_URL начинается
+# с `postgresql://`. По умолчанию проект работает на SQLite (для dev).
+# Для прода ставится через `pip install -r requirements.txt` на сервере.
+psycopg2-binary==2.9.9
