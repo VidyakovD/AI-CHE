@@ -21,7 +21,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, update
+from sqlalchemy.exc import IntegrityError
 
 from server.routes.deps import get_db, current_user, optional_user
 from server.models import (
@@ -174,22 +175,27 @@ def install_listing(listing_id: int, db: Session = Depends(get_db),
     if listing.author_id == user.id:
         raise HTTPException(400, "Нельзя установить свой собственный бот")
 
-    # Anti-pump: для платных листингов запрещаем повторную установку.
-    # Для бесплатных — разрешаем (юзер мог удалить локального и хочет
-    # установить заново). Защита от collusion-схемы «два аккаунта установили
-    # друг другу 100 раз и собрали 70%×100 автору».
+    paid = 0
+    # Anti-pump для платных: захватываем slot через UNIQUE INSERT ДО списания
+    # денег. Если две параллельные установки одного юзера — выживет один,
+    # второй получит IntegrityError → 409. Защита от race на multi-worker
+    # (раньше был SELECT → INSERT, между ними ничего не блокировало).
+    install_rec: BotMarketplaceInstall | None = None
     if listing.price_kop and listing.price_kop > 0:
-        already = (db.query(BotMarketplaceInstall)
-                     .filter_by(listing_id=listing.id, installer_id=user.id)
-                     .first())
-        if already:
+        try:
+            install_rec = BotMarketplaceInstall(
+                listing_id=listing.id, installer_id=user.id,
+                installed_bot_id=None, paid_kop=listing.price_kop,
+            )
+            db.add(install_rec); db.flush()  # триггерит UNIQUE
+        except IntegrityError:
+            db.rollback()
             raise HTTPException(409,
                 "Этот платный шаблон уже установлен. Найдите бота в /chatbots.html.")
 
-    paid = 0
-    # Платный режим: списание + revenue split
-    if listing.price_kop and listing.price_kop > 0:
+        # Списание + revenue split
         if not deduct_strict(db, user.id, listing.price_kop):
+            db.rollback()  # откатываем placeholder install_rec
             raise HTTPException(402, f"Недостаточно средств. Цена: {listing.price_kop/100:.0f} ₽")
         paid = listing.price_kop
         author_share = paid * _AUTHOR_REVENUE_PCT // 100
@@ -215,12 +221,23 @@ def install_listing(listing_id: int, db: Session = Depends(get_db),
         status="off",
     )
     db.add(new_bot); db.flush()
-    listing.installs_count = (listing.installs_count or 0) + 1
-    install_rec = BotMarketplaceInstall(
-        listing_id=listing.id, installer_id=user.id,
-        installed_bot_id=new_bot.id, paid_kop=paid,
+    # Atomic UPDATE — без race на read-then-write при concurrent installs
+    db.execute(
+        update(BotMarketplaceListing)
+        .where(BotMarketplaceListing.id == listing.id)
+        .values(installs_count=BotMarketplaceListing.installs_count + 1)
     )
-    db.add(install_rec); db.commit(); db.refresh(new_bot)
+    if install_rec is not None:
+        # Платный flow: дописываем installed_bot_id в уже захваченный slot
+        install_rec.installed_bot_id = new_bot.id
+    else:
+        # Бесплатный flow: создаём новую install-запись (повторы разрешены)
+        install_rec = BotMarketplaceInstall(
+            listing_id=listing.id, installer_id=user.id,
+            installed_bot_id=new_bot.id, paid_kop=0,
+        )
+        db.add(install_rec)
+    db.commit(); db.refresh(new_bot)
     try:
         from server.audit_log import log_action
         log_action("marketplace.installed", user_id=user.id,

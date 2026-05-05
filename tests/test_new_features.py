@@ -391,3 +391,124 @@ class TestMobileTts:
         client = _client_for((uid, uemail))
         r = client.post("/mobile/voice/tts", json={"text": "Привет!"})
         assert r.status_code == 402
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Marketplace anti-pump (UNIQUE на платных установках)
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestMarketplaceAntiPump:
+    """Платный листинг нельзя установить дважды одному юзеру (anti-pump):
+    UNIQUE-индекс на (listing_id, installer_id) WHERE paid_kop > 0.
+    Защищает автора от collusion-схемы «два аккаунта установили друг другу
+    100 раз и собрали 70%×100 автору». Race-safe на multi-worker."""
+
+    def _make_paid_listing(self, author_id, price=10000):
+        from server.models import BotMarketplaceListing
+        with SessionLocal() as db:
+            l = BotMarketplaceListing(
+                author_id=author_id,
+                name="Тестовый платный шаблон",
+                price_kop=price,
+                system_prompt="Ты помощник.",
+                is_approved=True, is_active=True,
+            )
+            db.add(l); db.commit(); db.refresh(l)
+            return l.id
+
+    def test_paid_install_then_repeat_returns_409(self):
+        with SessionLocal() as db:
+            author = _user(db, "author@market.test", balance=0)
+            buyer = _user(db, "buyer@market.test", balance=100_000)
+        listing_id = self._make_paid_listing(author[0], price=5000)
+        client = _client_for(buyer)
+        r1 = client.post(f"/marketplace/listings/{listing_id}/install")
+        assert r1.status_code == 200, r1.text
+        # Повторно — UNIQUE сработает → 409
+        r2 = client.post(f"/marketplace/listings/{listing_id}/install")
+        assert r2.status_code == 409
+
+    def test_installs_count_atomic(self):
+        """installs_count должен инкрементиться через atomic UPDATE."""
+        from server.models import BotMarketplaceListing
+        with SessionLocal() as db:
+            author = _user(db, "author2@market.test", balance=0)
+            buyer1 = _user(db, "buy1@market.test", balance=100_000)
+            buyer2 = _user(db, "buy2@market.test", balance=100_000)
+        listing_id = self._make_paid_listing(author[0], price=3000)
+        # Двое разных юзеров — оба установили
+        _client_for(buyer1).post(f"/marketplace/listings/{listing_id}/install")
+        _client_for(buyer2).post(f"/marketplace/listings/{listing_id}/install")
+        with SessionLocal() as db:
+            l = db.query(BotMarketplaceListing).filter_by(id=listing_id).first()
+            assert l.installs_count == 2
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Webhook atomic fail_count + auto-disable
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestWebhookAtomicFailCount:
+    """fail_count должен инкрементиться через atomic UPDATE (без race на
+    read-then-write). Auto-disable срабатывает после MAX_FAIL_BEFORE_DISABLE."""
+
+    def test_failed_post_increments_fail_count_atomically(self):
+        """Симулируем 10 ошибок → ApiWebhook.is_active должен стать False."""
+        from server.models import ApiWebhook, ApiToken
+        from server import webhooks as wh
+        with SessionLocal() as db:
+            uid, _ = _user(db, "wh-atomic@example.com")
+            import uuid as _uuid
+            tok = ApiToken(
+                user_id=uid,
+                prefix="ai_che_test_" + _uuid.uuid4().hex[:10],
+                secret_hash="dummyhash" * 8,
+                name="test",
+                scopes="read",
+                is_active=True,
+            )
+            db.add(tok); db.commit(); db.refresh(tok)
+            w = ApiWebhook(
+                user_id=uid,
+                url="http://127.0.0.1:1/never-resolves",  # точно упадёт
+                events="proposal.signed",
+                secret="sek_" + "a" * 32,
+                is_active=True,
+                fail_count=0, total_calls=0,
+            )
+            db.add(w); db.commit(); db.refresh(w)
+            wid = w.id
+        # MAX_FAIL_BEFORE_DISABLE раз вызовем fire-and-forget с гарантированной ошибкой
+        for _ in range(wh.MAX_FAIL_BEFORE_DISABLE):
+            wh._post_sync(wid, {"event": "x", "data": {}})
+        with SessionLocal() as db:
+            w2 = db.query(ApiWebhook).filter_by(id=wid).first()
+            assert w2.fail_count >= wh.MAX_FAIL_BEFORE_DISABLE
+            assert w2.is_active is False  # auto-disable сработал
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 2FA rate-limit (smoke)
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestAdmin2faRateLimit:
+    """В RULES должен быть префикс /admin/2fa/ для защиты от брутфорса."""
+
+    def test_rule_present(self):
+        from server.security import RULES
+        assert "/admin/2fa/" in RULES, \
+            "Должна быть rate-limit правило для /admin/2fa/"
+        max_calls, window = RULES["/admin/2fa/"]
+        assert max_calls <= 30 and window >= 60, \
+            "Лимит должен быть достаточно строгим"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Voice/TTS rate-limit правило (smoke)
+# ════════════════════════════════════════════════════════════════════════════
+
+class TestVoiceTtsRateLimit:
+    def test_rule_present(self):
+        from server.security import RULES
+        assert "/mobile/voice/tts" in RULES, \
+            "TTS endpoint должен быть в RULES (защита от слива баланса)"

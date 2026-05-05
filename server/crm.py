@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
+from sqlalchemy import update
 
 from server.db import db_session
 from server.models import CrmConnection
@@ -126,21 +127,41 @@ def _post_to_crm(conn_id: int, record: dict) -> dict:
     except Exception as e:
         out["error"] = f"{type(e).__name__}: {str(e)[:200]}"
 
-    # Сохраняем статус
+    # Сохраняем статус — atomic UPDATE (без race на read-then-write при
+    # одновременных POST'ах с разных воркеров: иначе fail_count мог застрять
+    # ниже threshold и auto-disable не срабатывал).
     with db_session() as db:
-        conn = db.query(CrmConnection).filter_by(id=conn_id).first()
-        if conn:
-            conn.last_status = out["status"]
-            conn.last_called_at = datetime.utcnow()
-            conn.last_error = out["error"]
-            conn.total_calls = (conn.total_calls or 0) + 1
-            if out["delivered"]:
-                conn.fail_count = 0
-            else:
-                conn.fail_count = (conn.fail_count or 0) + 1
-                if conn.fail_count >= MAX_FAIL_BEFORE_DISABLE:
-                    conn.is_active = False
-            db.commit()
+        if out["delivered"]:
+            db.execute(
+                update(CrmConnection)
+                .where(CrmConnection.id == conn_id)
+                .values(
+                    last_status=out["status"],
+                    last_called_at=datetime.utcnow(),
+                    last_error=None,
+                    total_calls=CrmConnection.total_calls + 1,
+                    fail_count=0,
+                )
+            )
+        else:
+            db.execute(
+                update(CrmConnection)
+                .where(CrmConnection.id == conn_id)
+                .values(
+                    last_status=out["status"],
+                    last_called_at=datetime.utcnow(),
+                    last_error=out["error"],
+                    total_calls=CrmConnection.total_calls + 1,
+                    fail_count=CrmConnection.fail_count + 1,
+                )
+            )
+            db.execute(
+                update(CrmConnection)
+                .where(CrmConnection.id == conn_id)
+                .where(CrmConnection.fail_count >= MAX_FAIL_BEFORE_DISABLE)
+                .values(is_active=False)
+            )
+        db.commit()
     return out
 
 

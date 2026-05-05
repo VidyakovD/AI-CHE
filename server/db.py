@@ -211,6 +211,12 @@ LIGHTWEIGHT_INDEXES: list[tuple[str, str]] = [
     ("uq_promo_uses_code_user",
      "CREATE UNIQUE INDEX IF NOT EXISTS uq_promo_uses_code_user "
      "ON promo_uses(code_id, user_id)"),
+    # Marketplace anti-pump (только для ПЛАТНЫХ): не даём поставить шаблон
+    # одному и тому же юзеру дважды на разных воркерах одновременно — иначе
+    # автор получит 70%×N. Бесплатные можно ставить заново сколько угодно.
+    ("uq_marketplace_paid_install",
+     "CREATE UNIQUE INDEX IF NOT EXISTS uq_marketplace_paid_install "
+     "ON bot_marketplace_installs(listing_id, installer_id) WHERE paid_kop > 0"),
 ]
 
 

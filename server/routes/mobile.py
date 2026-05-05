@@ -242,7 +242,8 @@ async def voice_transcribe(audio: UploadFile = File(...),
         keys = _get_api_keys("openai")
         if not keys:
             raise HTTPException(503, "OpenAI ключ не настроен")
-        cli = OpenAI(api_key=keys[0])
+        # timeout=60s — без него висящий OpenAI держит SQL-сессию неопределённо.
+        cli = OpenAI(api_key=keys[0], timeout=60.0, max_retries=0)
         import io
         f = io.BytesIO(contents)
         f.name = audio.filename or "voice.webm"
@@ -321,7 +322,8 @@ def voice_tts(body: TtsBody, db: Session = Depends(get_db),
         if not keys:
             credit_atomic(db, user.id, cost_kop)
             raise HTTPException(503, "OpenAI ключ не настроен")
-        cli = OpenAI(api_key=keys[0])
+        # timeout=30s — TTS обычно быстрая, но без timeout висит навечно.
+        cli = OpenAI(api_key=keys[0], timeout=30.0, max_retries=0)
         resp = cli.audio.speech.create(
             model="tts-1", voice=voice, input=text,
             response_format="mp3",

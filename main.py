@@ -846,6 +846,7 @@ async def sign_public_proposal(public_token: str, request: "Request"):
     import hashlib as _hashlib
     import json as _json
     from fastapi.responses import JSONResponse
+    from sqlalchemy.exc import IntegrityError as _IntegrityError
     from server.db import db_session
     from server.models import ProposalProject, ProposalSignature
     from datetime import datetime as _dt
@@ -906,7 +907,17 @@ async def sign_public_proposal(public_token: str, request: "Request"):
         # Auto-CRM transition
         if (p.crm_stage or "new") in ("new", "sent", "opened"):
             p.crm_stage = "won"
-        _db.commit()
+        # IntegrityError ловит race: два POST'а на /sign одновременно с разных
+        # воркеров — оба прошли SELECT-проверку existing=None, оба идут на INSERT.
+        # UNIQUE constraint на proposal_id защищает на DB-level. Превращаем
+        # IntegrityError в 409 (как для любого "уже подписано").
+        try:
+            _db.commit()
+        except _IntegrityError:
+            _db.rollback()
+            return JSONResponse({
+                "detail": "Документ уже подписан",
+            }, status_code=409)
         owner_id = p.user_id
         proposal_name = p.name
         client_label = p.client_name or p.client_email or "Клиент"

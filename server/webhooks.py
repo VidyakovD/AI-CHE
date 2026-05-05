@@ -26,6 +26,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
+from sqlalchemy import update
 
 from server.db import db_session
 from server.models import ApiWebhook
@@ -75,21 +76,42 @@ def _post_sync(webhook_id: int, payload: dict) -> dict:
     except Exception as e:
         out["error"] = f"{type(e).__name__}: {str(e)[:200]}"
 
-    # Записываем в БД
+    # Записываем в БД. fail_count и total_calls — atomic UPDATE
+    # (без read-then-write race на multi-worker; иначе при одновременных
+    # ошибках двух POST'ов counter мог застрять и auto-disable не сработать).
     with db_session() as db:
-        w = db.query(ApiWebhook).filter_by(id=webhook_id).first()
-        if w:
-            w.last_status = out["status"]
-            w.last_called_at = datetime.utcnow()
-            w.last_error = out["error"]
-            w.total_calls = (w.total_calls or 0) + 1
-            if out["delivered"]:
-                w.fail_count = 0
-            else:
-                w.fail_count = (w.fail_count or 0) + 1
-                if w.fail_count >= MAX_FAIL_BEFORE_DISABLE:
-                    w.is_active = False
-            db.commit()
+        if out["delivered"]:
+            db.execute(
+                update(ApiWebhook)
+                .where(ApiWebhook.id == webhook_id)
+                .values(
+                    last_status=out["status"],
+                    last_called_at=datetime.utcnow(),
+                    last_error=None,
+                    total_calls=ApiWebhook.total_calls + 1,
+                    fail_count=0,
+                )
+            )
+        else:
+            db.execute(
+                update(ApiWebhook)
+                .where(ApiWebhook.id == webhook_id)
+                .values(
+                    last_status=out["status"],
+                    last_called_at=datetime.utcnow(),
+                    last_error=out["error"],
+                    total_calls=ApiWebhook.total_calls + 1,
+                    fail_count=ApiWebhook.fail_count + 1,
+                )
+            )
+            # Auto-disable, если fail_count перешагнул threshold
+            db.execute(
+                update(ApiWebhook)
+                .where(ApiWebhook.id == webhook_id)
+                .where(ApiWebhook.fail_count >= MAX_FAIL_BEFORE_DISABLE)
+                .values(is_active=False)
+            )
+        db.commit()
     return out
 
 
