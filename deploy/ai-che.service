@@ -1,0 +1,37 @@
+[Unit]
+Description=AI Studio Che — FastAPI app
+Documentation=https://aiche.ru
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/AI-CHE
+EnvironmentFile=/root/AI-CHE/.env
+ExecStart=/root/AI-CHE/venv/bin/python -m uvicorn main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 4 \
+    --proxy-headers \
+    --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Logs → journalctl
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ai-che
+
+# Security hardening (минимально-безопасный набор —
+# ProtectSystem=strict / ProtectHome=true ломали uvicorn workers
+# в инциденте 2026-04-27, поэтому используем щадящий вариант)
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# Лимиты
+LimitNOFILE=65536
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

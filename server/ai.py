@@ -330,7 +330,7 @@ def openai_response(model: str, messages: list, extra: dict = None,
     last_error = None
     for key in keys:
         try:
-            client = OpenAI(api_key=key, timeout=90)
+            client = OpenAI(api_key=key, timeout=90, **_openai_client_kwargs("openai"))
             for attempt in range(2):
                 try:
                     resp = client.chat.completions.create(model=model, messages=formatted)
@@ -706,7 +706,61 @@ def veo_response(model: str, messages: list, extra: dict = None) -> dict:
 
 def _google_proxy() -> str | None:
     """Возвращает URL прокси для Google-вызовов или None если не задан."""
-    return (os.getenv("GOOGLE_HTTPS_PROXY") or "").strip() or None
+    return _ai_proxy("google")
+
+
+def _ai_proxy(provider: str) -> str | None:
+    """Универсальный helper: возвращает прокси для AI-вызовов.
+
+    Логика поиска:
+      1. <PROVIDER>_HTTPS_PROXY (например OPENAI_HTTPS_PROXY) — приоритет
+      2. AI_HTTPS_PROXY — общий fallback для всех AI-вызовов
+      3. None — идём напрямую (работает на NL-сервере; на РФ-сервере
+         вероятно вернёт connection refused)
+
+    На РФ-проде нужно настроить как минимум `AI_HTTPS_PROXY=http://user:pass@eu-relay:3128`
+    (squid на VPS в Hetzner/DO за €4/мес). Тогда все AI-вызовы пойдут
+    через ваш прокси, и провайдеры (OpenAI/Anthropic/Google/Perplexity)
+    увидят EU-IP вместо российского.
+
+    Поддерживаемые provider-имена: openai, anthropic, google, xai (grok),
+    perplexity. Можно использовать любую другую строку — будет искать
+    `<UPPER>_HTTPS_PROXY` env-переменную.
+    """
+    p = (provider or "").upper().strip()
+    specific = (os.getenv(f"{p}_HTTPS_PROXY") or "").strip()
+    if specific:
+        return specific
+    common = (os.getenv("AI_HTTPS_PROXY") or "").strip()
+    return common or None
+
+
+def _httpx_with_proxy(provider: str, **kwargs):
+    """Хелпер: httpx.Client с подменой прокси на нужный AI-провайдер.
+
+    Использование:
+        with _httpx_with_proxy("openai", timeout=90) as client:
+            r = client.post(...)
+    """
+    import httpx as _httpx
+    proxy = _ai_proxy(provider)
+    if proxy:
+        kwargs["proxy"] = proxy
+    return _httpx.Client(**kwargs)
+
+
+def _openai_client_kwargs(provider: str = "openai") -> dict:
+    """Возвращает kwargs для OpenAI() / Anthropic() — добавляет http_client
+    с прокси если нужно. SDK-клиенты используют httpx внутри.
+
+    Пример:
+        client = OpenAI(api_key=key, **_openai_client_kwargs("openai"))
+    """
+    proxy = _ai_proxy(provider)
+    if not proxy:
+        return {}
+    import httpx as _httpx
+    return {"http_client": _httpx.Client(proxy=proxy, timeout=90)}
 
 
 def _save_image_b64(b64: str, mime: str = "image/png") -> str:
@@ -988,7 +1042,9 @@ def anthropic_response(model: str, messages: list, extra: dict = None,
                 _max_tok = int((extra or {}).get("max_tokens", 8192))
                 # timeout=600s — для генерации сайтов (Sonnet с 16k max_tokens
                 # часто думает 90-180 сек, а с auto-continue ещё дольше).
-                resp = _ant.Anthropic(api_key=key, timeout=_ANTHROPIC_TIMEOUT).messages.create(
+                resp = _ant.Anthropic(api_key=key, timeout=_ANTHROPIC_TIMEOUT,
+                                        **_openai_client_kwargs("anthropic")
+                                        ).messages.create(
                     model=model, max_tokens=_max_tok,
                     messages=claude_msgs,
                     system=system_block if use_caching else system_text,
@@ -1092,7 +1148,8 @@ def _openai_compatible_response(provider: str, base_url: str, model: str,
                                  messages: list, default_model: str = "") -> dict:
     from openai import OpenAI
     def _call(key):
-        client = OpenAI(api_key=key, base_url=base_url, timeout=90)
+        client = OpenAI(api_key=key, base_url=base_url, timeout=90,
+                          **_openai_client_kwargs(provider))
         resp = client.chat.completions.create(
             model=model or default_model, messages=messages,
         )
@@ -1206,7 +1263,7 @@ def openai_image_response(model: str, messages: list, extra: dict = None) -> dic
 
     for key in keys:
         try:
-            client = OpenAI(api_key=key)
+            client = OpenAI(api_key=key, **_openai_client_kwargs("openai"))
 
             # ── Path A: edit mode (gpt-image-1 + reference image[s]) ──
             # gpt-image-1 принимает массив до 10 reference картинок.
