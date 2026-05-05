@@ -375,6 +375,51 @@ def _encrypt_file(src_path: str, dst_path: str, key: bytes) -> None:
         f.write(nonce + ciphertext)
 
 
+def _upload_backup_to_yc_s3(local_enc_path: str) -> str | None:
+    """Загружает зашифрованный backup в Yandex Object Storage (S3-совместимое).
+    Возвращает строку с результатом или None если фича выключена.
+
+    Включается через env:
+      YC_S3_ENDPOINT — обычно https://storage.yandexcloud.net (есть default)
+      YC_S3_BUCKET — имя bucket'а (юзер создаёт в YC консоли)
+      YC_S3_KEY_ID — статический ключ access_key_id
+      YC_S3_SECRET — статический ключ secret_access_key
+
+    Заливаем в `s3://<bucket>/db/<filename>`. Файл уже зашифрован AES-256-GCM,
+    в облаке хранится в зашифрованном виде. Retention в облаке отдельный (можно
+    политикой bucket'а сделать longer чем локальный 14 дней).
+    """
+    import os
+    endpoint = os.getenv("YC_S3_ENDPOINT", "https://storage.yandexcloud.net").strip()
+    bucket = os.getenv("YC_S3_BUCKET", "").strip()
+    key_id = os.getenv("YC_S3_KEY_ID", "").strip()
+    secret = os.getenv("YC_S3_SECRET", "").strip()
+    if not (bucket and key_id and secret):
+        return None  # фича выключена
+    try:
+        import boto3
+        from botocore.config import Config as _BotoConfig
+    except ImportError:
+        log.error("[yc-s3] boto3 не установлен (pip install boto3)")
+        return "boto3 missing"
+    try:
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=key_id,
+            aws_secret_access_key=secret,
+            region_name="ru-central1",  # Yandex Cloud только ru-central1
+            config=_BotoConfig(connect_timeout=10, read_timeout=60, retries={"max_attempts": 2}),
+        )
+        s3_key = "db/" + os.path.basename(local_enc_path)
+        s3.upload_file(local_enc_path, bucket, s3_key)
+        size_mb = os.path.getsize(local_enc_path) / 1024 / 1024
+        return f"s3://{bucket}/{s3_key} ({size_mb:.1f} MB)"
+    except Exception as e:
+        log.error(f"[yc-s3] upload failed: {type(e).__name__}: {str(e)[:300]}")
+        return f"failed: {type(e).__name__}"
+
+
 async def _db_backup_tick():
     """Делает hot-backup БД и шифрует AES-256-GCM (152-ФЗ для ПДн).
     Backend выбирается по DATABASE_URL:
@@ -464,6 +509,16 @@ async def _db_backup_tick():
         size_mb = os.path.getsize(dst_enc) / 1024 / 1024
         backend = "sqlite" if IS_SQLITE else "postgres"
         log.info(f"[db-backup] {dst_enc} ({size_mb:.1f} MB) backend={backend} encrypted=AES-256-GCM")
+
+        # Отдельный шаг: офлайн-копия в Yandex Object Storage (если настроен).
+        # Делается только после успешного шифрования. Если облако упало —
+        # локальный backup всё равно есть, fail не блокирует tick.
+        yc_result = _upload_backup_to_yc_s3(dst_enc)
+        if yc_result is not None:
+            if yc_result.startswith("s3://"):
+                log.info(f"[db-backup] yandex-cloud: {yc_result}")
+            else:
+                log.warning(f"[db-backup] yandex-cloud: {yc_result}")
     except Exception as e:
         log.error(f"[db-backup] failed: {e}")
         for p in (dst_plain, dst_enc):

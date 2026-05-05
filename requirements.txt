@@ -43,3 +43,7 @@ sentry-sdk[fastapi]==2.15.0
 # с `postgresql://`. По умолчанию проект работает на SQLite (для dev).
 # Для прода ставится через `pip install -r requirements.txt` на сервере.
 psycopg2-binary==2.9.9
+# Yandex Object Storage (S3-compatible) — для офлайн-бэкапов БД (152-ФЗ ст. 18:
+# копия в РФ-облаке). Используется только если YC_S3_BUCKET задан в env.
+# boto3 — стандартный AWS SDK, поддерживает S3-совместимое API через endpoint_url.
+boto3==1.35.0
