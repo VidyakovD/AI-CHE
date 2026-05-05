@@ -4,6 +4,87 @@
 
 ---
 
+## 🆕 Спринт «4 фичи: workflow-labels + drag-drop + CRM + USER_GUIDE» (2026-05-04 ещё)
+
+Юзер запросил 4 пункта одним списком + просил создать USER_GUIDE простым языком.
+
+### #1 NODE_TYPE_LABELS fallback (понятные названия workflow-нод)
+В `views/icons.js` глобальный `window.NODE_TYPE_LABELS` — мапа 90+ технических ID → русские эмодзи-лейблы:
+- `trigger_imap` → «📧 Новое письмо»
+- `save_record` → «💾 Сохранить заявку»
+- `node_gpt` → «🤖 GPT-4o»
+- `kb_rag` → «🧠 RAG-ответ из БЗ»
+- и т.д.
+
+Использование: `window.nodeTypeLabel(typeId)` возвращает label или сам ID если неизвестен.
+Применено в `views/workflow.html` как fallback для `NODE_DEF[type]?.label || nodeTypeLabel(type)`.
+
+### #2 Drag-n-drop helper + применение
+`window.aiDragDrop.attach(zone, opts)` в icons.js:
+- Поддерживает accept-mime/extensions, multiple, hint
+- Overlay при drag-over с подсказкой
+- Защита от dragleave-мерцания через counter
+- Авто-добавляет `position:relative` если static
+- Возвращает detach() для отключения
+
+Применено в `views/proposals.html`:
+- При открытии модалки прайс-листа можно перетащить CSV прямо на неё
+- Авто-импорт через `_doImportPriceCsv(file)` минуя input
+
+### #3 CRM-интеграции (Bitrix24 / amoCRM / generic webhook)
+
+**Backend:**
+- Модель `CrmConnection` (provider + EncryptedString webhook_url + field_mapping_json + last_status + fail_count + is_active)
+- `server/crm.py`: `dispatch_record_to_crm(user_id, record)` — fire-and-forget threading
+  - 3 пресета mapping: `_DEFAULT_BITRIX_MAPPING`, `_DEFAULT_AMOCRM_MAPPING`, `_DEFAULT_GENERIC_MAPPING`
+  - Bitrix24: PHONE/EMAIL → `[{VALUE: ..., VALUE_TYPE: WORK}]` + payload в `{fields: {...}}`
+  - 10 фейлов подряд → auto-disable
+- `server/routes/crm.py` — 6 endpoints: `/crm/providers`, CRUD `/crm/connections`, `/test`, `/toggle`
+- SSRF-защита: блок localhost/10.x/192.168/172.16-31/169.254
+- Hook в `chatbot_engine.py` после save_record: `dispatch_record_to_crm(user_id, _crm_record)` параллельно с webhook'ами
+- `webhook_url` маскируется в API (показываем хост + first segments + `***`)
+
+**Frontend `/api.html`:**
+- Новая вкладка «📞 CRM» (рядом с Tokens/Webhooks/Docs)
+- Модалка «Подключить CRM»: select провайдера + auto-обновляющийся hint (Bitrix24 instructions)
+- Карточки соединений: статус, last_status (зелёный/красный), fail_count, кнопки 🧪 Тест и Удалить
+- При успехе → toast «CRM подключена. Жмите Тест»
+
+### #4 USER_GUIDE.md (полный гайд простым языком)
+Новый файл в корне `USER_GUIDE.md`, **~1100 строк**, **19 разделов**:
+1. Быстрый старт (60 секунд)
+2. Регистрация и кабинет
+3. Деньги и баланс (полная таблица цен)
+4. Чат с AI (8 моделей + лайфхаки)
+5. Бизнес-решения (8 PRO orchestra + 30 plain)
+6. Чат-боты (6 каналов, 7 шаблонов, 9 кнопок карточки)
+7. Marketplace ботов (revenue split 70/30)
+8. КП с электронной подписью
+9. Презентации (PPTX/HTML/PDF)
+10. Сайты под ключ (1500/1990 ₽)
+11. AI-агенты с workflow (50+ блоков)
+12. База знаний (RAG лимиты + биллинг)
+13. Public API + Webhooks (с curl-примером)
+14. CRM-интеграции (Bitrix24 step-by-step)
+15. Расписания cron
+16. Голосовой ввод и TTS
+17. Безопасность (2FA, шифрование, ESign)
+18. Push, PWA, QR-вход, TG management
+19. Помощь и FAQ (10 типичных вопросов)
+
+Простой язык без жаргона, со скриншотами/таблицами/code-snippets где нужно.
+
+### Тесты
+- pytest **182/182 passed**
+- JS sanity 10 view-файлов OK
+- Preview e2e CRM endpoints:
+  - `/crm/providers` → 3 провайдера ✅
+  - `POST /crm/connections` → 200 + id + masked URL ✅
+  - SSRF (`localhost`) → 400 ✅
+  - `DELETE /crm/connections/{id}` → 200 ✅
+
+---
+
 ## 🆕 Спринт «Закрытие незавершённого: idempotency-DB + тесты + reencrypt» (2026-05-04 финал)
 
 Юзер спросил «есть что-то незаконченное кроме твоего». Признал 3 пункта:

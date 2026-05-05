@@ -457,6 +457,49 @@ class ApiToken(Base):
     created_at    = Column(DateTime, default=datetime.utcnow)
 
 
+class CrmConnection(Base):
+    """CRM-интеграция юзера (Bitrix24, amoCRM, generic webhook).
+
+    При срабатывании события `record.created` (новая заявка из чат-бота)
+    мы автоматически постим лид в CRM юзера. Это закрывает 80% случаев
+    «синхронизация заявок с моей CRM» без необходимости разработчика.
+
+    Bitrix24:
+      - Юзер заходит в свою Bitrix24 → Разработчикам → Webhooks → Создать
+        входящий webhook → выбрать crm.lead.add разрешение → копирует URL
+      - Вставляет URL в нашу CRM-форму (provider="bitrix24")
+      - Мы при record.created делаем POST на URL с CRM-полями
+
+    amoCRM:
+      - Сложнее (OAuth2). Простой путь: использовать generic webhook где
+        юзер сам пишет URL принимающий JSON. amoCRM имеет «Вебхуки» в
+        настройках интеграции.
+
+    field_mapping_json — JSON {"наше_поле": "поле_crm"}, например:
+      {"customer_name": "TITLE", "customer_phone": "PHONE",
+       "bot_name": "SOURCE_DESCRIPTION"}
+    Если NULL → используем дефолтный mapping из crm.py.
+
+    secret — для HMAC-подписи (если CRM поддерживает) — опциональный.
+    """
+    __tablename__ = "crm_connections"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
+    provider     = Column(String, nullable=False)  # bitrix24 / amocrm / webhook
+    name         = Column(String, nullable=True)   # «Главная воронка»
+    webhook_url  = Column(EncryptedString, nullable=False)
+    field_mapping_json = Column(Text, nullable=True)
+    is_active    = Column(Boolean, default=True, index=True)
+    last_status  = Column(Integer, nullable=True)
+    last_called_at = Column(DateTime, nullable=True)
+    last_error   = Column(String, nullable=True)
+    fail_count   = Column(Integer, default=0)
+    total_calls  = Column(Integer, default=0)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+
 class IdempotencyRecord(Base):
     """Cross-worker idempotency для /message и других чувствительных к
     дублированию endpoint'ов.

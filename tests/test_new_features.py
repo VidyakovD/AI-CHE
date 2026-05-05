@@ -220,9 +220,12 @@ class TestOrchestraSchedule:
     def test_create_with_valid_frequency(self):
         from main import app
         from server.auth import create_token
+        from server.models import OrchestraSchedule
         with SessionLocal() as db:
             uid, uemail = _user(db, "sched-test@example.com")
-            uid, uemail = uid, uemail
+            # Чистим расписания предыдущих прогонов (лимит 5)
+            db.query(OrchestraSchedule).filter_by(user_id=uid).delete()
+            db.commit()
             sid = self._make_orchestra_solution(db)
         cli = TestClient(app)
         cli.headers["Authorization"] = "Bearer " + create_token(uid, uemail)

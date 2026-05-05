@@ -1766,6 +1766,7 @@ async function openPriceListModal(id){
     document.getElementById('plDeleteBtn').classList.add('hidden');
   }
   document.getElementById('priceListModal').classList.add('show');
+  _attachPriceListDnd();
 }
 
 function closePriceListModal(){
@@ -1875,12 +1876,18 @@ async function deleteCurrentPriceList(){
 async function importPriceCsv(ev){
   const file = ev.target.files[0];
   if(!file) return;
+  await _doImportPriceCsv(file);
+  ev.target.value = '';
+}
+
+async function _doImportPriceCsv(file){
+  if(!file) return;
   // Если прайс ещё не сохранён — сначала сохраним, чтобы был id
   if(!currentPriceListId){
     const name = document.getElementById('plName').value.trim();
-    if(!name){ await aiAlert('Сначала введи название прайса', 'warn'); ev.target.value=''; return; }
+    if(!name){ await aiAlert('Сначала введи название прайса', 'warn'); return; }
     await savePriceList();
-    if(!currentPriceListId){ ev.target.value=''; return; }
+    if(!currentPriceListId) return;
   }
   const fd = new FormData(); fd.append('file', file);
   const tok = localStorage.getItem('obs_token');
@@ -1893,7 +1900,21 @@ async function importPriceCsv(ev){
     await openPriceListModal(currentPriceListId);
     aiToast(`Импортировано ${data.added} позиций`, 'success');
   }catch(e){ await aiAlertError(e); }
-  finally{ ev.target.value = ''; }
+}
+
+// Drag-n-drop CSV на модалку прайс-листа: при перетаскивании файла на
+// область модалки автоматически зальём как импорт.
+function _attachPriceListDnd(){
+  if (!window.aiDragDrop) return;
+  const zone = document.getElementById('priceListModal');
+  if (!zone || zone.dataset.dndAttached === '1') return;
+  zone.dataset.dndAttached = '1';
+  window.aiDragDrop.attach(zone, {
+    accept: ['.csv', '.tsv', 'text/csv'],
+    multiple: false,
+    hint: 'Отпустите CSV — позиции импортируются автоматически',
+    onFiles: (files) => _doImportPriceCsv(files[0]),
+  });
 }
 
 // Color picker ↔ hex input bidirectional sync

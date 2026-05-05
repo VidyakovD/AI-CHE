@@ -1208,7 +1208,10 @@ async function runWorkflow(){
   if(nodes.length > 1){
     const isolated = nodes.filter(n => !conns.some(c => c.from===n.id || c.to===n.id));
     if(isolated.length){
-      const names = isolated.map(n => (NODE_DEF[n.type]?.label)||n.type).join(', ');
+      const names = isolated.map(n =>
+        (NODE_DEF[n.type]?.label) ||
+        (window.nodeTypeLabel ? window.nodeTypeLabel(n.type) : n.type)
+      ).join(', ');
       logRun(`⚠️ Изолированы (не соединены): ${names}`,'warn');
     }
   }

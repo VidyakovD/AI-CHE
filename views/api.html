@@ -58,6 +58,7 @@ pre{font-family:'JetBrains Mono','Fira Code',monospace;background:#272018;paddin
     <div class="tab-switch">
       <button class="tab-sw-btn active" id="tab-tokens" onclick="switchTab('tokens')">🔑 Токены</button>
       <button class="tab-sw-btn" id="tab-webhooks" onclick="switchTab('webhooks')">🔗 Webhooks</button>
+      <button class="tab-sw-btn" id="tab-crm" onclick="switchTab('crm')">📞 CRM</button>
       <button class="tab-sw-btn" id="tab-docs" onclick="switchTab('docs')">📖 Документация</button>
     </div>
   </div>
@@ -80,6 +81,19 @@ pre{font-family:'JetBrains Mono','Fira Code',monospace;background:#272018;paddin
     </div>
     <div id="webhooksList" class="space-y-3"></div>
     <div id="webhooksEmpty" class="empty hidden">У вас ещё нет webhooks. Создайте первый.</div>
+  </div>
+
+  <!-- ── Tab: CRM ──────────────────────────────────────────────────────────-->
+  <div id="paneCrm" class="hidden">
+    <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+      <p class="text-sm text-on-dim flex-1 min-w-[200px]">
+        Автоматическая отправка заявок из чат-ботов в вашу CRM (Bitrix24, amoCRM или любой webhook).
+        Лимит 5 активных интеграций.
+      </p>
+      <button onclick="openCreateCrm()" class="btn-p text-sm">+ Подключить CRM</button>
+    </div>
+    <div id="crmList" class="space-y-3"></div>
+    <div id="crmEmpty" class="empty hidden">У вас ещё нет CRM-интеграций.</div>
   </div>
 
   <!-- ── Tab: Docs ───────────────────────────────────────────────────────── -->
@@ -235,6 +249,42 @@ def verify(secret, body_bytes, signature_header):
   </div>
 </div>
 
+<!-- ── Modal: Подключить CRM ─────────────────────────────────────────────-->
+<div id="createCrmModal" class="modal-bg">
+  <div class="card max-w-md w-full p-6">
+    <div class="flex items-start justify-between mb-4">
+      <h2 class="text-xl font-extrabold font-headline">📞 Подключить CRM</h2>
+      <button onclick="closeM('createCrmModal')" class="btn-g text-xs">✕</button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs font-bold text-on-dim mb-1 block">CRM-система</label>
+        <select id="crmProvider" class="inp" onchange="updateCrmHint()">
+          <option value="bitrix24">Bitrix24</option>
+          <option value="amocrm">amoCRM</option>
+          <option value="webhook">Generic webhook (любой URL)</option>
+        </select>
+      </div>
+      <div id="crmHint" class="text-xs text-on-dim/80 bg-surface2 p-3 rounded-lg border border-outline/20">
+        <!-- заполнится через updateCrmHint() -->
+      </div>
+      <div>
+        <label class="text-xs font-bold text-on-dim mb-1 block">Webhook URL</label>
+        <input id="crmUrl" class="inp" placeholder="https://your-crm.bitrix24.ru/rest/1/abc.../crm.lead.add" maxlength="2000">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-on-dim mb-1 block">Название (для удобства)</label>
+        <input id="crmName" class="inp" placeholder="Главная воронка" maxlength="100">
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5 pt-3 border-t border-outline/25">
+      <button onclick="closeM('createCrmModal')" class="btn-g">Отмена</button>
+      <button onclick="submitCrm()" id="crmSubmit" class="btn-p">Подключить</button>
+    </div>
+  </div>
+</div>
+
+
 <!-- ── Modal: Создать webhook ─────────────────────────────────────────────-->
 <div id="createWebhookModal" class="modal-bg">
   <div class="card max-w-md w-full p-6">
@@ -295,14 +345,14 @@ function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt
 function escAttr(s){return escHtml(s);}
 
 function switchTab(name){
-  document.getElementById('tab-tokens').classList.toggle('active', name === 'tokens');
-  document.getElementById('tab-webhooks').classList.toggle('active', name === 'webhooks');
-  document.getElementById('tab-docs').classList.toggle('active', name === 'docs');
-  document.getElementById('paneTokens').classList.toggle('hidden', name !== 'tokens');
-  document.getElementById('paneWebhooks').classList.toggle('hidden', name !== 'webhooks');
-  document.getElementById('paneDocs').classList.toggle('hidden', name !== 'docs');
+  ['tokens','webhooks','crm','docs'].forEach(n => {
+    document.getElementById('tab-'+n)?.classList.toggle('active', name === n);
+    const pane = document.getElementById('pane' + n.charAt(0).toUpperCase() + n.slice(1));
+    if (pane) pane.classList.toggle('hidden', name !== n);
+  });
   if (name === 'tokens') refreshTokens();
   else if (name === 'webhooks') refreshWebhooks();
+  else if (name === 'crm') refreshCrm();
 }
 
 // ── Tokens ───────────────────────────────────────────────────────────────
@@ -523,6 +573,142 @@ async function deleteWebhook(id){
 }
 
 refreshTokens();
+
+
+// ── CRM-интеграции ──────────────────────────────────────────────────────────
+const CRM_HINTS = {
+  bitrix24:
+    `<b>Bitrix24:</b> зайдите в <i>Разработчикам → Другое → Входящий вебхук</i>. ` +
+    `Дайте права на <code>crm.lead.add</code>. Скопируйте URL вида ` +
+    `<code>https://ваш-домен.bitrix24.ru/rest/1/токен/</code> и добавьте в конце <code>crm.lead.add.json</code>.`,
+  amocrm:
+    `<b>amoCRM:</b> в правах подключения «Вебхуки» создайте URL для входящих ` +
+    `данных. Мы пошлём JSON с полями <code>name/PHONE/EMAIL/source</code>.`,
+  webhook:
+    `<b>Generic webhook:</b> просто HTTPS URL принимающий JSON. Мы пошлём ` +
+    `<code>{customer_name, customer_phone, customer_email, bot_name, ...}</code>. ` +
+    `Подходит для Zapier / Make / N8N / собственного API.`,
+};
+
+function updateCrmHint(){
+  const provider = document.getElementById('crmProvider').value;
+  document.getElementById('crmHint').innerHTML = CRM_HINTS[provider] || '';
+}
+
+async function refreshCrm(){
+  const wrap = document.getElementById('crmList');
+  const emp = document.getElementById('crmEmpty');
+  wrap.innerHTML = window.aiSkeleton ? window.aiSkeleton('cards', 2) : '...';
+  emp.classList.add('hidden');
+  try {
+    const r = await fetch('/crm/connections', {credentials:'same-origin'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const items = await r.json();
+    if (!items.length){
+      wrap.innerHTML = '';
+      emp.classList.remove('hidden');
+      return;
+    }
+    wrap.innerHTML = items.map(c => {
+      const status = c.is_active
+        ? '<span class="status-ok">активен</span>'
+        : '<span class="status-fail">отключён</span>';
+      const lastCall = c.last_called_at
+        ? new Date(c.last_called_at).toLocaleString('ru-RU')
+        : 'не вызывался';
+      const lastResult = c.last_status
+        ? `<span class="${c.last_status >= 200 && c.last_status < 300 ? 'status-ok' : 'status-fail'}">${c.last_status}</span>`
+        : '<span class="status-pending">—</span>';
+      const errLine = c.last_error
+        ? `<div class="text-xs text-error mt-1">⚠️ ${escHtml(c.last_error.slice(0, 100))}</div>`
+        : '';
+      return `<div class="card p-4">
+        <div class="flex items-start justify-between gap-3 mb-2 flex-wrap">
+          <div class="flex-1 min-w-[200px]">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="font-bold">${escHtml(c.name||'')}</span>
+              <span class="scope-tag">${escHtml(c.provider)}</span>
+              ${status}
+            </div>
+            <code class="text-xs">${escHtml(c.webhook_url_preview||'')}</code>
+            <div class="text-xs text-on-dim/70 mt-2">
+              ${c.total_calls} вызовов · последний: ${lastCall} → ${lastResult}
+              ${c.fail_count > 0 ? ` · ⚠️ ${c.fail_count} ошибок подряд` : ''}
+            </div>
+            ${errLine}
+          </div>
+          <div class="flex gap-2 flex-shrink-0">
+            <button onclick="testCrm(${c.id})" class="btn-g text-xs">🧪 Тест</button>
+            <button onclick="deleteCrm(${c.id})" class="btn-d text-xs">Удалить</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e){
+    wrap.innerHTML = `<div class="empty">${escHtml(e.message)}</div>`;
+  }
+}
+
+function openCreateCrm(){
+  document.getElementById('crmUrl').value = '';
+  document.getElementById('crmName').value = '';
+  document.getElementById('crmProvider').value = 'bitrix24';
+  updateCrmHint();
+  document.getElementById('createCrmModal').classList.add('show');
+}
+
+async function submitCrm(){
+  const provider = document.getElementById('crmProvider').value;
+  const url = document.getElementById('crmUrl').value.trim();
+  const name = document.getElementById('crmName').value.trim();
+  if (!url || !/^https?:\/\//.test(url)){
+    if (window.aiAlert) await aiAlert('URL должен начинаться с http:// или https://', 'warn');
+    return;
+  }
+  const btn = document.getElementById('crmSubmit');
+  btn.disabled = true; btn.textContent = '...';
+  try {
+    const r = await fetch('/crm/connections', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({provider, webhook_url: url, name: name || null}),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'HTTP ' + r.status);
+    closeM('createCrmModal');
+    if (window.aiToast) aiToast('CRM подключена. Жмите 🧪 Тест чтобы проверить.', 'success');
+    refreshCrm();
+  } catch(e){
+    if (window.aiAlertError) await aiAlertError(e); else alert(e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Подключить';
+  }
+}
+
+async function testCrm(id){
+  if (window.aiToast) aiToast('Отправляю тестовую заявку…', 'info');
+  try {
+    const r = await fetch(`/crm/connections/${id}/test`, {method:'POST', credentials:'same-origin'});
+    const data = await r.json();
+    if (data.delivered){
+      if (window.aiToast) aiToast(`✓ Доставлено! HTTP ${data.status}. Проверьте свою CRM.`, 'success');
+    } else {
+      const msg = data.error || `HTTP ${data.status}`;
+      if (window.aiAlert) await aiAlert('Не доставлено: ' + msg, 'error');
+    }
+    refreshCrm();
+  } catch(e){ if (window.aiAlertError) await aiAlertError(e); }
+}
+
+async function deleteCrm(id){
+  if (!await aiConfirm('Удалить интеграцию? Заявки больше не будут отправляться.', {okLabel: 'Удалить', danger: true})) return;
+  try {
+    const r = await fetch(`/crm/connections/${id}`, {method:'DELETE', credentials:'same-origin'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (window.aiToast) aiToast('Интеграция удалена', 'info');
+    refreshCrm();
+  } catch(e){ if (window.aiAlertError) await aiAlertError(e); }
+}
 </script>
 
 </body>

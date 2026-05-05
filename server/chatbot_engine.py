@@ -1494,18 +1494,27 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
                     pass
                 # Public API webhook: record.created — для интеграции с
                 # внешними CRM (Bitrix24/amoCRM/etc).
+                _crm_record = {
+                    "bot_id": ctx["bot"].id,
+                    "bot_name": ctx["bot"].name,
+                    "record_type": rec_type,
+                    "customer_name": ctx.get("customer_name"),
+                    "customer_phone": ctx.get("customer_phone"),
+                    "customer_email": ctx.get("customer_email"),
+                    "platform": ctx.get("platform"),
+                    "chat_id": ctx.get("chat_id"),
+                    "comment": ctx.get("comment") or "",
+                }
                 try:
                     from server.webhooks import dispatch_event
-                    dispatch_event(ctx["bot"].user_id, "record.created", {
-                        "bot_id": ctx["bot"].id,
-                        "bot_name": ctx["bot"].name,
-                        "record_type": rec_type,
-                        "customer_name": ctx.get("customer_name"),
-                        "customer_phone": ctx.get("customer_phone"),
-                        "customer_email": ctx.get("customer_email"),
-                        "platform": ctx.get("platform"),
-                        "chat_id": ctx.get("chat_id"),
-                    })
+                    dispatch_event(ctx["bot"].user_id, "record.created", _crm_record)
+                except Exception:
+                    pass
+                # Native CRM-интеграции (Bitrix24/amoCRM/generic webhook)
+                # — fire-and-forget с авто-маппингом полей
+                try:
+                    from server.crm import dispatch_record_to_crm
+                    dispatch_record_to_crm(ctx["bot"].user_id, _crm_record)
                 except Exception:
                     pass
         except Exception as e:

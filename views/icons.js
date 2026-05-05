@@ -996,6 +996,211 @@
   }
 
 
+  // ── Drag-n-drop файлов helper ─────────────────────────────────────────────
+  // Универсальная обёртка над DOM-элементом: при drag-over подсвечивает,
+  // при drop — вызывает callback с File-объектами.
+  // Использование:
+  //   aiDragDrop.attach(zoneEl, {
+  //     accept: ['image/png', '.csv'],
+  //     onFiles: (files) => { ... },
+  //     hint: 'Перетащите CSV сюда'  // показывается оверлеем при drag
+  //   });
+  if (!window.aiDragDrop) {
+    function _ensureCss(){
+      if (document.getElementById('ai-dnd-style')) return;
+      const css = `
+.ai-dnd-zone{position:relative;transition:background .15s,border-color .15s}
+.ai-dnd-zone.ai-dnd-active{background:rgba(255,140,66,.08);outline:2px dashed rgba(255,140,66,.5);outline-offset:-4px}
+.ai-dnd-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(20,20,22,.85);color:#ff8c42;font-size:14px;font-weight:600;pointer-events:none;border-radius:inherit;z-index:99}
+.ai-dnd-overlay-icon{font-size:32px;display:block;margin-bottom:8px}
+`;
+      const style = document.createElement('style');
+      style.id = 'ai-dnd-style';
+      style.textContent = css;
+      document.head.appendChild(style);
+    }
+
+    function _matchesAccept(file, accept){
+      if (!accept || !accept.length) return true;
+      const name = (file.name || '').toLowerCase();
+      const type = (file.type || '').toLowerCase();
+      for (const a of accept){
+        const al = a.toLowerCase();
+        if (al.startsWith('.') && name.endsWith(al)) return true;
+        if (al.includes('/')){
+          // mime type pattern. image/* matches image/png и image/jpeg
+          if (al.endsWith('/*')){
+            if (type.startsWith(al.slice(0, -1))) return true;
+          } else if (type === al) return true;
+        }
+      }
+      return false;
+    }
+
+    window.aiDragDrop = {
+      /**
+       * Подключить drag-n-drop к элементу.
+       * opts: {accept, onFiles, hint, multiple?}
+       * Возвращает функцию detach() для отключения.
+       */
+      attach(zone, opts){
+        if (!zone || typeof opts.onFiles !== 'function') return () => {};
+        _ensureCss();
+        zone.classList.add('ai-dnd-zone');
+        // Создаём overlay (показывается при drag-over)
+        const overlay = document.createElement('div');
+        overlay.className = 'ai-dnd-overlay';
+        overlay.style.display = 'none';
+        overlay.innerHTML = `<div style="text-align:center"><span class="ai-dnd-overlay-icon">📎</span><div>${
+          (opts.hint || 'Отпустите чтобы загрузить').replace(/[<>]/g, '')
+        }</div></div>`;
+        // Если у zone position=static — установим relative чтобы overlay
+        // позиционировался корректно
+        const cs = window.getComputedStyle(zone);
+        if (cs.position === 'static') zone.style.position = 'relative';
+        zone.appendChild(overlay);
+
+        let dragCounter = 0;  // защита от вложенных dragenter/leave
+
+        const onEnter = (e) => {
+          e.preventDefault();
+          dragCounter++;
+          if (dragCounter === 1){
+            zone.classList.add('ai-dnd-active');
+            overlay.style.display = 'flex';
+          }
+        };
+        const onOver = (e) => {
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        };
+        const onLeave = (e) => {
+          dragCounter--;
+          if (dragCounter <= 0){
+            dragCounter = 0;
+            zone.classList.remove('ai-dnd-active');
+            overlay.style.display = 'none';
+          }
+        };
+        const onDrop = (e) => {
+          e.preventDefault();
+          dragCounter = 0;
+          zone.classList.remove('ai-dnd-active');
+          overlay.style.display = 'none';
+          const dt = e.dataTransfer;
+          if (!dt || !dt.files || !dt.files.length) return;
+          const allFiles = [...dt.files];
+          const matching = allFiles.filter(f => _matchesAccept(f, opts.accept));
+          if (!matching.length){
+            if (window.aiToast) aiToast(
+              `Тип файла не подходит. Нужно: ${(opts.accept||[]).join(', ')}`,
+              'warn');
+            return;
+          }
+          // Если multiple=false — берём только первый
+          const result = opts.multiple === false ? [matching[0]] : matching;
+          try {
+            opts.onFiles(result);
+          } catch(e){
+            if (window.aiAlertError) aiAlertError(e);
+            else console.error('[aiDragDrop] onFiles error', e);
+          }
+        };
+        zone.addEventListener('dragenter', onEnter);
+        zone.addEventListener('dragover', onOver);
+        zone.addEventListener('dragleave', onLeave);
+        zone.addEventListener('drop', onDrop);
+        return () => {
+          zone.removeEventListener('dragenter', onEnter);
+          zone.removeEventListener('dragover', onOver);
+          zone.removeEventListener('dragleave', onLeave);
+          zone.removeEventListener('drop', onDrop);
+          zone.classList.remove('ai-dnd-zone', 'ai-dnd-active');
+          overlay.remove();
+        };
+      },
+    };
+  }
+
+
+  // ── Понятные названия workflow-нод ───────────────────────────────────────
+  // Глобальный fallback-mapping технических ID → русские лейблы. Используется
+  // когда конкретный view не нашёл label в своём WFC_DEFS / NODE_DEF.
+  // Источник правды: server/chatbot_engine.py + workflow_builder.py.
+  if (!window.NODE_TYPE_LABELS) {
+    window.NODE_TYPE_LABELS = {
+      // Триггеры
+      "trigger_manual":   "▶️ Запуск вручную",
+      "trigger_tg":       "📨 Сообщение в Telegram",
+      "trigger_vk":       "📨 Сообщение в VK",
+      "trigger_avito":    "📨 Сообщение в Авито",
+      "trigger_max":      "📨 Сообщение в MAX",
+      "trigger_webhook":  "🔔 Внешний webhook",
+      "trigger_imap":     "📧 Новое письмо",
+      "trigger_schedule": "⏰ По расписанию",
+      // AI-блоки
+      "node_gpt":         "🤖 GPT-4o",
+      "node_claude":      "🟣 Claude Sonnet",
+      "node_gemini":      "✨ Gemini Flash",
+      "node_grok":        "⚡ Grok",
+      "prompt":           "📝 Системная инструкция",
+      "orchestrator":     "🧠 Оркестратор (выбирает ветку)",
+      // Логика
+      "condition":        "❓ Условие (если/иначе)",
+      "switch":           "🔀 Switch (несколько веток)",
+      "role_switch":      "👥 По роли пользователя",
+      "delay":            "⏱️ Задержка",
+      "http_request":     "🌐 HTTP-запрос",
+      "code_python":      "🐍 Python-код",
+      // Storage
+      "storage_get":      "📥 Загрузить из памяти",
+      "storage_set":      "📤 Сохранить в память",
+      "storage_push":     "➕ Добавить в массив",
+      // База знаний (RAG)
+      "kb_add":           "📚 Добавить файл в БЗ",
+      "kb_search_file":   "🔍 Найти файл в БЗ",
+      "kb_search":        "🔎 Поиск по содержимому БЗ",
+      "kb_rag":           "🧠 RAG-ответ из БЗ",
+      // Output
+      "output_tg":        "✉️ Ответить в Telegram",
+      "output_tg_buttons": "🔘 TG: кнопки выбора",
+      "output_tg_file":   "📎 TG: отправить файл",
+      "output_tg_audio":  "🎤 TG: голосовое",
+      "output_vk":        "✉️ Ответить в VK",
+      "output_max":       "✉️ Ответить в MAX",
+      "output_max_buttons": "🔘 MAX: кнопки выбора",
+      "output_save":      "💾 Сохранить в историю",
+      "output_hook":      "📡 POST на внешний URL",
+      // Богатый UX
+      "request_contact":  "📱 Запрос контакта",
+      "request_location": "📍 Запрос геолокации",
+      "output_photo":     "🖼️ Отправить картинку",
+      "edit_message":     "✏️ Изменить сообщение",
+      "chat_action_typing": "⌨️ Показать «печатает...»",
+      // Универсальный
+      "save_record":      "💾 Сохранить заявку",
+      // Tools
+      "rss":              "📰 Парсер RSS",
+      "extract_text":     "📄 Извлечь текст из файла",
+      "whisper":          "🎙️ Whisper: голос → текст",
+      "tts":              "🔊 TTS: текст → голос",
+      "yd_list":          "☁️ Я.Диск: список файлов",
+      "yd_upload":        "☁️ Я.Диск: загрузить",
+      "grok_search":      "🔍 Grok + поиск Web/X",
+      // Мета
+      "bot_constructor":  "🛠️ AI-конструктор бота",
+      "auto_proposal":    "📄 Автогенерация КП из письма",
+    };
+    /**
+     * Получить понятное название для типа ноды.
+     * Если ID не известен — возвращает сам ID (чтобы не падать).
+     */
+    window.nodeTypeLabel = function(typeId){
+      return window.NODE_TYPE_LABELS[typeId] || typeId || '?';
+    };
+  }
+
+
   // ── Toast helper ─────────────────────────────────────────────────────────
   // Не блокирующее уведомление в правом нижнем углу с auto-fade.
   // Использование:
