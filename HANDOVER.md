@@ -1,6 +1,82 @@
 # HANDOVER — для нового AI-ассистента
 
-Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-05-04 после большой серии спринтов по бизнес-решениям, marketplace, public API + аудит-фикс сессия**.
+Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-05-05 после миграции прода в РФ + 13 спринтов фич за последние сутки**.
+
+---
+
+## 🆕 Спринт «Миграция в РФ» (2026-05-05) — ПОСЛЕДНИЙ
+
+### Что произошло
+Переезд с `194.104.9.219` (Дронтен NL, Clouvider) на **`193.187.92.147`** (Москва RU, HOSTKEY) для **152-ФЗ compliance**.
+
+### Конфигурация нового сервера
+- **IP:** `193.187.92.147`
+- **OS:** Ubuntu 22.04.5 LTS
+- **Hardware:** 2 vCPU / 4 ГБ RAM / 60 ГБ NVMe / 3 ТБ трафика
+- **Стоимость:** 504 ₽/мес со скидкой
+- **Python:** 3.10.12 (vs 3.12 на NL — но всё работает)
+- **Hostname:** `vm-v2-nano`
+
+### Подготовка миграции (toolkit)
+- `scripts/migrate_export.sh` — упаковка с NL: chat.db + uploads + .env + ключи в tar.gz, останавливает ai-che на время dump для consistency
+- `scripts/migrate_setup.sh` — первичная установка: пакеты, venv, UFW, fail2ban, systemd, nginx
+- `scripts/migrate_import.sh` — распаковка с rollback-бэкапом + integrity-check SQLite + миграции
+- `deploy/ai-che.service` — production systemd unit (4 workers)
+- `deploy/nginx.conf` — HTTP-only заглушка
+- `deploy/nginx-ssl.conf` — production HTTPS с TLSv1.2/1.3, HSTS, CSP, кэш статики, SSE
+- `MIGRATION.md` — полный пошаговый гайд (8 этапов)
+
+### AI-прокси для всех 5 провайдеров
+В `server/ai.py`:
+- `_ai_proxy(provider)` — provider-specific (`OPENAI_HTTPS_PROXY` etc) → `AI_HTTPS_PROXY` → None
+- `_openai_client_kwargs(provider)` — http_client с прокси для SDK OpenAI/Anthropic
+- Применено в OpenAI (chat + images), Anthropic, Google (legacy), Grok (через `_openai_compatible_response`), Perplexity
+
+ENV на проде: `AI_HTTPS_PROXY=http://GYDMQ9mG:L1N8SBFc@156.233.103.240:62134` (тот же что был в `GOOGLE_HTTPS_PROXY`).
+
+### Шаги выполнены
+1. **Подключение через paramiko** (sshpass на Windows ломал пароль с `+`)
+   - Добавил мой SSH-ключ в `~/.ssh/authorized_keys`
+   - Сменил root-пароль на random `q49-ZVmuDPgaflwgOaj7nRy1lLCUzVcs`
+   - Сохранил пароль в `/root/.aiche-server-password` (chmod 400)
+2. **Установка пакетов:** apt: nginx, certbot, ufw, fail2ban, sqlite3, шрифты + libcairo2-dev для pycairo (нужен reportlab)
+3. **Python venv:** 119 pip-пакетов установлены (изначально pip падал на pycairo — нужны системные деps)
+4. **UFW + fail2ban + systemd unit + nginx config**
+5. **Перенос данных** через paramiko SFTP:
+   - chat.db: 1.2 МБ, integrity OK, 2 юзера + 1 бот (тестовые)
+   - uploads/: 78 МБ (58 файлов)
+   - .env, .vapid_private.pem, .backup_encryption_key
+   - SHA256 совпали (sshpass-cat ломал binary, через paramiko OK)
+6. **Миграции БД:** `apply_lightweight_migrations()` применены, ничего не сломалось
+7. **`.env` обновлён:**
+   - `AI_HTTPS_PROXY` добавлен (как fallback для всех AI)
+   - `APP_ENV=production`, `DEV_MODE=false`
+   - chmod 600
+8. **Сервис запущен:**
+   - `systemctl is-active ai-che` → active
+   - `/healthz` → 200 OK через 127.0.0.1:8000 и nginx 80
+   - 4 worker'а
+   - Логи: ноль ERROR/Traceback
+
+### Проверка прокси
+- `curl -x $AI_HTTPS_PROXY https://api.openai.com/v1/models` → 401 (без auth, ожидаемо — значит прокси работает)
+- `curl https://api.openai.com/v1/models` без прокси → 403 (заблокирован для РФ)
+- Helper `_ai_proxy()` возвращает прокси для всех 5 провайдеров
+
+### Что осталось ДО полного запуска
+1. **DNS** — юзер сменил A-запись `aiche.ru` на новый IP, но в момент написания файла ещё распространяется (TTL до 30 мин). При проверке `nslookup` показывал старый.
+2. **SSL** — после полной DNS-распространения:
+   ```bash
+   ssh root@193.187.92.147
+   certbot --nginx -d aiche.ru -d www.aiche.ru \
+     --email vidyakov@obsidian.ai --agree-tos --no-eff-email
+   sed 's|__DOMAIN__|aiche.ru|g' /root/AI-CHE/deploy/nginx-ssl.conf > /etc/nginx/sites-available/aiche.ru
+   nginx -t && systemctl reload nginx
+   ```
+3. **Старый сервер** — после 24-48ч успешной работы нового можно `systemctl stop ai-che` на NL.
+
+### Тесты после AI-прокси изменений
+182/182 passed (ничего не сломалось — _openai_client_kwargs возвращает {} если прокси не задан).
 
 ---
 
