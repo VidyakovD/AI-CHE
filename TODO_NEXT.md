@@ -13,6 +13,7 @@ _Последнее обновление: 2026-05-05 после fix-сессии
 - ✅ **Race-fixes**: marketplace anti-pump, webhooks/CRM atomic fail_count, signature IntegrityError → 409
 - ✅ **Anti-DoS**: OpenAI timeout=30/60s, rate-limit на /mobile/voice/tts и /admin/2fa/
 - ✅ **A11y**: aria-label на close-кнопках в index.html
+- ✅ **PostgreSQL 14** на проде. SQLite → postgres миграция (392 строки в 57 таблиц). Бэкап через `pg_dump --format=custom` + AES-256-GCM. Старый chat.db сохранён как `chat.db.before-pg-migration-*` (safety net).
 - ✅ **Тесты**: 187 passed (+5 новых)
 - ✅ **Деплой**: код на проде, `systemctl is-active ai-che` = active
 

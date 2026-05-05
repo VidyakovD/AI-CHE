@@ -36,7 +36,7 @@
 
 ## Стек
 
-- **Backend:** Python 3.10 (на новом сервере) / 3.12 (NL legacy), FastAPI 0.111, SQLAlchemy 2.0, SQLite (`chat.db`)
+- **Backend:** Python 3.10 (на новом сервере) / 3.12 (NL legacy), FastAPI 0.111, SQLAlchemy 2.0, **PostgreSQL 14** (на проде с 2026-05-05) / SQLite (для dev/тестов через `DATABASE_URL=sqlite:///./chat.db`)
 - **Frontend:** HTML / Tailwind CDN / vanilla JS (SPA)
 - **AI:**
   - OpenAI (gpt-4o, gpt-image-1, dall-e-3, whisper-1, tts-1)
@@ -62,11 +62,12 @@
 - **Путь:** `/root/AI-CHE`
 - **venv:** `/root/AI-CHE/venv/bin/python`
 - **Сервис:** `systemctl status ai-che` (4 worker'а на 127.0.0.1:8000)
-- **nginx:** `/etc/nginx/sites-available/aiche.ru` (HTTP пока, SSL после DNS)
-- **UFW:** только 22/80/443
-- **fail2ban:** на SSH (5 fails / 10 min → ban 1h)
+- **nginx:** `/etc/nginx/sites-available/aiche.ru` (HTTPS, Let's Encrypt + auto-renew, HSTS preload)
+- **PostgreSQL 14.22:** `localhost:5432` БД `aiche`, юзер `aiche`. Пароль в `/root/.aiche-postgres-password` (chmod 400). Подключение через `DATABASE_URL` в `.env`.
+- **UFW:** только 22/80/443 (postgres только localhost)
+- **fail2ban:** на SSH (`backend=systemd`, 5 fails / 10 min → ban 1h)
 - **Пароль root:** хранится в `/root/.aiche-server-password` (chmod 400)
-- **SSH-ключ Claude:** добавлен в `~/.ssh/authorized_keys` (через paramiko в первой миграции)
+- **SSH-ключ Claude:** добавлен в `~/.ssh/authorized_keys`
 
 ### Старый сервер (legacy, после переключения DNS можно выключить)
 - IP: `194.104.9.219`
@@ -361,6 +362,8 @@ Endpoints: `/admin/actions(.txt|.jsonl)`. Cleanup retention в scheduler.
 - **Логи действий:** `log_action(...)` в новые endpoint'ы
 - **Native dialogs запрещены** — везде `aiAlert/aiConfirm/aiPrompt`
 - **Деплой:** `git push origin main && ssh ... git pull && systemctl restart ai-che`. NEVER `db.drop_all()`, NEVER reset api_keys/users/transactions
+- **БД на проде — PostgreSQL** (`postgresql://aiche:...@localhost:5432/aiche`). Для dev — SQLite остаётся работать через `DATABASE_URL=sqlite:///./chat.db` или умолчание. Все миграции в `LIGHTWEIGHT_MIGRATIONS` совместимы с обоими backend'ами через `_existing_columns()`.
+- **Backup:** scheduler делает раз в сутки `pg_dump --format=custom`, шифрует AES-256-GCM в `/root/AI-CHE/backups/chat.db.YYYY-MM-DD.enc`, retention 14 дней
 - **Public API endpoints должны быть scope-aware** через `authenticate_token(request, db, required_scope=...)` + `is_verified` check
 - **Race на multi-worker:** все RMW операции должны быть либо `UPDATE ... SET = + 1`, либо UNIQUE-protected. См. IdempotencyRecord, ApiToken.requests_count.
 
