@@ -20,7 +20,26 @@ import os, smtplib, ssl, logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
-from email.utils import make_msgid, formatdate, parseaddr
+from email.utils import make_msgid, formatdate, parseaddr, formataddr
+from email.header import Header
+
+
+def _encode_address_header(raw: str) -> str:
+    """RFC 2047-кодирует non-ASCII display name в строке вида
+    `AI Студия Че <info@aiche.ru>`.
+
+    Без этого Python вписывает кириллицу как 8-bit в SMTP-заголовок,
+    Yandex считает sender malformed и отвечает 550 "address rejected".
+    Если display name отсутствует или 7-bit ASCII — возвращаем как есть.
+    """
+    name, addr = parseaddr(raw)
+    if not name:
+        return addr or raw
+    try:
+        name.encode("ascii")
+        return formataddr((name, addr))
+    except UnicodeEncodeError:
+        return formataddr((str(Header(name, "utf-8")), addr))
 
 log = logging.getLogger(__name__)
 
@@ -63,8 +82,8 @@ def _send(to: str, subject: str, html: str) -> None:
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = SMTP_FROM
+    msg["Subject"] = str(Header(subject, "utf-8"))
+    msg["From"]    = _encode_address_header(SMTP_FROM)
     msg["To"]      = to
     msg.attach(MIMEText(html, "html", "utf-8"))
 
@@ -163,8 +182,8 @@ def send_with_attachment(to: str, subject: str, html_body: str,
 
     msg = MIMEMultipart("mixed")
     sender = from_override or SMTP_FROM
-    msg["Subject"] = subject
-    msg["From"] = sender
+    msg["Subject"] = str(Header(subject, "utf-8"))
+    msg["From"] = _encode_address_header(sender)
     msg["To"] = to
     msg["Date"] = formatdate(localtime=True)
     new_msg_id = make_msgid(domain=(SMTP_HOST.split(".")[-2] + "." + SMTP_HOST.split(".")[-1])
