@@ -20,7 +20,7 @@ import os, smtplib, ssl, logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
-from email.utils import make_msgid, formatdate
+from email.utils import make_msgid, formatdate, parseaddr
 
 log = logging.getLogger(__name__)
 
@@ -68,10 +68,15 @@ def _send(to: str, subject: str, html: str) -> None:
     msg["To"]      = to
     msg.attach(MIMEText(html, "html", "utf-8"))
 
+    # MAIL FROM в SMTP-команде — bare email без display name. Yandex (и
+    # Mail.ru, и многие другие) отвечают 550 'Sender address rejected'
+    # если в MAIL FROM попадает строка типа "AI Студия Че <info@aiche.ru>".
+    # Display name остаётся в заголовке письма From: (msg["From"]).
+    _, envelope_from = parseaddr(SMTP_FROM)
     try:
         with _open_smtp() as s:
             s.login(SMTP_USER, SMTP_PASS)
-            s.sendmail(SMTP_FROM, to, msg.as_string())
+            s.sendmail(envelope_from or SMTP_USER, to, msg.as_string())
         try:
             from server.security import mask_email
             log.info(f"Email sent to {mask_email(to)}")
@@ -188,10 +193,12 @@ def send_with_attachment(to: str, subject: str, html_body: str,
         att.add_header("Content-Disposition", "attachment", filename=fname)
         msg.attach(att)
 
+    # MAIL FROM = bare email (без display name) — иначе Yandex/Mail.ru reject 550
+    _, envelope_from = parseaddr(sender)
     try:
         with _open_smtp() as s:
             s.login(SMTP_USER, SMTP_PASS)
-            s.sendmail(sender, to, msg.as_string())
+            s.sendmail(envelope_from or SMTP_USER, to, msg.as_string())
         try:
             from server.security import mask_email
             log.info(f"Email+attachment sent to {mask_email(to)} attach={len(attachments or [])}")
