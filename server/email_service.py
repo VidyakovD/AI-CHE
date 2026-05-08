@@ -2,16 +2,21 @@
 Email service — SMTP + fallback console logging.
 
 Set in .env:
-  SMTP_HOST=smtp.gmail.com
-  SMTP_PORT=587
-  SMTP_USER=you@gmail.com
+  SMTP_HOST=smtp.yandex.ru
+  SMTP_PORT=465                # 465 → SSL-from-start (рекомендуется)
+                               # 587 → plain + STARTTLS
+  SMTP_USER=you@aiche.ru
   SMTP_PASS=app_password
-  SMTP_FROM=AI Студия Че <you@gmail.com>
+  SMTP_FROM=AI Студия Че <you@aiche.ru>
   APP_URL=https://yourdomain.com
 
 If SMTP_HOST is not set, codes are only printed to console (dev mode).
+
+Транспорт выбирается автоматически: SMTP_PORT=465 → SMTP_SSL (TLS с
+самого начала, как требует Yandex/Mail.ru/большинство современных серверов).
+SMTP_PORT=587 → SMTP + STARTTLS (legacy путь, Gmail и старые рекомендации).
 """
-import os, smtplib, logging
+import os, smtplib, ssl, logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
@@ -25,6 +30,25 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_FROM = os.getenv("SMTP_FROM", "AI Студия Че <noreply@ai-che.ru>")
 APP_URL   = os.getenv("APP_URL", "http://localhost:8000")
+
+# Таймаут на любую SMTP-операцию (login/sendmail). Без него зависший
+# сервер заблокирует worker uvicorn'а до бесконечности.
+SMTP_TIMEOUT_SEC = 30
+
+
+def _open_smtp() -> smtplib.SMTP:
+    """Открывает соединение с SMTP-сервером, выбирая транспорт по порту:
+    465 → SMTP_SSL (TLS-from-start), иначе → SMTP + STARTTLS.
+    """
+    if SMTP_PORT == 465:
+        ctx = ssl.create_default_context()
+        return smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT,
+                                 context=ctx, timeout=SMTP_TIMEOUT_SEC)
+    s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT_SEC)
+    s.ehlo()
+    s.starttls(context=ssl.create_default_context())
+    s.ehlo()
+    return s
 
 
 def _send(to: str, subject: str, html: str) -> None:
@@ -45,9 +69,7 @@ def _send(to: str, subject: str, html: str) -> None:
     msg.attach(MIMEText(html, "html", "utf-8"))
 
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-            s.ehlo()
-            s.starttls()
+        with _open_smtp() as s:
             s.login(SMTP_USER, SMTP_PASS)
             s.sendmail(SMTP_FROM, to, msg.as_string())
         try:
@@ -167,8 +189,8 @@ def send_with_attachment(to: str, subject: str, html_body: str,
         msg.attach(att)
 
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-            s.ehlo(); s.starttls(); s.login(SMTP_USER, SMTP_PASS)
+        with _open_smtp() as s:
+            s.login(SMTP_USER, SMTP_PASS)
             s.sendmail(sender, to, msg.as_string())
         try:
             from server.security import mask_email
