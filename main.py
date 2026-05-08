@@ -295,8 +295,10 @@ async def body_size_and_headers(request: Request, call_next):
             "Content-Security-Policy",
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://yookassa.ru https://*.yookassa.ru; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdn.tailwindcss.com; "
-            "font-src 'self' data: https://fonts.gstatic.com; "
+            # fonts.bunny.net — privacy-альтернатива Google Fonts, не банится
+            # в РФ (Google Fonts CDN частично блокируется провайдерами).
+            "style-src 'self' 'unsafe-inline' https://fonts.bunny.net https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdn.tailwindcss.com; "
+            "font-src 'self' data: https://fonts.bunny.net https://fonts.gstatic.com; "
             "img-src 'self' data: blob: https:; "
             "media-src 'self' data: blob: https:; "
             "connect-src 'self' https: wss:; "

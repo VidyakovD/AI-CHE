@@ -53,10 +53,9 @@
   .standalone-badge { display: inline-flex; }
 }
 </style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link rel="preconnect" href="https://fonts.bunny.net">
+<link href="https://fonts.bunny.net/css?family=inter:400,500,600|manrope:500,600,700,800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.bunny.net/css?family=material-symbols-outlined" rel="stylesheet"/>
 <style>
 /* Fallback: если шрифт не загрузился (file:// протокол), скрываем иконки-текст и показываем emoji */
 @font-face {
@@ -120,8 +119,8 @@ function getSvgIcon(name, size=20, color='currentColor') {
 // Font loader — runs immediately, no conflict
 (function() {
   if (location.protocol === 'file:') {
-    ['https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200',
-     'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@500;600;700;800&display=swap'
+    ['https://fonts.bunny.net/css?family=material-symbols-outlined',
+     'https://fonts.bunny.net/css?family=inter:400,500,600|manrope:500,600,700,800&display=swap'
     ].forEach(href => {
       const l = document.createElement('link');
       l.rel = 'stylesheet'; l.href = href; l.crossOrigin = 'anonymous';
