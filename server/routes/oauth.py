@@ -29,14 +29,14 @@ router = APIRouter(prefix="/auth/oauth", tags=["auth"])
 
 APP_URL = os.getenv("APP_URL", "https://aiche.ru")
 
-GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 VK_CLIENT_ID         = os.getenv("VK_CLIENT_ID", "")
 VK_CLIENT_SECRET     = os.getenv("VK_CLIENT_SECRET", "")
 
-# Whitelist провайдеров — иначе через `provider` в URL можно подсунуть путь
-# с `..` и обойти валидацию OAuth-сервера на стороне провайдера.
-_ALLOWED_PROVIDERS = {"google", "vk"}
+# Whitelist провайдеров. Google убран по продуктовому решению — оставляем
+# только российские/нейтральные провайдеры (152-ФЗ, политика РКН).
+# Если когда-нибудь нужно вернуть Google — добавить обратно "google",
+# раскомментировать GOOGLE_* выше и google_start/google_callback ниже.
+_ALLOWED_PROVIDERS = {"vk"}
 
 # TTL state-параметра — должен быть >= наибольшего разумного времени consent screen
 _STATE_TTL_SEC = 600
@@ -185,67 +185,16 @@ def oauth_exchange(req: OAuthExchangeRequest, response: Response,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  GOOGLE
+#  GOOGLE — отключено (продуктовое решение: оставляем только российские
+#  провайдеры из соображений 152-ФЗ и политики РКН).
+#  Если кто-то попадёт на старую ссылку (закладка, поисковик) — отдадим
+#  410 Gone, и фронт редиректит обратно на главную.
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/google/start")
-def google_start(request: Request, db: Session = Depends(get_db)):
-    if not GOOGLE_CLIENT_ID:
-        raise HTTPException(503, "Google OAuth не настроен")
-    state = _issue_state(db, "google")
-    params = urllib.parse.urlencode({
-        "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": _redirect_uri("google"),
-        "response_type": "code",
-        "scope": "openid email profile",
-        "access_type": "online",
-        "prompt": "select_account",
-        "state": state,
-    })
-    return RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
-
-
 @router.get("/google/callback")
-async def google_callback(code: str | None = None, state: str | None = None,
-                          error: str | None = None,
-                          db: Session = Depends(get_db)):
-    if error or not code:
-        return RedirectResponse(f"{APP_URL}/?oauth_error={error or 'no_code'}")
-    if _consume_state(db, "google", state) is None:
-        log.warning(f"[Google] invalid state: {state!r}")
-        return RedirectResponse(f"{APP_URL}/?oauth_error=state")
-    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
-        raise HTTPException(503, "Google OAuth не настроен")
-    try:
-        async with httpx.AsyncClient(timeout=15) as c:
-            tok = await c.post("https://oauth2.googleapis.com/token", data={
-                "code": code,
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "redirect_uri": _redirect_uri("google"),
-                "grant_type": "authorization_code",
-            })
-            tok_data = tok.json()
-            access_token = tok_data.get("access_token")
-            if not access_token:
-                # Логируем только error-код, не весь tok_data (там может быть refresh_token).
-                log.error(f"[Google] token exchange failed: error={tok_data.get('error')!r}")
-                return RedirectResponse(f"{APP_URL}/?oauth_error=token")
-            info = await c.get("https://www.googleapis.com/oauth2/v3/userinfo",
-                               headers={"Authorization": f"Bearer {access_token}"})
-            u = info.json()
-    except Exception as e:
-        log.error(f"[Google] callback exception: {type(e).__name__}")
-        return RedirectResponse(f"{APP_URL}/?oauth_error=exchange")
-
-    sub = str(u.get("sub") or "")
-    email = u.get("email") or ""
-    name = u.get("name") or u.get("given_name") or ""
-    if not sub:
-        return RedirectResponse(f"{APP_URL}/?oauth_error=no_sub")
-
-    user = _login_or_create(db, email, name, "google", sub)
-    return _frontend_redirect(db, user)
+def google_disabled():
+    return RedirectResponse(f"{APP_URL}/?oauth_error=google_disabled", status_code=410)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
