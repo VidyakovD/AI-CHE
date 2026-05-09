@@ -420,14 +420,24 @@ async def tool_web_search(params: dict, context: dict) -> str:
     if pplx_keys:
         try:
             import httpx
-            resp = await httpx.AsyncClient(timeout=15).post(
-                "https://api.perplexity.ai/chat/completions",
-                headers={"Authorization": f"Bearer {pplx_keys[0]}", "Content-Type": "application/json"},
-                json={"model":"sonar-small-chat","messages":[
-                    {"role":"system","content":"Дай краткий ответ с источниками."},
-                    {"role":"user","content":query}
-                ]}
-            )
+            from server.ai import _ai_proxy
+            proxy = _ai_proxy("perplexity")
+            client_kwargs = {"timeout": 30.0}
+            if proxy:
+                client_kwargs["proxy"] = proxy
+            async with httpx.AsyncClient(**client_kwargs) as c:
+                resp = await c.post(
+                    "https://api.perplexity.ai/chat/completions",
+                    headers={"Authorization": f"Bearer {pplx_keys[0]}",
+                             "Content-Type": "application/json"},
+                    json={"model": "sonar",  # обновлено: sonar-small-chat снят с поддержки
+                          "messages": [
+                              {"role": "system", "content": "Дай краткий ответ с источниками."},
+                              {"role": "user", "content": query}
+                          ],
+                          "max_tokens": 1500},
+                )
+            resp.raise_for_status()
             text = resp.json()["choices"][0]["message"]["content"]
             return f"Результаты поиска по запросу '{query}':\n\n{text}"
         except Exception as e:
@@ -528,6 +538,115 @@ def _wrap_user_input(text: str) -> str:
     # Закрывающий тег внутри текста заменяем на нейтральный
     safe = str(text).replace("</user_data>", "</user_data_blocked>")
     return f"<user_data>\n{safe}\n</user_data>"
+
+
+async def tool_perplexity_research(params: dict, context: dict) -> str:
+    """Глубокий веб-ресёрч через Perplexity sonar-reasoning-pro / sonar-pro
+    с цитатами и большим количеством источников. Биллинг **отдельный**:
+    не fix-price (как в orchestra-пилотах), а real-cost × margin × 5.
+
+    Параметры:
+      query           — что искать (обязательно)
+      depth           — quick (sonar+low, ~50 коп × margin = 2.5 ₽) /
+                        standard (sonar-pro+medium, ~3-5 ₽ × margin = 15-25 ₽) /
+                        deep (sonar-reasoning-pro+high, ~5-15 ₽ × margin = 25-75 ₽)
+      recency         — year / month / week / day (опц., свежесть результатов)
+      max_tokens      — лимит ответа (default зависит от depth)
+
+    Биллинг:
+      - Списываем real_cost × margin (по pricing_config.ai.improve_margin_pct
+        = 500% по умолчанию). При нехватке средств — graceful return ошибки,
+        не падаем.
+      - В audit log пишем actual cost для прозрачности.
+    """
+    import os
+    import httpx as _httpx
+
+    query = (params.get("query") or "").strip()
+    if not query:
+        return "Ошибка: query пустой"
+
+    depth = (params.get("depth") or "standard").lower()
+    DEPTH_PRESETS = {
+        "quick":    {"model": "sonar",                "search": "low",    "max_tokens": 1500},
+        "standard": {"model": "sonar-pro",            "search": "medium", "max_tokens": 4000},
+        "deep":     {"model": "sonar-reasoning-pro",  "search": "high",   "max_tokens": 8000},
+    }
+    preset = DEPTH_PRESETS.get(depth, DEPTH_PRESETS["standard"])
+    model = params.get("model") or preset["model"]
+    search_ctx = params.get("search_context") or preset["search"]
+    max_tokens = max(500, min(int(params.get("max_tokens") or preset["max_tokens"]), 16000))
+
+    log.info(f"[tool] perplexity_research depth={depth} model={model} q={query[:80]}")
+
+    keys = [k.strip() for k in os.getenv("PERPLEXITY_API_KEYS", "").split(",") if k.strip()]
+    if not keys:
+        return "Ошибка: PERPLEXITY_API_KEYS не настроен"
+
+    from server.ai import _ai_proxy
+    proxy = _ai_proxy("perplexity")
+    client_kwargs = {"timeout": 120.0}
+    if proxy:
+        client_kwargs["proxy"] = proxy
+
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": query[:8000]}],
+        "max_tokens": max_tokens,
+        "temperature": float(params.get("temperature", 0.2)),
+        "web_search_options": {"search_context_size": search_ctx},
+    }
+    recency = params.get("recency")
+    if recency in ("year", "month", "week", "day"):
+        payload["search_recency_filter"] = recency
+
+    try:
+        async with _httpx.AsyncClient(**client_kwargs) as c:
+            r = await c.post("https://api.perplexity.ai/chat/completions",
+                              json=payload,
+                              headers={"Authorization": f"Bearer {keys[0]}",
+                                       "Content-Type": "application/json"})
+            r.raise_for_status()
+            body = r.json()
+    except Exception as e:
+        log.error(f"[tool perplexity_research] {type(e).__name__}: {str(e)[:200]}")
+        return f"Ошибка Perplexity: {type(e).__name__}"
+
+    text = (body.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+    usage = body.get("usage") or {}
+    cost_usd = float((usage.get("cost") or {}).get("total_cost") or 0)
+    # Курс 95 ₽/$ как в solutions_orchestra._USD_TO_KOP_RATE для консистентности
+    real_cost_kop = int(cost_usd * 95 * 100)
+
+    # Биллинг: real_cost × margin (по умолчанию × 5).
+    # context.user_id передаётся run_agent'ом из task context.
+    user_id = context.get("user_id")
+    if user_id and real_cost_kop > 0:
+        try:
+            from server.db import db_session
+            from server.models import User, Transaction
+            from server.billing import deduct_strict
+            from server.pricing import get as pricing_get
+            margin_pct = int(pricing_get("ai.improve_margin_pct", 500) or 500)
+            charge_kop = real_cost_kop * margin_pct // 100  # 5 ₽ × 5 = 25 ₽
+            with db_session() as db:
+                if not deduct_strict(db, user_id, charge_kop):
+                    return f"Недостаточно средств для глубокого ресёрча (нужно ~{charge_kop/100:.0f} ₽)"
+                db.add(Transaction(
+                    user_id=user_id, type="usage",
+                    tokens_delta=-charge_kop,
+                    description=f"Perplexity research ({depth}) · {query[:50]}",
+                    model=model,
+                ))
+                db.commit()
+            log.info(f"[tool perplexity_research] charged {charge_kop} коп "
+                      f"(real {real_cost_kop} × margin {margin_pct}%)")
+        except Exception as e:
+            log.error(f"[tool perplexity_research] billing failed: {e}")
+            # При ошибке биллинга всё равно возвращаем результат — юзер уже
+            # потратил наши деньги на Perplexity, не отказываем ему в ответе.
+
+    return text or "Пустой ответ от Perplexity"
 
 
 async def tool_run_llm(params: dict, context: dict) -> str:
@@ -647,15 +766,20 @@ async def tool_finish(params: dict, context: dict) -> str:
 
 
 TOOLS = {
-    "web_search":     tool_web_search,
-    "browse_url":     tool_browse_url,
-    "run_llm":        tool_run_llm,
-    "generate_image": tool_generate_image,
-    "generate_video": tool_generate_video,
-    "send_vk_post":   tool_send_vk_post,
-    "send_tg_message":tool_send_tg_message,
-    "write_output":   tool_write_output,
-    "finish":         tool_finish,
+    "web_search":          tool_web_search,
+    "browse_url":          tool_browse_url,
+    # Perplexity deep research: для агентов которым нужно глубокое
+    # исследование с цитатами (юр-кейсы, конкуренты, due diligence).
+    # Биллинг: real_cost × margin × 5 — не забывайте включать в whitelist
+    # только для тех агентов где это оправдано (дорогая операция).
+    "perplexity_research": tool_perplexity_research,
+    "run_llm":             tool_run_llm,
+    "generate_image":      tool_generate_image,
+    "generate_video":      tool_generate_video,
+    "send_vk_post":        tool_send_vk_post,
+    "send_tg_message":     tool_send_tg_message,
+    "write_output":        tool_write_output,
+    "finish":              tool_finish,
 }
 
 # ── REACT LOOP ────────────────────────────────────────────────────────────────
