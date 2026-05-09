@@ -295,10 +295,10 @@ async def body_size_and_headers(request: Request, call_next):
             "Content-Security-Policy",
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com https://yookassa.ru https://*.yookassa.ru; "
-            # fonts.bunny.net — privacy-альтернатива Google Fonts, не банится
-            # в РФ (Google Fonts CDN частично блокируется провайдерами).
-            "style-src 'self' 'unsafe-inline' https://fonts.bunny.net https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdn.tailwindcss.com; "
-            "font-src 'self' data: https://fonts.bunny.net https://fonts.gstatic.com; "
+            # Шрифты захостили локально (/fonts/*.woff2) — никаких внешних
+            # font CDN не нужно. Google Fonts/Bunny.net убраны из CSP.
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.tailwindcss.com; "
+            "font-src 'self' data:; "
             "img-src 'self' data: blob: https:; "
             "media-src 'self' data: blob: https:; "
             "connect-src 'self' https: wss:; "
@@ -338,6 +338,10 @@ app.include_router(crm_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+# Локальные шрифты (Inter, Manrope, Material Symbols) — захостили сами,
+# чтобы не зависеть от Google Fonts CDN (частично блокируется в РФ).
+app.mount("/fonts", StaticFiles(directory="views/fonts"), name="fonts")
 
 # ── Hosted sites: убран StaticFiles mount ─────────────────────────────────
 # Раньше mount /sites/hosted → uploads/sites/ позволял прямой доступ к файлам
