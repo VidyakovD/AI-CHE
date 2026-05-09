@@ -50,6 +50,27 @@ def _post_sync(webhook_id: int, payload: dict) -> dict:
             return {"status": "error", "error": "webhook gone"}
         url = w.url
         secret = w.secret
+
+    # Defense-in-depth: re-валидируем URL на dispatch-time. URL валидируется
+    # при /webhooks (POST) — но если когда-нибудь добавим PUT-эндпоинт или
+    # БД-row будет изменён иначе (миграция, ручной UPDATE), мы не должны
+    # POST'ить на 127.0.0.1. DNS rebinding тоже ловится здесь, потому что
+    # резолв делается заново.
+    from server.proposal_builder import validate_outbound_url
+    try:
+        validate_outbound_url(url, allow_http=True)
+    except ValueError as e:
+        log.warning(f"[webhook {webhook_id}] dispatch-time URL rejected: {e}")
+        out_err = f"URL rejected: {e}"
+        with db_session() as db:
+            db.execute(
+                update(ApiWebhook)
+                .where(ApiWebhook.id == webhook_id)
+                .values(last_error=out_err[:200], is_active=False)
+            )
+            db.commit()
+        return {"status": "error", "error": out_err, "delivered": False}
+
     body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     signature = _sign(secret, body_bytes)
     out = {"status": None, "error": None, "delivered": False}

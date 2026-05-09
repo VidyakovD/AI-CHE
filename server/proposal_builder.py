@@ -82,6 +82,42 @@ def _host_resolves_to_private(host: str) -> bool:
     return False
 
 
+def validate_outbound_url(url: str, *, allow_http: bool = True) -> str:
+    """Валидация URL перед outbound HTTP-запросом (webhooks, CRM, parse_client_site).
+
+    Защищает от SSRF комплексно:
+      • whitelist схем — только http(s); allow_http=False для строгого https-only
+      • DNS-резолв и проверка ВСЕХ возвращённых IP на private/loopback/link-local
+        (защита от DNS rebinding — `evil.com` может резолвиться в 127.0.0.1)
+      • покрывает IPv6 loopback (`[::1]`), IPv4 в decimal/octal формах
+        (`http://2130706433/` → 127.0.0.1) — резолв превращает их в реальные IP
+        и `ipaddress.ip_address(...)` ловит is_loopback/is_private
+      • возвращает строку — нормализованный URL (сейчас просто strip)
+
+    Бросает ValueError при невалидном URL — caller-у решать как обработать
+    (для FastAPI обычно HTTPException 400, для in-process dispatcher — log+skip).
+
+    Раньше `_validate_webhook_url` (public_api.py) и `_validate_url` (routes/crm.py)
+    делали только regex-проверку lowered URL — пропускали IPv6 brackets, decimal
+    IPv4, DNS rebinding. Теперь общая логика тут.
+    """
+    s = (url or "").strip()
+    if not s:
+        raise ValueError("URL обязателен")
+    parsed = urlparse(s)
+    allowed = ("http", "https") if allow_http else ("https",)
+    if parsed.scheme not in allowed:
+        raise ValueError(
+            "URL должен быть http(s)://" if allow_http else "URL должен быть https://"
+        )
+    host = parsed.hostname or ""
+    if not host:
+        raise ValueError("URL без хоста")
+    if _host_resolves_to_private(host):
+        raise ValueError("Адрес недоступен или указывает на приватную сеть")
+    return s
+
+
 def parse_client_site(url: str) -> str:
     """
     Скачивает главную страницу клиента и извлекает краткий контекст:

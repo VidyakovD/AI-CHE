@@ -347,8 +347,20 @@ def change_password(req: ChangePasswordRequest, user: User = Depends(current_use
     if not verify_password(req.old_password, user.password_hash):
         raise HTTPException(400, "Неверный текущий пароль")
     user.password_hash = hash_password(req.new_password)
+    # Юзер часто меняет пароль из-за подозрения на компрометацию. Если у
+    # атакера остался валидный refresh-токен — он сохранит доступ ещё 30
+    # дней. Ревокаем все сессии — на других устройствах придётся залогиниться
+    # заново. /reset-password уже это делает; теперь и /change-password тоже.
+    revoke_all_refresh_jtis(db, user)
     db.commit()
-    return {"message": "Пароль успешно изменён"}
+    try:
+        from server.audit_log import log_action
+        log_action("auth.password_changed", user_id=user.id,
+                   target_type="user", target_id=user.id, level="warn",
+                   details={"sessions_revoked": True})
+    except Exception:
+        pass
+    return {"message": "Пароль успешно изменён. Все остальные сессии разлогинены."}
 
 
 @router.post("/change-email")
@@ -380,7 +392,18 @@ def change_email_confirm(req: ConfirmChangeEmailRequest, user: User = Depends(cu
     vt.used = True
     db_user = db.query(User).filter_by(id=user.id).first()
     db_user.email = new_email
+    # Email — часто канал восстановления пароля. После смены ревокаем все
+    # refresh-сессии: если старый email скомпрометирован, атакер не сможет
+    # дальше использовать стянутый refresh-токен.
+    revoke_all_refresh_jtis(db, db_user)
     db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("auth.email_changed", user_id=user.id,
+                   target_type="user", target_id=user.id, level="warn",
+                   details={"new_email": new_email, "sessions_revoked": True})
+    except Exception:
+        pass
     return {"token": create_token(user.id, new_email), "user": _user_dict(db_user)}
 
 

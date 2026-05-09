@@ -622,16 +622,49 @@ async def tool_perplexity_research(params: dict, context: dict) -> str:
     # context.user_id передаётся run_agent'ом из task context.
     user_id = context.get("user_id")
     if user_id and real_cost_kop > 0:
+        from server.db import db_session
+        from server.models import Transaction
+        from server.billing import deduct_strict
+        from server.pricing import get as pricing_get
+        margin_pct = int(pricing_get("ai.improve_margin_pct", 500) or 500)
+        charge_kop = real_cost_kop * margin_pct // 100  # 5 ₽ × 5 = 25 ₽
+
+        # Шаг 1: списать. Если deduct_strict вернул False (баланс < charge_kop)
+        # ИЛИ выкинул исключение — юзеру result НЕ выдаём. Раньше любое
+        # исключение тут swallow'илось и юзер получал глубокий ресёрч бесплатно
+        # (~5-15 ₽ real cost), что создавало incentive для эксплойта (специально
+        # триггерить DB-ошибки чтобы качать Perplexity).
+        deducted = False
+        deduct_error: str | None = None
         try:
-            from server.db import db_session
-            from server.models import User, Transaction
-            from server.billing import deduct_strict
-            from server.pricing import get as pricing_get
-            margin_pct = int(pricing_get("ai.improve_margin_pct", 500) or 500)
-            charge_kop = real_cost_kop * margin_pct // 100  # 5 ₽ × 5 = 25 ₽
             with db_session() as db:
-                if not deduct_strict(db, user_id, charge_kop):
-                    return f"Недостаточно средств для глубокого ресёрча (нужно ~{charge_kop/100:.0f} ₽)"
+                deducted = deduct_strict(db, user_id, charge_kop)
+        except Exception as e:
+            deduct_error = f"{type(e).__name__}: {str(e)[:120]}"
+            log.error(f"[tool perplexity_research] deduct_strict raised: {deduct_error}")
+
+        if not deducted:
+            # Audit-log для разбора (real_cost уже потрачен у Perplexity на наш ключ)
+            try:
+                from server.audit_log import log_action
+                log_action("perplexity.billing_failed", user_id=user_id,
+                           level="warn", target_type="user", target_id=user_id,
+                           details={"charge_kop": charge_kop,
+                                    "real_cost_kop": real_cost_kop,
+                                    "depth": depth,
+                                    "deduct_error": deduct_error})
+            except Exception:
+                pass
+            if deduct_error:
+                return ("⚠️ Временная ошибка биллинга глубокого ресёрча. "
+                        "Попробуйте позже или используйте обычный поиск.")
+            return (f"⚠️ Недостаточно средств для глубокого ресёрча "
+                    f"(нужно ~{charge_kop/100:.0f} ₽). Пополните баланс.")
+
+        # Шаг 2: записать транзакцию. Если упало — деньги уже списаны,
+        # просто пишем audit-log и отдаём result (отказывать смысла нет).
+        try:
+            with db_session() as db:
                 db.add(Transaction(
                     user_id=user_id, type="usage",
                     tokens_delta=-charge_kop,
@@ -642,9 +675,15 @@ async def tool_perplexity_research(params: dict, context: dict) -> str:
             log.info(f"[tool perplexity_research] charged {charge_kop} коп "
                       f"(real {real_cost_kop} × margin {margin_pct}%)")
         except Exception as e:
-            log.error(f"[tool perplexity_research] billing failed: {e}")
-            # При ошибке биллинга всё равно возвращаем результат — юзер уже
-            # потратил наши деньги на Perplexity, не отказываем ему в ответе.
+            log.error(f"[tool perplexity_research] txn insert failed (charge already done): {e}")
+            try:
+                from server.audit_log import log_action
+                log_action("perplexity.txn_insert_failed", user_id=user_id,
+                           level="error", target_type="user", target_id=user_id,
+                           details={"charge_kop": charge_kop,
+                                    "error": f"{type(e).__name__}: {str(e)[:120]}"})
+            except Exception:
+                pass
 
     return text or "Пустой ответ от Perplexity"
 

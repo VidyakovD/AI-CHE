@@ -104,6 +104,23 @@ def _post_to_crm(conn_id: int, record: dict) -> dict:
             except Exception:
                 mapping = None
 
+    # Defense-in-depth: re-валидируем URL на dispatch-time. См. комментарий
+    # в server/webhooks.py:_post_sync — DNS rebinding и пост-create мутации.
+    from server.proposal_builder import validate_outbound_url
+    try:
+        validate_outbound_url(url, allow_http=True)
+    except ValueError as e:
+        log.warning(f"[crm {conn_id}] dispatch-time URL rejected: {e}")
+        from sqlalchemy import update as _upd
+        with db_session() as db:
+            db.execute(
+                _upd(CrmConnection)
+                .where(CrmConnection.id == conn_id)
+                .values(last_error=f"URL rejected: {e}"[:200], is_active=False)
+            )
+            db.commit()
+        return {"status": "error", "error": f"URL rejected: {e}", "delivered": False}
+
     payload = _build_payload(provider, record, mapping)
     out = {"status": None, "error": None, "delivered": False}
     try:

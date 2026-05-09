@@ -9,7 +9,6 @@ UI/API flow:
 """
 import json
 import logging
-import re
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -31,23 +30,17 @@ MAX_PER_USER = 5
 
 
 def _validate_url(url: str) -> str:
-    """Только http(s), без private/loopback (SSRF)."""
-    s = (url or "").strip()
-    if not s:
-        raise HTTPException(400, "URL обязателен")
-    low = s.lower()
-    if not (low.startswith("http://") or low.startswith("https://")):
-        raise HTTPException(400, "URL должен начинаться с http:// или https://")
-    blocked_patterns = [
-        r"^https?://(localhost|127\.|0\.0\.0\.0|\[::1\])",
-        r"^https?://10\.", r"^https?://192\.168\.",
-        r"^https?://172\.(1[6-9]|2[0-9]|3[0-1])\.",
-        r"^https?://169\.254\.",
-    ]
-    for pat in blocked_patterns:
-        if re.match(pat, low):
-            raise HTTPException(400, "Private/loopback адреса запрещены")
-    return s
+    """Только http(s), без private/loopback (SSRF).
+
+    Делегирует общую логику в server.proposal_builder.validate_outbound_url
+    которая делает DNS-резолв (защита от DNS rebinding) и покрывает
+    IPv6/decimal IPv4 — раньше regex по lowered URL пропускал эти случаи.
+    """
+    from server.proposal_builder import validate_outbound_url
+    try:
+        return validate_outbound_url(url, allow_http=True)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 def _serialize(c: CrmConnection) -> dict:

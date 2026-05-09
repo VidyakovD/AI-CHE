@@ -453,9 +453,16 @@ class TestWebhookAtomicFailCount:
     read-then-write). Auto-disable срабатывает после MAX_FAIL_BEFORE_DISABLE."""
 
     def test_failed_post_increments_fail_count_atomically(self):
-        """Симулируем 10 ошибок → ApiWebhook.is_active должен стать False."""
+        """Симулируем 10 ошибок → ApiWebhook.is_active должен стать False.
+
+        Mockа `validate_outbound_url` чтобы пройти dispatch-time SSRF-чек
+        (он теперь auto-disable'ит при первом же попадании на private IP).
+        Цель этого теста — проверить atomic-инкремент fail_count, а не
+        SSRF-валидацию (она тестируется отдельно).
+        """
         from server.models import ApiWebhook, ApiToken
         from server import webhooks as wh
+        from unittest.mock import patch
         with SessionLocal() as db:
             uid, _ = _user(db, "wh-atomic@example.com")
             import uuid as _uuid
@@ -470,7 +477,7 @@ class TestWebhookAtomicFailCount:
             db.add(tok); db.commit(); db.refresh(tok)
             w = ApiWebhook(
                 user_id=uid,
-                url="http://127.0.0.1:1/never-resolves",  # точно упадёт
+                url="http://127.0.0.1:1/never-resolves",  # точно упадёт на POST'е
                 events="proposal.signed",
                 secret="sek_" + "a" * 32,
                 is_active=True,
@@ -478,9 +485,12 @@ class TestWebhookAtomicFailCount:
             )
             db.add(w); db.commit(); db.refresh(w)
             wid = w.id
-        # MAX_FAIL_BEFORE_DISABLE раз вызовем fire-and-forget с гарантированной ошибкой
-        for _ in range(wh.MAX_FAIL_BEFORE_DISABLE):
-            wh._post_sync(wid, {"event": "x", "data": {}})
+        # Bypass SSRF-валидации: возвращаем URL как-есть. POST на 127.0.0.1:1
+        # упадёт по факту коннекта (порт 1 закрыт), что и нужно для теста.
+        with patch("server.proposal_builder.validate_outbound_url",
+                   side_effect=lambda url, **kw: url):
+            for _ in range(wh.MAX_FAIL_BEFORE_DISABLE):
+                wh._post_sync(wid, {"event": "x", "data": {}})
         with SessionLocal() as db:
             w2 = db.query(ApiWebhook).filter_by(id=wid).first()
             assert w2.fail_count >= wh.MAX_FAIL_BEFORE_DISABLE

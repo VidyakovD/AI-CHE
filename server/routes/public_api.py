@@ -143,26 +143,17 @@ class WebhookCreateBody(BaseModel):
 
 
 def _validate_webhook_url(url: str) -> str:
-    """Проверка URL: только http(s), не private/localhost (защита от
-    SSRF / накрутки внутренних эндпоинтов)."""
-    s = (url or "").strip()
-    if not s:
-        raise HTTPException(400, "URL обязателен")
-    low = s.lower()
-    if not (low.startswith("http://") or low.startswith("https://")):
-        raise HTTPException(400, "URL должен начинаться с http:// или https://")
-    # Запрещаем private/loopback в продакшене
-    import re as _re
-    blocked = [
-        r"^https?://(localhost|127\.|0\.0\.0\.0|\[::1\])",
-        r"^https?://10\.", r"^https?://192\.168\.",
-        r"^https?://172\.(1[6-9]|2[0-9]|3[0-1])\.",
-        r"^https?://169\.254\.",  # AWS metadata
-    ]
-    for pat in blocked:
-        if _re.match(pat, low):
-            raise HTTPException(400, "Private/loopback адреса запрещены")
-    return s
+    """Проверка URL для webhook'а: http(s), не private/localhost.
+
+    Делегирует общую логику в server.proposal_builder.validate_outbound_url
+    которая делает DNS-резолв (защита от DNS rebinding) и покрывает
+    IPv6/decimal IPv4 — раньше regex по lowered URL пропускал эти случаи.
+    """
+    from server.proposal_builder import validate_outbound_url
+    try:
+        return validate_outbound_url(url, allow_http=True)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @mgmt_router.post("/webhooks")

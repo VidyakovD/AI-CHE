@@ -105,6 +105,12 @@ RULES = {
     "/knowledge/upload":          (15,  300),
     "/knowledge/search":          (60,  60),
     "/knowledge":                 (60,  60),
+    # Публичные КП: /p/{token}, /p/{token}/pdf, /p/{token}/sign — анти-спам.
+    # Защищает от: 1) брутфорса токенов (хоть и 16 chars = ~95 bit, минимизируем
+    # noise в логах), 2) спама подписей с раздутым data:image body (2MB).
+    # 240/мин — 4 req/s, хватит для офисной сети с несколькими просмотрами,
+    # но блокирует автоматизированные атаки.
+    "/p/":                        (240, 60),
 }
 
 _TRUSTED_PROXIES = {p.strip() for p in os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1").split(",") if p.strip()}
@@ -205,27 +211,110 @@ def validate_upload_filename(filename: str) -> None:
 # SVG-санитайзер: SVG-файл может содержать <script>, on*-handlers и javascript:-URI,
 # которые выполнятся в браузере при рендере как <img>/<object> или прямом открытии.
 # Поскольку у нас есть public-эндпоинт /assets/public/{token}, это потенциальный XSS.
-_SVG_BAD_TOKENS = (
-    "<script", "</script", "<foreignobject", "javascript:",
-    " onload=", " onerror=", " onclick=", " onmouseover=",
-    " onfocus=", " onblur=", " onanimation", " ontoggle=",
-    " onbegin=", " onend=", " onrepeat=", " onactivate=",
-    " onloadstart=", " onloadend=", " onpointer", " onmessage=",
-    "<iframe", "<embed", "<object",
-)
+#
+# Подход: парсим XML через defusedxml (XXE-safe), потом обходим дерево и режектим
+# по чёткому blocklist'у. Раньше был подстрочный scan по lower-case — мисс-кейсы:
+#   • encoded entities (&#x6a;avascript: → не ловится)
+#   • SVG-animation: <set onbegin=> / <animate from="javascript:...">
+#   • <style>@import 'http://evil/'</style>
+#   • <use xlink:href="javascript:...">
+# Парсинг + walk покрывает все варианты, потому что мы смотрим на структурные
+# теги/атрибуты ПОСЛЕ XML-нормализации (entity expansion).
+
+# Запрещённые SVG/XML-теги (любой из них = отклонение файла)
+_SVG_BLOCKED_TAGS = {
+    # Скриптинг
+    "script",
+    # Embedded HTML/обходы (foreignObject позволяет вставить произвольный HTML)
+    "foreignobject", "iframe", "embed", "object",
+    # SMIL animation triggers — onbegin/onend/onrepeat исполняют JS при анимации
+    "set", "animate", "animatetransform", "animatemotion",
+    # <style> может содержать @import 'http://evil/' или CSS-expression
+    "style",
+    # <handler> и др. редкие event-теги
+    "handler", "listener",
+}
+
+# Атрибуты-href с javascript:/vbscript: схемами (для use, image, a, etc.)
+_SVG_HREF_ATTRS = {"href", "xlink:href", "{http://www.w3.org/1999/xlink}href"}
+
+# Запрещённые префиксы значений href
+_HREF_BLOCKED_SCHEMES = ("javascript:", "vbscript:", "data:text/", "data:application/")
+
 
 def sanitize_svg_or_raise(data: bytes) -> None:
     """
-    Бьёт по содержимому SVG/XML на наличие исполняемого кода.
-    Поднимает HTTPException 400, если найдены опасные токены.
-    Используется в /upload и /assets/upload.
+    Парсит SVG как XML (defusedxml — XXE-safe), обходит дерево, отклоняет
+    при любом из:
+      • Запрещённый тег (script / foreignObject / animate / set / style / ...)
+      • Любой атрибут начинающийся с `on` (onload, onclick, onbegin, ...)
+      • href/xlink:href с javascript:/vbscript:/data:text схемой
+      • DOCTYPE (защита от XXE — defusedxml её и так блокирует)
+
+    Поднимает HTTPException 400 при нарушении.
+    Используется в /upload и /assets/upload перед сохранением.
     """
+    if not data:
+        return
+    # Лимит — 1 МБ для парсинга. Большие SVG обычно не валидны и тратят CPU.
+    payload = data[:1_000_000]
     try:
-        text_lower = data[:65536].decode("utf-8", errors="ignore").lower()
+        from defusedxml import ElementTree as _dET
+    except ImportError:
+        # Fallback: если defusedxml отсутствует, используем строгий substring scan
+        text_lower = payload.decode("utf-8", errors="ignore").lower()
+        bad = ("<script", "<foreignobject", "<iframe", "<embed", "<object",
+               "<style", "<animate", "<set ", "<set>", "javascript:", "vbscript:",
+               " onload=", " onerror=", " onclick=", " onbegin=", " onend=",
+               " onmouseover=", " onfocus=", " onblur=", " onpointer", " ontoggle=",
+               " onmessage=", " onactivate=", " onloadstart=", " onloadend=",
+               " onrepeat=", " onanimation")
+        if any(tok in text_lower for tok in bad):
+            raise HTTPException(400,
+                "SVG содержит исполняемый код (script/on-handler/iframe) — отклонено")
+        return
+
+    try:
+        # forbid_dtd=True — блокирует <!DOCTYPE (XXE / billion-laughs).
+        # forbid_entities=True — блокирует custom entity expansion.
+        tree = _dET.fromstring(payload, forbid_dtd=True, forbid_entities=True)
     except Exception:
-        text_lower = ""
-    if any(tok in text_lower for tok in _SVG_BAD_TOKENS):
-        raise HTTPException(400, "SVG содержит исполняемый код (script/on-handler/iframe) — отклонено")
+        # Невалидный XML — отклоняем (а не пропускаем «как-есть»)
+        raise HTTPException(400, "Не удалось распарсить SVG (невалидный XML)")
+
+    def _local(tag: str) -> str:
+        # SVG в namespace: '{http://www.w3.org/2000/svg}script' → 'script'
+        if "}" in tag:
+            tag = tag.rsplit("}", 1)[1]
+        return tag.lower()
+
+    def _walk(elem):
+        if _local(elem.tag) in _SVG_BLOCKED_TAGS:
+            raise HTTPException(400,
+                f"SVG содержит запрещённый тег <{_local(elem.tag)}> — отклонено")
+        for attr_name, attr_val in (elem.attrib or {}).items():
+            an = attr_name.lower()
+            if "}" in an:
+                an_local = an.rsplit("}", 1)[1]
+            else:
+                an_local = an
+            # Любой on*-handler — отклоняем
+            if an_local.startswith("on"):
+                raise HTTPException(400,
+                    f"SVG содержит event-handler {an_local}= — отклонено")
+            # href/xlink:href с javascript: и подобным
+            if (an in _SVG_HREF_ATTRS or an_local in {"href"}):
+                v_low = (attr_val or "").strip().lower()
+                # Strip whitespace и контрольные символы (обход через табы/CR)
+                v_clean = "".join(c for c in v_low if c.isprintable() and c not in " \t\r\n")
+                for bad_scheme in _HREF_BLOCKED_SCHEMES:
+                    if v_clean.startswith(bad_scheme):
+                        raise HTTPException(400,
+                            f"SVG содержит {bad_scheme} в href — отклонено")
+        for child in list(elem):
+            _walk(child)
+
+    _walk(tree)
 
 # ── admin check ───────────────────────────────────────────────────────────────
 
