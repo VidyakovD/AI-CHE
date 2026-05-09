@@ -19,11 +19,28 @@ router = APIRouter(tags=["solutions"])
 # ─── helpers ───────────────────────────────────────────────────────────────────
 
 def _sol_dict(s: Solution) -> dict:
-    return {"id": s.id, "title": s.title, "description": s.description,
-            "image_url": s.image_url, "price_tokens": s.price_tokens,
-            "category_id": s.category_id,
-            "steps_count": len(s.steps) if s.steps else 0,
-            "is_orchestra": bool(s.orchestra_json)}
+    # input_hint вытаскиваем из orchestra_json — для подсказки в форме
+    # запуска. Безопасно к отсутствию (не all orchestra-пилоты его задают).
+    input_hint = None
+    if s.orchestra_json:
+        try:
+            oj = json.loads(s.orchestra_json)
+            input_hint = oj.get("input_hint")
+        except Exception:
+            pass
+    return {
+        "id": s.id, "title": s.title, "description": s.description,
+        "image_url": s.image_url, "price_tokens": s.price_tokens,
+        "category_id": s.category_id,
+        "steps_count": len(s.steps) if s.steps else 0,
+        "is_orchestra": bool(s.orchestra_json),
+        # Новые поля для UI с фильтрами/бейджами:
+        "subcategory": s.subcategory,
+        "tags": [t.strip() for t in (s.tags or "").split(",") if t.strip()],
+        "is_featured": bool(s.is_featured),
+        "short_summary": s.short_summary,
+        "input_hint": input_hint,
+    }
 
 
 def _step_dict(s: SolutionStep) -> dict:

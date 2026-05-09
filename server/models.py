@@ -306,6 +306,18 @@ class Solution(Base):
     # Структура JSON: {"stages": [{...}, ...], "input_hint": "...",
     #                  "default_model": "claude-sonnet"}
     orchestra_json = Column(Text, nullable=True)
+    # Подкатегория для фильтрации в UI: research / marketing / legal /
+    # finance / strategy / hr / sales. Свободный enum (string), индексируем
+    # для быстрого WHERE.
+    subcategory  = Column(String, nullable=True, index=True)
+    # Теги CSV: "perplexity,deep,новинка,хит" — используется для бейджей и
+    # дополнительной фильтрации в UI.
+    tags         = Column(String, nullable=True)
+    # Топ-1 строка над общей сеткой («⭐ Топ новинки»).
+    is_featured  = Column(Boolean, default=False, index=True)
+    # Краткое описание (1 строка) под названием в карточке. У description
+    # обычно длинный текст — short_summary даёт 6-10 слов для UI.
+    short_summary = Column(String, nullable=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
 
     category = relationship("SolutionCategory", back_populates="solutions")

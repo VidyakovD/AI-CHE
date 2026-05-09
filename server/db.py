@@ -209,6 +209,12 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # 2FA админки (TOTP). totp_secret шифруется через EncryptedString.
     ("users", "totp_secret", "VARCHAR"),
     ("users", "totp_enabled", "BOOLEAN DEFAULT 0"),
+    # Solutions: подкатегории + теги + featured-флаг + short-описание
+    # для нового UI бизнес-решений с фильтрами/поиском/бейджами.
+    ("solutions", "subcategory", "VARCHAR"),
+    ("solutions", "tags", "VARCHAR"),
+    ("solutions", "is_featured", "BOOLEAN DEFAULT 0"),
+    ("solutions", "short_summary", "VARCHAR"),
 ]
 
 # Note: push_subscriptions / solution_run_templates создаются Base.metadata.create_all

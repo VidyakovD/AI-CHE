@@ -628,6 +628,27 @@ body.welcome #inputArea{display:none!important}
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button>
     </div>
+    <!-- Поиск + chip-фильтры -->
+    <div class="px-6 pt-5 pb-3 border-b border-outline/15 space-y-3">
+      <div class="relative">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-dim/60"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input id="solsSearch" type="text" placeholder="Поиск по названию или описанию…"
+               oninput="_solsApplyFilter()"
+               class="w-full pl-9 pr-9 py-2.5 rounded-xl bg-surface2 border border-outline/30 focus:border-primary/60 focus:outline-none text-sm text-on-surface placeholder:text-on-surface-dim/50"/>
+        <button id="solsSearchClear" onclick="document.getElementById('solsSearch').value='';_solsApplyFilter()"
+                aria-label="Очистить" class="hidden absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full hover:bg-surface3 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-on-surface-dim"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div id="solsChips" class="flex flex-wrap gap-2"></div>
+    </div>
+
+    <!-- ⭐ Топ новинки (показываются если есть is_featured решения, и нет активного фильтра/поиска) -->
+    <div id="solsFeatured" class="hidden px-6 pt-5">
+      <p class="text-[10px] uppercase tracking-widest text-on-surface-dim/60 font-bold mb-3">⭐ Топ новинки</p>
+      <div id="solsFeaturedGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3"></div>
+    </div>
+
     <div id="solsGrid" class="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 min-h-48">
       <div class="col-span-3 text-center text-on-surface-dim/40 py-12 text-sm">Загрузка...</div>
     </div>
@@ -3337,29 +3358,149 @@ function buildUserHTML(text,fileUrl,isImg){
 // ── solutions (только бизнес-решения) ─────────────────────────────────────
 async function openSolutions(_tab){openM("solutionsModal");switchSolTab("business");}
 
+// ── Solutions: state + filters + render ──────────────────────────────────────
+const _solsState = {
+  all: [],          // полный список с бэка
+  category: "all",  // активная subcategory ('all' | 'research' | ...)
+  query: "",        // строка поиска
+};
+
+// Категории — порядок и подписи
+const _SOLS_CATEGORIES = [
+  {id:"all",       label:"Все",         icon:"✨"},
+  {id:"research",  label:"Ресёрч",      icon:"🔬"},
+  {id:"marketing", label:"Маркетинг",   icon:"📈"},
+  {id:"sales",     label:"Продажи",     icon:"💼"},
+  {id:"strategy",  label:"Стратегия",   icon:"📊"},
+  {id:"legal",     label:"Юр",          icon:"⚖️"},
+  {id:"finance",   label:"Финансы",     icon:"💰"},
+  {id:"hr",        label:"HR",          icon:"👥"},
+];
+
 async function switchSolTab(_tab){
   currentSolTab="business";
-  // Скрываем переключатель категорий — категория одна
   document.querySelectorAll(".sol-stab").forEach(b=>b.classList.add("hidden"));
   const grid=document.getElementById("solsGrid");
   grid.innerHTML=`<div class="col-span-3 text-center text-on-surface-dim/40 py-12 text-sm">Загрузка...</div>`;
   try{
     const sols=await fetch(`${API}/solutions?category=business`).then(r=>r.json());
-    if(!sols.length){grid.innerHTML=`<div class="col-span-3 text-center text-on-surface-dim/40 py-12 text-sm">Решений пока нет</div>`;return;}
-    grid.innerHTML=sols.map(s=>`
-      <div class="bg-surface2 rounded-xl border ${s.is_orchestra?'border-primary/40':'border-outline/20'} hover:border-primary/60 transition overflow-hidden flex flex-col cursor-pointer group relative" onclick="launchSolution(${s.id},'${esc(s.title)}',${s.steps_count},${s.is_orchestra?1:0})">
-        ${s.is_orchestra?`<div class="absolute top-2 right-2 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-gradient-to-br from-primary to-yellow-500 text-black z-10">✨ PRO · Multi-Agent</div>`:""}
-        ${s.image_url?`<img src="${esc(s.image_url)}" class="w-full h-32 object-cover group-hover:opacity-88 transition"/>`:`<div class="w-full h-32 bg-surface3 flex items-center justify-center text-primary"><svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/></svg></div>`}
-        <div class="p-3 flex flex-col gap-1.5 flex-1">
-          <p class="font-bold text-sm font-headline">${esc(s.title)}</p>
-          ${s.description?`<p class="text-xs text-on-surface-dim/70 line-clamp-2">${esc(s.description)}</p>`:""}
-          <div class="mt-auto pt-2 flex items-center justify-between">
-            <span class="text-xs text-on-surface-dim/50">${s.is_orchestra?'по факту работы':'фикс-цена'}</span>
-            <span class="text-sm font-bold ${s.price_tokens?"text-primary":"text-green-400"}">${s.price_tokens?(s.is_orchestra?'до '+fmtRub(s.price_tokens):fmtRub(s.price_tokens)):"Бесплатно"}</span>
-          </div>
-        </div>
-      </div>`).join("");
-  }catch(e){grid.innerHTML=`<div class="col-span-3 text-center text-error py-12 text-sm">Ошибка: ${esc(e.message)}</div>`;}
+    _solsState.all = sols || [];
+    _solsState.category = "all";
+    _solsState.query = "";
+    document.getElementById("solsSearch").value = "";
+    _renderSolsChips();
+    _solsApplyFilter();
+  }catch(e){
+    grid.innerHTML=`<div class="col-span-3 text-center text-error py-12 text-sm">Ошибка: ${esc(e.message)}</div>`;
+  }
+}
+
+function _renderSolsChips(){
+  // Подсчитаем сколько в каждой категории
+  const counts = {all: _solsState.all.length};
+  _solsState.all.forEach(s => {
+    const c = s.subcategory || "other";
+    counts[c] = (counts[c] || 0) + 1;
+  });
+  const chips = document.getElementById("solsChips");
+  chips.innerHTML = _SOLS_CATEGORIES
+    .filter(c => c.id === "all" || counts[c.id] > 0)
+    .map(c => {
+      const active = (c.id === _solsState.category);
+      const cnt = counts[c.id] || 0;
+      return `<button onclick="_solsSetCategory('${c.id}')"
+        class="px-3 py-1.5 rounded-full text-xs font-medium transition ${active
+          ? 'bg-primary text-[#1e1a14] shadow-[0_0_12px_rgba(255,140,66,0.35)]'
+          : 'bg-surface2 text-on-surface-dim hover:text-on-surface border border-outline/30'}">
+        ${c.icon} ${c.label} <span class="opacity-60">${cnt}</span>
+      </button>`;
+    }).join("");
+}
+
+function _solsSetCategory(catId){
+  _solsState.category = catId;
+  _renderSolsChips();
+  _solsApplyFilter();
+}
+
+function _solsApplyFilter(){
+  const q = (document.getElementById("solsSearch").value || "").toLowerCase().trim();
+  _solsState.query = q;
+  document.getElementById("solsSearchClear").classList.toggle("hidden", !q);
+  const cat = _solsState.category;
+
+  let list = _solsState.all;
+  if(cat !== "all") list = list.filter(s => (s.subcategory || "") === cat);
+  if(q){
+    list = list.filter(s => {
+      const blob = ((s.title || "") + " " + (s.description || "") + " " +
+                    (s.short_summary || "") + " " + (s.tags || []).join(" ")).toLowerCase();
+      return blob.includes(q);
+    });
+  }
+
+  // Featured (только когда нет фильтра/поиска и есть отмеченные)
+  const featured = (_solsState.category === "all" && !q)
+    ? _solsState.all.filter(s => s.is_featured)
+    : [];
+  const featBlock = document.getElementById("solsFeatured");
+  if(featured.length){
+    featBlock.classList.remove("hidden");
+    document.getElementById("solsFeaturedGrid").innerHTML = featured.map(_solCard).join("");
+    // Убираем featured из основной сетки (чтобы не дублировались) ТОЛЬКО когда featured показан
+    const fIds = new Set(featured.map(s => s.id));
+    list = list.filter(s => !fIds.has(s.id));
+  } else {
+    featBlock.classList.add("hidden");
+  }
+
+  const grid = document.getElementById("solsGrid");
+  if(!list.length && !featured.length){
+    grid.innerHTML = `<div class="col-span-3 text-center text-on-surface-dim/50 py-12 text-sm">
+      ${q ? `Ничего не найдено по «${esc(q)}»` : "В этой категории пока нет решений"}
+    </div>`;
+    return;
+  }
+  grid.innerHTML = list.map(_solCard).join("");
+}
+
+function _solCard(s){
+  const tags = s.tags || [];
+  const isPerplexity = tags.includes("perplexity");
+  const isNew = tags.includes("новинка");
+  const isHit = tags.includes("хит");
+  // Бейджи (макс 2 в правом углу)
+  const badges = [];
+  if(isHit) badges.push(`<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/90 text-black">🔥 ХИТ</span>`);
+  if(isNew) badges.push(`<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/90 text-black">🆕 NEW</span>`);
+  if(isPerplexity) badges.push(`<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">💎 DEEP</span>`);
+  else if(s.is_orchestra) badges.push(`<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-gradient-to-br from-primary to-yellow-500 text-black">🤖 PRO</span>`);
+
+  const summary = s.short_summary || s.description || "";
+  const priceLabel = s.price_tokens
+    ? (s.is_orchestra && !isPerplexity ? 'до '+fmtRub(s.price_tokens) : fmtRub(s.price_tokens))
+    : "Бесплатно";
+  const priceClr = s.price_tokens ? "text-primary" : "text-green-400";
+  const borderColor = isPerplexity ? "border-fuchsia-500/40" :
+                      (s.is_orchestra ? "border-primary/40" : "border-outline/20");
+
+  return `<div class="bg-surface2 rounded-xl border ${borderColor} hover:border-primary/60 transition overflow-hidden flex flex-col cursor-pointer group relative"
+    onclick="launchSolution(${s.id},${JSON.stringify(s.title)},${s.steps_count},${s.is_orchestra?1:0})">
+    ${badges.length ? `<div class="absolute top-2 right-2 flex flex-col items-end gap-1 z-10">${badges.join("")}</div>` : ""}
+    ${s.image_url
+      ? `<img src="${esc(s.image_url)}" class="w-full h-28 object-cover group-hover:opacity-88 transition"/>`
+      : `<div class="w-full h-28 bg-surface3 flex items-center justify-center text-primary/70">
+           <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/></svg>
+         </div>`}
+    <div class="p-3 flex flex-col gap-1.5 flex-1">
+      <p class="font-bold text-[13px] font-headline leading-tight">${esc(s.title)}</p>
+      ${summary ? `<p class="text-[11px] text-on-surface-dim/70 line-clamp-2 leading-snug">${esc(summary)}</p>` : ""}
+      <div class="mt-auto pt-2 flex items-center justify-between">
+        <span class="text-[10px] text-on-surface-dim/50">${s.is_orchestra ? (isPerplexity?'фикс-цена':'по факту') : 'фикс-цена'}</span>
+        <span class="text-sm font-bold ${priceClr}">${priceLabel}</span>
+      </div>
+    </div>
+  </div>`;
 }
 
 async function launchSolution(id,title,stepsCount,isOrchestra){

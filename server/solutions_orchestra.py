@@ -195,6 +195,115 @@ async def _run_browse_url(stage: dict, ctx: dict) -> str:
     return text or ""
 
 
+# Курс USD→RUB для перевода Perplexity cost (USD) в копейки. Берём
+# консервативный курс — лучше чуть переплатить юзера, чем уйти в минус
+# при колебаниях. Поднимать руками если ЦБ резко улетит.
+_USD_TO_KOP_RATE = 9500  # 95 ₽ за $1 → 9500 коп
+
+# Порог алерта: если фактическая стоимость Perplexity-вызова превышает
+# этот % от fix-price юзера — пишем в audit-log с level=warn. По умолчанию
+# 50% — обычный sonar-pro укладывается в 5-10 ₽, при цене 150 ₽ это <10%.
+_PPL_BUDGET_ALERT_PCT = 50
+
+
+async def _run_perplexity_research(stage: dict, ctx: dict) -> tuple[str, int]:
+    """Глубокий ресёрч через Perplexity sonar-reasoning-pro / sonar-pro.
+
+    Возвращает (markdown_текст, cost_kop). cost_kop здесь — это
+    **фактическая стоимость для нас в копейках** (для audit-log), а не
+    то что списывать с юзера. С юзера в orchestra уже списывается
+    fix-price из `Solution.price_tokens` через стандартный механизм.
+
+    Параметры stage:
+      query           — что искать (плейсхолдеры из ctx)
+      model           — sonar | sonar-pro | sonar-reasoning-pro (default sonar-pro)
+      max_tokens      — лимит ответа (default 6000, max 8000)
+      search_context  — low | medium | high (default high)
+      fix_price_kop   — фикс-цена для алерта (опц.; если задана, при превышении
+                        50% audit warn). Если не задана — алерт по абсолюту >5000.
+
+    Прокси: Perplexity на РФ-сервере работает напрямую, но если
+    PERPLEXITY_HTTPS_PROXY задан — используется он (наш _ai_proxy логика).
+    """
+    import os, json as _json
+    import httpx as _httpx
+
+    query = _render_template(stage.get("query", "{{input}}"), ctx)
+    if not query.strip():
+        return "[Perplexity: пустой query]", 0
+
+    model = stage.get("model", "sonar-pro")
+    max_tokens = max(500, min(int(stage.get("max_tokens", 6000)), 8000))
+    search_ctx = stage.get("search_context", "high")
+    if search_ctx not in ("low", "medium", "high"):
+        search_ctx = "high"
+
+    # Ключ из env (CSV — берём первый рабочий)
+    keys_csv = (os.getenv("PERPLEXITY_API_KEYS") or "").strip()
+    if not keys_csv:
+        return "[Perplexity: ключ не настроен]", 0
+    api_key = keys_csv.split(",")[0].strip()
+
+    # Прокси (override-логика _ai_proxy: PERPLEXITY_HTTPS_PROXY="" = direct)
+    from server.ai import _ai_proxy
+    proxy_url = _ai_proxy("perplexity")
+
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": query[:8000]}],
+        "max_tokens": max_tokens,
+        "temperature": float(stage.get("temperature", 0.2)),
+        "web_search_options": {"search_context_size": search_ctx},
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    client_kwargs = {"timeout": 120.0}
+    if proxy_url:
+        client_kwargs["proxy"] = proxy_url
+
+    try:
+        async with _httpx.AsyncClient(**client_kwargs) as c:
+            r = await c.post("https://api.perplexity.ai/chat/completions",
+                             json=payload, headers=headers)
+            r.raise_for_status()
+            body = r.json()
+    except _httpx.HTTPStatusError as e:
+        log.error(f"[perplexity_research] HTTP {e.response.status_code}: {e.response.text[:200]}")
+        return f"[Perplexity ошибка: HTTP {e.response.status_code}]", 0
+    except Exception as e:
+        log.error(f"[perplexity_research] {type(e).__name__}: {str(e)[:200]}")
+        return f"[Perplexity ошибка: {type(e).__name__}]", 0
+
+    text = (body.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+    usage = body.get("usage") or {}
+    cost_obj = usage.get("cost") or {}
+    total_cost_usd = float(cost_obj.get("total_cost") or 0)
+    actual_cost_kop = int(total_cost_usd * _USD_TO_KOP_RATE / 100 * 100)  # коп
+
+    # Audit-log при превышении бюджета
+    fix_price_kop = int(stage.get("fix_price_kop") or 0)
+    threshold_kop = (fix_price_kop * _PPL_BUDGET_ALERT_PCT // 100) if fix_price_kop else 5000
+    if actual_cost_kop > threshold_kop:
+        try:
+            from server.audit_log import log_action
+            log_action("perplexity.over_budget", level="warn",
+                       target_type="solution_run", target_id=str(ctx.get("run_id", "")),
+                       details={
+                           "stage_id": stage.get("id", "?"),
+                           "model": model,
+                           "actual_cost_kop": actual_cost_kop,
+                           "fix_price_kop": fix_price_kop,
+                           "usage": usage,
+                       })
+        except Exception:
+            pass
+
+    log.info(f"[perplexity_research] {model} ctx={search_ctx} cost=${total_cost_usd:.4f} "
+             f"({actual_cost_kop}коп) tokens=p{usage.get('prompt_tokens',0)}/c{usage.get('completion_tokens',0)}")
+
+    return text, actual_cost_kop
+
+
 # ── Расширенные stage-типы для глубокого анализа ────────────────────────────
 
 
@@ -704,6 +813,14 @@ async def restage(run_id: int, stage_id: str,
                 st["outputs"] = outputs; st["output"] = "\n\n---\n\n".join(outputs)
             elif stype == "generate_image":
                 st["output"] = await _run_generate_image(stage_eff, ctx)
+            elif stype == "perplexity_research":
+                # Фикс-цена уже списывается через Solution.price_tokens (общий
+                # flow). Здесь cost не возвращаем юзеру — вместо этого
+                # actual_kop пишем в audit-поле st["actual_cost_kop"].
+                text, actual_kop = await _run_perplexity_research(stage_eff, ctx)
+                st["output"] = text
+                st["actual_cost_kop"] = actual_kop
+                cost = 0  # на юзера не возлагаем — fix-price model
             else:
                 raise ValueError(f"Unknown stage type: {stype}")
 
@@ -886,6 +1003,13 @@ async def run_orchestra(run_id: int) -> dict:
                 st["output"] = "\n\n---\n\n".join(outputs)
             elif stype == "generate_image":
                 st["output"] = await _run_generate_image(stage, ctx)
+            elif stype == "perplexity_research":
+                # Фикс-цена через Solution.price_tokens (общий flow).
+                # actual_cost логируем в audit, но юзера не дотрагиваем.
+                text, actual_kop = await _run_perplexity_research(stage, ctx)
+                st["output"] = text
+                st["actual_cost_kop"] = actual_kop
+                cost = 0
             else:
                 raise ValueError(f"Unknown stage type: {stype}")
 
