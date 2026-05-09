@@ -14,12 +14,15 @@
 
 Простой пользовательский гайд (для самих юзеров): **`USER_GUIDE.md`** — 1100 строк, 19 разделов, без жаргона.
 
-## Главные продукты (на 2026-05-05)
+## Главные продукты (на 2026-05-09)
 
-- **Чат с AI** — GPT-4o / Claude Sonnet+Opus+Haiku / Perplexity / Grok / GPT-image / Imagen 4 / Veo 3 + **голосовой ввод (Whisper) и TTS (6 голосов OpenAI)**
-- **Бизнес-решения PRO** (multi-agent orchestra) — **8 пилотов** параллельно через несколько агентов с web_search / browse_url / file_extract / vision: Конкурентный анализ, SWOT, Контент-план, Аудит лендинга, Юр.договор, Аудит соцсети, Финаудит Excel, Холодная email-рассылка
+- **Чат с AI** — GPT-4o / Claude Sonnet+Opus+Haiku / Perplexity sonar+sonar-pro+sonar-reasoning-pro / Grok / GPT-image / Imagen 4 / Veo 3 + **голосовой ввод (Whisper) и TTS (6 голосов OpenAI)**
+- **Бизнес-решения PRO** (multi-agent orchestra) — **40 пилотов** в новом UI с поиском, 8 chip-фильтрами (✨ Все · 🔬 Ресёрч · 📈 Маркетинг · 💼 Продажи · 📊 Стратегия · ⚖️ Юр · 💰 Финансы · 👥 HR), featured-секцией «⭐ Топ новинки», бейджами 🔥 ХИТ / 🆕 NEW / 💎 DEEP / 🤖 PRO. Из них:
+  - **5 новых Perplexity-пилотов** с фикс-ценой (Проверка контрагента 150₽ / Брифинг перед встречей 100₽ / Юр-новости в нише 200₽ / Аудит цен конкурентов 150₽ / Поиск инвесторов и партнёров 300₽). Real cost ~3-5 ₽, маржа ×26-56.
+  - **5 усиленных orchestra-пилотов** с тэгом 💎 DEEP (Конкурентный анализ, SWOT, Контент-план, Юр.проверка договора, Холодная email-рассылка) — `web_search` заменён или дополнен `perplexity_research` stage с большими лимитами (max_tokens=16k, search_context=high) и recency-фильтром.
+  - **Старые plain Solutions** (~30 шт.) распределены по subcategory через `scripts/categorize_solutions.py`.
 - **Чат-боты** в 6 каналах: TG / VK / Avito / MAX / Widget / **WhatsApp (Wazzup24)** + 7 шаблонов + прайс-лист с semantic search + RAG БЗ
-- **AI-агенты** с workflow-конструктором (50+ блоков) + 25+ специализированных ролей
+- **AI-агенты** с workflow-конструктором (50+ блоков) + 25+ специализированных ролей. **Tools:** web_search (sonar) / **perplexity_research** (3 пресета: quick/standard/deep, биллинг real_cost × margin × 5) / browse_url / run_llm / generate_image+video / send_vk_post / send_tg_message
 - **Сайты под ключ** — 1500/1990 ₽, фоновая генерация, WYSIWYG, sandbox-iframe + public_token
 - **КП (Proposals)** — `/proposals.html`: 4 пресета + 4 шапки, бренды, прайсы, JSON-first генерация, WYSIWYG, AI-правка секций, версии, CRM-стадии, email-orchestrator, **электронная подпись клиентом (canvas + audit-trail + auto-CRM `won`)**
 - **Презентации v2** — `/presentations.html`: PPTX/HTML/PDF, color picker, vision-анализ фото, графики, ТЗ-визард
@@ -33,16 +36,20 @@
 - **Storage** (50 ₽/мес за 100 МБ) с биллингом для StoredAsset + KnowledgeFile
 - **PWA + Desktop standalone + TG management-бот + Web Push (VAPID)**
 - **RAG база знаний** — KnowledgeFile с embeddings + storage-биллинг
+- **Auth:** email + password (с verification через Yandex SMTP) / **VK OAuth** / QR-логин со смартфона. **Google OAuth убран** (только российские провайдеры по продуктовому решению).
+- **Шрифты:** Golos Text (российский от Yandex/КБ Симон-Глюк) — захостили локально в `views/fonts/`, раздаются через `app.mount('/fonts')` + единый `views/fonts.css` подключён в каждом HTML. Никаких внешних CDN.
 
 ## Стек
 
 - **Backend:** Python 3.10 (на новом сервере) / 3.12 (NL legacy), FastAPI 0.111, SQLAlchemy 2.0, **PostgreSQL 14** (на проде с 2026-05-05) / SQLite (для dev/тестов через `DATABASE_URL=sqlite:///./chat.db`)
 - **Frontend:** HTML / Tailwind CDN / vanilla JS (SPA)
 - **AI:**
-  - OpenAI (gpt-4o, gpt-image-1, dall-e-3, whisper-1, tts-1)
-  - Anthropic (claude-sonnet-4-6, claude-opus-4-1, claude-haiku-4) — streaming через AsyncAnthropic
-  - Grok (xai), Perplexity (sonar)
+  - OpenAI (gpt-4o, gpt-image-1, dall-e-3, whisper-1, tts-1) — через прокси `AI_HTTPS_PROXY`
+  - Anthropic (claude-sonnet-4-6, claude-opus-4-1, claude-haiku-4) — streaming через AsyncAnthropic, через прокси
+  - **Perplexity** (sonar / sonar-pro / sonar-reasoning-pro) — **напрямую с РФ-сервера**, прокси отключён (`PERPLEXITY_HTTPS_PROXY=` пустая = override "не использовать прокси", см. `_ai_proxy()` логика)
+  - Grok (xai) — через прокси
   - Google AI Studio через прокси (Imagen 4, Veo 2/3, Gemini)
+  - **Биллинг Perplexity:** для бизнес-пилотов fix-price (списание ДО вызова, реальный cost логируется отдельно, алерт в audit-log если cost > 70% от fix-price). Курс 95 ₽/$ (буфер). Для tool в agent_runner — real_cost × margin × 5.
 - **PDF:** xhtml2pdf + DejaVu Sans + Liberation Sans/Serif + Noto Sans/Serif
 - **DOCX:** python-docx 1.1.2 / **XLSX:** openpyxl / **PPTX:** python-pptx
 - **2FA:** pyotp 2.9.0 (TOTP)
@@ -102,7 +109,7 @@
 | `main.py` | Entry point, роутеры, CSP, middleware (rate-limit/CSRF/request-id), PWA endpoints, **`/p/{token}` HTML-страница КП с canvas-подписью**, `/p/{token}/pdf`, **`/p/{token}/sign`**, `/s/{token}` Solution, `/qr/{token}`, `/healthz`, race-safe `create_all` |
 | `auth.py` | JWT + refresh single-use rotation + revoke_all_refresh_jtis + `_atomic_jtis_update` (race-fix) |
 | `db.py` | SQLAlchemy + LIGHTWEIGHT_MIGRATIONS + backfill site public_token |
-| `models.py` | ORM: User (+ totp_secret/enabled, notifications_last_seen_at, onboarding_completed), ChatBot, ProposalProject (+ public_token, header_layout), **ProposalSignature**, SolutionRun (+ stages_state, attachments_json, public_token, user_mark), `SolutionRunTemplate`, `BotMarketplaceListing/Install`, `ApiToken`, **`ApiWebhook`**, **`CrmConnection`**, **`OrchestraSchedule`**, **`IdempotencyRecord`** (multi-worker safety), `PushSubscription`, KnowledgeFile (+ last_billed_at) |
+| `models.py` | ORM: User (+ totp_secret/enabled, notifications_last_seen_at, onboarding_completed), ChatBot, ProposalProject (+ public_token, header_layout), **ProposalSignature**, SolutionRun (+ stages_state, attachments_json, public_token, user_mark), Solution (+ subcategory/tags/is_featured/short_summary — **новые поля для UI бизнес-решений**), `SolutionRunTemplate`, `BotMarketplaceListing/Install`, `ApiToken`, **`ApiWebhook`**, **`CrmConnection`**, **`OrchestraSchedule`**, **`IdempotencyRecord`** (multi-worker safety), `PushSubscription`, KnowledgeFile (+ last_billed_at) |
 | `billing.py` | Атомарные списания + бонусы (deduct_strict/atomic, credit_atomic) |
 | `security.py` | Rate-limit, validate_password, tg_webhook_secret, _csv_safe, _SecretFilter, ADMIN_EMAILS |
 | `pricing.py` | Динамические цены через `pricing_config` (DEFAULTS) |
@@ -113,7 +120,7 @@
 | `pdf_builder.py` | html_to_pdf_bytes + 5 семейств шрифтов + markdown_to_pdf |
 | `docx_builder.py` | Markdown→DOCX |
 | `xlsx_builder.py` | Markdown→XLSX |
-| `solutions_orchestra.py` | Multi-agent runtime: 7 stage-типов, streaming AsyncAnthropic, restage(), pub/sub для SSE, hooks (push/webhook) |
+| `solutions_orchestra.py` | Multi-agent runtime: **8 stage-типов** (web_search/browse_url/llm/parallel_llm/synthesize/file_extract/vision_describe/extract_urls/parallel_browse/generate_image + **`perplexity_research`** для глубокого ресёрча с цитатами), streaming AsyncAnthropic, restage(), pub/sub для SSE, hooks (push/webhook). Perplexity-stage: max_tokens=16k cap, search_context=high, recency-фильтр, fix_price через Solution.price_tokens, audit-log при cost > 70% от fix-price |
 | `push.py` | Web Push (VAPID) |
 | `webhooks.py` | **NEW** — Public API webhooks dispatcher: HMAC-SHA256 подпись, fire-and-forget threading, auto-disable после 10 ошибок |
 | **`crm.py`** | **NEW** — CRM-интеграции: dispatch_record_to_crm, mapping для Bitrix24/amoCRM/generic, fire-and-forget |
@@ -123,7 +130,7 @@
 | `email_service.py` | SMTP + send_with_attachment + login alerts |
 | `email_imap.py` | IMAP-trigger + email threading |
 | `secrets_crypto.py` | Шифрование через HKDF(JWT_SECRET) |
-| `agent_runner.py` | Оркестратор AI-агентов + **prompt-injection защита в tool_run_llm** + tool_browse_url (SSRF-safe) + tool_web_search + tool_run_llm + tool_generate_image |
+| `agent_runner.py` | Оркестратор AI-агентов + **prompt-injection защита в tool_run_llm** + tools: tool_web_search (sonar) / **tool_perplexity_research** (3 пресета quick/standard/deep, биллинг real_cost × margin × 5) / tool_browse_url (SSRF-safe) / tool_run_llm / tool_generate_image / tool_generate_video / tool_send_vk_post / tool_send_tg_message |
 
 ### Routes (server/routes/)
 | Роут | Что |
@@ -366,9 +373,15 @@ Endpoints: `/admin/actions(.txt|.jsonl)`. Cleanup retention в scheduler.
 - **Backup:** scheduler делает раз в сутки `pg_dump --format=custom`, шифрует AES-256-GCM в `/root/AI-CHE/backups/chat.db.YYYY-MM-DD.enc`, retention 14 дней
 - **Public API endpoints должны быть scope-aware** через `authenticate_token(request, db, required_scope=...)` + `is_verified` check
 - **Race на multi-worker:** все RMW операции должны быть либо `UPDATE ... SET = + 1`, либо UNIQUE-protected. См. IdempotencyRecord, ApiToken.requests_count.
+- **Шрифты:** только Golos Text — захостили локально в `views/fonts/*.woff2`, единый `views/fonts.css` подключён через `<link rel="stylesheet" href="/fonts.css"/>` в каждом HTML. Никаких внешних CDN (Google/Bunny). Material Symbols тоже локально.
+- **Perplexity модели:** `sonar` (быстрый), `sonar-pro` (большой контекст), `sonar-reasoning-pro` (CoT). Старая `sonar-small-chat` снята с поддержки — НЕ использовать. Прокси для Perplexity отключён через `PERPLEXITY_HTTPS_PROXY=` (пустая = override).
+- **Perplexity биллинг:** для бизнес-пилотов фикс-цена через `Solution.price_tokens` ДО вызова + audit-warn при cost > 70% от цены. Для tool в agent_runner — real_cost × `pricing.ai.improve_margin_pct` (default 500%). Курс 95 ₽/$ как буфер на колебания.
+- **Golos Text + Material Symbols** — единый `views/fonts.css` (раздаётся через `app.mount('/fonts')`). Если меняешь шрифт — меняй в одном месте.
+- **OAuth:** только VK + email + QR. Google OAuth убран. `_ALLOWED_PROVIDERS = {"vk"}` в `server/routes/oauth.py`. Старые `/auth/oauth/google/start` отдают 410 Gone.
+- **SMTP:** Yandex 360 (`smtp.yandex.ru:465 SSL`), ящик `info@aiche.ru` с app-password. Код в `server/email_service.py` поддерживает оба варианта (465 SSL / 587 STARTTLS) через `_open_smtp()`. **Кириллица в From/Subject** обязательно через `_encode_address_header()` (RFC2047), иначе Yandex отвечает 550 sender rejected.
 
 ## Тесты
-`pytest tests/` — **182 проходят, 2 skipped** (актуально на 2026-05-05).
+`pytest tests/` — **186 проходят, 1 flaky (TestApiWebhook), 2 skipped** (актуально на 2026-05-09).
 - `tests/test_api.py` — auth, chat, chatbots, security, refresh single-use
 - `tests/test_billing.py` — atomic gates, race conditions, widget Origin
 - `tests/test_critical_paths.py` — promo, conversation, secrets HKDF, edit-block refund, **TestSolutionsOrchestra**, **TestMarketplace**, **TestPublicAPI**
@@ -397,7 +410,34 @@ HOME="C:\\Users\\Денис" ssh -i "C:\\Users\\Денис\\.ssh\\id_ed25519" \
 ssh ... "cd /root/AI-CHE && /root/AI-CHE/venv/bin/python scripts/seed_orchestra_solutions.py"
 ```
 
-## Свежие коммиты (топ-25 на 2026-05-05)
+При добавлении новых **Perplexity-пилотов** или их апгрейде:
+```bash
+ssh ... "cd /root/AI-CHE && /root/AI-CHE/venv/bin/python scripts/seed_perplexity_solutions.py [--update]"
+ssh ... "cd /root/AI-CHE && /root/AI-CHE/venv/bin/python scripts/upgrade_orchestra_perplexity.py [--force]"
+```
+
+При добавлении новых категорий или переименовании Solution title — обновить `scripts/categorize_solutions.py` и прогнать `--force`.
+
+## Свежие коммиты (топ-30 на 2026-05-09)
+**Спринт 2026-05-08/09 — Perplexity + UI бизнес-решений + миграции:**
+- `c68b468` — feat(perplexity): tool в agent_runner + усиление 5 orchestra-пилотов
+- `00e4048` — feat(perplexity): лимиты ×2 (max_tokens 8k→16k) + recency-фильтры
+- `e2ad867` — feat(solutions): новый раздел бизнес-решений + 5 Perplexity-пилотов
+- `858c222` — fix(perplexity): sonar-small-chat → sonar (новая модель) + sonar-pro alias
+- `7d3e31f` — feat(ai): empty <PROVIDER>_HTTPS_PROXY = override "no proxy"
+- `55896d0` — feat(auth): убрана регистрация через Google — только VK + email + QR
+- `22fbef2` — fix(fonts): захостили Inter+Manrope+Material Symbols локально
+- `b516ec8` — fix(fonts): Google Fonts → fonts.bunny.net (intermediate, потом локально)
+- `5de8aab` — fix(email): RFC2047-encode кириллицу в From/Subject — Yandex 550 fix
+- `d3222b5` — fix(email): MAIL FROM = bare email (без display name) — Yandex 550 fix
+- `ccaf5fd` — fix(email): support port 465 (SMTP_SSL)
+- `f87641d` — feat(backup): Yandex Object Storage upload + restore script
+- `437f5a5` — fix(migrate): preserve SQLite int 0/1 → postgres bool
+- `6886b28` — feat(db): PostgreSQL backend support через DATABASE_URL
+- `c4abea6` — docs: обновлены CLAUDE/TODO_NEXT — SSL/DNS закрыты
+- `34a28d7` — fix(security): race-conditions + rate-limits + a11y + idempotency
+
+**Старые спринты (2026-05-04/05):**
 - `6e9fd0a` — feat(ops): toolkit миграции на новый сервер + AI-прокси
 - `2784f5a` — feat: workflow-labels + drag-drop + CRM-интеграции + USER_GUIDE.md
 - `5cf647b` — fix(security): idempotency через DB + тесты новых модулей + reencrypt endpoint

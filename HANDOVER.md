@@ -1,10 +1,103 @@
 # HANDOVER — для нового AI-ассистента
 
-Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-05-05 после миграции прода в РФ + 13 спринтов фич за последние сутки**.
+Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-05-09 после спринта Perplexity + UI бизнес-решений + миграции SMTP/шрифты/PostgreSQL**.
 
 ---
 
-## 🆕 Спринт «Миграция в РФ» (2026-05-05) — ПОСЛЕДНИЙ
+## 🆕 Спринт «Perplexity + UI бизнес-решений» (2026-05-08/09) — ПОСЛЕДНИЙ
+
+### Главное
+- Глубоко интегрирован **Perplexity (sonar / sonar-pro / sonar-reasoning-pro)** в три слоя:
+  1. **5 новых бизнес-пилотов на фикс-цене** (Контрагент / Брифинг / Юр-новости / Аудит цен / Поиск инвесторов) — маржа ×26-56
+  2. **5 существующих orchestra-пилотов усилены** через `perplexity_research` stage
+  3. **AI-агенты** получили `tool_perplexity_research` (3 пресета: quick/standard/deep)
+- **UI бизнес-решений полностью переделан**: поиск + 8 chip-фильтров + featured + бейджи. 40 пилотов распределены по 7 категориям.
+- **Шрифты Golos Text** (российский) захостили локально — никаких CDN
+- **SMTP Yandex 360** запущен — регистрация/reset/login alerts работают
+- **PostgreSQL 14** на проде (миграция с SQLite, 392 строки в 57 таблиц)
+- **Google OAuth убран** — только VK + email + QR
+- **Старый NL-сервер выключен**
+
+### Реальные финансы 5 Perplexity-пилотов (замер на проде)
+
+| Пилот | Цена для юзера | Real cost | Маржа | Length |
+|---|---|---|---|---|
+| 🏢 Проверка контрагента | 150 ₽ | 3.71 ₽ | ×40 | 8.4 KB |
+| 👤 Брифинг перед встречей | 100 ₽ | 3.88 ₽ | ×26 | 9.1 KB |
+| ⚖️ Юр-новости в нише | 200 ₽ | 3.95 ₽ | ×51 | 9.7 KB |
+| 💰 Аудит цен конкурентов | 150 ₽ | 5.00 ₽ | ×30 | 12.6 KB |
+| 🦾 Поиск инвесторов и партнёров | 300 ₽ | 5.35 ₽ | ×56 | 13.9 KB |
+
+**TOTAL revenue 900 ₽ / cost 21.89 ₽ / margin 97.6%**
+
+### Ключевые моменты для нового Claude
+
+**Perplexity-инфра (важно):**
+- API ключ в `.env` `PERPLEXITY_API_KEYS` (один действующий)
+- **Прокси отключён** через override: `PERPLEXITY_HTTPS_PROXY=` (пустая строка). В `_ai_proxy()` логика: пустая = "не использовать прокси для этого провайдера" (вместо fallback на AI_HTTPS_PROXY)
+- **Модель `sonar-small-chat` снята с поддержки** — везде заменена на `sonar`
+- **Курс 95 ₽/$** в `_USD_TO_KOP_RATE` (буфер на колебания)
+
+**Stage `perplexity_research` в orchestra:**
+- Файл: `server/solutions_orchestra.py` (функция `_run_perplexity_research`)
+- Параметры: `model`, `search_context` (low/medium/high), `max_tokens` (cap 16000), `temperature`, `fix_price_kop`, `query`, `search_recency_filter` (year/month/week/day)
+- **Биллинг отдельный**: возвращает `actual_cost_kop` для audit, но **с юзера не списывает** через стандартный margin × 5 — фикс-цена уже вшита в `Solution.price_tokens` и списывается извне
+- Audit-warn в `log_action("perplexity.over_budget", level="warn")` если actual > `_PPL_BUDGET_ALERT_PCT` × fix_price (default 70%)
+
+**Tool `perplexity_research` в agent_runner:**
+- Файл: `server/agent_runner.py`
+- 3 пресета: `quick` (sonar low ~50 коп → юзеру 2.5 ₽), `standard` (sonar-pro medium ~3-5 ₽ → 15-25 ₽), `deep` (sonar-reasoning-pro high ~5-15 ₽ → 25-75 ₽)
+- **Биллинг**: `real_cost × pricing.ai.improve_margin_pct` (default 500%) → `deduct_strict` через `context.user_id`. Graceful fail при ошибке биллинга — возвращает результат всё равно (мы уже потратили деньги на Perplexity).
+
+**Сид-скрипты (важно при изменении пилотов):**
+- `scripts/seed_perplexity_solutions.py` — 5 новых пилотов. `--update` пересоздаёт.
+- `scripts/upgrade_orchestra_perplexity.py` — апгрейд 5 orchestra-пилотов. `--force` пересоздаёт. **Идемпотентен**: проверяет `_upgraded_v2: true` метку.
+- `scripts/categorize_solutions.py` — расставляет subcategory по keyword-rules в title.
+
+**UI бизнес-решений:**
+- В `views/index.html` функции: `switchSolTab()`, `_renderSolsChips()`, `_solsSetCategory()`, `_solsApplyFilter()`, `_solCard()`
+- State в `_solsState = {all, category, query}`
+- Featured-секция отображается только при `category=='all' && !query`
+- 8 категорий: research / marketing / sales / strategy / legal / finance / hr / (+all)
+
+**Модель Solution (изменения):**
+- Добавлены колонки: `subcategory` (string), `tags` (CSV string), `is_featured` (bool), `short_summary` (string)
+- Миграция в `LIGHTWEIGHT_MIGRATIONS` в `server/db.py`
+
+### Багофиксы по дороге
+
+1. **email_service.py:** 3 бага которые блокировали SMTP с Yandex 360:
+   - Поддержка порта 465 (SMTP_SSL вместо SMTP+STARTTLS)
+   - MAIL FROM = bare email (без display name)
+   - RFC2047-encode кириллицы в From/Subject
+
+2. **PostgreSQL миграция:** SQLite int 0/1 → postgres bool через явный `bool()` cast в `scripts/migrate_sqlite_to_postgres.py`
+
+3. **Шрифты:** Google Fonts CDN не пускался в РФ → пробовали bunny.net (тоже частично) → захостили локально (надёжно). Все шрифты в `views/fonts/`, единый `views/fonts.css` подключён в каждом HTML.
+
+4. **Tool web_search в agent_runner:** хардкоженная `sonar-small-chat` отказывала, агенты падали на DuckDuckGo. Теперь `sonar`.
+
+5. **HOSTKEY блокировал SMTP-порты** на исходящий — открыли через тикет с предоставлением A-записи `mail.aiche.ru` + PTR.
+
+6. **Yandex 360 SMTP-active требовал «прогрева»** — нужно было хотя бы один раз отправить письмо через веб-интерфейс под ящиком, иначе SMTP отвечал «Sender address rejected».
+
+### Деплой-команды
+```bash
+git push origin claude/<branch>:main
+
+HOME="C:\\Users\\Денис" ssh -i "C:\\Users\\Денис\\.ssh\\id_ed25519" \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@193.187.92.147 \
+  "cd /root/AI-CHE && git pull origin main && systemctl restart ai-che && sleep 6 && systemctl is-active ai-che"
+```
+
+### Что осталось (из этого спринта)
+- ⏳ **Yandex Disk бэкапы** — код готов, ждём от юзера app-password «Файлы»
+- ⏳ **Тестирование 5 усиленных orchestra-пилотов** на реальных кейсах (через UI с реальным юзером)
+
+---
+
+## 🆕 Спринт «Миграция в РФ» (2026-05-05) — предыдущий
 
 ### Что произошло
 Переезд с `194.104.9.219` (Дронтен NL, Clouvider) на **`193.187.92.147`** (Москва RU, HOSTKEY) для **152-ФЗ compliance**.
