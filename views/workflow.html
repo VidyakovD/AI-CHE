@@ -4,11 +4,12 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>AI Студия Че — Воркфлоу</title>
+<link rel="stylesheet" href="/fonts.css"/>
 <script src="https://cdn.tailwindcss.com/3.4.0"></script>
-<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#0d0b09","surface":"#1a1510","surface2":"#231d16","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Manrope","sans-serif"],body:["Inter","sans-serif"]}}}}</script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#0d0b09","surface":"#1a1510","surface2":"#231d16","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{width:100%;height:100%;overflow:hidden;font-family:Inter,sans-serif;color:#f0e6d8}
+html,body{width:100%;height:100%;overflow:hidden;font-family:'Golos Text',Inter,sans-serif;color:#f0e6d8}
 #grid-canvas{position:fixed;top:0;left:0;pointer-events:none;z-index:0}
 .toolbar{position:fixed;top:0;left:0;right:0;height:52px;background:rgba(26,21,16,0.95);backdrop-filter:blur(16px);border-bottom:1px solid rgba(74,63,47,0.4);z-index:200;display:flex;align-items:center;gap:8px;padding:0 16px}
 .sidebar{position:fixed;left:0;top:52px;bottom:0;width:220px;background:rgba(26,21,16,0.95);backdrop-filter:blur(16px);border-right:1px solid rgba(74,63,47,0.3);overflow-y:auto;z-index:100;padding:12px}
@@ -106,7 +107,7 @@ select.inp option{background:#231d16;color:#f0e6d8}
 <div class="toolbar">
   <a href="workflows.html" class="btn btn-g" style="padding:5px 10px;font-size:11px;text-decoration:none">← Назад</a>
   <div style="width:1px;height:20px;background:rgba(74,63,47,0.4);margin:0 2px"></div>
-  <span style="color:#ff8c42;font-weight:700;font-size:13px;font-family:Manrope,sans-serif">AI Студия Че</span>
+  <span style="color:#ff8c42;font-weight:700;font-size:13px;font-family:'Golos Text',Manrope,sans-serif">AI Студия Че</span>
   <span style="color:rgba(168,152,128,0.5);font-size:11px">/ Воркфлоу</span>
   <div style="flex:1"></div>
   <input id="wf-name" type="text" placeholder="Название..." class="inp" style="width:180px;padding:5px 10px"/>
@@ -177,7 +178,7 @@ select.inp option{background:#231d16;color:#f0e6d8}
 
 <div class="prop-panel" id="propPanel">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-    <h3 style="font-size:13px;font-weight:700;font-family:Manrope,sans-serif" id="propTitle">Свойства</h3>
+    <h3 style="font-size:13px;font-weight:700;font-family:'Golos Text',Manrope,sans-serif" id="propTitle">Свойства</h3>
     <button onclick="closeProp()" style="color:#a89880;background:none;border:none;cursor:pointer;font-size:18px;line-height:1">✕</button>
   </div>
   <div id="propContent"></div>

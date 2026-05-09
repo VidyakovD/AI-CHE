@@ -375,6 +375,52 @@ def _encrypt_file(src_path: str, dst_path: str, key: bytes) -> None:
         f.write(nonce + ciphertext)
 
 
+def _upload_backup_to_yandex_disk(local_enc_path: str) -> str | None:
+    """Заливает зашифрованный backup на Yandex.Disk через WebDAV.
+    Возвращает строку результат или None если фича выключена.
+
+    Включается через env:
+      YANDEX_DISK_USER     — email от Yandex-аккаунта (например vidyakovd88@aiche.ru)
+      YANDEX_DISK_PASSWORD — пароль приложения для типа «Файлы (WebDAV)»
+      YANDEX_DISK_FOLDER   — папка на диске (default: aiche-backups)
+
+    Файлы шифруются AES-256-GCM до записи на диск; на Yandex.Disk
+    хранится зашифрованный blob, что делает диск безопасным офлайн-вместом
+    хранения PDN-копий (152-ФЗ ст. 18 — копия в РФ-облаке).
+    """
+    import os
+    user = os.getenv("YANDEX_DISK_USER", "").strip()
+    pwd = os.getenv("YANDEX_DISK_PASSWORD", "").strip().replace(" ", "")
+    folder = os.getenv("YANDEX_DISK_FOLDER", "aiche-backups").strip().strip("/")
+    if not (user and pwd):
+        return None  # фича выключена
+    try:
+        import httpx
+    except ImportError:
+        log.error("[yandex-disk] httpx не установлен")
+        return "httpx missing"
+    base = "https://webdav.yandex.ru/"
+    fname = os.path.basename(local_enc_path)
+    auth = httpx.BasicAuth(user, pwd)
+    try:
+        with httpx.Client(auth=auth, timeout=60.0) as c:
+            # Создаём папку (если её ещё нет). MKCOL: 201=создан,
+            # 405/409=уже существует — оба ок.
+            r = c.request("MKCOL", base + folder + "/")
+            if r.status_code not in (201, 405, 409, 200):
+                log.warning(f"[yandex-disk] MKCOL {folder}: HTTP {r.status_code} {r.text[:200]}")
+            # PUT файл (overwrite)
+            with open(local_enc_path, "rb") as f:
+                r = c.put(base + folder + "/" + fname, content=f.read())
+            if 200 <= r.status_code < 300:
+                size_mb = os.path.getsize(local_enc_path) / 1024 / 1024
+                return f"yandex-disk:/{folder}/{fname} ({size_mb:.1f} MB)"
+            return f"failed: HTTP {r.status_code} {r.text[:200]}"
+    except Exception as e:
+        log.error(f"[yandex-disk] upload failed: {type(e).__name__}: {str(e)[:300]}")
+        return f"failed: {type(e).__name__}"
+
+
 def _upload_backup_to_yc_s3(local_enc_path: str) -> str | None:
     """Загружает зашифрованный backup в Yandex Object Storage (S3-совместимое).
     Возвращает строку с результатом или None если фича выключена.

@@ -360,6 +360,19 @@ _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "
 def _html(name: str) -> FileResponse:
     return FileResponse(os.path.join(_BASE, name), headers=_NO_CACHE)
 
+@app.get("/fonts.css", include_in_schema=False)
+def serve_fonts_css():
+    """Единый файл @font-face для всех views/*.html — Golos Text + Material
+    Symbols + display-эффект на заголовках. Один источник истины, чтобы
+    при смене шрифта менять в одном месте.
+    """
+    return FileResponse(
+        os.path.join(_BASE, "fonts.css"),
+        media_type="text/css",
+        headers={"Cache-Control": "public, max-age=3600, must-revalidate"},
+    )
+
+
 @app.get("/icons.js", include_in_schema=False)
 def serve_icons():
     """Единый набор векторных иконок — заменяет эмодзи в UI.
