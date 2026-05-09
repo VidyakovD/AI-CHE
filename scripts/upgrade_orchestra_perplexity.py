@@ -56,7 +56,7 @@ UPGRADES = {
         ),
         "recency": "year",
     },
-    "Контент-план на месяц": {
+    "Контент-план на месяц для соцсетей": {
         "replace_first_websearch": True,
         "perplexity_query": (
             "Найди топ-15 трендов в нише {{input}} за последний месяц: "
@@ -66,7 +66,7 @@ UPGRADES = {
         ),
         "recency": "month",
     },
-    "Юр. проверка договора": {
+    "Юридическая проверка договора": {
         # У этого пилота web_search возможно нет — добавляем НОВЫЙ stage
         # в начало, помеченный как perplexity для свежей практики.
         "prepend_stage": {
@@ -86,7 +86,7 @@ UPGRADES = {
             ),
         },
     },
-    "Холодная email-рассылка": {
+    "Холодная email-рассылка под список компаний": {
         "prepend_stage": {
             "id": "company_context",
             "type": "perplexity_research",
