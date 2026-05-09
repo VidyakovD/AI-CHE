@@ -89,7 +89,14 @@ def _post_sync(webhook_id: int, payload: dict) -> dict:
             out["status"] = r.status_code
             out["delivered"] = 200 <= r.status_code < 300
             if not out["delivered"]:
-                out["error"] = f"HTTP {r.status_code}: {r.text[:200]}"
+                # Не сохраняем тело ответа: webhook'и хостятся на стороне юзера
+                # и могут случайно вернуть в error response секреты (DB-error
+                # с connection-string'ом, traceback с переменными окружения).
+                # Эти данные у нас оседали бы в last_error на 14 дней. Лучше
+                # сохранять только status + body length — этого достаточно
+                # для диагностики «5xx у моего endpoint'а».
+                body_len = len(r.text or "")
+                out["error"] = f"HTTP {r.status_code} (body {body_len} bytes)"
     except httpx.TimeoutException:
         out["error"] = "Timeout"
     except httpx.HTTPError as e:

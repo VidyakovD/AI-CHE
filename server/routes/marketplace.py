@@ -21,7 +21,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, update
+from sqlalchemy import desc, update, func
 from sqlalchemy.exc import IntegrityError
 
 from server.routes.deps import get_db, current_user, optional_user
@@ -253,7 +253,14 @@ def review_listing(listing_id: int, body: InstallReviewBody,
                      db: Session = Depends(get_db),
                      user: User = Depends(current_user)):
     """Оставить рейтинг 1-5 + опц. отзыв. Можно ставить только если
-    устанавливал этот листинг."""
+    устанавливал этот листинг.
+
+    Race-safe: rating_sum и rating_count обновляются через atomic UPDATE
+    с дельтой. Раньше read-modify-write `listing.rating_sum -= prev; +=
+    body.rating` могло потерять одно из двух одновременных review
+    (LAST WRITE WINS) — для одного юзера с несколькими installs одного
+    бесплатного листинга это даёт корраптный count.
+    """
     install = (db.query(BotMarketplaceInstall)
                   .filter_by(listing_id=listing_id, installer_id=user.id)
                   .order_by(desc(BotMarketplaceInstall.id)).first())
@@ -262,13 +269,19 @@ def review_listing(listing_id: int, body: InstallReviewBody,
     listing = db.query(BotMarketplaceListing).filter_by(id=listing_id).first()
     if not listing:
         raise HTTPException(404, "Листинг не найден")
-    # Если рейтинг уже был — корректируем (не дабл-каунт)
-    prev = install.rating
+
     if body.rating is not None:
-        if prev is not None:
-            listing.rating_sum -= prev
-        listing.rating_sum = (listing.rating_sum or 0) + body.rating
-        listing.rating_count = (listing.rating_count or 0) + (1 if prev is None else 0)
+        prev = install.rating
+        delta_sum = int(body.rating) - int(prev or 0)
+        delta_count = 0 if prev is not None else 1
+        db.execute(
+            update(BotMarketplaceListing)
+            .where(BotMarketplaceListing.id == listing_id)
+            .values(
+                rating_sum=func.coalesce(BotMarketplaceListing.rating_sum, 0) + delta_sum,
+                rating_count=func.coalesce(BotMarketplaceListing.rating_count, 0) + delta_count,
+            )
+        )
         install.rating = body.rating
     if body.review is not None:
         install.review = (body.review or "")[:2000]

@@ -136,7 +136,12 @@ def _post_to_crm(conn_id: int, record: dict) -> dict:
             out["status"] = r.status_code
             out["delivered"] = 200 <= r.status_code < 300
             if not out["delivered"]:
-                out["error"] = f"HTTP {r.status_code}: {r.text[:200]}"
+                # Не сохраняем тело: CRM-webhook на стороне юзера может
+                # вернуть в error secrets (БД-creds в exception-traceback
+                # Bitrix24, токены в amoCRM error-payload). См. комментарий
+                # в server/webhooks.py:_post_sync.
+                body_len = len(r.text or "")
+                out["error"] = f"HTTP {r.status_code} (body {body_len} bytes)"
     except httpx.TimeoutException:
         out["error"] = "Timeout"
     except httpx.HTTPError as e:

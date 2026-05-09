@@ -715,16 +715,34 @@ def _load_all_apikeys_from_db():
 # ── Admin: Users (full with balance) ──────────────────────────────────────────
 
 @router.get("/users/full")
-def admin_users_full(user: User = Depends(current_user), db: Session = Depends(get_db)):
+def admin_users_full(limit: int = 200, offset: int = 0,
+                      user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Список юзеров с агрегированными метриками. Пагинация обязательна:
+    раньше материализовали ВСЕХ юзеров + N+1 запрос Message.count() на каждого
+    — на 5k юзеров это 5k SELECT'ов и сотни МБ памяти.
+    """
     require_admin(user)
-    users = db.query(User).order_by(User.created_at.desc()).all()
-    result = []
-    for u in users:
-        result.append({
-            **_user_dict(u),
-            "messages_count": db.query(Message).filter_by(user_id=u.id, role="user").count(),
-        })
-    return result
+    limit = max(1, min(int(limit or 200), 1000))
+    offset = max(0, int(offset or 0))
+
+    users = (db.query(User)
+              .order_by(User.created_at.desc())
+              .offset(offset).limit(limit).all())
+    if not users:
+        return []
+
+    # Один GROUP BY вместо N подзапросов: messages_count для всех юзеров одной
+    # выборкой. ON DELETE CASCADE гарантирует что user_id всегда валиден.
+    from sqlalchemy import func
+    user_ids = [u.id for u in users]
+    counts_rows = (db.query(Message.user_id, func.count(Message.id))
+                     .filter(Message.user_id.in_(user_ids), Message.role == "user")
+                     .group_by(Message.user_id).all())
+    counts_map = {uid: int(cnt) for uid, cnt in counts_rows}
+
+    return [{**_user_dict(u),
+             "messages_count": counts_map.get(u.id, 0)}
+            for u in users]
 
 
 @router.post("/reencrypt-secrets")
@@ -859,26 +877,34 @@ def admin_seed_business_prompts(request: Request,
 @router.get("/audit-log")
 def admin_audit_log(limit: int = 100, user: User = Depends(current_user),
                     db: Session = Depends(get_db)):
-    """Просмотр журнала действий админов (последние N записей)."""
+    """Просмотр журнала действий админов (последние N записей).
+
+    Раньше делали N+1 запросов User.first() на каждую запись лога. Теперь
+    одна выборка User по уникальным admin_id.
+    """
     require_admin(user)
     from server.models import AdminAuditLog
     import json as _json
     limit = max(1, min(limit, 500))
     rows = db.query(AdminAuditLog).order_by(AdminAuditLog.id.desc()).limit(limit).all()
-    out = []
-    for r in rows:
-        admin = db.query(User).filter_by(id=r.admin_id).first()
-        out.append({
-            "id": r.id,
-            "admin_email": admin.email if admin else None,
-            "action": r.action,
-            "target_type": r.target_type,
-            "target_id": r.target_id,
-            "details": _json.loads(r.details) if r.details else None,
-            "ip": r.ip,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        })
-    return out
+    if not rows:
+        return []
+
+    admin_ids = {r.admin_id for r in rows if r.admin_id is not None}
+    admins = (db.query(User).filter(User.id.in_(admin_ids)).all()
+              if admin_ids else [])
+    email_map = {u.id: u.email for u in admins}
+
+    return [{
+        "id": r.id,
+        "admin_email": email_map.get(r.admin_id),
+        "action": r.action,
+        "target_type": r.target_type,
+        "target_id": r.target_id,
+        "details": _json.loads(r.details) if r.details else None,
+        "ip": r.ip,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    } for r in rows]
 
 
 @router.post("/users/{user_id}/adjust-balance")

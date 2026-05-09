@@ -243,6 +243,52 @@ LIGHTWEIGHT_INDEXES: list[tuple[str, str]] = [
     ("uq_marketplace_paid_install",
      "CREATE UNIQUE INDEX IF NOT EXISTS uq_marketplace_paid_install "
      "ON bot_marketplace_installs(listing_id, installer_id) WHERE paid_kop > 0"),
+    # ── Performance: user_id-фильтрация в горячих путях ──────────────────────
+    # Большинство SELECT'ов в /routes/*.py идут по `WHERE user_id = X`.
+    # Без индекса PG делает sequential scan — на проде с 100k транзакций
+    # это секунды латентности. CREATE INDEX IF NOT EXISTS идемпотентен.
+    # Tables в порядке частоты доступа в горячем пути (Bearer auth, чат,
+    # webhook fan-out, scheduler tick).
+    ("ix_api_tokens_user_id",
+     "CREATE INDEX IF NOT EXISTS ix_api_tokens_user_id ON api_tokens(user_id)"),
+    ("ix_api_webhooks_user_id",
+     "CREATE INDEX IF NOT EXISTS ix_api_webhooks_user_id ON api_webhooks(user_id)"),
+    ("ix_crm_connections_user_id",
+     "CREATE INDEX IF NOT EXISTS ix_crm_connections_user_id ON crm_connections(user_id)"),
+    ("ix_orchestra_schedules_user_id",
+     "CREATE INDEX IF NOT EXISTS ix_orchestra_schedules_user_id ON orchestra_schedules(user_id)"),
+    ("ix_push_subscriptions_user_id",
+     "CREATE INDEX IF NOT EXISTS ix_push_subscriptions_user_id ON push_subscriptions(user_id)"),
+    ("ix_user_api_keys_user_id",
+     "CREATE INDEX IF NOT EXISTS ix_user_api_keys_user_id ON user_api_keys(user_id)"),
+    ("ix_chatbots_user_id",
+     "CREATE INDEX IF NOT EXISTS ix_chatbots_user_id ON chatbots(user_id)"),
+    # Composite (user_id, created_at DESC) для list-эндпоинтов с пагинацией
+    # — order by created_at + filter by user_id очень частый паттерн.
+    ("ix_transactions_user_id_created",
+     "CREATE INDEX IF NOT EXISTS ix_transactions_user_id_created "
+     "ON transactions(user_id, created_at DESC)"),
+    ("ix_messages_user_id_created",
+     "CREATE INDEX IF NOT EXISTS ix_messages_user_id_created "
+     "ON messages(user_id, created_at DESC)"),
+    ("ix_solution_runs_user_id_created",
+     "CREATE INDEX IF NOT EXISTS ix_solution_runs_user_id_created "
+     "ON solution_runs(user_id, created_at DESC)"),
+    ("ix_proposal_projects_user_id_created",
+     "CREATE INDEX IF NOT EXISTS ix_proposal_projects_user_id_created "
+     "ON proposal_projects(user_id, created_at DESC)"),
+    ("ix_site_projects_user_id_created",
+     "CREATE INDEX IF NOT EXISTS ix_site_projects_user_id_created "
+     "ON site_projects(user_id, created_at DESC)"),
+    ("ix_presentation_projects_user_id_created",
+     "CREATE INDEX IF NOT EXISTS ix_presentation_projects_user_id_created "
+     "ON presentation_projects(user_id, created_at DESC)"),
+    ("ix_subscriptions_user_id",
+     "CREATE INDEX IF NOT EXISTS ix_subscriptions_user_id ON subscriptions(user_id)"),
+    ("ix_stored_assets_user_id",
+     "CREATE INDEX IF NOT EXISTS ix_stored_assets_user_id ON stored_assets(user_id)"),
+    ("ix_idempotency_records_user_id",
+     "CREATE INDEX IF NOT EXISTS ix_idempotency_records_user_id ON idempotency_records(user_id)"),
 ]
 
 

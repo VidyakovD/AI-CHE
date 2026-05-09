@@ -286,7 +286,10 @@ _CSRF_EXEMPT_PREFIXES = (
     "/auth/refresh",
     "/auth/oauth/",
     "/auth/logout",
-    "/widget/",
+    # /widget/ удалён — там только GET /widget/{bot_id}.js (CSRF-middleware
+    # пропускает GET автоматически), а WebSocket идёт по /ws/widget/ и
+    # обходит HTTP-middleware. Если понадобится write-endpoint под /widget/ —
+    # явно добавить точный путь, не префикс.
     "/internal/deploy",  # CI deploy hook (свой DEPLOY_TOKEN)
 )
 
