@@ -894,8 +894,12 @@ MODEL_REGISTRY = {
     "claude-opus":     {"provider": "anthropic",   "real_model": "claude-opus-4-1-20250805"},
     "gemini":          {"provider": "gemini",      "real_model": "gemini-1.5-flash"},
     "gemini-pro":      {"provider": "gemini",      "real_model": "gemini-1.5-pro"},
-    "perplexity":      {"provider": "perplexity",  "real_model": "sonar-small-chat"},
-    "perplexity-large":{"provider": "perplexity",  "real_model": "sonar"},
+    # Perplexity sonar models (2024-2025): sonar (быстрый, дешёвый, с поиском),
+    # sonar-pro (большой контекст + сложные запросы), sonar-reasoning (CoT).
+    # `sonar-small-chat` была снята с поддержки.
+    "perplexity":      {"provider": "perplexity",  "real_model": "sonar"},
+    "perplexity-pro":  {"provider": "perplexity",  "real_model": "sonar-pro"},
+    "perplexity-large":{"provider": "perplexity",  "real_model": "sonar-pro"},  # alias для legacy
     "grok":            {"provider": "grok",        "real_model": "grok-3"},
     "grok-large":      {"provider": "grok",        "real_model": "grok-3"},
     "nano":            {"provider": "nanobanana",  "real_model": "nano-v1"},
