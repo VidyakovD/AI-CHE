@@ -202,8 +202,10 @@ _USD_TO_KOP_RATE = 9500  # 95 ₽ за $1 → 9500 коп
 
 # Порог алерта: если фактическая стоимость Perplexity-вызова превышает
 # этот % от fix-price юзера — пишем в audit-log с level=warn. По умолчанию
-# 50% — обычный sonar-pro укладывается в 5-10 ₽, при цене 150 ₽ это <10%.
-_PPL_BUDGET_ALERT_PCT = 50
+# 70% — с max_tokens=16000 sonar-pro может дать 15-25 ₽ при цене 150 ₽
+# (это ~17%), а sonar-reasoning-pro иногда тратит больше CoT-токенов.
+# Алерт срабатывает только на реальных аномалиях (>0.7 × fix_price).
+_PPL_BUDGET_ALERT_PCT = 70
 
 
 async def _run_perplexity_research(stage: dict, ctx: dict) -> tuple[str, int]:
@@ -233,10 +235,17 @@ async def _run_perplexity_research(stage: dict, ctx: dict) -> tuple[str, int]:
         return "[Perplexity: пустой query]", 0
 
     model = stage.get("model", "sonar-pro")
-    max_tokens = max(500, min(int(stage.get("max_tokens", 6000)), 8000))
+    # Лимит максимума повышен 8k → 16k токенов (≈20-30 KB ответа). При
+    # max=16000 типичный sonar-pro укладывается в 8-15 ₽; sonar-reasoning-pro
+    # может дать 15-25 ₽ (CoT тратит больше output). Проверка через
+    # actual_cost_kop в audit-log если порог превышен.
+    max_tokens = max(500, min(int(stage.get("max_tokens", 12000)), 16000))
     search_ctx = stage.get("search_context", "high")
     if search_ctx not in ("low", "medium", "high"):
         search_ctx = "high"
+    # Опц. фильтр свежести (year / month / week / day) — для контрагентов и
+    # юр-новостей особенно важен (старые суды нерелевантны).
+    recency = stage.get("search_recency_filter")
 
     # Ключ из env (CSV — берём первый рабочий)
     keys_csv = (os.getenv("PERPLEXITY_API_KEYS") or "").strip()
@@ -255,6 +264,8 @@ async def _run_perplexity_research(stage: dict, ctx: dict) -> tuple[str, int]:
         "temperature": float(stage.get("temperature", 0.2)),
         "web_search_options": {"search_context_size": search_ctx},
     }
+    if recency in ("year", "month", "week", "day"):
+        payload["search_recency_filter"] = recency
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     client_kwargs = {"timeout": 120.0}

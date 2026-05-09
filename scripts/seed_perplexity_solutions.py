@@ -187,6 +187,7 @@ SOLUTIONS = [
         "subcategory": "research",
         "tags": "perplexity,deep,новинка,хит",
         "is_featured": True,
+        "recency": "year",  # суды старше года уже не релевантны
         "input_hint": "Введите название компании или ИНН (например: ООО Яндекс или 7736207543)",
         "prompt_tpl": _T_KONTRAGENT,
     },
@@ -198,6 +199,7 @@ SOLUTIONS = [
         "subcategory": "research",
         "tags": "perplexity,deep,новинка",
         "is_featured": True,
+        "recency": "year",  # последние посты, новости, движения по карьере
         "input_hint": "Имя/должность/компания человека или название фирмы (например: «Иван Иванов, CEO Озона» или «Сбербанк»)",
         "prompt_tpl": _T_BRIEF,
     },
@@ -209,6 +211,7 @@ SOLUTIONS = [
         "subcategory": "legal",
         "tags": "perplexity,deep,новинка,юристам,бухгалтерам",
         "is_featured": True,
+        "recency": "month",  # квартальный обзор → месячный фильтр (берёт 3 месяца окно)
         "input_hint": "Опишите вашу нишу/деятельность (например: «маркировка товаров в Честном Знаке» или «УСН для интернет-магазинов»)",
         "prompt_tpl": _T_LEGAL_NEWS,
     },
@@ -220,6 +223,7 @@ SOLUTIONS = [
         "subcategory": "marketing",
         "tags": "perplexity,deep,новинка,конкуренты",
         "is_featured": False,
+        "recency": "month",  # цены меняются — берём свежие
         "input_hint": "Опишите вашу нишу/услугу/город (например: «бухгалтерское сопровождение для ИП в Москве»)",
         "prompt_tpl": _T_PRICE_AUDIT,
     },
@@ -231,6 +235,7 @@ SOLUTIONS = [
         "subcategory": "strategy",
         "tags": "perplexity,deep,новинка,инвесторы,финансирование",
         "is_featured": False,
+        "recency": "year",  # инвестиции — год это релевантный горизонт
         "input_hint": "Опишите проект: ниша, стадия (идея/MVP/растущий), нужный чек, страна (например: «SaaS для SMB, MVP, нужно 5М ₽, РФ»)",
         "prompt_tpl": _T_INVESTORS,
     },
@@ -263,18 +268,21 @@ def main():
                 skipped += 1
                 continue
 
+            stage = {
+                "id": "research",
+                "label": "Глубокий ресёрч",
+                "type": "perplexity_research",
+                "model": "sonar-reasoning-pro",
+                "search_context": "high",
+                "max_tokens": 16000,
+                "temperature": 0.2,
+                "fix_price_kop": tpl["price_kop"],
+                "query": tpl["prompt_tpl"],
+            }
+            if tpl.get("recency"):
+                stage["search_recency_filter"] = tpl["recency"]
             orch = {
-                "stages": [{
-                    "id": "research",
-                    "label": "Глубокий ресёрч",
-                    "type": "perplexity_research",
-                    "model": "sonar-reasoning-pro",
-                    "search_context": "high",
-                    "max_tokens": 8000,
-                    "temperature": 0.2,
-                    "fix_price_kop": tpl["price_kop"],
-                    "query": tpl["prompt_tpl"],
-                }],
+                "stages": [stage],
                 "input_hint": tpl["input_hint"],
                 "default_model": "sonar-reasoning-pro",
                 "final_stage_id": "research",
