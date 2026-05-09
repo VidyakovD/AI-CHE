@@ -232,6 +232,12 @@ TOKEN_COST = {
     "claude-opus-4-6":         3000,
     "claude-opus-4-20250514":  3000,
     "claude-opus-4-1-20250805": 3000,
+    # Perplexity sonar models (старые sonar-small-chat / sonar-large-chat
+    # сняты с поддержки — используем актуальные имена sonar / sonar-pro).
+    "sonar":                    300,
+    "sonar-pro":                800,
+    "sonar-reasoning-pro":     1200,
+    # Aliases для legacy-записей, если где-то ещё остались в БД pricing
     "sonar-small-chat":         300,
     "sonar-large-chat":         800,
     "grok-3-mini":              300,
@@ -1183,7 +1189,7 @@ def grok_response(model: str, messages: list, extra: dict = None) -> dict:
 def perplexity_response(model: str, messages: list, extra: dict = None) -> dict:
     return _openai_compatible_response(
         "perplexity", "https://api.perplexity.ai", model, messages,
-        default_model="sonar-small-chat",
+        default_model="sonar",  # старая sonar-small-chat снята с поддержки
     )
 
 # ── OPENAI IMAGE (DALL-E) ─────────────────────────────────────────────────────

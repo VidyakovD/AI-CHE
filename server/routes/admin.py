@@ -606,7 +606,8 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
         elif provider == "perplexity":
             from openai import OpenAI
             c = OpenAI(api_key=key_value, base_url="https://api.perplexity.ai")
-            c.chat.completions.create(model="sonar-small-chat",
+            # sonar-small-chat снят с поддержки — используем актуальную sonar
+            c.chat.completions.create(model="sonar",
                 messages=[{"role": "user", "content": "hi"}], max_tokens=1)
             return "ok", None
         elif provider == "kling":
@@ -731,35 +732,108 @@ def admin_reencrypt_secrets(request: Request,
                             user: User = Depends(current_user),
                             db: Session = Depends(get_db)):
     """
-    Перешифровывает все IMAP-пароли на текущий JWT_SECRET.
-    Используется после ротации JWT_SECRET (старый кладётся в LEGACY_JWT_SECRETS).
-    Возвращает: {migrated, unchanged, failed}.
+    Пере-шифровывает все секреты в БД на текущий JWT_SECRET. Используется
+    после ротации JWT_SECRET (старый кладётся в JWT_SECRETS_LEGACY).
+
+    Покрывает:
+      • ImapCredential.password — raw `enc:`-строки через reencrypt()
+      • EncryptedString-поля у ChatBot/ApiKey/User — через re-set атрибута
+        (SQLAlchemy уже расшифровал на SELECT текущим набором ключей,
+        присваивание триггерит process_bind_param который зашифрует
+        актуальным JWT_SECRET).
+
+    Использование:
+      1. Добавить новый ключ в JWT_SECRET, старый перенести в JWT_SECRETS_LEGACY
+      2. Дернуть POST /admin/reencrypt-secrets (только админ)
+      3. После 200 OK с failed=0 можно удалить JWT_SECRETS_LEGACY из env
+
+    Формат ENV:
+      JWT_SECRET=<новый>
+      JWT_SECRETS_LEGACY=<старый1>,<старый2>   # csv до 5 ключей
     """
     require_admin(user)
-    from server.models import ImapCredential
+    from server.models import ImapCredential, ChatBot as _CB, ApiKey as _AK, User as _U
     from server.secrets_crypto import reencrypt
-    migrated = unchanged = failed = 0
-    rows = db.query(ImapCredential).all()
-    for r in rows:
+
+    # ── 1. ImapCredential.password (raw enc:-строки) ──────────────────────
+    imap_migrated = imap_unchanged = imap_failed = 0
+    for r in db.query(ImapCredential).all():
         if not r.password or not r.password.startswith("enc:"):
-            unchanged += 1  # plaintext-legacy или пусто — не трогаем
+            imap_unchanged += 1  # plaintext-legacy или пусто — не трогаем
             continue
         new_val = reencrypt(r.password)
         if new_val is None:
-            failed += 1
+            imap_failed += 1
             continue
         if new_val == r.password:
-            unchanged += 1
+            imap_unchanged += 1
             continue
         r.password = new_val
-        migrated += 1
+        imap_migrated += 1
+
+    # ── 2. EncryptedString-поля через re-set атрибута ─────────────────────
+    enc_targets = [
+        (_CB, ["tg_token", "vk_token", "vk_secret", "avito_client_secret",
+               "max_token", "wazzup_api_key", "widget_secret"]),
+        (_AK, ["api_key"]),
+        (_U, ["totp_secret"]),
+    ]
+    enc_summary: dict[str, dict[str, int]] = {}
+    enc_total_done = 0
+    enc_total_failed = 0
+    for Model, fields in enc_targets:
+        tname = Model.__tablename__
+        rows = db.query(Model).all()
+        done = 0
+        failed = 0
+        for row in rows:
+            for fname in fields:
+                try:
+                    plain = getattr(row, fname, None)
+                    if plain is None or plain == "":
+                        continue
+                    # Re-set триггерит EncryptedString.process_bind_param
+                    setattr(row, fname, plain)
+                    done += 1
+                except Exception as e:
+                    log.warning(f"[reencrypt] {tname}.{fname} id={row.id}: {type(e).__name__}: {e}")
+                    failed += 1
+        enc_summary[tname] = {"done": done, "failed": failed, "rows": len(rows)}
+        enc_total_done += done
+        enc_total_failed += failed
+
     db.commit()
+
+    summary = {
+        "imap_credentials": {
+            "migrated": imap_migrated,
+            "unchanged": imap_unchanged,
+            "failed": imap_failed,
+        },
+        **enc_summary,
+    }
+    total_failed = imap_failed + enc_total_failed
+
     from server.admin_audit import log_admin_action
+    from server.audit_log import log_action
     log_admin_action(db, user, "reencrypt_secrets",
-                     details={"migrated": migrated, "unchanged": unchanged, "failed": failed},
+                     details={"summary": summary, "total_failed": total_failed},
                      request=request)
-    return {"migrated": migrated, "unchanged": unchanged, "failed": failed,
-            "note": "Если failed > 0 — эти записи зашифрованы ключом, которого нет в LEGACY_JWT_SECRETS"}
+    log_action("admin.reencrypt_secrets", user_id=user.id,
+               level="warn" if total_failed == 0 else "error",
+               target_type="system", target_id="all",
+               details={"summary": summary, "total_failed": total_failed})
+
+    return {
+        "status": "ok",
+        "total_failed": total_failed,
+        "summary": summary,
+        "next_step": (
+            "Если total_failed = 0, можно удалить JWT_SECRETS_LEGACY из env."
+            if total_failed == 0
+            else "ВНИМАНИЕ: failed > 0 — эти записи зашифрованы ключом, которого нет в JWT_SECRETS_LEGACY. Не удаляйте legacy-ключи!"
+        ),
+    }
 
 
 @router.post("/seed-business-prompts")
@@ -1225,80 +1299,6 @@ def admin_2fa_status(user: User = Depends(current_user)):
     return {"enabled": bool(user.totp_enabled)}
 
 
-# ── Re-encrypt секретов после ротации JWT_SECRET ────────────────────────────
-# Когда меняем JWT_SECRET (плановая ротация / компрометация), все секреты в
-# БД зашифрованы старым ключом. Этот endpoint проходит по всем
-# EncryptedString-полям, расшифровывает старым ключом из JWT_SECRETS_LEGACY
-# и пере-шифрует текущим. После этого старый ключ можно удалить из env.
-#
-# Использование:
-#   1. Добавить новый ключ в JWT_SECRET, старый перенести в JWT_SECRETS_LEGACY
-#   2. Дернуть POST /admin/reencrypt-secrets (только админ)
-#   3. После 200 OK можно удалить JWT_SECRETS_LEGACY из env
-#
-# Формат ENV:
-#   JWT_SECRET=<новый>
-#   JWT_SECRETS_LEGACY=<старый1>,<старый2>  # csv до 5 ключей
-
-@router.post("/reencrypt-secrets")
-def admin_reencrypt_secrets(user: User = Depends(current_user),
-                              db: Session = Depends(get_db)):
-    """Пере-шифровать все EncryptedString-поля под текущий JWT_SECRET.
-    Возвращает количество обработанных + provided/failed/skipped по таблицам."""
-    require_admin(user)
-    from server.secrets_crypto import reencrypt
-    from server.models import (
-        ChatBot as _CB, ApiKey as _AK, User as _U,
-    )
-
-    # Какие модели + какие поля в них зашифрованы
-    targets = [
-        (_CB, ["tg_token", "vk_token", "vk_secret", "avito_client_secret",
-                "max_token", "wazzup_api_key", "widget_secret"]),
-        (_AK, ["api_key"]),
-        (_U, ["totp_secret"]),
-    ]
-
-    summary = {}
-    total_done = 0
-    total_failed = 0
-
-    for Model, fields in targets:
-        tname = Model.__tablename__
-        rows = db.query(Model).all()
-        done = 0
-        failed = 0
-        for row in rows:
-            for fname in fields:
-                # Достаём raw из БД (через __dict__ обходим EncryptedString
-                # decryption). Хм, нет — SQLAlchemy уже расшифровал при
-                # SELECT. Поэтому просто читаем атрибут — он plaintext —
-                # и заново присваиваем (process_bind_param re-зашифрует
-                # текущим JWT_SECRET).
-                try:
-                    plain = getattr(row, fname, None)
-                    if plain is None or plain == "":
-                        continue
-                    # Re-set чтобы триггернуть EncryptedString.process_bind_param
-                    setattr(row, fname, plain)
-                    done += 1
-                except Exception as e:
-                    log.warning(f"[reencrypt] {tname}.{fname} id={row.id}: {type(e).__name__}: {e}")
-                    failed += 1
-        summary[tname] = {"done": done, "failed": failed, "rows": len(rows)}
-        total_done += done
-        total_failed += failed
-
-    db.commit()
-    from server.audit_log import log_action
-    log_action("admin.reencrypt_secrets", user_id=user.id, level="warn",
-               target_type="system", target_id="all",
-               details={"total_done": total_done, "total_failed": total_failed,
-                        "summary": summary})
-    return {
-        "status": "ok",
-        "total_done": total_done,
-        "total_failed": total_failed,
-        "summary": summary,
-        "next_step": "Если total_failed = 0, можно удалить JWT_SECRETS_LEGACY из env.",
-    }
+# Note: единственная регистрация POST /reencrypt-secrets — выше в файле
+# (admin_reencrypt_secrets). Раньше тут был дубликат, который перезаписывал
+# IMAP-обработку из первой версии. Объединено 2026-05-09.

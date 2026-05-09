@@ -124,6 +124,80 @@ def _setup_sentry():
 
 _setup_sentry()
 
+
+# ── Fail-fast валидация env ────────────────────────────────────────────────
+# В проде раньше пустые YOOKASSA_SHOP_ID / SECRET_KEY загружались как ""
+# молча — юзер делал оплату, ЮKassa отвечала 401, мы возвращали 500. Лучше
+# не стартовать, чем работать сломанно. Fatal — RuntimeError, warn — log.
+def _validate_env():
+    is_prod = os.getenv("APP_ENV", "production").lower() == "production"
+    is_dev = os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
+
+    errors: list[str] = []
+    warns: list[str] = []
+
+    # JWT_SECRET — обязательный, в проде минимум 32 символа
+    jwt_secret = os.getenv("JWT_SECRET", "").strip()
+    if not jwt_secret:
+        errors.append(
+            "JWT_SECRET не задан — без него не работают refresh-токены, "
+            "EncryptedString-поля и httpOnly cookie auth."
+        )
+    elif is_prod and not is_dev and len(jwt_secret) < 32:
+        errors.append(
+            f"JWT_SECRET слишком короткий ({len(jwt_secret)} симв) — "
+            "в проде минимум 32 (HKDF derived ключи + bruteforce resistance)."
+        )
+
+    # ЮKassa: обе переменные либо обе пусты. Несимметрично — это ошибка
+    # конфигурации (юзер думает что платежи работают, а они отказывают).
+    shop_id = os.getenv("YOOKASSA_SHOP_ID", "").strip()
+    secret_key = os.getenv("YOOKASSA_SECRET_KEY", "").strip()
+    if bool(shop_id) != bool(secret_key):
+        errors.append(
+            "YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY должны быть заданы вместе "
+            "(сейчас одно есть, другое пусто — оплаты будут падать в 401)."
+        )
+    if is_prod and not is_dev and not shop_id:
+        warns.append(
+            "YOOKASSA_SHOP_ID/SECRET_KEY пусты в проде — платежи отключены."
+        )
+
+    # DATABASE_URL: в проде рекомендуем PostgreSQL (multi-worker safe)
+    db_url = os.getenv("DATABASE_URL", "").strip()
+    if is_prod and not is_dev:
+        if not db_url:
+            warns.append(
+                "DATABASE_URL не задан — будет SQLite. В проде с 4 worker'ами "
+                "это race-conditions, рекомендуется PostgreSQL."
+            )
+        elif db_url.startswith("sqlite"):
+            warns.append(
+                "DATABASE_URL=sqlite в проде с multi-worker — рекомендуется PostgreSQL."
+            )
+
+    # ALLOWED_ORIGINS уже валидируется ниже при настройке CORS — не дублируем
+
+    # DEPLOY_TOKEN: warn если пусто, чтобы /internal/deploy не открывался без auth
+    if is_prod and not os.getenv("DEPLOY_TOKEN", "").strip():
+        warns.append(
+            "DEPLOY_TOKEN не задан — /internal/deploy будет возвращать 503. "
+            "Это безопасное состояние, но CI деплой не будет работать."
+        )
+
+    for w in warns:
+        log.warning(f"[env-check] {w}")
+    if errors:
+        msg = "\n  • " + "\n  • ".join(errors)
+        raise RuntimeError(
+            f"Невалидная конфигурация environment:{msg}\n\n"
+            "Почините .env и перезапустите сервис."
+        )
+
+
+_validate_env()
+
+
 # create_all с защитой от race-condition: при многих uvicorn workers оба
 # процесса вызывают create_all одновременно. SQLAlchemy checkfirst=True
 # делает SELECT FROM sqlite_master, потом CREATE TABLE — между этим
@@ -1053,7 +1127,10 @@ async def deploy_endpoint(authorization: str = Header(None)):
         raise HTTPException(503, "Deploy endpoint disabled — set DEPLOY_TOKEN env var")
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "No token")
-    if authorization[7:] != DEPLOY_TOKEN:
+    # Сравнение через compare_digest — защита от timing-атаки на побайтовый
+    # подбор DEPLOY_TOKEN по network-латентности (за токеном — shell от root).
+    import hmac as _hmac
+    if not _hmac.compare_digest(authorization[7:], DEPLOY_TOKEN):
         raise HTTPException(403, "Invalid token")
     try:
         r = _subprocess.run(

@@ -132,20 +132,75 @@
     }
   }, 1000);
 
+  async function callApprove(totpCode){
+    const r = await fetch('/qr-login/approve/' + encodeURIComponent(token), {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ totp_code: totpCode || null }),
+    });
+    const d = await r.json().catch(()=>({}));
+    return { ok: r.ok, data: d };
+  }
+
+  function renderTotpForm(errorMsg){
+    render(`
+      <div class="status-icon">🔐</div>
+      <h1>Введите код 2FA</h1>
+      <div class="sub">Откройте приложение-аутентификатор и введите 6-значный код для подтверждения входа на ПК.</div>
+      <input id="totp-code" type="text" inputmode="numeric" maxlength="6" pattern="\\d{6}" autocomplete="one-time-code"
+        style="width:100%;padding:12px;font-size:18px;letter-spacing:4px;text-align:center;background:#1a1a1a;color:#fff;border:1px solid #333;border-radius:8px;margin:12px 0" />
+      ${errorMsg ? `<div class="sub" style="color:#ff6b6b">${escapeHtml(errorMsg)}</div>` : ''}
+      <button class="btn btn-primary" id="totp-submit">Подтвердить</button>
+      <button class="btn btn-secondary" id="totp-cancel">Отмена</button>
+    `);
+    const input = document.getElementById('totp-code');
+    setTimeout(()=>input && input.focus(), 50);
+    document.getElementById('totp-submit').onclick = async () => {
+      const code = (input.value || '').trim().replace(/\s/g,'');
+      if(!/^\d{6}$/.test(code)){
+        renderTotpForm('Код должен быть из 6 цифр');
+        return;
+      }
+      render(`<div class="status-icon">⏳</div><h1>Проверяем код...</h1>`);
+      try {
+        const { ok, data } = await callApprove(code);
+        if(!ok){
+          renderTotpForm(data.detail || 'Неверный код');
+          return;
+        }
+        if(data.status === 'totp_required'){
+          renderTotpForm('Код не подошёл, попробуйте ещё раз');
+          return;
+        }
+        render(`
+          <div class="status-icon ok">✓</div>
+          <h1>Готово</h1>
+          <div class="sub">Можно вернуться к компьютеру — там произошёл вход.</div>
+        `);
+      } catch(_){
+        renderTotpForm('Сеть недоступна');
+      }
+    };
+    document.getElementById('totp-cancel').onclick = () => {
+      render(`<div class="status-icon">🚫</div><h1>Вход отменён</h1><div class="sub">Можете закрыть эту вкладку.</div>`);
+    };
+  }
+
   document.getElementById('approve').onclick = async () => {
     clearInterval(tmr);
     render(`<div class="status-icon">⏳</div><h1>Подтверждаем...</h1>`);
     try {
-      const r = await fetch('/qr-login/approve/' + encodeURIComponent(token), {
-        method: 'POST', credentials: 'same-origin',
-      });
-      if(!r.ok){
-        const d = await r.json().catch(()=>({detail: 'Ошибка'}));
+      const { ok, data } = await callApprove(null);
+      if(!ok){
         return render(`
           <div class="status-icon err">⚠️</div>
           <h1>Не получилось</h1>
-          <div class="sub">${escapeHtml(d.detail || 'Попробуйте ещё раз')}</div>
+          <div class="sub">${escapeHtml(data.detail || 'Попробуйте ещё раз')}</div>
         `);
+      }
+      // Админ с 2FA — сервер просит код. Показываем форму ввода.
+      if(data.status === 'totp_required'){
+        return renderTotpForm(null);
       }
       render(`
         <div class="status-icon ok">✓</div>

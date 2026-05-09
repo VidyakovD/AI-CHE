@@ -65,11 +65,14 @@ async def telegram_webhook(bot_id: int, request: Request,
     # /webhook/tg/{bot_id} от чьего угодно имени и тратить наш AI-баланс.
     expected_secret = tg_webhook_secret(bot.tg_token)
     if expected_secret:
+        import hmac as _hmac
         got = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         if not got:
             log.warning(f"[TG Bot {bot_id}] webhook без secret — отклоняем")
             raise HTTPException(401, "Secret token required (re-register webhook)")
-        if got != expected_secret:
+        # Сравнение через compare_digest — защита от timing-атаки на побайтовый
+        # подбор secret по network-латентности.
+        if not _hmac.compare_digest(got, expected_secret):
             log.warning(f"[TG Bot {bot_id}] Invalid secret token")
             raise HTTPException(401, "Invalid secret")
 

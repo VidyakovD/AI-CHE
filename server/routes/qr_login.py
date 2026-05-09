@@ -9,6 +9,8 @@ Flow:
      Если он залогинен в наш сервис на телефоне — видит подтверждение.
      Если нет — обычный логин, потом подтверждение.
   4. Телефон: POST /qr-login/approve/{token} (с auth) → status=approved.
+     Если у админа включён TOTP — обязателен `totp_code` в теле запроса
+     (без него возвращаем status=totp_required и approve не делаем).
   5. Десктоп получает approved в poll-е → читает access/refresh ОДИН РАЗ →
      ставит httpOnly cookies → перезагружает страницу → залогинен.
 
@@ -20,11 +22,14 @@ Flow:
     это подозрительно (один и тот же браузер сканирует свой же QR), но не
     блокируем — может быть валидный кейс «компьютер и смартфон в одной сети».
   - Rate-limit на /qr-login/init и /qr-login/poll (см. server/security.py).
+  - 2FA: если юзер-админ с totp_enabled=True, без верного TOTP-кода approve
+    отклоняется. Это закрывает обход 2FA через угнанную мобильную сессию.
 """
 import logging
 import secrets
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db, current_user, _user_dict
@@ -33,6 +38,10 @@ from server.auth import (
     create_token, create_refresh_token, set_auth_cookies,
     _new_jti, register_refresh_jti,
 )
+
+
+class QrApproveRequest(BaseModel):
+    totp_code: str | None = None
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/qr-login", tags=["auth"])
@@ -138,11 +147,47 @@ def qr_info(token: str, db: Session = Depends(get_db)):
 
 @router.post("/approve/{token}")
 def qr_approve(token: str, request: Request,
+               body: QrApproveRequest | None = None,
                db: Session = Depends(get_db),
                user: User = Depends(current_user)):
-    """Юзер на мобиле подтверждает вход. Требует авторизации."""
+    """Юзер на мобиле подтверждает вход. Требует авторизации.
+
+    Для админов с включённым TOTP — обязателен `totp_code` в body. Без него
+    возвращаем status=totp_required (фронт покажет поле кода). Это закрывает
+    обход 2FA через угнанную/фишинговую мобильную сессию: даже если у атакера
+    есть валидная cookie, без TOTP он не выдаст десктопу токены.
+    """
     if not user.is_verified:
         raise HTTPException(403, "Подтвердите email перед использованием QR-входа")
+
+    # 2FA: если у админа включён TOTP — требуем код. Mirror логики
+    # /auth/login (server/routes/auth.py:236) для UX-консистентности.
+    from server.security import ADMIN_EMAILS
+    is_admin_user = (user.email or "").lower() in ADMIN_EMAILS
+    if is_admin_user and user.totp_enabled and user.totp_secret:
+        provided = ((body.totp_code if body else None) or "").strip().replace(" ", "")
+        if not provided:
+            return {"status": "totp_required",
+                    "message": "Введите 6-значный код 2FA для подтверждения входа"}
+        if not provided.isdigit() or len(provided) != 6:
+            raise HTTPException(401, "Код 2FA должен быть 6 цифр")
+        try:
+            import pyotp
+            totp = pyotp.TOTP(user.totp_secret)
+            if not totp.verify(provided, valid_window=1):
+                try:
+                    from server.audit_log import log_action
+                    log_action("qr.2fa_failed", user_id=user.id, level="warn",
+                               target_type="qr_session", target_id=token[:16])
+                except Exception:
+                    pass
+                raise HTTPException(401, "Неверный код 2FA")
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.error(f"QR 2FA verify error: {type(e).__name__}: {e}")
+            raise HTTPException(500, "Ошибка проверки 2FA")
+
     sess = db.query(QrLoginSession).filter_by(token=token).first()
     if not sess:
         raise HTTPException(404, "QR-сессия не найдена")
@@ -164,7 +209,8 @@ def qr_approve(token: str, request: Request,
         log_action("qr.approved", user_id=user.id, target_type="qr_session",
                    target_id=str(sess.id),
                    details={"init_ua": (sess.init_ua or "")[:80],
-                            "approve_ip": ip})
+                            "approve_ip": ip,
+                            "totp_used": bool(is_admin_user and user.totp_enabled)})
     except Exception:
         pass
     return {"status": "approved"}
