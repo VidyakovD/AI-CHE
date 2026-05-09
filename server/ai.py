@@ -713,24 +713,32 @@ def _ai_proxy(provider: str) -> str | None:
     """Универсальный helper: возвращает прокси для AI-вызовов.
 
     Логика поиска:
-      1. <PROVIDER>_HTTPS_PROXY (например OPENAI_HTTPS_PROXY) — приоритет
-      2. AI_HTTPS_PROXY — общий fallback для всех AI-вызовов
+      1. <PROVIDER>_HTTPS_PROXY задан → использовать его. Если задан
+         пустой строкой (`PERPLEXITY_HTTPS_PROXY=`) — это **явный override
+         «не использовать прокси для этого провайдера»**. Полезно когда
+         API провайдера доступен напрямую с РФ (например Perplexity),
+         а common-прокси не пропускает к нему.
+      2. AI_HTTPS_PROXY — общий fallback для всех AI-вызовов.
       3. None — идём напрямую (работает на NL-сервере; на РФ-сервере
-         вероятно вернёт connection refused)
+         для OpenAI/Anthropic/Google обычно нужен прокси).
 
     На РФ-проде нужно настроить как минимум `AI_HTTPS_PROXY=http://user:pass@eu-relay:3128`
     (squid на VPS в Hetzner/DO за €4/мес). Тогда все AI-вызовы пойдут
-    через ваш прокси, и провайдеры (OpenAI/Anthropic/Google/Perplexity)
-    увидят EU-IP вместо российского.
+    через ваш прокси, и провайдеры (OpenAI/Anthropic/Google) увидят EU-IP
+    вместо российского.
 
     Поддерживаемые provider-имена: openai, anthropic, google, xai (grok),
     perplexity. Можно использовать любую другую строку — будет искать
     `<UPPER>_HTTPS_PROXY` env-переменную.
     """
     p = (provider or "").upper().strip()
-    specific = (os.getenv(f"{p}_HTTPS_PROXY") or "").strip()
-    if specific:
-        return specific
+    specific_raw = os.getenv(f"{p}_HTTPS_PROXY")
+    # None = переменная не задана → fallback на common.
+    # "" = задана пустой → явный override «не использовать прокси».
+    # "..." = задана с URL → используем его.
+    if specific_raw is not None:
+        specific = specific_raw.strip()
+        return specific or None  # пустая → None, override common
     common = (os.getenv("AI_HTTPS_PROXY") or "").strip()
     return common or None
 
