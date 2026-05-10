@@ -655,34 +655,38 @@ body.welcome #inputArea{display:none!important}
 
 <!-- Run Modal -->
 <div id="runModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="runTitle">
-  <div class="bg-surface rounded-2xl w-full max-w-lg mx-4 border border-outline/25 shadow-2xl overflow-hidden">
-    <div class="sig px-5 py-4 flex items-center justify-between">
-      <div>
-        <h3 class="font-bold font-headline text-[#1e1a14] text-sm" id="runTitle">Запуск решения</h3>
-        <p class="text-[10px] text-[#1e1a14]/70 mt-0.5" id="runStepLabel">Шаг 1</p>
+  <div class="bg-surface rounded-2xl w-full max-w-lg mx-4 border border-outline/25 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div class="px-5 pt-4 pb-3 border-b border-outline/15 flex items-start justify-between gap-3 flex-shrink-0">
+      <div class="flex-1 min-w-0">
+        <h3 class="font-bold font-headline text-on-surface text-base leading-snug" id="runTitle">Запуск решения</h3>
+        <p class="text-[11px] text-on-surface-dim/70 mt-0.5" id="runStepLabel"></p>
       </div>
-      <button onclick="closeRun()" aria-label="Закрыть" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:20px;height:20px;color:#1e1a14" class="text-sm"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      <button onclick="closeRun()" aria-label="Закрыть" class="w-7 h-7 rounded-full bg-surface2 hover:bg-surface3 flex items-center justify-center flex-shrink-0 transition">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px" class="text-on-surface-dim"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button>
     </div>
-    <div class="p-5 space-y-4">
+    <div class="p-5 space-y-3 overflow-y-auto flex-1">
       <div class="flex gap-1.5" id="runProgress"></div>
-      <p class="text-sm text-on-surface-dim" id="runHint"></p>
-      <div id="runInputArea" class="hidden">
-        <textarea id="runInput" rows="3" class="inp resize-none" placeholder="Введите ответ..."></textarea>
-        <p class="text-[10px] text-on-surface-dim/50 mt-1">Ctrl+Enter — отправить</p>
+      <p class="text-[13px] text-on-surface-dim leading-relaxed" id="runHint"></p>
+      <div id="runInputArea" class="hidden space-y-2">
+        <!-- Динамическая разметка: либо набор полей (поле на каждый пункт хинта),
+             либо одна textarea если хинт неструктурированный. Заполняется
+             функцией _renderRunInputFields(hint, opts) при каждой смене шага. -->
+        <div id="runInputFields" class="space-y-2 hidden"></div>
+        <textarea id="runInput" rows="4" class="inp resize-none" placeholder="Введите ответ..."></textarea>
+        <p class="text-[10px] text-on-surface-dim/50">Ctrl+Enter — отправить</p>
       </div>
       <div id="runResult" class="hidden bg-surface2 rounded-xl p-4 border border-outline/20 max-h-40 overflow-y-auto">
         <p class="text-xs text-on-surface leading-relaxed whitespace-pre-wrap" id="runResultText"></p>
       </div>
       <div id="runErr" class="text-error text-sm hidden"></div>
-      <div class="flex gap-3">
-        <button id="runContinueBtn" onclick="continueRun()" class="flex-1 py-3 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition flex items-center justify-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:16px;height:16px"><path d="M8 5v14l11-7z"/></svg>
-          <span id="runBtnLabel">Продолжить</span>
-        </button>
-        <button onclick="openRunChat()" id="runChatBtn" class="hidden px-4 py-3 rounded-xl bg-primary/10 text-primary font-medium text-sm hover:bg-primary/20 transition">Открыть чат</button>
-      </div>
+    </div>
+    <div class="px-5 py-3 border-t border-outline/15 flex gap-2 flex-shrink-0 bg-surface/50">
+      <button id="runContinueBtn" onclick="continueRun()" class="flex-1 py-2.5 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition flex items-center justify-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px"><path d="M8 5v14l11-7z"/></svg>
+        <span id="runBtnLabel">Продолжить</span>
+      </button>
+      <button onclick="openRunChat()" id="runChatBtn" class="hidden px-4 py-2.5 rounded-xl bg-primary/10 text-primary font-medium text-sm hover:bg-primary/20 transition">Открыть чат</button>
     </div>
   </div>
 </div>
@@ -982,6 +986,10 @@ document.addEventListener("DOMContentLoaded",async()=>{
       document.getElementById("modelDropdown").classList.add("hidden");
   });
   document.getElementById("runInput").addEventListener("keydown",e=>{if(e.key==="Enter"&&e.ctrlKey)continueRun();});
+  // Ctrl+Enter в любом динамическом поле runInputFields → continueRun
+  document.getElementById("runInputFields").addEventListener("keydown",e=>{
+    if(e.key==="Enter"&&e.ctrlKey){ e.preventDefault(); continueRun(); }
+  });
   updateSendBtn();
 });
 
@@ -4350,10 +4358,112 @@ async function finalizeOrchestra(runId){
   }
 }
 
+// ── Динамические поля ввода в runModal ──────────────────────────────────
+// Если hint в формате «Укажи: A, B, C (с описанием), D» — рендерим N input'ов
+// (по одному на каждый пункт). Иначе — одну textarea как раньше.
+// Это критично для UX: вместо «свалить всё в один textarea» юзер заполняет
+// конкретные поля с подсказками. Особенно важно для plain-решений где
+// промпт ожидает структурированный ввод.
+
+// Список «точек входа» в hint которые означают «дальше идёт перечисление полей».
+// Регистронезависимо. После двоеточия — список через запятые с возможной точкой
+// в конце.
+const _HINT_FIELD_TRIGGERS = /^[^:]{0,80}(укажи|укажите|опиши|опишите|введи|введите|заполни|заполните|расскажи|расскажите|дай|дайте|пришли|пришлите|поделись|поделитесь)[^:]{0,30}:\s*/i;
+
+function _parseHintFields(hint){
+  if(!hint || typeof hint !== "string") return null;
+  const m = hint.match(_HINT_FIELD_TRIGGERS);
+  if(!m) return null;
+  // Тело после двоеточия. Снимаем хвостовую точку.
+  let body = hint.slice(m[0].length).trim();
+  body = body.replace(/[.\s]+$/, "");
+  if(!body) return null;
+  // Сплит по запятым с учётом скобок (вложенные «(должность, тип компании, боли)»
+  // не должны разрезаться).
+  const parts = [];
+  let depth = 0, cur = "";
+  for(const ch of body){
+    if(ch === "(" || ch === "[" || ch === "{") depth++;
+    else if(ch === ")" || ch === "]" || ch === "}") depth = Math.max(0, depth-1);
+    if(ch === "," && depth === 0){
+      const t = cur.trim();
+      if(t) parts.push(t);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  if(cur.trim()) parts.push(cur.trim());
+  // Минимум 2 поля чтобы был смысл — иначе одна textarea лучше.
+  return parts.length >= 2 ? parts : null;
+}
+
+function _renderRunInputFields(hint){
+  const fieldsContainer = document.getElementById("runInputFields");
+  const textarea = document.getElementById("runInput");
+  if(!fieldsContainer || !textarea) return;
+  const fields = _parseHintFields(hint);
+  if(!fields){
+    // Структуры нет — показываем одну textarea
+    fieldsContainer.classList.add("hidden");
+    fieldsContainer.innerHTML = "";
+    textarea.classList.remove("hidden");
+    textarea.value = "";
+    return;
+  }
+  // Структурированный hint — рендерим набор полей
+  textarea.classList.add("hidden");
+  textarea.value = "";
+  fieldsContainer.classList.remove("hidden");
+  fieldsContainer.innerHTML = fields.map((f, i) => {
+    // Если в поле есть «(описание)» — выносим его как hint под label
+    const m = f.match(/^([^(]+?)\s*\(([^)]+)\)\s*(.*)$/);
+    let label = f, helper = "";
+    if(m){
+      label = (m[1] + (m[3] ? " " + m[3] : "")).trim();
+      helper = m[2].trim();
+    }
+    // Длинное поле (>40 симв в самом label) → textarea, короткое → input
+    const isLong = label.length > 40 || /опиши|расскажи|напиш/i.test(label);
+    const cap = label.charAt(0).toUpperCase() + label.slice(1);
+    return `<div class="flex flex-col gap-1">
+      <label class="text-[12px] text-on-surface font-medium">${esc(cap)}</label>
+      ${helper ? `<span class="text-[10px] text-on-surface-dim/60 -mt-0.5">${esc(helper)}</span>` : ""}
+      ${isLong
+        ? `<textarea data-run-field="${i}" data-run-label="${esc(label)}" rows="2" class="inp resize-none text-sm" placeholder="${esc(helper || cap)}"></textarea>`
+        : `<input data-run-field="${i}" data-run-label="${esc(label)}" type="text" class="inp text-sm" placeholder="${esc(helper || cap)}"/>`}
+    </div>`;
+  }).join("");
+  // Автофокус на первое поле
+  const first = fieldsContainer.querySelector("[data-run-field]");
+  if(first) setTimeout(() => first.focus(), 50);
+}
+
+function _collectRunInput(){
+  // Если есть динамические поля — собираем их в «label: value» по строчкам
+  const fieldsContainer = document.getElementById("runInputFields");
+  if(fieldsContainer && !fieldsContainer.classList.contains("hidden")){
+    const entries = [];
+    fieldsContainer.querySelectorAll("[data-run-field]").forEach(el => {
+      const v = (el.value || "").trim();
+      const lbl = el.getAttribute("data-run-label") || "";
+      if(v) entries.push(`${lbl}: ${v}`);
+    });
+    return entries.join("\n");
+  }
+  // Иначе — обычная textarea
+  return (document.getElementById("runInput").value || "").trim();
+}
+
 async function continueRun(){
   if(!activeRun)return;
-  const input=document.getElementById("runInput").value.trim();
+  const input = _collectRunInput();
   document.getElementById("runErr").classList.add("hidden");
+  if(!input){
+    document.getElementById("runErr").textContent = "Заполните хотя бы одно поле";
+    document.getElementById("runErr").classList.remove("hidden");
+    return;
+  }
   const btn=document.getElementById("runContinueBtn");
   btn.disabled=true;document.getElementById("runBtnLabel").textContent="Выполняется...";
   try{
@@ -4361,7 +4471,10 @@ async function continueRun(){
     const r=await fetch(`${API}/solutions/runs/${activeRun.run_id}/continue`,{method:"POST",headers:hdrs,body:JSON.stringify({input})});
     const data=await r.json();if(!r.ok)throw new Error(data.detail||"Ошибка");
     activeRun.chat_id=data.chat_id||activeRun.chat_id;activeRun.current_step++;
-    document.getElementById("runInput").value="";updateRunUI(data);
+    document.getElementById("runInput").value="";
+    // Очищаем динамические поля если есть
+    document.querySelectorAll("#runInputFields [data-run-field]").forEach(el => el.value = "");
+    updateRunUI(data);
   }catch(e){document.getElementById("runErr").textContent=e.message;document.getElementById("runErr").classList.remove("hidden");}
   btn.disabled=false;document.getElementById("runBtnLabel").textContent="Продолжить";
 }
@@ -4403,9 +4516,12 @@ function updateRunUI(data){
   }else if(data.status==="waiting_input"){
     const step=data.step;
     stepLbl.textContent=`Шаг ${step?.step_number||"?"}${step?.title?": "+step.title:""}`;
-    hintEl.textContent=step?.user_hint||"Введите данные:";
+    const hintText = step?.user_hint || "Введите данные:";
+    hintEl.textContent = hintText;
     inputArea.classList.remove("hidden");contBtn.classList.remove("hidden");chatBtn.classList.add("hidden");
-    document.getElementById("runInput").focus();
+    // Рендерим либо набор полей (если hint структурированный «Укажи: A, B, C»),
+    // либо одну textarea. Helper сам выберет и поставит автофокус.
+    _renderRunInputFields(hintText);
     if(data.current_result?.content){resultTxt.textContent=data.current_result.content;resultEl.classList.remove("hidden");}
     document.getElementById("runBtnLabel").textContent="Продолжить";
   }
