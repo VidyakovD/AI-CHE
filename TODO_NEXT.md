@@ -1,10 +1,93 @@
 # TODO — задачи в работе и на очереди
 
-_Последнее обновление: 2026-05-09 после спринта Perplexity + UI бизнес-решений_
+_Последнее обновление: 2026-05-10 после спринта v2-редизайна решений_
 
 ---
 
-## ✅ ЗАКРЫТО (накопительно за все сессии 2026-05-05/09)
+## 🚧 В РАБОТЕ — продолжать в следующей сессии
+
+### v2-редизайн бизнес-решений (10 из 40 готово)
+
+**Концепция v2** (см. CLAUDE.md → раздел «Solutions v2»):
+- `Solution.input_schema_json` — массив явных полей `[{name,label,type,required,hint,placeholder,options}]`
+- `Solution.orchestra_json` с stage'ами и подстановкой `{field.name}` / `{stage_id.output}`
+- Каждое решение использует подходящий микс провайдеров: Perplexity для свежих фактов, Sonnet для анализа, Haiku для черновиков, GPT-4o для полировки.
+
+**Готово (id 1-10):**
+1. ✅ Полный SWOT-анализ — 6 полей + Perplexity research → 4 parallel SWOT → TOWS-синтез
+2. ✅ 90-дневный план запуска — 6 полей + Perplexity bench + Sonnet
+3. ✅ Конкурентный анализ — 4 поля + Perplexity deep + Sonnet
+4. ✅ Скрипт холодного звонка — 4 поля + Perplexity объекций + Sonnet + GPT-4o
+5. ✅ Симулятор переговоров — 5 полей + Sonnet (роль)
+6. ✅ КП — 7 полей + Sonnet draft + GPT-4o polish
+7. ✅ Контент-план месяц — 5 полей + Perplexity тренды + Sonnet calendar
+8. ✅ Email-цепочка 7 писем — 6 полей + Haiku struct + Sonnet тексты
+9. ✅ Заголовки лендинга — 5 полей + Perplexity bench + Sonnet 6-формул
+10. ✅ Реклама все форматы — 6 полей + Sonnet под платформы
+
+**Осталось переделать (id 11-40):**
+11-13. HR (Вакансия / Мотивация / Онбординг)
+14-16. Финансы (Unit-экономика / Финдиагностика / Скрытые расходы)
+17-19. Стратегия (Бизнес-процессы / ИИ-автоматизация / новый источник дохода)
+20-22. Продажи (ICP / Жалобы / Программа лояльности)
+23-25. Стратегия+Research (ICE Score / Тренды / Тренды рынка)
+26-30. Sales/HR (Партнёр / Питч инвестору / Идеальный день / Делегирование / Симулятор инвестора)
+31-35. Orchestra deep (Аудит лендинга / Юр.договор / Аудит соц / Финаудит / Холодные email)
+36-40. Perplexity-фикс-цена (Контрагент / Брифинг / Юр-новости / Аудит цен / Поиск инвесторов)
+
+**Шаблон работы для следующей сессии:**
+1. Открой `scripts/seed_v2_solutions.py`, скопируй структуру одного из готовых (например #4 Скрипт холодного звонка) как образец
+2. Для каждого нового решения:
+   - Открой `Solution.title` + `Solution.description` через `psql` или admin UI чтобы понять что делает
+   - Спроектируй input_schema (3-7 полей с типами text/textarea/select/number)
+   - Спроектируй orchestra-pipeline: где Perplexity, где Sonnet, где GPT-4o
+   - Промпты в стиле «ты — консультант уровня X за Y ₽, выдай Z»
+   - Финальный stage обязательно `stream: true` для прогресса в UI
+3. Запустить тест: `ssh ... 'cd /root/AI-CHE && /root/AI-CHE/venv/bin/python -m dotenv -f .env run /root/AI-CHE/venv/bin/python scripts/seed_v2_solutions.py'`
+4. Открыть UI на проде, кликнуть, проверить что форма выглядит ОК и pipeline даёт качественный результат
+
+**Замечания:**
+- Цены НЕ трогаем в скрипте (юзер хочет тестировать качество перед пересчётом)
+- Для multi-step interactive (как «Симулятор переговоров») делать одношаговый orchestra — следующие реплики идут через обычный чат
+- Для perplexity-фикс-цена пилотов (36-40) — оставить как есть, они уже хорошо собраны (см. `seed_perplexity_solutions.py`)
+
+### После v2-редизайна
+- Пересчёт цен: посмотреть real_cost после 5-10 запусков каждого, выставить tier (100/250/500/990 ₽ или индивидуально)
+- Документация UX: видео/гифки для каждого пилота
+- A/B тест нового UX vs старого
+
+---
+
+## ✅ ЗАКРЫТО (накопительно за все сессии 2026-05-05/10)
+
+### v2-редизайн (2026-05-10, текущая сессия)
+- ✅ **Solution.input_schema_json** — новое поле + миграция (LIGHTWEIGHT_MIGRATIONS)
+- ✅ **API `/solutions/{id}`** возвращает `input_schema` в `_sol_dict`
+- ✅ **Backend orchestra**: `_resolve_placeholder` поддерживает `{field.name}` и `{name}`. `run_orchestra` парсит JSON-input как dict, кладёт в `ctx.fields`
+- ✅ **Backend plain steps**: `_execute_step` парсит JSON-input, раскладывает в ctx как отдельные ключи
+- ✅ **Frontend `_renderRunInputFields`**: приоритет 1 = v2 input_schema, приоритет 2 = парсер hint, fallback = textarea
+- ✅ **Frontend `_collectRunInput`**: для v2 возвращает JSON-stringified dict, валидирует required
+- ✅ **`launchSolution`**: если есть input_schema → всегда `_launchSolutionChain` (минуя prompt-editor и orchestra-textarea)
+- ✅ **scripts/seed_v2_solutions.py** — заполнил 10 первых решений
+- ✅ **Запущено на проде**, миграция применилась автоматически на restart
+
+### Спринт UX/инфра (2026-05-10, текущая сессия)
+- ✅ **Логин-модалка**: фикс закрытия при выделении текста (`mousedown+click` double-check на overlay)
+- ✅ **API ключи**: `_test_key` теперь использует `_openai_client_kwargs(provider)` с прокси для всех (OpenAI/Anthropic/Google/Grok/Kling)
+- ✅ **Email-алерты ключей**: `_last_alerted_broken_ids` hydrate из БД при старте — больше не приходит email на каждый restart
+- ✅ **chat.db legacy**: переименован в `.legacy-archived-20260510`, fail-fast на `DATABASE_URL` в `server/db.py`
+- ✅ **bcrypt 4.0.1 pin** в requirements.txt (passlib 1.7.4 несовместим с bcrypt 5.x)
+- ✅ **Marketplace soft-removed**: feature-flag `MARKETPLACE_ENABLED` (default off), все write-эндпоинты 410, UI-ссылки убраны
+- ✅ **Public API → ЛК**: новый таб «🔌 API & интеграции» в cabinetModal через iframe `/api.html?embed=1`
+- ✅ **Strict password policy**: 4 класса символов обязательны (lowercase + uppercase + digit + special)
+- ✅ **Lowercase admin email** при создании (создание_admin.py + UPDATE на проде)
+- ✅ **Бизнес-решения UI**: бейдж категории на карточке + группировка по категориям при «Все» + чистка legacy-префиксов
+- ✅ **Карточка решения click**: переход с inline-onclick на data-* + event delegation
+- ✅ **launchSolution duplicate**: убран дубль функции, объединён orchestra+plain flow
+- ✅ **runModal redesign**: тёмный header, footer прижат, скроллится body
+- ✅ **Hint-парсер для legacy решений**: «Укажи: A, B, C» → N полей вместо textarea (для решений где нет input_schema)
+- ✅ **Xray VLESS-client на проде**: AI-прокси через `127.0.0.1:10809` → VLESS Reality → `31.169.126.79`. OpenAI/Anthropic/Grok заработали (раньше 403 country)
+- ✅ **Admin VidyakovD@gmail.com** создан, пароль `28371988`, в ADMIN_EMAILS
 
 ### Инфра
 - ✅ **DNS** пропагирован: `aiche.ru` + `www.aiche.ru` → `193.187.92.147`

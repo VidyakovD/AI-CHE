@@ -14,13 +14,16 @@
 
 Простой пользовательский гайд (для самих юзеров): **`USER_GUIDE.md`** — 1100 строк, 19 разделов, без жаргона.
 
-## Главные продукты (на 2026-05-09)
+## Главные продукты (на 2026-05-10)
 
 - **Чат с AI** — GPT-4o / Claude Sonnet+Opus+Haiku / Perplexity sonar+sonar-pro+sonar-reasoning-pro / Grok / GPT-image / Imagen 4 / Veo 3 + **голосовой ввод (Whisper) и TTS (6 голосов OpenAI)**
-- **Бизнес-решения PRO** (multi-agent orchestra) — **40 пилотов** в новом UI с поиском, 8 chip-фильтрами (✨ Все · 🔬 Ресёрч · 📈 Маркетинг · 💼 Продажи · 📊 Стратегия · ⚖️ Юр · 💰 Финансы · 👥 HR), featured-секцией «⭐ Топ новинки», бейджами 🔥 ХИТ / 🆕 NEW / 💎 DEEP / 🤖 PRO. Из них:
+- **Бизнес-решения PRO** (multi-agent orchestra) — **40 пилотов** в новом UI с поиском, 8 chip-фильтрами (✨ Все · 🔬 Ресёрч · 📈 Маркетинг · 💼 Продажи · 📊 Стратегия · ⚖️ Юр · 💰 Финансы · 👥 HR), **группировкой по категориям при «Все»**, бейджами категории на карточке + бейджами 🔥 ХИТ / 🆕 NEW / 💎 DEEP / 🤖 PRO.
+  - **🚀 v2-редизайн (текущий спринт):** 10 первых решений (id 1-10) переписаны с явной `input_schema` (форма с конкретными полями) + multi-stage orchestra-pipeline (Perplexity research → Sonnet анализ → GPT-4o полировка). Юзер заполняет 4-7 полей, не одну textarea. Промпты получают значения через `{field.name}` placeholder.
+  - **Осталось переделать в v2:** 30 решений (id 11-40) — план в TODO_NEXT.md → раздел «v2-редизайн».
   - **5 новых Perplexity-пилотов** с фикс-ценой (Проверка контрагента 150₽ / Брифинг перед встречей 100₽ / Юр-новости в нише 200₽ / Аудит цен конкурентов 150₽ / Поиск инвесторов и партнёров 300₽). Real cost ~3-5 ₽, маржа ×26-56.
   - **5 усиленных orchestra-пилотов** с тэгом 💎 DEEP (Конкурентный анализ, SWOT, Контент-план, Юр.проверка договора, Холодная email-рассылка) — `web_search` заменён или дополнен `perplexity_research` stage с большими лимитами (max_tokens=16k, search_context=high) и recency-фильтром.
-  - **Старые plain Solutions** (~30 шт.) распределены по subcategory через `scripts/categorize_solutions.py`.
+  - **Marketplace отключён** (продуктовое решение 2026-05-10): UI-ссылки убраны, write-эндпоинты возвращают 410 Gone (через feature-flag `MARKETPLACE_ENABLED=1` можно вернуть).
+  - **Public API → ЛК**: вкладка «🔌 API & интеграции» в cabinetModal через iframe `/api.html?embed=1`. Standalone `/api.html` остаётся доступным для разработчиков.
 - **Чат-боты** в 6 каналах: TG / VK / Avito / MAX / Widget / **WhatsApp (Wazzup24)** + 7 шаблонов + прайс-лист с semantic search + RAG БЗ
 - **AI-агенты** с workflow-конструктором (50+ блоков) + 25+ специализированных ролей. **Tools:** web_search (sonar) / **perplexity_research** (3 пресета: quick/standard/deep, биллинг real_cost × margin × 5) / browse_url / run_llm / generate_image+video / send_vk_post / send_tg_message
 - **Сайты под ключ** — 1500/1990 ₽, фоновая генерация, WYSIWYG, sandbox-iframe + public_token
@@ -270,6 +273,65 @@ HOME="C:\\Users\\Денис" ssh -i 'C:\\Users\\Денис\\.ssh\\id_ed25519' \
 - 🔬 Compare: запустить на 2-3 моделях параллельно
 - **📅 Расписания** — `/orchestra-schedules` (8 frequency-пресетов, worker раз в минуту)
 
+## 🚀 Solutions v2: input_schema + multi-stage pipeline (2026-05-10+)
+
+Новая архитектура для бизнес-решений. Каждый пилот теперь:
+
+1. **`Solution.input_schema_json`** — явный массив полей (вместо парсера хинта):
+   ```json
+   [{"name":"product","label":"Продукт/услуга","type":"text","required":true,
+     "hint":"Что вы продаёте?","placeholder":"SaaS для онлайн-курсов"},
+    {"name":"goal","label":"Цель","type":"select","required":true,
+     "options":[{"value":"meeting","label":"Назначить встречу"}, ...]}]
+   ```
+   Типы: `text` / `textarea` (rows опц) / `select` (options обяз) / `number`. UI рендерит подходящий control, валидирует `required`.
+
+2. **`Solution.orchestra_json`** — multi-stage pipeline с подстановкой:
+   - `{field.name}` или просто `{name}` — значение поля из формы
+   - `{stage_id.output}` — результат предыдущего stage'а
+   - `{input}` — joined «label: value\n…» для legacy-плейсхолдеров
+
+3. **Микс провайдеров под задачу:**
+   - **Perplexity (sonar / sonar-pro / sonar-reasoning-pro)** — свежие факты, цитаты, тренды, бенчмарки
+   - **Claude Sonnet 4.6** — длинный анализ, отчёты, сложные структурированные выходы
+   - **Claude Haiku 4.5** — быстрые черновики, классификация, извлечение
+   - **GPT-4o** — финальная полировка, лаконичность, стилистика
+   - **parallel_llm** — несколько Claude параллельно (например 4 SWOT-квадранта)
+
+**Готовые v2 решения** (см. `scripts/seed_v2_solutions.py`):
+1. SWOT-анализ — Perplexity research → 4 parallel SWOT-аналитика → Sonnet TOWS
+2. 90-дневный план — Perplexity bench → Sonnet план
+3. Конкурентный анализ — Perplexity deep → Sonnet отчёт
+4. Скрипт холодного звонка — Perplexity объекций → Sonnet draft → GPT-4o polish
+5. Симулятор переговоров — Sonnet (роль клиента, начинает раунд)
+6. КП — Sonnet draft → GPT-4o polish заголовков
+7. Контент-план месяц — Perplexity тренды → Sonnet calendar
+8. Email 7 писем — Haiku struct → Sonnet тексты
+9. Заголовки лендинга — Perplexity bench → Sonnet 6-формул
+10. Реклама все форматы — Sonnet под платформы
+
+**Backend изменения:**
+- `server/db.py` LIGHTWEIGHT_MIGRATIONS: `("solutions","input_schema_json","TEXT")`
+- `server/solutions_orchestra.py:_resolve_placeholder` поддерживает `{field.name}` и `{name}`
+- `server/solutions_orchestra.py:run_orchestra` парсит JSON-input как dict, кладёт в `ctx.fields`
+- `server/routes/solutions.py:_execute_step` (для legacy plain) — то же самое в `ctx[name]`
+
+**Frontend (views/index.html):**
+- `_currentInputSchema` — глобальный state, ставится в `launchSolution` из `sol.input_schema`
+- `_renderRunInputFields(hint)` — приоритет 1 = v2 schema, приоритет 2 = парсер хинта, fallback = textarea
+- `_collectRunInput()` — для v2 возвращает JSON-stringified dict, валидирует required
+- При наличии `input_schema` минуем prompt-editor и orchestra-textarea — всегда форма
+
+**Как добавить v2-решение** (для следующих 30):
+1. Открой `scripts/seed_v2_solutions.py`, скопируй структуру #4 (Скрипт холодного звонка) как образец
+2. Спроектируй input_schema (3-7 полей)
+3. Спроектируй orchestra-pipeline (где Perplexity, где Sonnet, где GPT-4o)
+4. Промпты в стиле «ты — консультант уровня X, выдай Y»
+5. Финальный stage обязательно `stream: true` для прогресса
+6. Запусти seed на проде, проверь UX, протестируй pipeline
+
+Подробнее в TODO_NEXT.md → раздел «v2-редизайн».
+
 ## Webhook'и Public API (`/api-tokens/webhooks`)
 
 7 событий с HMAC-SHA256 подписью `X-Aiche-Signature: sha256=<hex>`:
@@ -418,7 +480,41 @@ ssh ... "cd /root/AI-CHE && /root/AI-CHE/venv/bin/python scripts/upgrade_orchest
 
 При добавлении новых категорий или переименовании Solution title — обновить `scripts/categorize_solutions.py` и прогнать `--force`.
 
-## Свежие коммиты (топ-30 на 2026-05-09)
+## Свежие коммиты (топ-30 на 2026-05-10)
+
+**Спринт 2026-05-10 — v2-редизайн решений + UX/инфра:**
+- `6d9d2b6` — feat(solutions v2): input_schema + multi-stage pipeline на 10 первых решениях
+- `d37e71d` — feat(ux): runModal — динамические поля + чистая верстка
+- `f53aaf2` — fix(ux): клик по карточке решения — event delegation вместо inline-onclick
+- `eb9c54c` — fix(ux): launchSolution — оркестра-карточка не реагировала на клик
+- `ddcd820` — feat(ux): бизнес-решения — бейдж категории + группировка + чистка метаданных
+- `ef4ecb6` — fix(scheduler): hydrate _last_alerted_broken_ids from DB on startup
+- `87e6942` — fix: SQLite-default ловушка + login modal text-select + proxy в _test_key
+- `1287592` — fix(admin): create_admin.py — lowercase email перед сохранением
+- `829b1f8` — feat(ux): убран Marketplace + Public API перенесён в ЛК (таб «🔌 API & интеграции»)
+- `6d70a85` — fix(deps): pin bcrypt<5.0 — passlib 1.7.4 несовместим с bcrypt 5.x
+- `1d60bd0` — fix(auth): strict password policy — все 4 класса символов обязательны
+- `aea4140` — a11y+test(p5): aria на 5 страницах + 12 тестов CRM-dispatcher
+- `aa20867` — test(p4): тесты на security-фиксы P0/P1/P2/P3 + sanity-чеки
+- `1c3b5a1` — refactor(p3): общий outbound dispatcher + cleanup unused fonts
+- `e2a6134` — perf+fix(p2): indexes на user_id, N+1 в admin, atomic marketplace rating
+- `d13cb7e` — fix(security): P1 batch — refresh-revoke, SSRF DNS-resolve, perplexity billing, SVG, /p/ rate-limit
+- `dc7eecf` — fix(security): P0 batch — timing attacks, dup route, 2FA QR-bypass, env fail-fast
+
+## ⚙ Доступы и инфра (актуально на 2026-05-10)
+
+- **Прод:** `193.187.92.147` (HOSTKEY, Москва), Ubuntu 22.04, https://aiche.ru
+- **SSH:** `ssh -i 'C:\Users\Денис\.ssh\id_ed25519' root@193.187.92.147`
+- **Админ юзер:** `vidyakovd@gmail.com` / пароль `28371988` (lowercase email обязателен — Postgres case-sensitive!)
+- **AI-прокси:** Xray-client на проде слушает `127.0.0.1:10809` → VLESS Reality → `31.169.126.79:443`
+  - Конфиг: `/usr/local/etc/xray/config.json`
+  - В .env: `AI_HTTPS_PROXY=http://127.0.0.1:10809` (для OpenAI/Anthropic/Google/Grok)
+  - Perplexity напрямую: `PERPLEXITY_HTTPS_PROXY=` (пустая = override "no proxy")
+- **PostgreSQL:** `postgresql://aiche:...@localhost:5432/aiche` в .env
+- **chat.db legacy** заархивирован: `/root/AI-CHE/chat.db.legacy-archived-20260510`
+- **Marketplace отключён:** `MARKETPLACE_ENABLED=` пустая. Чтобы вернуть → `MARKETPLACE_ENABLED=1` в .env + restart.
+
+## Старые спринты (история)
 **Спринт 2026-05-08/09 — Perplexity + UI бизнес-решений + миграции:**
 - `c68b468` — feat(perplexity): tool в agent_runner + усиление 5 orchestra-пилотов
 - `00e4048` — feat(perplexity): лимиты ×2 (max_tokens 8k→16k) + recency-фильтры
