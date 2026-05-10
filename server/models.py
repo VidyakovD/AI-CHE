@@ -318,6 +318,13 @@ class Solution(Base):
     # Краткое описание (1 строка) под названием в карточке. У description
     # обычно длинный текст — short_summary даёт 6-10 слов для UI.
     short_summary = Column(String, nullable=True)
+    # Схема полей ввода — JSON-массив объектов:
+    #   [{"name":"product","label":"Продукт","type":"text","required":true,
+    #     "hint":"...", "placeholder":"...", "options":[...] (для select)}, ...]
+    # Если задан — UI рендерит набор полей вместо одной textarea, бэкенд
+    # подставляет значения через {field_name} в промптах stage'ов и steps.
+    # Если null — fallback на эвристику парсинга hint (одна textarea).
+    input_schema_json = Column(Text, nullable=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
 
     category = relationship("SolutionCategory", back_populates="solutions")

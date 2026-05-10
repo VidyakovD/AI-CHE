@@ -49,11 +49,17 @@ _PLACEHOLDER_RE = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
 
 
 def _resolve_placeholder(expr: str, ctx: dict) -> str:
-    """Резолвит выражение типа `input` / `stage_id.output` / `stage_id.outputs[2]`.
+    """Резолвит выражение типа `input` / `stage_id.output` / `stage_id.outputs[2]`
+    / `field.product` (v2 input_schema fields) / `product` (если поле уникально).
     Возвращает текст или пустую строку при ошибке."""
     expr = expr.strip()
     if expr == "input":
         return str(ctx.get("input", "") or "")
+    # field.<name> — v2: поля из input_schema (структурированный ввод)
+    m = re.match(r"^field\.([a-zA-Z0-9_]+)$", expr)
+    if m:
+        fname = m.group(1)
+        return str((ctx.get("fields") or {}).get(fname, "") or "")
     # stage_id.outputs[i]
     m = re.match(r"^([a-zA-Z0-9_]+)\.outputs\[(\d+)\]$", expr)
     if m:
@@ -75,6 +81,17 @@ def _resolve_placeholder(expr: str, ctx: dict) -> str:
     if m:
         sid = m.group(1)
         return str(ctx.get("stages", {}).get(sid, {}).get("output", "") or "")
+    # Голое имя — может быть полем v2 (если уникально) или stage_id (deprecated)
+    m = re.match(r"^([a-zA-Z0-9_]+)$", expr)
+    if m:
+        name = m.group(1)
+        fields = ctx.get("fields") or {}
+        if name in fields:
+            return str(fields[name] or "")
+        # Пытаемся как stage_id.output
+        st = ctx.get("stages", {}).get(name, {})
+        if "output" in st:
+            return str(st.get("output") or "")
     log.warning(f"[orchestra] unknown placeholder: {expr!r}")
     return ""
 
@@ -136,10 +153,19 @@ def _empty_stage_state(stage: dict) -> dict:
 
 
 def _build_initial_state(orchestra: dict, user_input: str,
-                          attachments: list | None = None) -> dict:
+                          attachments: list | None = None,
+                          fields: dict | None = None) -> dict:
+    """Готовит ctx для оркестрации.
+
+    Если fields передан — это v2 input_schema (структурированные поля).
+    В ctx они доступны через {field.name} и {name} в темплейтах.
+    user_input в этом случае — joined текст «Метка: значение\\n...» для
+    обратной совместимости с {input}.
+    """
     stages = orchestra.get("stages", []) or []
     return {
         "input": user_input or "",
+        "fields": fields or {},
         "attachments": attachments or [],
         "stages": {st["id"]: _empty_stage_state(st) for st in stages},
         "status": "running",
@@ -942,6 +968,25 @@ async def run_orchestra(run_id: int) -> dict:
                 attachments = json.loads(run.attachments_json) or []
         except Exception:
             attachments = []
+        # v2 input_schema: если у решения задана схема и user_input пришёл
+        # в виде JSON dict — раскладываем поля. Иначе fields пустой.
+        fields_v2: dict = {}
+        try:
+            if solution.input_schema_json and user_input.startswith("{"):
+                parsed = json.loads(user_input)
+                if isinstance(parsed, dict):
+                    fields_v2 = {k: str(v) if v is not None else "" for k, v in parsed.items()}
+                    # Для legacy stage'ов которые ждут {input} — собираем
+                    # читаемое представление «label: value\n...» по схеме.
+                    schema = json.loads(solution.input_schema_json)
+                    lines = []
+                    for f in (schema or []):
+                        v = fields_v2.get(f.get("name"), "")
+                        if v:
+                            lines.append(f"{f.get('label', f.get('name'))}: {v}")
+                    user_input = "\n".join(lines)
+        except Exception as e:
+            log.warning(f"[orchestra] run={run_id} fields_v2 parse failed: {e}")
         # Берём свой ключ юзера (Anthropic) — даём 80%-ю скидку
         user_api_key = None
         try:
@@ -958,7 +1003,7 @@ async def run_orchestra(run_id: int) -> dict:
     if not stages:
         return {"status": "error", "error": "Orchestra has no stages"}
 
-    ctx = _build_initial_state(orchestra, user_input, attachments)
+    ctx = _build_initial_state(orchestra, user_input, attachments, fields=fields_v2)
     _persist(run_id, ctx)
     total_cost = 0
 

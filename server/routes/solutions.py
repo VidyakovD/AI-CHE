@@ -28,6 +28,13 @@ def _sol_dict(s: Solution) -> dict:
             input_hint = oj.get("input_hint")
         except Exception:
             pass
+    # v2: явная схема полей ввода — UI рендерит форму вместо textarea.
+    input_schema = None
+    if s.input_schema_json:
+        try:
+            input_schema = json.loads(s.input_schema_json)
+        except Exception:
+            input_schema = None
     return {
         "id": s.id, "title": s.title, "description": s.description,
         "image_url": s.image_url, "price_tokens": s.price_tokens,
@@ -40,6 +47,7 @@ def _sol_dict(s: Solution) -> dict:
         "is_featured": bool(s.is_featured),
         "short_summary": s.short_summary,
         "input_hint": input_hint,
+        "input_schema": input_schema,
     }
 
 
@@ -55,6 +63,30 @@ def _execute_step(run: SolutionRun, step: SolutionStep, user_input,
                   db: Session, user) -> dict:
     ctx = json.loads(run.context or "{}")
 
+    # v2 input_schema: если user_input — это JSON dict (структурированные поля),
+    # раскладываем в ctx как отдельные ключи + формируем читаемый input
+    # «Метка: значение» для legacy {input}-плейсхолдеров.
+    solution = db.query(Solution).filter_by(id=run.solution_id).first()
+    if solution and solution.input_schema_json and user_input and user_input.startswith("{"):
+        try:
+            parsed = json.loads(user_input)
+            if isinstance(parsed, dict):
+                schema = json.loads(solution.input_schema_json) or []
+                lines = []
+                for f in schema:
+                    name = f.get("name")
+                    label = f.get("label", name)
+                    val = parsed.get(name, "")
+                    if val:
+                        # Кладём в ctx — будет доступен как {field_name}
+                        ctx[name] = str(val)
+                        lines.append(f"{label}: {val}")
+                # Перезаписываем user_input на читаемое представление —
+                # это то что увидит legacy {input}-плейсхолдер.
+                user_input = "\n".join(lines)
+        except Exception:
+            pass
+
     # Подставляем переменные в промпт
     prompt = step.user_prompt or ""
     prompt = prompt.replace("{input}", user_input or "")
@@ -63,7 +95,6 @@ def _execute_step(run: SolutionRun, step: SolutionStep, user_input,
         prompt = prompt.replace(f"{{{k}}}", str(v))
 
     # Бизнес-решения — расширяем промпт для длинного отчёта в Markdown
-    solution = db.query(Solution).filter_by(id=run.solution_id).first()
     is_business = bool(solution and solution.category and solution.category.slug == "business")
     if is_business:
         prompt += (

@@ -4359,15 +4359,17 @@ async function finalizeOrchestra(runId){
 }
 
 // ── Динамические поля ввода в runModal ──────────────────────────────────
-// Если hint в формате «Укажи: A, B, C (с описанием), D» — рендерим N input'ов
-// (по одному на каждый пункт). Иначе — одну textarea как раньше.
-// Это критично для UX: вместо «свалить всё в один textarea» юзер заполняет
-// конкретные поля с подсказками. Особенно важно для plain-решений где
-// промпт ожидает структурированный ввод.
+// Два источника схемы (приоритет):
+//   1. v2 input_schema из БД — явный массив {name,label,type,required,...}.
+//      Рендерим точно как задано в админке/seed-скрипте.
+//   2. Парсинг hint «Укажи: A, B, C (...)» — fallback для legacy решений.
+// Если ни то ни другое — одна textarea.
+
+// Текущая v2-схема (если активна). Устанавливается в launchSolution() из
+// sol.input_schema, читается в _renderRunInputFields/_collectRunInput.
+let _currentInputSchema = null;
 
 // Список «точек входа» в hint которые означают «дальше идёт перечисление полей».
-// Регистронезависимо. После двоеточия — список через запятые с возможной точкой
-// в конце.
 const _HINT_FIELD_TRIGGERS = /^[^:]{0,80}(укажи|укажите|опиши|опишите|введи|введите|заполни|заполните|расскажи|расскажите|дай|дайте|пришли|пришлите|поделись|поделитесь)[^:]{0,30}:\s*/i;
 
 function _parseHintFields(hint){
@@ -4402,28 +4404,66 @@ function _renderRunInputFields(hint){
   const fieldsContainer = document.getElementById("runInputFields");
   const textarea = document.getElementById("runInput");
   if(!fieldsContainer || !textarea) return;
+
+  // Приоритет 1: явная v2 input_schema из БД
+  if(_currentInputSchema && Array.isArray(_currentInputSchema) && _currentInputSchema.length){
+    textarea.classList.add("hidden");
+    textarea.value = "";
+    fieldsContainer.classList.remove("hidden");
+    fieldsContainer.innerHTML = _currentInputSchema.map((f, i) => {
+      const name = f.name || ("field_" + i);
+      const label = f.label || name;
+      const type = f.type || "text";
+      const required = !!f.required;
+      const hint_ = f.hint || "";
+      const placeholder = f.placeholder || hint_ || label;
+      const reqMark = required ? '<span class="text-error">*</span>' : '';
+      let control;
+      if(type === "select" && Array.isArray(f.options)){
+        control = `<select data-v2-field="${esc(name)}" data-v2-label="${esc(label)}" data-v2-required="${required?1:0}" class="inp text-sm">
+          ${!required ? '<option value="">— не выбрано —</option>' : ''}
+          ${f.options.map(o => {
+            const v = (typeof o === "object") ? (o.value || o.label) : o;
+            const l = (typeof o === "object") ? (o.label || o.value) : o;
+            return `<option value="${esc(String(v))}">${esc(String(l))}</option>`;
+          }).join("")}
+        </select>`;
+      } else if(type === "textarea"){
+        const rows = f.rows || 3;
+        control = `<textarea data-v2-field="${esc(name)}" data-v2-label="${esc(label)}" data-v2-required="${required?1:0}" rows="${rows}" class="inp resize-none text-sm" placeholder="${esc(placeholder)}"></textarea>`;
+      } else {
+        control = `<input data-v2-field="${esc(name)}" data-v2-label="${esc(label)}" data-v2-required="${required?1:0}" type="${type === 'number' ? 'number' : 'text'}" class="inp text-sm" placeholder="${esc(placeholder)}"/>`;
+      }
+      return `<div class="flex flex-col gap-1">
+        <label class="text-[12px] text-on-surface font-medium">${esc(label)} ${reqMark}</label>
+        ${hint_ ? `<span class="text-[10px] text-on-surface-dim/60 -mt-0.5">${esc(hint_)}</span>` : ""}
+        ${control}
+      </div>`;
+    }).join("");
+    const first = fieldsContainer.querySelector("[data-v2-field]");
+    if(first) setTimeout(() => first.focus(), 50);
+    return;
+  }
+
+  // Приоритет 2: парсинг hint «Укажи: A, B, C» (legacy fallback)
   const fields = _parseHintFields(hint);
   if(!fields){
-    // Структуры нет — показываем одну textarea
     fieldsContainer.classList.add("hidden");
     fieldsContainer.innerHTML = "";
     textarea.classList.remove("hidden");
     textarea.value = "";
     return;
   }
-  // Структурированный hint — рендерим набор полей
   textarea.classList.add("hidden");
   textarea.value = "";
   fieldsContainer.classList.remove("hidden");
   fieldsContainer.innerHTML = fields.map((f, i) => {
-    // Если в поле есть «(описание)» — выносим его как hint под label
     const m = f.match(/^([^(]+?)\s*\(([^)]+)\)\s*(.*)$/);
     let label = f, helper = "";
     if(m){
       label = (m[1] + (m[3] ? " " + m[3] : "")).trim();
       helper = m[2].trim();
     }
-    // Длинное поле (>40 симв в самом label) → textarea, короткое → input
     const isLong = label.length > 40 || /опиши|расскажи|напиш/i.test(label);
     const cap = label.charAt(0).toUpperCase() + label.slice(1);
     return `<div class="flex flex-col gap-1">
@@ -4434,15 +4474,32 @@ function _renderRunInputFields(hint){
         : `<input data-run-field="${i}" data-run-label="${esc(label)}" type="text" class="inp text-sm" placeholder="${esc(helper || cap)}"/>`}
     </div>`;
   }).join("");
-  // Автофокус на первое поле
   const first = fieldsContainer.querySelector("[data-run-field]");
   if(first) setTimeout(() => first.focus(), 50);
 }
 
 function _collectRunInput(){
-  // Если есть динамические поля — собираем их в «label: value» по строчкам
   const fieldsContainer = document.getElementById("runInputFields");
   if(fieldsContainer && !fieldsContainer.classList.contains("hidden")){
+    // v2 input_schema: возвращаем JSON-dict {field_name: value}.
+    // Backend парсит и подставляет в orchestra/steps через {field.name}.
+    const v2 = fieldsContainer.querySelectorAll("[data-v2-field]");
+    if(v2.length){
+      const out = {};
+      const missing = [];
+      v2.forEach(el => {
+        const name = el.getAttribute("data-v2-field");
+        const required = el.getAttribute("data-v2-required") === "1";
+        const v = (el.value || "").trim();
+        if(required && !v) missing.push(el.getAttribute("data-v2-label") || name);
+        out[name] = v;
+      });
+      if(missing.length){
+        return {__error: `Заполните обязательные поля: ${missing.join(", ")}`};
+      }
+      return JSON.stringify(out);
+    }
+    // Legacy hint-парсер: «label: value\n...»
     const entries = [];
     fieldsContainer.querySelectorAll("[data-run-field]").forEach(el => {
       const v = (el.value || "").trim();
@@ -4451,7 +4508,6 @@ function _collectRunInput(){
     });
     return entries.join("\n");
   }
-  // Иначе — обычная textarea
   return (document.getElementById("runInput").value || "").trim();
 }
 
@@ -4459,6 +4515,13 @@ async function continueRun(){
   if(!activeRun)return;
   const input = _collectRunInput();
   document.getElementById("runErr").classList.add("hidden");
+  // v2 validation: collectRunInput может вернуть {__error: "..."} если
+  // не заполнены обязательные поля.
+  if(input && typeof input === "object" && input.__error){
+    document.getElementById("runErr").textContent = input.__error;
+    document.getElementById("runErr").classList.remove("hidden");
+    return;
+  }
   if(!input){
     document.getElementById("runErr").textContent = "Заполните хотя бы одно поле";
     document.getElementById("runErr").classList.remove("hidden");
@@ -4777,23 +4840,45 @@ async function pollTokenPayment(pid){
 let pendingSolution = null;
 
 async function launchSolution(id, title, stepsCount, isOrchestra){
-  // Auth: нужна для orchestra и для plain (если есть steps).
-  // Free preview без auth раньше работал только для plain без шагов.
+  // Auth: нужна и для orchestra, и для plain (если есть steps).
   if(!currentUser){
     closeM('solutionsModal');
     openM('loginModal');
     return;
   }
-  // Multi-agent orchestra — отдельный flow с live-progress (SSE).
-  // Перенаправляем сразу, не загружая sol.steps (orchestra их не имеет).
+
+  // Загружаем решение чтобы достать input_schema (v2). Если оно есть —
+  // открываем runModal с полями и игнорируем prompt-editor / orchestra-форму.
+  let sol = null;
+  try{
+    sol = await fetch(`${API}/solutions/${id}`).then(r => r.json());
+  }catch(_){}
+  _currentInputSchema = sol?.input_schema || null;
+
+  // v2 input_schema: запускаем как обычный run/orchestra, но с полями.
+  // Backend сам решает (по orchestra_json или steps) что выполнять.
+  if(_currentInputSchema){
+    closeM('solutionsModal');
+    if(isOrchestra){
+      // Orchestra с input_schema — открываем runModal с полями (а не
+      // textarea launchOrchestra). Submit идёт через _launchSolutionChain
+      // который под капотом делает /solutions/{id}/run → backend видит
+      // orchestra_json и запускает его.
+      _launchSolutionChain(id, title, stepsCount || 1);
+    } else {
+      _launchSolutionChain(id, title, stepsCount || 1);
+    }
+    return;
+  }
+
+  // Multi-agent orchestra без input_schema — старый flow с одной textarea
   if(isOrchestra){
     closeM('solutionsModal');
     return launchOrchestra(id, title);
   }
-  // Plain solution — пробуем prompt-editor для одношаговых.
+  // Plain solution без input_schema — prompt-editor для одношаговых.
   try{
-    const sol = await fetch(`${API}/solutions/${id}`).then(r=>r.json());
-    const firstStep = sol.steps?.[0];
+    const firstStep = sol?.steps?.[0];
     if(firstStep && firstStep.user_prompt && !firstStep.wait_for_user && sol.steps.length === 1){
       pendingSolution = {sol, title};
       document.getElementById('promptEditorTitle').textContent = title;
@@ -4805,7 +4890,6 @@ async function launchSolution(id, title, stepsCount, isOrchestra){
       return;
     }
   }catch{}
-  // Multi-step plain — старый chain-flow
   closeM('solutionsModal');
   _launchSolutionChain(id, title, stepsCount);
 }

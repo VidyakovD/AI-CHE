@@ -250,6 +250,10 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("solutions", "tags", "VARCHAR"),
     ("solutions", "is_featured", "BOOLEAN DEFAULT 0"),
     ("solutions", "short_summary", "VARCHAR"),
+    # v2: явная схема полей ввода. Если задана — UI рендерит набор полей
+    # (text/textarea/select/multiselect), бэкенд подставляет значения через
+    # {field_name} в промптах. Заменяет хрупкий парсер хинта.
+    ("solutions", "input_schema_json", "TEXT"),
 ]
 
 # Note: push_subscriptions / solution_run_templates создаются Base.metadata.create_all
