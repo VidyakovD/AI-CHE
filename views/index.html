@@ -3421,6 +3421,7 @@ async function switchSolTab(_tab){
     document.getElementById("solsSearch").value = "";
     _renderSolsChips();
     _solsApplyFilter();
+    _attachSolCardClickHandler();
   }catch(e){
     grid.innerHTML=`<div class="col-span-3 text-center text-error py-12 text-sm">Ошибка: ${esc(e.message)}</div>`;
   }
@@ -3452,6 +3453,28 @@ function _solsSetCategory(catId){
   _solsState.category = catId;
   _renderSolsChips();
   _solsApplyFilter();
+}
+
+// Event delegation для клика по карточке. Регистрируем единственный раз
+// на оба контейнера (featured и main grid). Срабатывает на любой клик
+// по элементу или его потомку с классом `.sols-card`.
+function _attachSolCardClickHandler(){
+  if(window._solCardClickAttached) return;
+  window._solCardClickAttached = true;
+  ["solsGrid","solsFeaturedGrid"].forEach(containerId => {
+    const el = document.getElementById(containerId);
+    if(!el) return;
+    el.addEventListener("click", e => {
+      const card = e.target.closest(".sols-card");
+      if(!card) return;
+      const id = parseInt(card.dataset.solId, 10);
+      const title = card.dataset.solTitle || "";
+      const steps = parseInt(card.dataset.solSteps || "0", 10);
+      const orchestra = card.dataset.solOrchestra === "1";
+      if(!id) return;
+      launchSolution(id, title, steps, orchestra);
+    });
+  });
 }
 
 function _solsApplyFilter(){
@@ -3575,8 +3598,15 @@ function _solCard(s){
   const borderColor = isPerplexity ? "border-fuchsia-500/40" :
                       (s.is_orchestra ? "border-primary/40" : "border-outline/20");
 
-  return `<div class="bg-surface2 rounded-xl border ${borderColor} hover:border-primary/60 transition overflow-hidden flex flex-col cursor-pointer group relative"
-    onclick="launchSolution(${s.id},${JSON.stringify(s.title)},${s.steps_count},${s.is_orchestra?1:0})">
+  // Event delegation вместо inline-onclick: title может содержать
+  // двойные кавычки/`<`/`>` которые ломают HTML-атрибут (JSON.stringify
+  // вставляет внешние "..." и они конфликтуют с onclick="..."). Слушатель
+  // навешивается один раз ниже на #solsGrid и #solsFeaturedGrid.
+  return `<div class="sols-card bg-surface2 rounded-xl border ${borderColor} hover:border-primary/60 transition overflow-hidden flex flex-col cursor-pointer group relative"
+    data-sol-id="${s.id}"
+    data-sol-title="${esc(s.title || '')}"
+    data-sol-steps="${s.steps_count || 0}"
+    data-sol-orchestra="${s.is_orchestra ? 1 : 0}">
     ${catBadge ? `<div class="absolute top-2 left-2 z-10">${catBadge}</div>` : ""}
     ${badges.length ? `<div class="absolute top-2 right-2 flex flex-col items-end gap-1 z-10">${badges.join("")}</div>` : ""}
     ${s.image_url
