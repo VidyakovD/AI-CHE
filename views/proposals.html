@@ -125,11 +125,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- ── Modal: Создать/редактировать проект ── -->
-<div id="projectModal" class="modal-bg">
+<div id="projectModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle">
   <div class="card max-w-2xl w-full mx-auto" style="margin-top:5vh">
     <div class="flex items-center justify-between p-5 border-b border-outline/15">
       <h2 id="projectModalTitle" class="font-headline font-bold text-lg">Новое КП</h2>
-      <button onclick="closeProject()" class="btn-g text-xs">✕</button>
+      <button onclick="closeProject()" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
       <div class="field">
@@ -261,11 +261,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- ── Modal: Прайс-лист (CRUD позиций + CSV) ── -->
-<div id="priceListModal" class="modal-bg">
+<div id="priceListModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="plModalTitle">
   <div class="card max-w-3xl w-full mx-auto" style="margin-top:5vh">
     <div class="flex items-center justify-between p-5 border-b border-outline/15">
       <h2 id="plModalTitle" class="font-headline font-bold text-lg">Прайс-лист</h2>
-      <button onclick="closePriceListModal()" class="btn-g text-xs">✕</button>
+      <button onclick="closePriceListModal()" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -310,11 +310,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- ── Modal: История версий КП ── -->
-<div id="versionsModal" class="modal-bg">
+<div id="versionsModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="versionsModalTitle">
   <div class="card max-w-lg w-full mx-auto" style="margin-top:8vh">
     <div class="flex items-center justify-between p-5 border-b border-outline/15">
-      <h2 class="font-headline font-bold text-lg">История версий</h2>
-      <button onclick="closeVersions()" class="btn-g text-xs">✕</button>
+      <h2 id="versionsModalTitle" class="font-headline font-bold text-lg">История версий</h2>
+      <button onclick="closeVersions()" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5">
       <div id="versionsList" class="space-y-2">
@@ -325,11 +325,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- ── Modal: Отправить КП по email ── -->
-<div id="sendEmailModal" class="modal-bg">
+<div id="sendEmailModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="sendEmailModalTitle">
   <div class="card max-w-lg w-full mx-auto" style="margin-top:8vh">
     <div class="flex items-center justify-between p-5 border-b border-outline/15">
-      <h2 class="font-headline font-bold text-lg">Отправить КП клиенту</h2>
-      <button onclick="closeSendEmail()" class="btn-g text-xs">✕</button>
+      <h2 id="sendEmailModalTitle" class="font-headline font-bold text-lg">Отправить КП клиенту</h2>
+      <button onclick="closeSendEmail()" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5 space-y-4">
       <div class="field">
@@ -355,11 +355,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- ── Modal: Создать/редактировать бренд ── -->
-<div id="brandModal" class="modal-bg">
+<div id="brandModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="brandModalTitle">
   <div class="card max-w-2xl w-full mx-auto" style="margin-top:5vh">
     <div class="flex items-center justify-between p-5 border-b border-outline/15">
       <h2 id="brandModalTitle" class="font-headline font-bold text-lg">Новый бренд</h2>
-      <button onclick="closeBrand()" class="btn-g text-xs">✕</button>
+      <button onclick="closeBrand()" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

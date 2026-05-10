@@ -1124,7 +1124,7 @@ async function loadApiKeys(){
             </div>
             <div class="flex items-center gap-2 ml-3">
               <button onclick="checkKey(${k.id})" class="btn btn-g text-[10px] py-1 px-2">Проверить</button>
-              <button onclick="deleteKey(${k.id})" class="btn btn-d text-[10px] py-1 px-2">✕</button>
+              <button onclick="deleteKey(${k.id})" class="btn btn-d text-[10px] py-1 px-2" aria-label="Удалить ключ">✕</button>
             </div>
           </div>`).join("")}
       </div>
@@ -1202,7 +1202,7 @@ async function loadApiKeys(){
             </div>
             <div class="flex items-center gap-2 ml-3">
               <button onclick="checkKey(${k.id})" class="btn btn-g text-[10px] py-1 px-2">Проверить</button>
-              <button onclick="deleteKey(${k.id})" class="btn btn-d text-[10px] py-1 px-2">✕</button>
+              <button onclick="deleteKey(${k.id})" class="btn btn-d text-[10px] py-1 px-2" aria-label="Удалить ключ">✕</button>
             </div>
           </div>`).join("")}
       </div>
@@ -1409,7 +1409,7 @@ function renderTokenPackages(pkgs){
       </div>
       <div class="flex gap-2 ml-3">
         <button onclick="savePkg(${p.id})" class="btn btn-g text-xs">Сохранить</button>
-        <button onclick="deletePkg(${p.id})" class="btn btn-d text-xs">✕</button>
+        <button onclick="deletePkg(${p.id})" class="btn btn-d text-xs" aria-label="Удалить пакет">✕</button>
       </div>
     </div>`;
   }).join("")
@@ -1542,7 +1542,7 @@ async function loadPromos(){
       </td>
       <td class="py-2 px-3">
         <button onclick="togglePromo(${p.id},${!p.is_active})" class="btn btn-g text-[10px] py-0.5 px-2">${p.is_active?'Откл':'Вкл'}</button>
-        <button onclick="deletePromoItem(${p.id})" class="btn btn-d text-[10px] py-0.5 px-2 ml-1">✕</button>
+        <button onclick="deletePromoItem(${p.id})" class="btn btn-d text-[10px] py-0.5 px-2 ml-1" aria-label="Удалить промокод">✕</button>
       </td>
     </tr>`).join('') : '<tr><td colspan="7" class="py-6 text-center text-on-dim text-sm">Промокодов нет</td></tr>';
 }

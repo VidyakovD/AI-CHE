@@ -195,11 +195,11 @@ def verify(secret, body_bytes, signature_header):
 
 
 <!-- ── Modal: Создать токен ────────────────────────────────────────────────-->
-<div id="createTokenModal" class="modal-bg">
+<div id="createTokenModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="createTokenModalTitle">
   <div class="card max-w-md w-full p-6">
     <div class="flex items-start justify-between mb-4">
-      <h2 class="text-xl font-extrabold font-headline">🔑 Новый API-токен</h2>
-      <button onclick="closeM('createTokenModal')" class="btn-g text-xs">✕</button>
+      <h2 id="createTokenModalTitle" class="text-xl font-extrabold font-headline">🔑 Новый API-токен</h2>
+      <button onclick="closeM('createTokenModal')" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="space-y-3">
       <div>
@@ -236,10 +236,10 @@ def verify(secret, body_bytes, signature_header):
 </div>
 
 <!-- ── Modal: Показать секрет один раз ────────────────────────────────────-->
-<div id="secretModal" class="modal-bg">
+<div id="secretModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="secretModalTitle">
   <div class="card max-w-md w-full p-6">
     <div class="flex items-start justify-between mb-3">
-      <h2 class="text-xl font-extrabold font-headline">⚠️ Сохраните секрет!</h2>
+      <h2 id="secretModalTitle" class="text-xl font-extrabold font-headline">⚠️ Сохраните секрет!</h2>
     </div>
     <p class="text-sm text-on-dim mb-3">Секрет показывается <b>один раз</b>. Сохраните в безопасном месте — мы его больше не покажем.</p>
     <pre id="secretBox" class="text-xs"></pre>
@@ -251,11 +251,11 @@ def verify(secret, body_bytes, signature_header):
 </div>
 
 <!-- ── Modal: Подключить CRM ─────────────────────────────────────────────-->
-<div id="createCrmModal" class="modal-bg">
+<div id="createCrmModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="createCrmModalTitle">
   <div class="card max-w-md w-full p-6">
     <div class="flex items-start justify-between mb-4">
-      <h2 class="text-xl font-extrabold font-headline">📞 Подключить CRM</h2>
-      <button onclick="closeM('createCrmModal')" class="btn-g text-xs">✕</button>
+      <h2 id="createCrmModalTitle" class="text-xl font-extrabold font-headline">📞 Подключить CRM</h2>
+      <button onclick="closeM('createCrmModal')" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="space-y-3">
       <div>
@@ -287,11 +287,11 @@ def verify(secret, body_bytes, signature_header):
 
 
 <!-- ── Modal: Создать webhook ─────────────────────────────────────────────-->
-<div id="createWebhookModal" class="modal-bg">
+<div id="createWebhookModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="createWebhookModalTitle">
   <div class="card max-w-md w-full p-6">
     <div class="flex items-start justify-between mb-4">
-      <h2 class="text-xl font-extrabold font-headline">🔗 Новый Webhook</h2>
-      <button onclick="closeM('createWebhookModal')" class="btn-g text-xs">✕</button>
+      <h2 id="createWebhookModalTitle" class="text-xl font-extrabold font-headline">🔗 Новый Webhook</h2>
+      <button onclick="closeM('createWebhookModal')" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="space-y-3">
       <div>

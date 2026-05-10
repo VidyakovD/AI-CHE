@@ -111,7 +111,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- ── Listing details modal ─────────────────────────────────────────────── -->
-<div id="listingModal" class="modal-bg">
+<div id="listingModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="lmTitle">
   <div class="card max-w-2xl w-full p-6">
     <div class="flex items-start justify-between mb-4 gap-4">
       <div>
@@ -119,7 +119,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
         <h2 id="lmTitle" class="text-xl font-extrabold font-headline mb-1"></h2>
         <div id="lmMeta" class="mkt-meta"></div>
       </div>
-      <button onclick="closeM('listingModal')" class="btn-g text-xs">✕</button>
+      <button onclick="closeM('listingModal')" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div id="lmCover" class="mkt-cover mb-4" style="height:160px"></div>
     <p id="lmDesc" class="text-sm text-on-dim mb-4 whitespace-pre-line"></p>

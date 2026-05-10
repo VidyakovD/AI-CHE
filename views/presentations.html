@@ -77,11 +77,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- ── Modal: Создание/редактирование ── -->
-<div id="projectModal" class="modal-bg">
+<div id="projectModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle">
   <div class="card max-w-3xl w-full mx-auto" style="margin-top:3vh">
     <div class="flex items-center justify-between p-5 border-b border-outline/15">
       <h2 id="projectModalTitle" class="font-headline font-bold text-lg">Новая презентация</h2>
-      <button onclick="closeProject()" class="btn-g text-xs">✕</button>
+      <button onclick="closeProject()" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5 space-y-4 max-h-[78vh] overflow-y-auto">
       <!-- Базовое -->
@@ -242,11 +242,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- ── Modal: Brief assistant ── -->
-<div id="briefModal" class="modal-bg">
+<div id="briefModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="briefModalTitle">
   <div class="card max-w-xl w-full mx-auto" style="margin-top:8vh">
     <div class="flex items-center justify-between p-5 border-b border-outline/15">
-      <h2 class="font-headline font-bold text-lg">✨ AI-помощник по ТЗ</h2>
-      <button onclick="closeBriefAssistant()" class="btn-g text-xs">✕</button>
+      <h2 id="briefModalTitle" class="font-headline font-bold text-lg">✨ AI-помощник по ТЗ</h2>
+      <button onclick="closeBriefAssistant()" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5 space-y-3">
       <p class="text-xs text-on-dim">Опиши идею простыми словами. AI оформит структурированный бриф и подскажет какое количество слайдов лучше.</p>
