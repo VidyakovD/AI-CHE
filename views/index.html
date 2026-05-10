@@ -3492,20 +3492,80 @@ function _solsApplyFilter(){
     </div>`;
     return;
   }
+
+  // Группировка по subcategory когда выбрано «Все» и нет поискового запроса.
+  // Иначе (фильтр по категории / поиск) — плоская сетка как раньше.
+  if(_solsState.category === "all" && !q){
+    // Порядок групп = порядок _SOLS_CATEGORIES (без 'all')
+    const catOrder = _SOLS_CATEGORIES.filter(c => c.id !== "all").map(c => c.id);
+    const grouped = {};
+    list.forEach(s => {
+      const k = s.subcategory || "other";
+      (grouped[k] = grouped[k] || []).push(s);
+    });
+    const sections = [];
+    for(const catId of catOrder){
+      const items = grouped[catId];
+      if(!items || !items.length) continue;
+      const cfg = _SOLS_CAT_BADGE[catId] || {label:catId, icon:"•"};
+      sections.push(`
+        <div class="col-span-full mt-3 mb-1 flex items-center gap-2">
+          <h3 class="text-sm font-bold font-headline text-on-surface">
+            ${cfg.icon} ${cfg.label}
+            <span class="text-on-surface-dim/50 font-normal">· ${items.length}</span>
+          </h3>
+          <div class="flex-1 h-px bg-outline/15"></div>
+        </div>
+        ${items.map(_solCard).join("")}
+      `);
+    }
+    // «Прочее» — если кто-то с пустой subcategory
+    if(grouped.other && grouped.other.length){
+      sections.push(`
+        <div class="col-span-full mt-3 mb-1 flex items-center gap-2">
+          <h3 class="text-sm font-bold font-headline text-on-surface-dim">• Прочее <span class="font-normal">· ${grouped.other.length}</span></h3>
+          <div class="flex-1 h-px bg-outline/15"></div>
+        </div>
+        ${grouped.other.map(_solCard).join("")}
+      `);
+    }
+    grid.innerHTML = sections.join("");
+    return;
+  }
   grid.innerHTML = list.map(_solCard).join("");
 }
 
+// Сопоставление subcategory → label/иконка для бейджа на карточке.
+// Используется и в _solCard, и в группировке. Один источник истины.
+const _SOLS_CAT_BADGE = {
+  research:  {label:"Ресёрч",    icon:"🔬", clr:"bg-cyan-500/20 text-cyan-300 border-cyan-500/30"},
+  marketing: {label:"Маркетинг", icon:"📈", clr:"bg-emerald-500/20 text-emerald-300 border-emerald-500/30"},
+  sales:     {label:"Продажи",   icon:"💼", clr:"bg-orange-500/20 text-orange-300 border-orange-500/30"},
+  strategy:  {label:"Стратегия", icon:"📊", clr:"bg-blue-500/20 text-blue-300 border-blue-500/30"},
+  legal:     {label:"Юр",        icon:"⚖️", clr:"bg-slate-500/20 text-slate-300 border-slate-500/30"},
+  finance:   {label:"Финансы",   icon:"💰", clr:"bg-yellow-500/20 text-yellow-300 border-yellow-500/30"},
+  hr:        {label:"HR",        icon:"👥", clr:"bg-pink-500/20 text-pink-300 border-pink-500/30"},
+};
+
 function _solCard(s){
   const tags = s.tags || [];
-  const isPerplexity = tags.includes("perplexity");
+  const isPerplexity = tags.includes("perplexity") || tags.includes("perplexity-deep");
   const isNew = tags.includes("новинка");
   const isHit = tags.includes("хит");
-  // Бейджи (макс 2 в правом углу)
+  // Бейджи в правом верхнем углу (макс 2)
   const badges = [];
   if(isHit) badges.push(`<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/90 text-black">🔥 ХИТ</span>`);
   if(isNew) badges.push(`<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/90 text-black">🆕 NEW</span>`);
   if(isPerplexity) badges.push(`<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white">💎 DEEP</span>`);
   else if(s.is_orchestra) badges.push(`<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-gradient-to-br from-primary to-yellow-500 text-black">🤖 PRO</span>`);
+
+  // Бейдж категории в левом верхнем углу — главное визуальное отличие
+  // карточки. Без него юзер видит только заголовок и не понимает раздел.
+  const catKey = s.subcategory || "";
+  const catCfg = _SOLS_CAT_BADGE[catKey];
+  const catBadge = catCfg
+    ? `<span class="px-2 py-0.5 rounded-full text-[9px] font-bold border ${catCfg.clr} backdrop-blur-sm">${catCfg.icon} ${catCfg.label}</span>`
+    : "";
 
   const summary = s.short_summary || s.description || "";
   const priceLabel = s.price_tokens
@@ -3517,6 +3577,7 @@ function _solCard(s){
 
   return `<div class="bg-surface2 rounded-xl border ${borderColor} hover:border-primary/60 transition overflow-hidden flex flex-col cursor-pointer group relative"
     onclick="launchSolution(${s.id},${JSON.stringify(s.title)},${s.steps_count},${s.is_orchestra?1:0})">
+    ${catBadge ? `<div class="absolute top-2 left-2 z-10">${catBadge}</div>` : ""}
     ${badges.length ? `<div class="absolute top-2 right-2 flex flex-col items-end gap-1 z-10">${badges.join("")}</div>` : ""}
     ${s.image_url
       ? `<img src="${esc(s.image_url)}" class="w-full h-28 object-cover group-hover:opacity-88 transition"/>`
