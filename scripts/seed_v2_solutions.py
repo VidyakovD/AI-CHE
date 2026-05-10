@@ -1379,6 +1379,705 @@ V2_SOLUTIONS = {
         },
     },
 
+    # ── #21 Скрипт обработки жалобы клиента ──────────────────────────────
+    21: {
+        "input_schema": [
+            {"name": "industry", "label": "Сфера бизнеса",
+             "type": "text", "required": True,
+             "placeholder": "интернет-магазин одежды / SaaS / ресторан"},
+            {"name": "complaint_type", "label": "Тип жалобы",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "quality", "label": "Качество товара/услуги"},
+                 {"value": "delay", "label": "Сорваны сроки"},
+                 {"value": "wrong_charge", "label": "Финансовая ошибка / неправильное списание"},
+                 {"value": "service", "label": "Хамство персонала"},
+                 {"value": "expectations", "label": "Не оправдало ожиданий"},
+                 {"value": "other", "label": "Другое (опишите ниже)"},
+             ]},
+            {"name": "channel", "label": "Канал обращения",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "phone", "label": "Звонок"},
+                 {"value": "email", "label": "Email / письмо"},
+                 {"value": "chat", "label": "Чат на сайте / мессенджер"},
+                 {"value": "review", "label": "Отзыв на агрегаторе/в соцсети (публичный)"},
+                 {"value": "in_person", "label": "Лично (офис/магазин)"},
+             ]},
+            {"name": "severity", "label": "Эмоциональный градус клиента",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "calm", "label": "Спокойный — констатирует факт"},
+                 {"value": "frustrated", "label": "Раздражён, ожидает реакции"},
+                 {"value": "angry", "label": "Зол, угрожает уйти / RKN / суд"},
+                 {"value": "viral", "label": "Готовит публичный скандал"},
+             ]},
+            {"name": "policy", "label": "Что вы готовы предложить",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Возврат / скидка / бонус / замена — обозначь рамки",
+             "placeholder": "до 100% возврата / 30% бонус на след. покупку / замена с доставкой"},
+        ],
+        "orchestra": {
+            "default_model": "claude-sonnet",
+            "input_hint": "Скрипт по 4 этапам (LAST: Listen, Apologize, Solve, Thank) для канала",
+            "stages": [
+                {
+                    "id": "script",
+                    "type": "llm",
+                    "label": "Скрипт обработки",
+                    "model": "claude-sonnet-4-6",
+                    "stream": True,
+                    "user_prompt":
+                        "Ты — эксперт по customer service по типу Zappos. Напиши скрипт работы с жалобой.\n\n"
+                        "Сфера: {field.industry}\n"
+                        "Тип жалобы: {field.complaint_type}\n"
+                        "Канал: {field.channel}\n"
+                        "Эмоция клиента: {field.severity}\n"
+                        "Что готовы предложить: {field.policy}\n\n"
+                        "СТРУКТУРА (по методу LAST + персонализированно для канала):\n"
+                        "1. **Открытие** — как начать (учитывая канал и градус)\n"
+                        "2. **Listen** — что спросить чтобы клиент рассказал больше + конкретные фразы\n"
+                        "3. **Apologize** — извинение которое не воспринимается как формальное "
+                        "(избегаем «нам очень жаль»)\n"
+                        "4. **Solve** — варианты решения по эскалации: что предложить сначала, "
+                        "что если не согласен, до какого предела идти\n"
+                        "5. **Thank** — как закрыть, чтобы клиент ушёл «обратимо позитивным»\n\n"
+                        "ОТРАБОТКА КОНТР-АРГУМЕНТОВ (5-7 типичных реплик):\n"
+                        "- «Это вы виноваты»\n"
+                        "- «Я уйду к конкурентам»\n"
+                        "- «Хочу 100% возврат + ещё компенсацию»\n"
+                        "- «Напишу всем подряд»\n"
+                        "- ... и др. под тип жалобы\n\n"
+                        "СТОП-СЛОВА (что НЕЛЬЗЯ говорить).\n"
+                        "Шаблоны 3 ответных писем (если канал email/чат): краткое / среднее / эскалация на руководителя."
+                        + _REPORT_FORMAT_HINT,
+                },
+            ],
+            "final_stage": "script",
+        },
+    },
+
+    # ── #22 Программа лояльности для удержания ───────────────────────────
+    22: {
+        "input_schema": [
+            {"name": "business", "label": "Что продаёте",
+             "type": "textarea", "required": True, "rows": 2},
+            {"name": "model", "label": "Модель",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "subscription", "label": "Подписка"},
+                 {"value": "transaction", "label": "Разовые покупки"},
+                 {"value": "marketplace", "label": "Маркетплейс"},
+                 {"value": "service", "label": "Услуги / B2B контракты"},
+             ]},
+            {"name": "client_lifecycle", "label": "Цикл клиента",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Когда клиент в риске (1 покупка / 3 мес тишины / окончание подписки) — "
+                     "что чаще всего происходит"},
+            {"name": "current_retention", "label": "Текущий retention",
+             "type": "text", "required": False,
+             "placeholder": "60% возврата за год / NRR 110% / 30% повторных покупок"},
+            {"name": "budget", "label": "Бюджет программы (% от выручки)",
+             "type": "text", "required": False,
+             "placeholder": "до 5% выручки / 20к₽/мес / гибкий"},
+            {"name": "goal", "label": "Главная цель программы",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "retain", "label": "Удержать (снизить churn)"},
+                 {"value": "upsell", "label": "Увеличить чек (cross/up-sell)"},
+                 {"value": "frequency", "label": "Чаще покупали"},
+                 {"value": "advocate", "label": "Превратить в адвокатов (рекомендации)"},
+             ]},
+        ],
+        "orchestra": {
+            "default_model": "claude-sonnet",
+            "input_hint": "Многоуровневая loyalty-программа с экономикой и фишками",
+            "stages": [
+                {
+                    "id": "research",
+                    "type": "perplexity_research",
+                    "label": "Что работает в рознице сейчас",
+                    "model": "sonar",
+                    "depth": "quick",
+                    "query": "Лучшие программы лояльности в нише похожей на «{field.business}» в РФ 2025. "
+                             "Что зашло, что не зашло. Кейсы.",
+                    "search_recency_filter": "year",
+                },
+                {
+                    "id": "design",
+                    "type": "llm",
+                    "label": "Дизайн программы",
+                    "model": "claude-sonnet-4-6",
+                    "stream": True,
+                    "user_prompt":
+                        "Ты — CRM/loyalty-стратег. Спроектируй программу лояльности.\n\n"
+                        "Бизнес: {field.business}\n"
+                        "Модель: {field.model}\n"
+                        "Жизненный цикл: {field.client_lifecycle}\n"
+                        "Retention сейчас: {field.current_retention}\n"
+                        "Бюджет: {field.budget}\n"
+                        "Цель: {field.goal}\n\n"
+                        "ИНСАЙТЫ:\n{research.output}\n\n"
+                        "СТРУКТУРА:\n"
+                        "1. Концепция — основная механика (cashback / уровни / клуб / реферал / кэшбэк-баллы)\n"
+                        "2. Уровни (3-4 tier) — критерий перехода + плюшки на каждом\n"
+                        "3. Триггеры коммуникации (welcome / 2-я покупка / рекомендация / churn-warning / ре-активация)\n"
+                        "4. Экономика: cost per member, ROI, breakeven\n"
+                        "5. Не-финансовая часть (статус, ранний доступ, эксклюзив, сообщество)\n"
+                        "6. Реферал-механика (награда обоим, защита от накрутки)\n"
+                        "7. Антифрод (что нельзя оптимизировать)\n"
+                        "8. Технологический стек (CRM / автоматизации / интеграции)\n"
+                        "9. План внедрения по неделям (MVP → расширение)\n"
+                        "10. Метрики успеха (KPI программы)"
+                        + _REPORT_FORMAT_HINT,
+                },
+            ],
+            "final_stage": "design",
+        },
+    },
+
+    # ── #23 Гипотезы роста выручки (ICE Score) ───────────────────────────
+    23: {
+        "input_schema": [
+            {"name": "business", "label": "Бизнес / продукт",
+             "type": "textarea", "required": True, "rows": 2},
+            {"name": "current_revenue", "label": "Текущая выручка/месяц",
+             "type": "text", "required": True,
+             "placeholder": "1.2 млн ₽/мес"},
+            {"name": "target_revenue", "label": "Цель",
+             "type": "text", "required": True,
+             "placeholder": "2.5 млн ₽/мес за 6 месяцев"},
+            {"name": "constraints", "label": "Ограничения",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Бюджет, команда, время, рынок — что нельзя"},
+            {"name": "current_funnel", "label": "Воронка / каналы привлечения",
+             "type": "textarea", "required": False, "rows": 2,
+             "hint": "Откуда клиенты, конверсии (если знаете)"},
+            {"name": "team_capacity", "label": "Сколько часов в неделю команда может тратить на эксперименты",
+             "type": "text", "required": True,
+             "placeholder": "20 часов / соло-фаундер / outsource готовы"},
+        ],
+        "orchestra": {
+            "default_model": "claude-sonnet",
+            "input_hint": "20+ гипотез с приоритетом по ICE (Impact × Confidence × Ease)",
+            "stages": [
+                {
+                    "id": "hypotheses",
+                    "type": "llm",
+                    "label": "Гипотезы + ICE-оценка",
+                    "model": "claude-sonnet-4-6",
+                    "stream": True,
+                    "user_prompt":
+                        "Ты — growth-маркетолог уровня Reforge. Сгенерируй банк гипотез.\n\n"
+                        "Бизнес: {field.business}\n"
+                        "Сейчас: {field.current_revenue}\n"
+                        "Цель: {field.target_revenue}\n"
+                        "Ограничения: {field.constraints}\n"
+                        "Воронка: {field.current_funnel}\n"
+                        "Capacity: {field.team_capacity}\n\n"
+                        "СТРУКТУРА:\n"
+                        "1. **20+ гипотез** разнесённых по уровням воронки:\n"
+                        "   - **Привлечение (Acquisition):** новые каналы, креативы, партнёрки\n"
+                        "   - **Активация (Activation):** улучшение onboarding, первый wow-моment\n"
+                        "   - **Удержание (Retention):** механики, реактивация, личный контакт\n"
+                        "   - **Выручка (Revenue):** ценовая стратегия, upsell, новые продукты\n"
+                        "   - **Рекомендация (Referral):** loyalty-механики, реферал-программы\n"
+                        "2. Для каждой гипотезы:\n"
+                        "   - Краткое описание (1-2 предложения)\n"
+                        "   - **Impact (1-10):** на сколько может повлиять на цель\n"
+                        "   - **Confidence (1-10):** насколько уверены что сработает\n"
+                        "   - **Ease (1-10):** насколько легко внедрить\n"
+                        "   - **ICE Score** (среднее) — итоговая приоритизация\n"
+                        "3. ТОП-7 гипотез по ICE — план тестирования (последовательность, метрики, "
+                        "размер выборки, длительность теста)\n"
+                        "4. Анти-гипотезы (что НЕ стоит делать сейчас и почему)\n"
+                        "5. Roadmap на 90 дней с гипотезами"
+                        + _REPORT_FORMAT_HINT,
+                },
+            ],
+            "final_stage": "hypotheses",
+        },
+    },
+
+    # ── #24 Новые источники дохода без смены модели ──────────────────────
+    24: {
+        "input_schema": [
+            {"name": "business", "label": "Текущий бизнес",
+             "type": "textarea", "required": True, "rows": 2},
+            {"name": "main_revenue", "label": "Откуда основной доход сейчас",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Что и кому продаёте, какая основная статья дохода"},
+            {"name": "assets", "label": "Какие активы есть",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "База клиентов, экспертиза, контент, инфраструктура, бренд, помещение"},
+            {"name": "audience_size", "label": "Размер вашей аудитории / клиентской базы",
+             "type": "text", "required": False,
+             "placeholder": "Подписчиков 25к / клиентов 1500 / база email 8к"},
+            {"name": "team_skills", "label": "Сильные стороны команды (что умеете делать хорошо)",
+             "type": "textarea", "required": False, "rows": 2},
+            {"name": "willingness_to_invest", "label": "Готовы ли инвестировать в новое",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "no", "label": "Нет — только из existing assets"},
+                 {"value": "small", "label": "До 100к ₽ запуска"},
+                 {"value": "medium", "label": "До 500к ₽"},
+                 {"value": "large", "label": "Готовы вложить 1М+"},
+             ]},
+        ],
+        "orchestra": {
+            "default_model": "claude-sonnet",
+            "input_hint": "10+ идей доп. дохода c приоритетом и планом запуска",
+            "stages": [
+                {
+                    "id": "ideas",
+                    "type": "llm",
+                    "label": "Идеи + приоритеты",
+                    "model": "claude-sonnet-4-6",
+                    "stream": True,
+                    "user_prompt":
+                        "Ты — стратег по диверсификации доходов. Сгенерируй идеи доп. источников.\n\n"
+                        "Бизнес: {field.business}\n"
+                        "Основной доход: {field.main_revenue}\n"
+                        "Активы: {field.assets}\n"
+                        "Аудитория: {field.audience_size}\n"
+                        "Команда: {field.team_skills}\n"
+                        "Бюджет: {field.willingness_to_invest}\n\n"
+                        "СТРУКТУРА:\n"
+                        "1. Категории доп. дохода (по типу актива):\n"
+                        "   - **Из аудитории:** платный клуб, премиум-контент, реклама, посадки\n"
+                        "   - **Из экспертизы:** консалтинг, продукт-инфо, обучение, лицензирование\n"
+                        "   - **Из инфры:** аренда оборудования/помещения, white-label\n"
+                        "   - **Из брэнда:** коллаборации, мерч, партнёрки\n"
+                        "   - **Из данных:** аналитика, отчёты по нише\n"
+                        "2. Для каждой идеи (10+ штук):\n"
+                        "   - Что: формат продукта в 1 предложении\n"
+                        "   - Кому: конкретная ЦА (часто узкая часть основной)\n"
+                        "   - Цена: диапазон с обоснованием\n"
+                        "   - Затраты на запуск: время / деньги\n"
+                        "   - Прогноз дохода/мес через 6 мес\n"
+                        "   - Каннибализация (отнимает ли у основного бизнеса)\n"
+                        "3. ТОП-3 для запуска прямо сейчас с обоснованием\n"
+                        "4. План MVP для топ-1 идеи (4 недели, по неделям)"
+                        + _REPORT_FORMAT_HINT,
+                },
+            ],
+            "final_stage": "ideas",
+        },
+    },
+
+    # ── #25 Тренды рынка и возможности 2025-2026 ─────────────────────────
+    25: {
+        "input_schema": [
+            {"name": "industry", "label": "Ваша индустрия",
+             "type": "text", "required": True,
+             "placeholder": "EdTech / B2B SaaS / e-com beauty / HR-tech"},
+            {"name": "geo", "label": "География рынка",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "ru", "label": "Только РФ"},
+                 {"value": "ru_cis", "label": "РФ + СНГ"},
+                 {"value": "global", "label": "Глобальный (EU/US/Asia)"},
+                 {"value": "asia", "label": "Азия (Китай / SEA / Индия)"},
+                 {"value": "mena", "label": "MENA / Дубай / GCC"},
+             ]},
+            {"name": "horizon", "label": "Горизонт планирования",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "year", "label": "Ближайший год"},
+                 {"value": "3year", "label": "3 года"},
+                 {"value": "5year", "label": "5 лет"},
+             ]},
+            {"name": "your_position", "label": "Ваше место на рынке",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "leader", "label": "Лидер / в топ-3"},
+                 {"value": "mid", "label": "Средний игрок"},
+                 {"value": "niche", "label": "Нишевый специалист"},
+                 {"value": "newcomer", "label": "Только заходим"},
+             ]},
+            {"name": "interest", "label": "Что больше всего интересует",
+             "type": "textarea", "required": False, "rows": 2,
+             "hint": "Технологии? Регулирование? Поведение клиентов? Конкретный сегмент?"},
+        ],
+        "orchestra": {
+            "default_model": "claude-sonnet",
+            "input_hint": "Глубокий ресёрч с цитатами + анализ возможностей под вашу позицию",
+            "stages": [
+                {
+                    "id": "research",
+                    "type": "perplexity_research",
+                    "label": "Тренды + цитаты источников",
+                    "model": "sonar-reasoning-pro",
+                    "depth": "deep",
+                    "query": "Тренды индустрии {field.industry} на горизонт {field.horizon} в {field.geo}. "
+                             "Регуляторные изменения, технологии, поведение потребителей, M&A. "
+                             "Особый интерес: {field.interest}",
+                    "search_recency_filter": "year",
+                },
+                {
+                    "id": "analysis",
+                    "type": "llm",
+                    "label": "Возможности под вашу позицию",
+                    "model": "claude-sonnet-4-6",
+                    "stream": True,
+                    "user_prompt":
+                        "Ты — стратегический консультант (McKinsey-стиль). На основе ресёрча сделай отчёт.\n\n"
+                        "Индустрия: {field.industry}\n"
+                        "География: {field.geo}\n"
+                        "Горизонт: {field.horizon}\n"
+                        "Позиция: {field.your_position}\n"
+                        "Интерес: {field.interest}\n\n"
+                        "ДАННЫЕ Perplexity:\n{research.output}\n\n"
+                        "СТРУКТУРА:\n"
+                        "1. **Главные тренды** — 7-10 крупных, с обоснованием и цитатами источников\n"
+                        "2. **Возможности под вашу позицию** ({field.your_position})\n"
+                        "3. **Угрозы** для вашей позиции\n"
+                        "4. **Что внедрить за {field.horizon}** — конкретный план\n"
+                        "5. **Wildcards** — что может перевернуть рынок (low probability, high impact)\n"
+                        "6. **Метрики для отслеживания** — что мониторить, чтобы не пропустить"
+                        + _REPORT_FORMAT_HINT,
+                },
+            ],
+            "final_stage": "analysis",
+        },
+    },
+
+    # ── #26 Деловое письмо для выхода на партнёра ────────────────────────
+    26: {
+        "input_schema": [
+            {"name": "your_company", "label": "Ваша компания",
+             "type": "text", "required": True},
+            {"name": "your_pitch", "label": "Чем занимаетесь в 1 предложении",
+             "type": "text", "required": True,
+             "placeholder": "Помогаем онлайн-школам автоматизировать продажи через ботов"},
+            {"name": "target", "label": "Кому пишем (имя/должность/компания)",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Конкретное лицо если есть, иначе должность"},
+            {"name": "value_for_them", "label": "Что они получат от партнёрства",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Конкретно — деньги, аудитория, экспертиза, доступ"},
+            {"name": "ask", "label": "Что просим в финале",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "meeting", "label": "Встреча 30 мин (zoom/оффлайн)"},
+                 {"value": "intro", "label": "Интро к нужному человеку"},
+                 {"value": "pilot", "label": "Запуск пилотного проекта"},
+                 {"value": "feedback", "label": "Обратная связь / совет"},
+                 {"value": "co_investment", "label": "Совместная инвестиция / co-marketing"},
+             ]},
+            {"name": "social_proof", "label": "Социальные доказательства",
+             "type": "textarea", "required": False, "rows": 2,
+             "hint": "Ваши клиенты, кейсы, цифры, общие знакомые"},
+            {"name": "channel", "label": "Канал отправки",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "email", "label": "Email"},
+                 {"value": "linkedin", "label": "LinkedIn"},
+                 {"value": "telegram", "label": "Telegram"},
+                 {"value": "linkedin_email", "label": "LinkedIn + email follow-up"},
+             ]},
+        ],
+        "orchestra": {
+            "default_model": "claude-sonnet",
+            "input_hint": "3 версии письма + follow-up для выбранного канала",
+            "stages": [
+                {
+                    "id": "draft",
+                    "type": "llm",
+                    "label": "Письмо + follow-up",
+                    "model": "claude-sonnet-4-6",
+                    "stream": True,
+                    "user_prompt":
+                        "Ты — outreach-эксперт (BD/Sales). Напиши outreach-письмо.\n\n"
+                        "Ваша компания: {field.your_company}\n"
+                        "Ваш питч: {field.your_pitch}\n"
+                        "Кому: {field.target}\n"
+                        "Что для них: {field.value_for_them}\n"
+                        "Цель письма: {field.ask}\n"
+                        "Соц-пруфы: {field.social_proof}\n"
+                        "Канал: {field.channel}\n\n"
+                        "СТРУКТУРА:\n"
+                        "1. **3 варианта основного письма** (под канал {field.channel}):\n"
+                        "   - Версия А: формальная (для серьёзных корпоратов)\n"
+                        "   - Версия Б: дружелюбная (для startup'ов)\n"
+                        "   - Версия В: с провокационной зацепкой (для топов которым лень читать)\n\n"
+                        "Каждая версия: subject + preview + тело (макс 150 слов) + CTA + signature.\n\n"
+                        "2. **Follow-up письмо** (отправить через 5-7 дней если нет ответа): "
+                        "subject + тело (макс 80 слов).\n\n"
+                        "3. **Принципы:** упоминаем имя в первой строке, конкретика в первом абзаце, "
+                        "социальное доказательство одной фразой, чёткий CTA, без воды и шаблонных оборотов."
+                        + _REPORT_FORMAT_HINT,
+                },
+            ],
+            "final_stage": "draft",
+        },
+    },
+
+    # ── #27 Подготовка к переговорам с инвестором ────────────────────────
+    27: {
+        "input_schema": [
+            {"name": "stage", "label": "Стадия раунда",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "preseed", "label": "Pre-seed"},
+                 {"value": "seed", "label": "Seed"},
+                 {"value": "series_a", "label": "Series A"},
+                 {"value": "growth", "label": "Growth (B+)"},
+                 {"value": "angel", "label": "Ангельский раунд"},
+             ]},
+            {"name": "amount", "label": "Сколько привлекаем",
+             "type": "text", "required": True,
+             "placeholder": "200к $ за 10% / 30 млн ₽"},
+            {"name": "valuation", "label": "Ваша оценка",
+             "type": "text", "required": True,
+             "placeholder": "2 млн $ pre-money"},
+            {"name": "traction", "label": "Текущая traction (метрики)",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "MRR / GMV / клиенты / рост — конкретные цифры"},
+            {"name": "investor_profile", "label": "К какому инвестору идём",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Тезис фонда, прошлые инвестиции, что от вас ожидают"},
+            {"name": "use_of_funds", "label": "Куда деньги пойдут",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Например: 60% продукт + 30% маркетинг + 10% операционка"},
+            {"name": "weak_spots", "label": "Слабые места которые могут спросить",
+             "type": "textarea", "required": False, "rows": 2,
+             "hint": "Конкуренты сильнее / маленький рынок / нет moat'а — за что зацепиться"},
+        ],
+        "orchestra": {
+            "default_model": "claude-sonnet",
+            "input_hint": "Подготовка ко встрече: ключевые тезисы + 25 каверзных вопросов с ответами",
+            "stages": [
+                {
+                    "id": "prep",
+                    "type": "llm",
+                    "label": "Дорожная карта переговоров",
+                    "model": "claude-sonnet-4-6",
+                    "stream": True,
+                    "user_prompt":
+                        "Ты — экс-партнёр VC-фонда. Помоги фаундеру подготовиться к встрече.\n\n"
+                        "ВВОД:\n"
+                        "- Раунд: {field.stage}\n"
+                        "- Размер: {field.amount}\n"
+                        "- Оценка: {field.valuation}\n"
+                        "- Traction: {field.traction}\n"
+                        "- Инвестор: {field.investor_profile}\n"
+                        "- Use of funds: {field.use_of_funds}\n"
+                        "- Слабости: {field.weak_spots}\n\n"
+                        "СТРУКТУРА:\n"
+                        "1. **Питч-структура** (3-5 минут): hook → проблема → решение → traction → "
+                        "команда → ask. Готовый текст.\n"
+                        "2. **Топ-25 вопросов VC** в этой стадии — с лучшими ответами (на каждый "
+                        "слабый момент).\n"
+                        "3. **Что узнать про инвестора заранее** (10 пунктов due diligence).\n"
+                        "4. **Красные флаги в поведении инвестора** — когда стоит отказаться от их денег.\n"
+                        "5. **Term sheet checklist** — на что смотреть в условиях.\n"
+                        "6. **Skill drills** — 5 reps практики «жёстких» вопросов.\n"
+                        "7. **Follow-up план** после встречи — что прислать в течение 24 часов.\n"
+                        "8. **Анти-сценарии:** что НЕ делать на встрече."
+                        + _REPORT_FORMAT_HINT,
+                },
+            ],
+            "final_stage": "prep",
+        },
+    },
+
+    # ── #28 Идеальный рабочий день руководителя ──────────────────────────
+    28: {
+        "input_schema": [
+            {"name": "role", "label": "Должность",
+             "type": "text", "required": True,
+             "placeholder": "Founder / CEO / Руководитель отдела маркетинга"},
+            {"name": "team_size", "label": "Размер команды под вами",
+             "type": "text", "required": True,
+             "placeholder": "5 прямых подчинённых + 12 косвенных"},
+            {"name": "current_pain", "label": "Главная боль рабочего дня сейчас",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Митинги жрут весь день / рутина / не успеваю стратегией / огнетушитель"},
+            {"name": "energy_pattern", "label": "Когда максимум энергии",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "morning", "label": "Утро (5-10)"},
+                 {"value": "midday", "label": "День (10-15)"},
+                 {"value": "evening", "label": "Вечер (16-21)"},
+                 {"value": "night", "label": "Ночь / поздний вечер"},
+                 {"value": "varies", "label": "Зависит от дня"},
+             ]},
+            {"name": "priorities", "label": "Топ-3 приоритета на месяц",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Что должно сдвинуться чтобы месяц был успешным"},
+            {"name": "focus_hours", "label": "Сколько часов глубокой работы хотите в день",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "1h", "label": "1 час (реалистично при операционке)"},
+                 {"value": "2h", "label": "2 часа"},
+                 {"value": "4h", "label": "4 часа"},
+                 {"value": "6h", "label": "6+ часов (максимум фокуса)"},
+             ]},
+        ],
+        "orchestra": {
+            "default_model": "claude-sonnet",
+            "input_hint": "Расписание + ритуалы + правила фильтра задач — индивидуальное",
+            "stages": [
+                {
+                    "id": "schedule",
+                    "type": "llm",
+                    "label": "Идеальный день",
+                    "model": "claude-sonnet-4-6",
+                    "stream": True,
+                    "user_prompt":
+                        "Ты — executive-коуч уровня David Allen / Cal Newport. Спроектируй "
+                        "идеальный день руководителя.\n\n"
+                        "ВВОД:\n"
+                        "- Роль: {field.role}\n"
+                        "- Команда: {field.team_size}\n"
+                        "- Боль: {field.current_pain}\n"
+                        "- Пик энергии: {field.energy_pattern}\n"
+                        "- Приоритеты месяца: {field.priorities}\n"
+                        "- Глубокая работа в день: {field.focus_hours}\n\n"
+                        "СТРУКТУРА:\n"
+                        "1. **Расписание дня** — час за часом, с обоснованием каждого блока:\n"
+                        "   - Утренняя рутина\n"
+                        "   - Deep work блоки (под пик энергии)\n"
+                        "   - Митинги (когда лучше делать, как фильтровать)\n"
+                        "   - Буферы между задачами\n"
+                        "   - Завершение дня\n"
+                        "2. **3 ритуала** (утро / середина / вечер) — что они дают\n"
+                        "3. **Правила фильтра задач** (Eisenhower / 2-минутка / делегирование)\n"
+                        "4. **Митинг-гигиена** — какие отменить, какие сократить, какие обязательны\n"
+                        "5. **Scoreboard дня** — 3-5 метрик которые трекаешь каждый вечер\n"
+                        "6. **Анти-паттерны** — что разрушает продуктивность руководителя\n"
+                        "7. **План внедрения за 2 недели** — что ввести в первую очередь"
+                        + _REPORT_FORMAT_HINT,
+                },
+            ],
+            "final_stage": "schedule",
+        },
+    },
+
+    # ── #29 Выход из операционки: план делегирования ─────────────────────
+    29: {
+        "input_schema": [
+            {"name": "your_role", "label": "Кто вы и что делаете сейчас",
+             "type": "textarea", "required": True, "rows": 2,
+             "placeholder": "CEO + одновременно занимаюсь продажами, найм, продукт-roadmap, иногда саппорт"},
+            {"name": "operational_tasks", "label": "Какую операционку хотите снять",
+             "type": "textarea", "required": True, "rows": 3,
+             "hint": "Перечисли все рутинные задачи которые отнимают время"},
+            {"name": "current_team", "label": "Кто в команде",
+             "type": "textarea", "required": True, "rows": 2},
+            {"name": "budget_to_hire", "label": "Бюджет на найм/делегирование",
+             "type": "text", "required": True,
+             "placeholder": "до 200к/мес на новых людей"},
+            {"name": "timeline", "label": "Срок выхода из операционки",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "1m", "label": "1 месяц (срочно)"},
+                 {"value": "3m", "label": "3 месяца (комфортно)"},
+                 {"value": "6m", "label": "6 месяцев (без спешки)"},
+                 {"value": "1y", "label": "Год (постепенно)"},
+             ]},
+            {"name": "fears", "label": "Что вас останавливает делегировать",
+             "type": "textarea", "required": False, "rows": 2,
+             "hint": "Никто не сделает лучше / клиенты привыкли ко мне / некому доверять"},
+        ],
+        "orchestra": {
+            "default_model": "claude-sonnet",
+            "input_hint": "Конкретный план: что делегируем, кому, как контролируем",
+            "stages": [
+                {
+                    "id": "plan",
+                    "type": "llm",
+                    "label": "План выхода из операционки",
+                    "model": "claude-sonnet-4-6",
+                    "stream": True,
+                    "user_prompt":
+                        "Ты — executive coach + operational consultant. Помоги фаундеру выйти из операционки.\n\n"
+                        "ВВОД:\n"
+                        "- Сейчас: {field.your_role}\n"
+                        "- Операционка которую хочется снять: {field.operational_tasks}\n"
+                        "- Команда: {field.current_team}\n"
+                        "- Бюджет: {field.budget_to_hire}\n"
+                        "- Срок: {field.timeline}\n"
+                        "- Страхи: {field.fears}\n\n"
+                        "СТРУКТУРА:\n"
+                        "1. **Аудит задач** — табличка: задача / частота / часов в неделю / "
+                        "критичность для бизнеса (high/med/low) / можно делегировать (yes/no/partial)\n"
+                        "2. **Матрица «Делать/Делегировать/Удалить/Автоматизировать»** — каждая задача\n"
+                        "3. **План найма** — кого нанять (роли, грейды, ЗП, в каком порядке)\n"
+                        "4. **План автоматизации** — что заменить системами/AI (без найма)\n"
+                        "5. **Передача власти** — как именно передавать (трёхступенчатый процесс)\n"
+                        "6. **SOP / регламенты** — что нужно описать чтобы делегировать\n"
+                        "7. **Контроль** — отчётность, метрики, частота 1-on-1\n"
+                        "8. **Работа со страхами** — конкретные ответы на каждый страх юзера\n"
+                        "9. **Roadmap по срокам {field.timeline}** — что когда делаем"
+                        + _REPORT_FORMAT_HINT,
+                },
+            ],
+            "final_stage": "plan",
+        },
+    },
+
+    # ── #30 Симулятор жёсткого инвестора (питч) ──────────────────────────
+    30: {
+        "input_schema": [
+            {"name": "pitch", "label": "Ваш elevator pitch (2-3 предложения)",
+             "type": "textarea", "required": True, "rows": 3,
+             "placeholder": "Мы — SaaS для онлайн-школ. Заменяем zoom + GetCourse за 2x меньше денег. Работаем 8 месяцев, MRR 1.2 млн ₽."},
+            {"name": "stage", "label": "Стадия раунда",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "preseed", "label": "Pre-seed"},
+                 {"value": "seed", "label": "Seed"},
+                 {"value": "series_a", "label": "Series A"},
+                 {"value": "growth", "label": "Growth"},
+             ]},
+            {"name": "metrics", "label": "Главные метрики",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "MRR / клиенты / churn / CAC / LTV — что есть"},
+            {"name": "ask", "label": "Сколько просим и за что",
+             "type": "text", "required": True,
+             "placeholder": "200к $ за 10% (pre-money 1.8M $)"},
+            {"name": "investor_style", "label": "Какого инвестора симулировать",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "metrics_obsessed", "label": "Метрик-обсессивный (всё сводит к LTV/CAC)"},
+                 {"value": "skeptic", "label": "Скептик (любой ваш аргумент → встречный)"},
+                 {"value": "rude", "label": "Грубый (давит, обесценивает, проверяет на стрессоустойчивость)"},
+                 {"value": "domain_expert", "label": "Эксперт в нише (знает рынок, спрашивает детали)"},
+                 {"value": "mixed", "label": "Микс всех типов (хардкор-режим)"},
+             ]},
+        ],
+        "orchestra": {
+            "default_model": "claude-sonnet",
+            "input_hint": "ИИ начинает питч-сессию с жёстким инвестором — отвечайте в чате",
+            "stages": [
+                {
+                    "id": "round1",
+                    "type": "llm",
+                    "label": "Раунд 1: первая реакция инвестора",
+                    "model": "claude-sonnet-4-6",
+                    "stream": True,
+                    "user_prompt":
+                        "Ты — инвестор. Сейчас фаундер пишет тебе питч, ты должен жёстко его \"посмотреть\".\n\n"
+                        "СТИЛЬ ИНВЕСТОРА: {field.investor_style}\n"
+                        "СТАДИЯ: {field.stage}\n"
+                        "Это важно для типа вопросов.\n\n"
+                        "ПИТЧ ФАУНДЕРА:\n«{field.pitch}»\n\n"
+                        "МЕТРИКИ:\n{field.metrics}\n\n"
+                        "ASK: {field.ask}\n\n"
+                        "ИНСТРУКЦИЯ:\n"
+                        "1. Не говори ласковые слова. В стиле выбранного типа реакции — давай первую "
+                        "обратку. Конкретные вопросы по слабостям, провокационные тезисы, цифры.\n"
+                        "2. После ответа добавь curseivом *[Тренер: что важно учесть в ответе — N1 ... N3]*\n"
+                        "3. Ты в роли — фаундер ответит, ты продолжишь как инвестор. Жди ответа фаундера."
+                        + _REPORT_FORMAT_HINT,
+                },
+            ],
+            "final_stage": "round1",
+        },
+    },
+
     # ── #10 Рекламные тексты для всех форматов ───────────────────────────
     10: {
         "input_schema": [
