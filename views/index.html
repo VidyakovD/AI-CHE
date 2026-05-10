@@ -3578,6 +3578,41 @@ const _SOLS_CAT_BADGE = {
   hr:        {label:"HR",        icon:"👥", clr:"bg-pink-500/20 text-pink-300 border-pink-500/30"},
 };
 
+// SVG-иконки в стиле сайта (Material outlined, заполняем currentColor).
+// Каждая категория — свой образ, но единый стиль (без emoji в баннере).
+// 24x24 viewBox, рендерим size 56 чтобы хорошо смотрелось в hero-блоке карточки.
+const _SOLS_CAT_SVG = {
+  research:  '<path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>',
+  marketing: '<path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99l1.5 1.5z"/>',
+  sales:     '<path d="M19 12.51l-5-4.5V11H6v3h8v3l5-4.49zM3 4h2v16H3z"/><circle cx="9" cy="6" r="2"/>',
+  strategy:  '<path d="M19 3H5c-1.1 0-1.99.9-1.99 2L3 19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14H7v-7h3v7zm4 0h-3V7h3v10zm4 0h-3v-4h3v4z"/>',
+  legal:     '<path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 6h2v2h-2V7zm0 4h2v6h-2v-6z"/>',
+  finance:   '<path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/>',
+  hr:        '<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>',
+};
+
+function _renderHeroIcon(subcategory){
+  // Hero-баннер карточки: единый стиль, цветной градиент по категории.
+  // SVG в orange/yellow gradient с тёмным фоном — узнаваемо и фирменно.
+  const path = _SOLS_CAT_SVG[subcategory] || _SOLS_CAT_SVG.strategy;
+  return `<div class="w-full h-24 relative overflow-hidden bg-gradient-to-br from-surface3 via-surface3 to-surface2">
+    <div class="absolute inset-0 opacity-15" style="background:radial-gradient(circle at 70% 30%, var(--tw-gradient-from, #ff8c42) 0%, transparent 50%); --tw-gradient-from:#ff8c42"></div>
+    <div class="absolute inset-0 flex items-center justify-center">
+      <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background:linear-gradient(135deg, rgba(255,140,66,0.18), rgba(255,179,71,0.10)); border:1px solid rgba(255,140,66,0.25)">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="url(#solHeroGrad)" style="filter:drop-shadow(0 1px 2px rgba(255,140,66,0.4))">
+          <defs>
+            <linearGradient id="solHeroGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#ff8c42"/>
+              <stop offset="100%" stop-color="#ffb347"/>
+            </linearGradient>
+          </defs>
+          ${path}
+        </svg>
+      </div>
+    </div>
+  </div>`;
+}
+
 function _solCard(s){
   const tags = s.tags || [];
   const isPerplexity = tags.includes("perplexity") || tags.includes("perplexity-deep");
@@ -3618,10 +3653,8 @@ function _solCard(s){
     ${catBadge ? `<div class="absolute top-2 left-2 z-10">${catBadge}</div>` : ""}
     ${badges.length ? `<div class="absolute top-2 right-2 flex flex-col items-end gap-1 z-10">${badges.join("")}</div>` : ""}
     ${s.image_url
-      ? `<img src="${esc(s.image_url)}" class="w-full h-28 object-cover group-hover:opacity-88 transition"/>`
-      : `<div class="w-full h-28 bg-surface3 flex items-center justify-center text-primary/70">
-           <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/></svg>
-         </div>`}
+      ? `<img src="${esc(s.image_url)}" class="w-full h-24 object-cover group-hover:opacity-88 transition"/>`
+      : _renderHeroIcon(s.subcategory)}
     <div class="p-3 flex flex-col gap-1.5 flex-1">
       <p class="font-bold text-[13px] font-headline leading-tight">${esc(s.title)}</p>
       ${summary ? `<p class="text-[11px] text-on-surface-dim/70 line-clamp-2 leading-snug">${esc(summary)}</p>` : ""}
