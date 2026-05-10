@@ -8,24 +8,25 @@
 При успехе обновляет last_status / last_called_at / total_calls.
 При ошибке — fail_count++. После 10 ошибок подряд auto-disable.
 
-Безопасность: URL валидируется при создании (нет private/loopback).
-Reuse существующая защита из server.routes.public_api._validate_webhook_url.
+Безопасность: URL валидируется при создании + re-валидируется на dispatch-time
+через server.proposal_builder.validate_outbound_url (DNS-резолв ловит rebinding).
+
+Общий HTTP-флоу (POST + atomic UPDATE + auto-disable) вынесен в
+server._outbound.dispatch_outbound — этот модуль только маппит record-поля
+в формат конкретной CRM и делегирует.
 """
 import json
 import logging
-from datetime import datetime
-from typing import Any
-
-import httpx
-from sqlalchemy import update
 
 from server.db import db_session
 from server.models import CrmConnection
+from server._outbound import (
+    dispatch_outbound,
+    DEFAULT_TIMEOUT_SEC as CRM_TIMEOUT_SEC,
+    DEFAULT_MAX_FAIL as MAX_FAIL_BEFORE_DISABLE,
+)
 
 log = logging.getLogger(__name__)
-
-CRM_TIMEOUT_SEC = 10
-MAX_FAIL_BEFORE_DISABLE = 10
 
 
 # Дефолтный mapping для каждого provider'а — какие поля посылаем
@@ -104,87 +105,25 @@ def _post_to_crm(conn_id: int, record: dict) -> dict:
             except Exception:
                 mapping = None
 
-    # Defense-in-depth: re-валидируем URL на dispatch-time. См. комментарий
-    # в server/webhooks.py:_post_sync — DNS rebinding и пост-create мутации.
-    from server.proposal_builder import validate_outbound_url
-    try:
-        validate_outbound_url(url, allow_http=True)
-    except ValueError as e:
-        log.warning(f"[crm {conn_id}] dispatch-time URL rejected: {e}")
-        from sqlalchemy import update as _upd
-        with db_session() as db:
-            db.execute(
-                _upd(CrmConnection)
-                .where(CrmConnection.id == conn_id)
-                .values(last_error=f"URL rejected: {e}"[:200], is_active=False)
-            )
-            db.commit()
-        return {"status": "error", "error": f"URL rejected: {e}", "delivered": False}
-
     payload = _build_payload(provider, record, mapping)
-    out = {"status": None, "error": None, "delivered": False}
-    try:
-        with httpx.Client(timeout=CRM_TIMEOUT_SEC, follow_redirects=False) as client:
-            r = client.post(
-                url,
-                json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "User-Agent": "AI-Studio-Che-CRM/1.0",
-                },
-            )
-            out["status"] = r.status_code
-            out["delivered"] = 200 <= r.status_code < 300
-            if not out["delivered"]:
-                # Не сохраняем тело: CRM-webhook на стороне юзера может
-                # вернуть в error secrets (БД-creds в exception-traceback
-                # Bitrix24, токены в amoCRM error-payload). См. комментарий
-                # в server/webhooks.py:_post_sync.
-                body_len = len(r.text or "")
-                out["error"] = f"HTTP {r.status_code} (body {body_len} bytes)"
-    except httpx.TimeoutException:
-        out["error"] = "Timeout"
-    except httpx.HTTPError as e:
-        out["error"] = f"{type(e).__name__}: {str(e)[:200]}"
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {str(e)[:200]}"
-
-    # Сохраняем статус — atomic UPDATE (без race на read-then-write при
-    # одновременных POST'ах с разных воркеров: иначе fail_count мог застрять
-    # ниже threshold и auto-disable не срабатывал).
-    with db_session() as db:
-        if out["delivered"]:
-            db.execute(
-                update(CrmConnection)
-                .where(CrmConnection.id == conn_id)
-                .values(
-                    last_status=out["status"],
-                    last_called_at=datetime.utcnow(),
-                    last_error=None,
-                    total_calls=CrmConnection.total_calls + 1,
-                    fail_count=0,
-                )
-            )
-        else:
-            db.execute(
-                update(CrmConnection)
-                .where(CrmConnection.id == conn_id)
-                .values(
-                    last_status=out["status"],
-                    last_called_at=datetime.utcnow(),
-                    last_error=out["error"],
-                    total_calls=CrmConnection.total_calls + 1,
-                    fail_count=CrmConnection.fail_count + 1,
-                )
-            )
-            db.execute(
-                update(CrmConnection)
-                .where(CrmConnection.id == conn_id)
-                .where(CrmConnection.fail_count >= MAX_FAIL_BEFORE_DISABLE)
-                .values(is_active=False)
-            )
-        db.commit()
-    return out
+    result = dispatch_outbound(
+        model_cls=CrmConnection,
+        row_id=conn_id,
+        url=url,
+        json_body=payload,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "AI-Studio-Che-CRM/1.0",
+        },
+        timeout_sec=CRM_TIMEOUT_SEC,
+        max_fail=MAX_FAIL_BEFORE_DISABLE,
+        log_prefix=f"crm {conn_id}",
+    )
+    return {
+        "status": result.status if result.status is not None else "error",
+        "error": result.error,
+        "delivered": result.delivered,
+    }
 
 
 def dispatch_record_to_crm(user_id: int, record: dict) -> int:

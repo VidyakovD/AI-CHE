@@ -16,6 +16,10 @@
 
 Простота: нет retry-очереди, нет broker'а — всё in-process через asyncio.
 Если webhook упал — просто увидится в last_error, юзер сам разберётся.
+
+Общий HTTP-флоу (POST + atomic UPDATE статуса + auto-disable) вынесен
+в server._outbound.dispatch_outbound — этот модуль только формирует
+HMAC-подпись + headers и делегирует.
 """
 import asyncio
 import hashlib
@@ -23,18 +27,16 @@ import hmac
 import json
 import logging
 from datetime import datetime
-from typing import Any
-
-import httpx
-from sqlalchemy import update
 
 from server.db import db_session
 from server.models import ApiWebhook
+from server._outbound import (
+    dispatch_outbound,
+    DEFAULT_TIMEOUT_SEC as WEBHOOK_TIMEOUT_SEC,
+    DEFAULT_MAX_FAIL as MAX_FAIL_BEFORE_DISABLE,
+)
 
 log = logging.getLogger(__name__)
-
-WEBHOOK_TIMEOUT_SEC = 10
-MAX_FAIL_BEFORE_DISABLE = 10
 
 
 def _sign(secret: str, body: bytes) -> str:
@@ -43,104 +45,36 @@ def _sign(secret: str, body: bytes) -> str:
 
 
 def _post_sync(webhook_id: int, payload: dict) -> dict:
-    """Синхронный POST (для test-call'а). Возвращает {status, error}."""
+    """Синхронный POST (для test-call'а). Возвращает {status, error, delivered}."""
     with db_session() as db:
         w = db.query(ApiWebhook).filter_by(id=webhook_id).first()
         if not w:
-            return {"status": "error", "error": "webhook gone"}
+            return {"status": "error", "error": "webhook gone", "delivered": False}
         url = w.url
         secret = w.secret
 
-    # Defense-in-depth: re-валидируем URL на dispatch-time. URL валидируется
-    # при /webhooks (POST) — но если когда-нибудь добавим PUT-эндпоинт или
-    # БД-row будет изменён иначе (миграция, ручной UPDATE), мы не должны
-    # POST'ить на 127.0.0.1. DNS rebinding тоже ловится здесь, потому что
-    # резолв делается заново.
-    from server.proposal_builder import validate_outbound_url
-    try:
-        validate_outbound_url(url, allow_http=True)
-    except ValueError as e:
-        log.warning(f"[webhook {webhook_id}] dispatch-time URL rejected: {e}")
-        out_err = f"URL rejected: {e}"
-        with db_session() as db:
-            db.execute(
-                update(ApiWebhook)
-                .where(ApiWebhook.id == webhook_id)
-                .values(last_error=out_err[:200], is_active=False)
-            )
-            db.commit()
-        return {"status": "error", "error": out_err, "delivered": False}
-
     body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     signature = _sign(secret, body_bytes)
-    out = {"status": None, "error": None, "delivered": False}
-    try:
-        with httpx.Client(timeout=WEBHOOK_TIMEOUT_SEC, follow_redirects=False) as client:
-            r = client.post(
-                url,
-                content=body_bytes,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Aiche-Signature": signature,
-                    "X-Aiche-Event": payload.get("event", ""),
-                    "User-Agent": "AI-Studio-Che-Webhook/1.0",
-                },
-            )
-            out["status"] = r.status_code
-            out["delivered"] = 200 <= r.status_code < 300
-            if not out["delivered"]:
-                # Не сохраняем тело ответа: webhook'и хостятся на стороне юзера
-                # и могут случайно вернуть в error response секреты (DB-error
-                # с connection-string'ом, traceback с переменными окружения).
-                # Эти данные у нас оседали бы в last_error на 14 дней. Лучше
-                # сохранять только status + body length — этого достаточно
-                # для диагностики «5xx у моего endpoint'а».
-                body_len = len(r.text or "")
-                out["error"] = f"HTTP {r.status_code} (body {body_len} bytes)"
-    except httpx.TimeoutException:
-        out["error"] = "Timeout"
-    except httpx.HTTPError as e:
-        out["error"] = f"{type(e).__name__}: {str(e)[:200]}"
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {str(e)[:200]}"
-
-    # Записываем в БД. fail_count и total_calls — atomic UPDATE
-    # (без read-then-write race на multi-worker; иначе при одновременных
-    # ошибках двух POST'ов counter мог застрять и auto-disable не сработать).
-    with db_session() as db:
-        if out["delivered"]:
-            db.execute(
-                update(ApiWebhook)
-                .where(ApiWebhook.id == webhook_id)
-                .values(
-                    last_status=out["status"],
-                    last_called_at=datetime.utcnow(),
-                    last_error=None,
-                    total_calls=ApiWebhook.total_calls + 1,
-                    fail_count=0,
-                )
-            )
-        else:
-            db.execute(
-                update(ApiWebhook)
-                .where(ApiWebhook.id == webhook_id)
-                .values(
-                    last_status=out["status"],
-                    last_called_at=datetime.utcnow(),
-                    last_error=out["error"],
-                    total_calls=ApiWebhook.total_calls + 1,
-                    fail_count=ApiWebhook.fail_count + 1,
-                )
-            )
-            # Auto-disable, если fail_count перешагнул threshold
-            db.execute(
-                update(ApiWebhook)
-                .where(ApiWebhook.id == webhook_id)
-                .where(ApiWebhook.fail_count >= MAX_FAIL_BEFORE_DISABLE)
-                .values(is_active=False)
-            )
-        db.commit()
-    return out
+    result = dispatch_outbound(
+        model_cls=ApiWebhook,
+        row_id=webhook_id,
+        url=url,
+        body=body_bytes,
+        headers={
+            "Content-Type": "application/json",
+            "X-Aiche-Signature": signature,
+            "X-Aiche-Event": payload.get("event", ""),
+            "User-Agent": "AI-Studio-Che-Webhook/1.0",
+        },
+        timeout_sec=WEBHOOK_TIMEOUT_SEC,
+        max_fail=MAX_FAIL_BEFORE_DISABLE,
+        log_prefix=f"webhook {webhook_id}",
+    )
+    return {
+        "status": result.status if result.status is not None else "error",
+        "error": result.error,
+        "delivered": result.delivered,
+    }
 
 
 async def _post_async(webhook_id: int, payload: dict) -> dict:
@@ -178,7 +112,7 @@ def dispatch_event(user_id: int, event: str, data: dict) -> int:
     """Найти все ApiWebhook у юзера с этим событием → дёрнуть.
     Возвращает количество отправленных webhook'ов.
 
-    Это безопасно вызывать из любого horячего пути — fire-and-forget.
+    Это безопасно вызывать из любого горячего пути — fire-and-forget.
     """
     if not user_id or not event:
         return 0
