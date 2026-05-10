@@ -230,9 +230,32 @@ def _alert_admin_broken_keys(broken: list):
 
 
 async def apikey_check_loop():
-    """Проверка API-ключей раз в час в фоне (с advisory lock для multi-worker)."""
+    """Проверка API-ключей раз в час в фоне (с advisory lock для multi-worker).
+
+    После рестарта сначала подгружаем уже-сломанные ключи из БД в
+    `_last_alerted_broken_ids` — иначе следующая проверка считала бы их
+    «новыми» и слала бы email повторно при каждом рестарте.
+    """
+    global _last_alerted_broken_ids
     from server.worker_lock import worker_lock
+    from server.models import ApiKey
     log.info("API-key health-check started")
+
+    # Hydrate state из БД: считаем что все уже-сломанные ключи мы уже
+    # alerted'или ранее (либо при предыдущем запуске, либо админ их видел в UI).
+    try:
+        db = SessionLocal()
+        try:
+            already_broken = {k.id for k in db.query(ApiKey).filter_by(status="error").all()}
+            _last_alerted_broken_ids = already_broken
+            if already_broken:
+                log.info(f"API-key health-check: {len(already_broken)} ключей "
+                          "уже отмечены как сломанные в БД, повторно не алертим")
+        finally:
+            db.close()
+    except Exception as e:
+        log.warning(f"API-key health-check: hydrate state failed: {e}")
+
     # Первая проверка через 5 минут после старта (чтобы не тормозить холодный старт)
     await asyncio.sleep(300)
     while True:
