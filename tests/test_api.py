@@ -484,19 +484,28 @@ class TestSecurity:
 
     def test_validate_password(self):
         from server.security import validate_password
-        # Длина >=10, минимум 2 класса символов
-        validate_password("StrongPass1")  # ok (буквы+цифры)
-        validate_password("password!2026")  # ok (буквы+цифры+знак)
+        # Длина >=10 + ВСЕ 4 класса (lower + upper + digit + special)
+        validate_password("StrongPass1!")     # ok
+        validate_password("Password!2026Aa")  # ok
         # Слишком короткий
         with pytest.raises(Exception):
-            validate_password("short")
-        # Только цифры (один класс)
+            validate_password("Short1!")
+        # Нет цифры
+        with pytest.raises(Exception):
+            validate_password("StrongPass!")
+        # Нет верхнего регистра
+        with pytest.raises(Exception):
+            validate_password("strongpass1!")
+        # Нет нижнего регистра
+        with pytest.raises(Exception):
+            validate_password("STRONGPASS1!")
+        # Нет спецсимвола
+        with pytest.raises(Exception):
+            validate_password("StrongPass12")
+        # Только цифры
         with pytest.raises(Exception):
             validate_password("1234567890")
-        # Только буквы (один класс)
-        with pytest.raises(Exception):
-            validate_password("aaaaaaaaaaaa")
-        # В чёрном списке распространённых
+        # В чёрном списке (даже если бы прошёл по классам)
         with pytest.raises(Exception):
             validate_password("password1")
 

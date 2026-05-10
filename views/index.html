@@ -425,7 +425,7 @@ body.welcome #inputArea{display:none!important}
     <div class="space-y-3">
       <input id="rg_name"  type="text"     placeholder="Имя (необязательно)" class="inp"/>
       <input id="rg_email" type="email"    placeholder="Email" class="inp"/>
-      <input id="rg_pass"  type="password" placeholder="Пароль (мин. 8 символов)" class="inp"/>
+      <input id="rg_pass"  type="password" placeholder="Пароль (10+ симв., a-z, A-Z, 0-9, знак)" class="inp"/>
       <input id="rg_ref"   type="text"     placeholder="Реферальный код (необязательно)" class="inp"/>
       <input id="rg_promo" type="text"     placeholder="Промокод (необязательно)" class="inp"/>
       <div class="bg-surface2 rounded-xl p-4 text-xs text-on-surface-dim/70 max-h-28 overflow-y-auto border border-outline/20 leading-relaxed">
@@ -562,7 +562,7 @@ body.welcome #inputArea{display:none!important}
         <input maxlength="1" class="fg-code-cell code-cell" type="text" inputmode="numeric"/>
         <input maxlength="1" class="fg-code-cell code-cell" type="text" inputmode="numeric"/>
       </div>
-      <input id="fg_newpass" type="password" placeholder="Новый пароль" class="inp mb-3"/>
+      <input id="fg_newpass" type="password" placeholder="Новый пароль (10+ симв., a-z, A-Z, 0-9, знак)" class="inp mb-3"/>
       <div id="fg_err2" class="err mb-2" style="display:none"></div>
       <button onclick="doForgotStep2()" class="btn-p">Сменить пароль</button>
     </div>
@@ -2297,7 +2297,7 @@ async function renderSettingsTab(el){
     <div class="border-t border-outline/20 pt-5"><p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">Сменить пароль</p>
       <div class="space-y-2">
         <input id="s_oldp" type="password" placeholder="Текущий пароль" class="inp"/>
-        <input id="s_newp" type="password" placeholder="Новый пароль (мин. 8 символов)" class="inp"/>
+        <input id="s_newp" type="password" placeholder="Новый пароль (10+ симв., a-z, A-Z, 0-9, знак)" class="inp"/>
         <button onclick="doChangePass()" class="btn-g">Сменить пароль</button>
         <div id="s_pmsg" style="display:none" class="text-xs mt-1"></div>
       </div>

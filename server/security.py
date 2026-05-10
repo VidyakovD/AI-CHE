@@ -173,24 +173,29 @@ def validate_email(email: str) -> str:
     return email
 
 def validate_password(password: str) -> None:
-    """Политика паролей: длина + минимум 2 разных класса символов.
-    Не запрещаем passphrase'ы (длинные слабее по entropy не становятся), но
-    отсекаем «12345678», «aaaaaaaa», «password», «qwerty12».
+    """Политика паролей: длина 10+ символов + ВСЕ 4 класса:
+    строчная (a-z), заглавная (A-Z), цифра (0-9), знак (!@#$%…).
+
+    Plus блок-лист самых распространённых ("password", "qwerty12345" и т.д.).
+    Раньше требовали только 2 класса из 4 — теперь все 4.
     """
     if len(password) < 10:
         raise HTTPException(400, "Пароль должен быть не менее 10 символов")
     if len(password) > 128:
         raise HTTPException(400, "Пароль слишком длинный (макс 128)")
-    classes = 0
-    if any(c.islower() for c in password): classes += 1
-    if any(c.isupper() for c in password): classes += 1
-    if any(c.isdigit() for c in password): classes += 1
-    if any(not c.isalnum() for c in password): classes += 1
-    if classes < 2:
+    has_lower = any(c.islower() for c in password)
+    has_upper = any(c.isupper() for c in password)
+    has_digit = any(c.isdigit() for c in password)
+    has_special = any(not c.isalnum() for c in password)
+    missing = []
+    if not has_lower:   missing.append("строчная буква (a-z)")
+    if not has_upper:   missing.append("заглавная буква (A-Z)")
+    if not has_digit:   missing.append("цифра (0-9)")
+    if not has_special: missing.append("знак (!@#$%^&*…)")
+    if missing:
         raise HTTPException(
             400,
-            "Пароль слишком простой. Используйте минимум 2 типа символов: "
-            "буквы (a-z), заглавные (A-Z), цифры (0-9) или знаки (!@#$%)."
+            "Пароль должен содержать: " + ", ".join(missing) + ".",
         )
     # Топ-список самых распространённых — отсекаем явные «password», «qwerty», «12345678»
     _COMMON = {
