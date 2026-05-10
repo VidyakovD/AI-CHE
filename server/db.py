@@ -3,10 +3,45 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# DATABASE_URL: через env. По умолчанию SQLite для dev; на проде задаётся
-# `postgresql://aiche:pwd@localhost:5432/aiche` в .env. SQLAlchemy
-# автоматически выбирает нужный диалект по схеме URL.
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./chat.db").strip()
+# DATABASE_URL: через env. На проде обязательно задавать
+# `postgresql://aiche:pwd@localhost:5432/aiche` в .env. В dev/тестах
+# (DEV_MODE=true ИЛИ pytest run) — fallback на SQLite.
+#
+# Раньше был default `sqlite:///./chat.db` без условий — это создавало
+# мину: ad-hoc python-скрипты на проде без `load_dotenv()` молча писали
+# в локальный chat.db рядом с настоящей PostgreSQL базой. Юзеры/админы
+# создавались не туда. Поймано 2026-05-10.
+_RAW_URL = os.getenv("DATABASE_URL", "").strip()
+# Если DATABASE_URL не задан — попробуем подгрузить .env (на случай ad-hoc
+# скриптов которые забыли вызвать load_dotenv()). main.py делает это сам,
+# но scripts/seed_*.py могут не делать.
+if not _RAW_URL:
+    try:
+        from dotenv import load_dotenv as _load_dotenv, find_dotenv as _find_dotenv
+        _envfile = _find_dotenv(usecwd=True)
+        if _envfile:
+            _load_dotenv(_envfile)
+            _RAW_URL = os.getenv("DATABASE_URL", "").strip()
+    except Exception:
+        pass
+
+_DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
+_IN_PYTEST = "PYTEST_CURRENT_TEST" in os.environ or "pytest" in os.path.basename(
+    os.environ.get("_", "") or ""
+)
+if not _RAW_URL:
+    if _DEV_MODE or _IN_PYTEST:
+        DATABASE_URL = "sqlite:///./chat.db"
+    else:
+        raise RuntimeError(
+            "DATABASE_URL не задан. На проде обязательно укажите "
+            "postgresql://... в .env (load_dotenv() выполняется в main.py). "
+            "Если это dev/test — установите DEV_MODE=true. "
+            "Не пускаем дефолт `sqlite:///./chat.db` без явного DEV_MODE — "
+            "иначе ad-hoc скрипты тихо пишут в локальную SQLite вместо postgres."
+        )
+else:
+    DATABASE_URL = _RAW_URL
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 IS_POSTGRES = DATABASE_URL.startswith("postgresql")
 

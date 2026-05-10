@@ -962,7 +962,18 @@ document.addEventListener("DOMContentLoaded",async()=>{
   setupCodes(".code-cell");
   setupCodes(".fg-code-cell");
 
-  document.querySelectorAll(".overlay").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)m.classList.add("hidden");}));
+  // Закрываем по клику на backdrop, но ТОЛЬКО если клик начался И закончился
+  // на самом overlay. Раньше любой mouseup на overlay закрывал модалку — это
+  // ломало выделение текста (mousedown в input → drag → mouseup на overlay
+  // → закрытие). Теперь следим за mousedown-target и сравниваем с click-target.
+  document.querySelectorAll(".overlay").forEach(m=>{
+    let downOnOverlay=false;
+    m.addEventListener("mousedown",e=>{ downOnOverlay = (e.target === m); });
+    m.addEventListener("click",e=>{
+      if(e.target===m && downOnOverlay) m.classList.add("hidden");
+      downOnOverlay=false;
+    });
+  });
   document.getElementById("renameModal").addEventListener("click",e=>{if(e.target===document.getElementById("renameModal"))closeM("renameModal");});
   document.addEventListener("click",e=>{
     if(!e.target.closest(".menu-dropdown")&&!e.target.closest(".menu-btn"))

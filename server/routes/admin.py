@@ -579,18 +579,24 @@ def admin_check_all_keys(user: User = Depends(current_user), db: Session = Depen
 # ── API Key test / rebuild helpers ────────────────────────────────────────────
 
 def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
-    """Проверяет ключ отправкой минимального запроса."""
+    """Проверяет ключ отправкой минимального запроса.
+
+    Использует AI_HTTPS_PROXY для OpenAI/Anthropic/Google/Grok (РФ-сервер
+    без прокси упирается в 403 unsupported_country даже с валидным ключом).
+    Perplexity ходит напрямую (PERPLEXITY_HTTPS_PROXY= override).
+    """
+    from server.ai import _openai_client_kwargs, _ai_proxy
     try:
         if provider == "openai":
             from openai import OpenAI
-            c = OpenAI(api_key=key_value)
+            c = OpenAI(api_key=key_value, **_openai_client_kwargs("openai"))
             c.chat.completions.create(model="gpt-4o-mini",
                 messages=[{"role": "user", "content": "hi"}], max_tokens=1)
             return "ok", None
         elif provider == "anthropic":
             import anthropic as _ant
             base_url = os.getenv("ANTHROPIC_BASE_URL")
-            kwargs = {"api_key": key_value}
+            kwargs = {"api_key": key_value, **_openai_client_kwargs("anthropic")}
             if base_url:
                 kwargs["base_url"] = base_url
             c = _ant.Anthropic(**kwargs)
@@ -599,13 +605,20 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
             return "ok", None
         elif provider in ("gemini", "google", "nano", "veo"):
             import httpx
-            r = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key_value}",
-                json={"contents": [{"parts": [{"text": "hi"}]}]}, timeout=10)
+            proxy = _ai_proxy("google")
+            client_kwargs = {"timeout": 15}
+            if proxy:
+                client_kwargs["proxy"] = proxy
+            with httpx.Client(**client_kwargs) as cli:
+                r = cli.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key_value}",
+                    json={"contents": [{"parts": [{"text": "hi"}]}]})
             return ("ok", None) if r.status_code < 400 else ("error", f"HTTP {r.status_code}: {r.text[:100]}")
         elif provider == "perplexity":
             from openai import OpenAI
-            c = OpenAI(api_key=key_value, base_url="https://api.perplexity.ai")
+            # Perplexity напрямую (PERPLEXITY_HTTPS_PROXY= override "no proxy")
+            c = OpenAI(api_key=key_value, base_url="https://api.perplexity.ai",
+                        **_openai_client_kwargs("perplexity"))
             # sonar-small-chat снят с поддержки — используем актуальную sonar
             c.chat.completions.create(model="sonar",
                 messages=[{"role": "user", "content": "hi"}], max_tokens=1)
@@ -619,8 +632,13 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
                     sk.strip(),
                     headers={"alg": "HS256", "typ": "JWT"}
                 )
-                r = httpx.get("https://api.klingai.com/v1/videos/text2video",
-                    headers={"Authorization": f"Bearer {token}"}, timeout=8)
+                proxy = _ai_proxy("kling")
+                kw = {"timeout": 10}
+                if proxy:
+                    kw["proxy"] = proxy
+                with httpx.Client(**kw) as cli:
+                    r = cli.get("https://api.klingai.com/v1/videos/text2video",
+                                 headers={"Authorization": f"Bearer {token}"})
                 if r.status_code == 401:
                     return "error", f"Неверный ключ: {r.text[:100]}"
                 return ("ok", None) if r.status_code != 401 else ("error", f"HTTP {r.status_code}")
@@ -632,7 +650,8 @@ def _test_key(provider: str, key_value: str) -> tuple[str, str | None]:
             return "ok", None
         elif provider == "grok":
             from openai import OpenAI
-            c = OpenAI(api_key=key_value, base_url="https://api.x.ai/v1")
+            c = OpenAI(api_key=key_value, base_url="https://api.x.ai/v1",
+                        **_openai_client_kwargs("grok"))
             c.chat.completions.create(model="grok-3-mini",
                 messages=[{"role": "user", "content": "hi"}], max_tokens=1)
             return "ok", None
