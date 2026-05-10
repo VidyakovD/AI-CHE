@@ -16,7 +16,10 @@ models.Base.metadata.create_all(bind=engine)
 
 db = SessionLocal()
 
-email = os.getenv("ADMIN_EMAIL", "vidyakov@obsidian.ai")
+# Email сохраняется в lowercase: validate_email() при логине нормализует
+# к lowercase, а Postgres case-sensitive — без этого юзер не сможет залогиниться
+# даже с правильным паролем (был фактический баг 2026-05-10).
+email = os.getenv("ADMIN_EMAIL", "vidyakov@obsidian.ai").strip().lower()
 password = os.getenv("ADMIN_PASSWORD")
 if not password:
     import getpass
