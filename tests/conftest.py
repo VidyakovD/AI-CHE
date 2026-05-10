@@ -12,6 +12,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("DEV_MODE", "true")
 os.environ.setdefault("APP_ENV", "dev")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-32-chars-long-yes-yes")
+# Marketplace отключён в проде через feature-flag (продуктовое решение
+# 2026-05-10). В тестах включаем — тесты остаются регрессионной защитой
+# на случай если когда-то вернём раздел.
+os.environ.setdefault("MARKETPLACE_ENABLED", "1")
 
 
 def pytest_configure(config):

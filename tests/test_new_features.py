@@ -145,11 +145,15 @@ class TestProposalSignature:
 class TestApiWebhook:
 
     def test_create_returns_secret_once(self):
+        # uuid в email + URL — иначе между прогонами тестов SessionLocal
+        # копит >10 webhooks одного юзера и /webhooks возвращает 409 (лимит).
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:8]
         with SessionLocal() as db:
-            uid, uemail = _user(db, "wh-test@example.com")
+            uid, uemail = _user(db, f"wh-test-{suffix}@example.com")
         client = _client_for((uid, uemail))
         r = client.post("/api-tokens/webhooks", json={
-            "url": "https://example.com/hook",
+            "url": f"https://example.com/hook-{suffix}",
             "events": ["proposal.opened", "record.created"],
             "description": "test",
         })

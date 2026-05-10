@@ -612,7 +612,11 @@ def serve_proposals():
 
 @app.get("/marketplace.html", include_in_schema=False)
 def serve_marketplace():
-    return _html("marketplace.html")
+    """Marketplace отключён (продуктовое решение, 2026-05-10).
+    Старые ссылки → редирект на главную. Установленные боты от прошлых
+    публикаций продолжают работать как обычные ChatBot."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/", status_code=307)
 
 @app.get("/api.html", include_in_schema=False)
 def serve_api_docs():

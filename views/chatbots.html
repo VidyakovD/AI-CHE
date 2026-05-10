@@ -901,7 +901,7 @@ function render(){
             <button onclick="openBotPrice(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1" title="Прайс-лист — бот сможет называть цены клиенту" aria-label="Прайс"><span>₽</span><span>Прайс</span></button>
             <button onclick="event.stopPropagation();openBotKnowledge(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1" title="База знаний — загрузите PDF/XLSX/DOCX, бот будет искать в них при ответах" aria-label="База знаний"><span>📚</span><span>База</span></button>
             <button onclick="showSummary(${b.id})" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1" title="Краткий пересказ всех диалогов с клиентами" aria-label="Пересказ">${_i('chat')}<span>Пересказ</span></button>
-            <button onclick="event.stopPropagation();openPublishModal(${b.id}, '${(b.name||'').replace(/'/g,"\\'")}')" class="btn-g text-[10px] py-1 px-2 inline-flex items-center gap-1" title="Опубликовать в Marketplace — получите 70% с каждой установки" aria-label="Опубликовать в Marketplace"><span>📤</span><span>В Marketplace</span></button>
+            <!-- Marketplace publish-кнопка отключена (продуктовое решение, 2026-05-10) -->
           </div>
         </div>
         <div class="flex items-center gap-2 mb-2">

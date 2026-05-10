@@ -39,6 +39,24 @@ router = APIRouter(prefix="/marketplace", tags=["marketplace"])
 _AUTHOR_REVENUE_PCT = 70   # 70% автору, 30% платформе
 
 
+# ── Feature-flag: marketplace отключён по продуктовому решению (2026-05-10) ──
+# Write-эндпоинты (publish / install / review / approve) возвращают 410 Gone.
+# Read-эндпоинты (GET listings, my-listings, pending) остаются — юзер может
+# посмотреть свою историю и архив. Установленные ранее боты продолжают
+# работать как обычные ChatBot — они уже cloned в свою таблицу.
+#
+# Чтобы временно вернуть marketplace — установить env MARKETPLACE_ENABLED=1
+# и перезапустить сервис.
+def _require_marketplace_enabled():
+    import os as _os
+    if _os.getenv("MARKETPLACE_ENABLED", "").lower() not in ("1", "true", "yes"):
+        raise HTTPException(
+            410,
+            "Marketplace временно отключён. Установленные ранее боты продолжают "
+            "работать в разделе «Чат-боты»."
+        )
+
+
 class ListingPublishBody(BaseModel):
     bot_id: int
     name: str = Field(..., max_length=100)
@@ -52,6 +70,7 @@ class ListingPublishBody(BaseModel):
 def publish_listing(body: ListingPublishBody, db: Session = Depends(get_db),
                      user: User = Depends(current_user)):
     """Опубликовать своего бота в marketplace."""
+    _require_marketplace_enabled()
     if not user.is_verified:
         raise HTTPException(403, "Подтвердите email")
     bot = db.query(ChatBot).filter_by(id=body.bot_id, user_id=user.id).first()
@@ -165,6 +184,7 @@ def install_listing(listing_id: int, db: Session = Depends(get_db),
                      user: User = Depends(current_user)):
     """Установить шаблон — создать новый ChatBot у юзера. Платный режим:
     списываем price_kop, 70% credit_atomic автору."""
+    _require_marketplace_enabled()
     if not user.is_verified:
         raise HTTPException(403, "Подтвердите email")
     listing = (db.query(BotMarketplaceListing)
@@ -261,6 +281,7 @@ def review_listing(listing_id: int, body: InstallReviewBody,
     (LAST WRITE WINS) — для одного юзера с несколькими installs одного
     бесплатного листинга это даёт корраптный count.
     """
+    _require_marketplace_enabled()
     install = (db.query(BotMarketplaceInstall)
                   .filter_by(listing_id=listing_id, installer_id=user.id)
                   .order_by(desc(BotMarketplaceInstall.id)).first())
@@ -314,6 +335,7 @@ def admin_pending_listings(db: Session = Depends(get_db),
 @router.post("/admin/listings/{listing_id}/approve")
 def admin_approve(listing_id: int, db: Session = Depends(get_db),
                     user: User = Depends(current_user)):
+    _require_marketplace_enabled()
     from server.security import require_admin
     require_admin(user)
     r = db.query(BotMarketplaceListing).filter_by(id=listing_id).first()
@@ -333,6 +355,7 @@ def admin_approve(listing_id: int, db: Session = Depends(get_db),
 @router.post("/admin/listings/{listing_id}/reject")
 def admin_reject(listing_id: int, db: Session = Depends(get_db),
                    user: User = Depends(current_user)):
+    _require_marketplace_enabled()
     from server.security import require_admin
     require_admin(user)
     r = db.query(BotMarketplaceListing).filter_by(id=listing_id).first()

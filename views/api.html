@@ -42,10 +42,23 @@ pre{font-family:'JetBrains Mono','Fira Code',monospace;background:#272018;paddin
 <script src="/icons.js" defer></script>
 </head>
 <body class="dark" data-assistant-section="api" data-assistant-label="Public API · документация">
+<style>
+  /* При встройке в iframe ЛК (?embed=1) прячем header: «← Назад» и заголовок
+     не нужны — у юзера уже есть навигация модального окна Кабинета. */
+  body.embedded #apiPageHeader { display: none !important; }
+  body.embedded .max-w-6xl { padding-top: 12px !important; padding-bottom: 12px !important; }
+</style>
+<script>
+  // Парсим ?embed=1 как можно раньше чтобы избежать вспышки header'а
+  if (new URLSearchParams(location.search).get('embed') === '1') {
+    document.documentElement.classList.add('embedded-html');
+    document.addEventListener('DOMContentLoaded', () => document.body.classList.add('embedded'));
+  }
+</script>
 
 <div class="max-w-6xl mx-auto px-5 py-8">
 
-  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+  <div id="apiPageHeader" class="flex items-center justify-between mb-6 flex-wrap gap-3">
     <div class="flex items-center gap-4">
       <a href="index.html" class="btn-g text-xs">← Назад</a>
       <div>
