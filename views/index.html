@@ -3595,27 +3595,11 @@ function _solCard(s){
   </div>`;
 }
 
-async function launchSolution(id,title,stepsCount,isOrchestra){
-  if(!currentUser){closeM("solutionsModal");openM("loginModal");return;}
-  closeM("solutionsModal");
-  // Multi-agent orchestra — отдельный flow с live-progress
-  if(isOrchestra){return launchOrchestra(id,title);}
-  document.getElementById("runTitle").textContent=title;
-  document.getElementById("runErr").classList.add("hidden");
-  document.getElementById("runResult").classList.add("hidden");
-  document.getElementById("runChatBtn").classList.add("hidden");
-  document.getElementById("runInput").value="";
-  openM("runModal");
-  try{
-    const hdrs={"Content-Type":"application/json"};
-    if(authToken)hdrs["Authorization"]="Bearer "+authToken;
-    const r=await fetch(`${API}/solutions/${id}/run`,{method:"POST",headers:hdrs});
-    const data=await r.json();
-    if(!r.ok)throw new Error(data.detail||"Ошибка запуска");
-    activeRun={run_id:data.run_id,chat_id:data.chat_id,solution_id:id,steps_count:stepsCount,current_step:0};
-    updateRunUI(data);
-  }catch(e){document.getElementById("runErr").textContent=e.message;document.getElementById("runErr").classList.remove("hidden");}
-}
+// Note: единственная регистрация launchSolution — ниже в этом же файле
+// (строка ~4649). Раньше тут была дублирующая копия БЕЗ обработки
+// orchestra-параметра, и поскольку она объявлена позже — она перекрывала
+// эту. В итоге клик по orchestra-карточке тихо падал на /solutions/{id}/run
+// который не существует для orchestra. Объединено 2026-05-10.
 
 // ── Multi-agent orchestra flow ────────────────────────────────────────────
 let _orchestraStream = null;
@@ -4646,9 +4630,21 @@ async function pollTokenPayment(pid){
 // ── Solution prompt editor ─────────────────────────────────────────────────
 let pendingSolution = null;
 
-async function launchSolution(id,title,stepsCount){
-  if(!currentUser&&stepsCount>0){closeM('solutionsModal');openM('loginModal');return;}
-  // Load solution to check if it's a simple single-step (show prompt editor)
+async function launchSolution(id, title, stepsCount, isOrchestra){
+  // Auth: нужна для orchestra и для plain (если есть steps).
+  // Free preview без auth раньше работал только для plain без шагов.
+  if(!currentUser){
+    closeM('solutionsModal');
+    openM('loginModal');
+    return;
+  }
+  // Multi-agent orchestra — отдельный flow с live-progress (SSE).
+  // Перенаправляем сразу, не загружая sol.steps (orchestra их не имеет).
+  if(isOrchestra){
+    closeM('solutionsModal');
+    return launchOrchestra(id, title);
+  }
+  // Plain solution — пробуем prompt-editor для одношаговых.
   try{
     const sol = await fetch(`${API}/solutions/${id}`).then(r=>r.json());
     const firstStep = sol.steps?.[0];
@@ -4663,9 +4659,9 @@ async function launchSolution(id,title,stepsCount){
       return;
     }
   }catch{}
-  // Otherwise launch chain
+  // Multi-step plain — старый chain-flow
   closeM('solutionsModal');
-  _launchSolutionChain(id,title,stepsCount);
+  _launchSolutionChain(id, title, stepsCount);
 }
 
 async function sendEditedPrompt(){
