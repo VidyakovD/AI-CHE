@@ -2078,6 +2078,291 @@ V2_SOLUTIONS = {
         },
     },
 
+    # ── #31 Аудит лендинга (orchestra-deep, оставляем pipeline) ─────────
+    # Существующий orchestra использует {input} как «URL + ЦА + цель + конверсия».
+    # Добавляем структуру через input_schema. Backend склеит «label: value\n».
+    31: {
+        "input_schema": [
+            {"name": "url", "label": "URL лендинга",
+             "type": "text", "required": True,
+             "placeholder": "https://your-landing.ru"},
+            {"name": "audience", "label": "Кому продаём",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "ЦА в 1-2 предложениях"},
+            {"name": "goal", "label": "Целевое действие",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "lead", "label": "Заявка / форма"},
+                 {"value": "purchase", "label": "Прямая покупка"},
+                 {"value": "subscribe", "label": "Подписка / регистрация"},
+                 {"value": "consult", "label": "Консультация / звонок"},
+                 {"value": "demo", "label": "Запросить демо"},
+             ]},
+            {"name": "current_conversion", "label": "Текущая конверсия (если знаете)",
+             "type": "text", "required": False,
+             "placeholder": "1.8% посетителей оставляют заявку"},
+            {"name": "traffic_source", "label": "Откуда основной трафик",
+             "type": "text", "required": False,
+             "placeholder": "Яндекс.Директ / SEO / соцсети"},
+        ],
+    },
+
+    # ── #32 Юр. проверка договора ────────────────────────────────────────
+    32: {
+        "input_schema": [
+            {"name": "your_role", "label": "Ваша роль в договоре",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "customer", "label": "Заказчик / Покупатель"},
+                 {"value": "executor", "label": "Исполнитель / Поставщик"},
+                 {"value": "agent", "label": "Агент / Посредник"},
+                 {"value": "employer", "label": "Работодатель"},
+                 {"value": "employee", "label": "Работник"},
+                 {"value": "investor", "label": "Инвестор"},
+                 {"value": "other", "label": "Другая (опишите ниже)"},
+             ]},
+            {"name": "contract_type", "label": "Тип договора",
+             "type": "text", "required": True,
+             "placeholder": "Договор оказания услуг / поставки / лицензионный / NDA / трудовой"},
+            {"name": "deal_size", "label": "Размер сделки",
+             "type": "text", "required": False,
+             "placeholder": "1.5 млн ₽ / абон. 50к ₽/мес / любой"},
+            {"name": "key_concerns", "label": "Что особенно беспокоит",
+             "type": "textarea", "required": False, "rows": 2,
+             "hint": "Ответственность / штрафы / расторжение / интеллектуальные права"},
+            {"name": "deadline", "label": "Когда нужно подписать",
+             "type": "text", "required": False,
+             "placeholder": "до пятницы / нет срочности"},
+        ],
+    },
+
+    # ── #33 Аудит соцсети канала ─────────────────────────────────────────
+    33: {
+        "input_schema": [
+            {"name": "channel_url", "label": "URL канала / сообщества",
+             "type": "text", "required": True,
+             "placeholder": "https://t.me/your_channel или vk.com/club..."},
+            {"name": "niche", "label": "Ниша / тематика",
+             "type": "text", "required": True},
+            {"name": "audience_size", "label": "Размер подписчиков",
+             "type": "text", "required": True,
+             "placeholder": "12 500 / 850 / 250к"},
+            {"name": "main_goal", "label": "Главная цель канала",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "personal_brand", "label": "Личный бренд"},
+                 {"value": "leads", "label": "Привлечение клиентов в основной бизнес"},
+                 {"value": "monetization", "label": "Монетизация рекламы / подписки"},
+                 {"value": "community", "label": "Сообщество вокруг продукта"},
+                 {"value": "media", "label": "Медиа / новостной агрегатор"},
+             ]},
+            {"name": "pain_points", "label": "Что болит",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Низкие охваты / нет лидов / не растёт / нечего постить — что главное"},
+        ],
+    },
+
+    # ── #34 Финансовый аудит по Excel ────────────────────────────────────
+    34: {
+        "input_schema": [
+            {"name": "business_context", "label": "Контекст бизнеса",
+             "type": "textarea", "required": True, "rows": 2,
+             "placeholder": "Онлайн-школа английского, B2C, средний чек 12к ₽"},
+            {"name": "period", "label": "Период данных в файле",
+             "type": "text", "required": True,
+             "placeholder": "Январь-апрель 2025 / последние 6 месяцев"},
+            {"name": "key_concerns", "label": "Что хотите узнать главное",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Где утекают деньги / маржа / какой канал прибыльнее / cashflow risks"},
+            {"name": "data_type", "label": "Что в файле",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "pnl", "label": "P&L (выручка/расходы по статьям)"},
+                 {"value": "sales", "label": "Продажи (по клиентам/каналам/продуктам)"},
+                 {"value": "expenses", "label": "Расходы (детальная разбивка)"},
+                 {"value": "marketing", "label": "Маркетинг (CAC/ROMI по каналам)"},
+                 {"value": "mixed", "label": "Микс — несколько листов"},
+             ]},
+        ],
+    },
+
+    # ── #35 Холодная email-рассылка под список компаний ──────────────────
+    35: {
+        "input_schema": [
+            {"name": "your_product", "label": "Что продаёте",
+             "type": "textarea", "required": True, "rows": 2},
+            {"name": "your_company", "label": "Ваша компания (как представитесь)",
+             "type": "text", "required": True,
+             "placeholder": "Алексей Петров, CEO «AquaTech»"},
+            {"name": "prospect_role", "label": "Кому пишете (роль)",
+             "type": "text", "required": True,
+             "placeholder": "Маркетинг-директор / CEO / Закупщик"},
+            {"name": "value_prop", "label": "Главная ценность для них",
+             "type": "textarea", "required": True, "rows": 2,
+             "hint": "Конкретно — деньги/время/риск который снимаем"},
+            {"name": "prospect_companies", "label": "Список компаний-prospect'ов",
+             "type": "textarea", "required": True, "rows": 5,
+             "hint": "3-15 сайтов или названий компаний (по одному в строке)",
+             "placeholder": "https://example1.com\nhttps://example2.com\n..."},
+            {"name": "cta", "label": "Конкретный CTA в письме",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "meeting", "label": "Звонок 15 мин"},
+                 {"value": "demo", "label": "Демо продукта"},
+                 {"value": "case_study", "label": "Кейс-стади (выслать материал)"},
+                 {"value": "trial", "label": "Бесплатный пилот"},
+                 {"value": "intro", "label": "Интро через общего знакомого"},
+             ]},
+        ],
+    },
+
+    # ── #36 Проверка контрагента (Perplexity-фикс) ───────────────────────
+    36: {
+        "input_schema": [
+            {"name": "company", "label": "Название компании или ИНН",
+             "type": "text", "required": True,
+             "placeholder": "ООО Яндекс / 7736207543"},
+            {"name": "deal_purpose", "label": "Контекст проверки",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "vendor", "label": "Хотим купить у них (поставщик)"},
+                 {"value": "client", "label": "Хотим продать им (клиент)"},
+                 {"value": "partner", "label": "Партнёрство / совместный проект"},
+                 {"value": "investor", "label": "Возможный инвестор"},
+                 {"value": "merger", "label": "Слияние / поглощение"},
+                 {"value": "due_dil", "label": "Полный due-diligence перед сделкой"},
+             ]},
+            {"name": "deal_size", "label": "Размер потенциальной сделки",
+             "type": "text", "required": False,
+             "placeholder": "5 млн ₽ / абон. 100к ₽/мес"},
+            {"name": "specific_concerns", "label": "Что особенно проверить",
+             "type": "textarea", "required": False, "rows": 2,
+             "hint": "Долги / суды / связи с лицами под санкциями / бенефициары"},
+        ],
+    },
+
+    # ── #37 Брифинг перед встречей (Perplexity-фикс) ─────────────────────
+    37: {
+        "input_schema": [
+            {"name": "person_or_company", "label": "Кого/что бриффим",
+             "type": "text", "required": True,
+             "placeholder": "Иван Иванов, CEO «АкваТех» / Сбербанк / Альфа-Банк"},
+            {"name": "meeting_purpose", "label": "Цель встречи",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "sale", "label": "Продажа / partnership-pitch"},
+                 {"value": "investor", "label": "Раунд инвестиций"},
+                 {"value": "supplier", "label": "Договор с поставщиком"},
+                 {"value": "interview", "label": "Интервью / найм"},
+                 {"value": "media", "label": "Подкаст / интервью / спикер"},
+                 {"value": "networking", "label": "Networking без чёткой цели"},
+             ]},
+            {"name": "what_they_already_know", "label": "Что про вас уже знают",
+             "type": "textarea", "required": False, "rows": 2,
+             "hint": "Холодный контакт / общий знакомый / уже общались"},
+            {"name": "duration", "label": "Длительность встречи",
+             "type": "select", "required": False,
+             "options": [
+                 {"value": "15", "label": "15 минут"},
+                 {"value": "30", "label": "30 минут"},
+                 {"value": "60", "label": "1 час"},
+                 {"value": "more", "label": "Несколько часов / весь день"},
+             ]},
+        ],
+    },
+
+    # ── #38 Юр-новости в нише (Perplexity-фикс) ──────────────────────────
+    38: {
+        "input_schema": [
+            {"name": "niche", "label": "Ваша ниша / деятельность",
+             "type": "textarea", "required": True, "rows": 2,
+             "placeholder": "маркировка товаров в Честном Знаке / онлайн-продажи / самозанятые"},
+            {"name": "geo", "label": "География работы",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "ru", "label": "РФ"},
+                 {"value": "eaeu", "label": "ЕАЭС (РФ + Беларусь + Казахстан + ...)"},
+                 {"value": "global", "label": "Глобально / экспорт"},
+             ]},
+            {"name": "horizon", "label": "Период проверки",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "month", "label": "Последний месяц"},
+                 {"value": "quarter", "label": "Последний квартал"},
+                 {"value": "year", "label": "Последний год"},
+             ]},
+            {"name": "specific_topics", "label": "Конкретные темы интереса",
+             "type": "textarea", "required": False, "rows": 2,
+             "hint": "Например: 152-ФЗ ПДн / маркировка / налоги ИП / валютный контроль"},
+        ],
+    },
+
+    # ── #39 Аудит цен конкурентов (Perplexity-фикс) ──────────────────────
+    39: {
+        "input_schema": [
+            {"name": "service", "label": "Ваша услуга / продукт",
+             "type": "textarea", "required": True, "rows": 2,
+             "placeholder": "Бухгалтерское сопровождение для ИП на УСН"},
+            {"name": "geo", "label": "География",
+             "type": "text", "required": True,
+             "placeholder": "Москва / РФ / Краснодар"},
+            {"name": "competitors", "label": "Известные конкуренты (опц.)",
+             "type": "textarea", "required": False, "rows": 2,
+             "hint": "3-5 конкурентов или сайтов через запятую"},
+            {"name": "your_price", "label": "Ваша текущая цена",
+             "type": "text", "required": True,
+             "placeholder": "12 000 ₽/мес / от 50к за проект"},
+            {"name": "your_segment", "label": "Ваш ценовой сегмент",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "budget", "label": "Бюджет / эконом"},
+                 {"value": "mid", "label": "Средний"},
+                 {"value": "premium", "label": "Премиум"},
+                 {"value": "luxury", "label": "Luxury / эксклюзив"},
+             ]},
+        ],
+    },
+
+    # ── #40 Поиск инвесторов и партнёров (Perplexity-фикс) ───────────────
+    40: {
+        "input_schema": [
+            {"name": "project", "label": "Описание проекта",
+             "type": "textarea", "required": True, "rows": 3,
+             "placeholder": "AI-сервис для автоматизации найма (HR-tech), MVP, B2B SaaS"},
+            {"name": "stage", "label": "Стадия",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "idea", "label": "Идея (нет MVP)"},
+                 {"value": "mvp", "label": "MVP / прототип"},
+                 {"value": "early", "label": "Стартап с традишеном (до 1 года)"},
+                 {"value": "growth", "label": "Рост (1-3 года)"},
+                 {"value": "scaling", "label": "Масштабирование"},
+             ]},
+            {"name": "amount", "label": "Нужная сумма",
+             "type": "text", "required": True,
+             "placeholder": "100к $ / 5 млн ₽ / гибко"},
+            {"name": "geo", "label": "Где ищем инвесторов",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "ru", "label": "Только РФ"},
+                 {"value": "ru_cis", "label": "РФ + СНГ"},
+                 {"value": "global", "label": "Глобально"},
+                 {"value": "asia", "label": "Азия (Китай / SEA / GCC)"},
+                 {"value": "ru_friendly", "label": "Дружественные юрисдикции"},
+             ]},
+            {"name": "type", "label": "Тип партнёрства",
+             "type": "select", "required": True,
+             "options": [
+                 {"value": "vc", "label": "VC-фонд"},
+                 {"value": "angel", "label": "Ангельский раунд"},
+                 {"value": "strategic", "label": "Стратегический партнёр"},
+                 {"value": "grant", "label": "Гранты / Сколково / Фонд развития"},
+                 {"value": "acceleratorы", "label": "Акселератор / инкубатор"},
+                 {"value": "any", "label": "Любые (расскажите все варианты)"},
+             ]},
+        ],
+    },
+
     # ── #10 Рекламные тексты для всех форматов ───────────────────────────
     10: {
         "input_schema": [
@@ -2147,13 +2432,20 @@ def main():
                 print(f"⚠ Решение #{sid} не найдено в БД — пропускаю")
                 continue
             sol.input_schema_json = json.dumps(payload["input_schema"], ensure_ascii=False)
-            sol.orchestra_json = json.dumps(payload["orchestra"], ensure_ascii=False)
-            print(f"✅ #{sid:2} «{sol.title}»: input_schema={len(payload['input_schema'])} полей, "
-                  f"orchestra={len(payload['orchestra']['stages'])} stage'ов")
+            # Если в payload есть "orchestra" — переписываем pipeline. Иначе
+            # оставляем существующий (для решений со сложными pipeline'ами
+            # где мы только добавляем input_schema, не трогая логику).
+            if "orchestra" in payload:
+                sol.orchestra_json = json.dumps(payload["orchestra"], ensure_ascii=False)
+                stages_n = len(payload["orchestra"]["stages"])
+                print(f"✅ #{sid:2} «{sol.title}»: input_schema={len(payload['input_schema'])} полей, "
+                      f"orchestra={stages_n} stage'ов (переписан)")
+            else:
+                print(f"✅ #{sid:2} «{sol.title}»: input_schema={len(payload['input_schema'])} полей "
+                      f"(orchestra оставлен как есть)")
         db.commit()
-        print(f"\n=== Готово: переписано {len(V2_SOLUTIONS)} решений ===")
-        print("Теперь проверь UI: при клике на любое из этих 10 решений должна "
-              "открыться форма с полями (а не одна textarea).")
+        print(f"\n=== Готово: обновлено {len(V2_SOLUTIONS)} решений ===")
+        print("UI: при клике должна открыться форма с полями (а не одна textarea).")
 
 
 if __name__ == "__main__":
