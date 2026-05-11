@@ -30,6 +30,34 @@ jobs:
         # Когда репо будет чище, заменить на `ruff check .`
         run: ruff check . --output-format=github --exit-zero
 
+      - name: Apply LIGHTWEIGHT_MIGRATIONS (smoke)
+        # Проверяем что миграции применяются на чистой SQLite без ошибок.
+        # Если кто-то добавил битый ALTER в LIGHTWEIGHT_MIGRATIONS — поймаем
+        # до прод-деплоя. Раньше CI делал только Base.metadata.create_all()
+        # и не видел проблем с миграциями.
+        env:
+          DEV_MODE: "true"
+          APP_ENV: "dev"
+          JWT_SECRET: "ci-secret-not-for-prod"
+          ALLOWED_ORIGINS: "http://localhost:8000"
+          DATABASE_URL: "sqlite:///./ci_migrations_check.db"
+        run: |
+          python -c "from server import models; from server.db import engine, apply_lightweight_migrations; models.Base.metadata.create_all(bind=engine); apply_lightweight_migrations(); print('migrations OK')"
+          rm -f ci_migrations_check.db
+
+      - name: Alembic upgrade head (smoke)
+        # Прогоняем все alembic-миграции на чистой БД — поймаем синтаксические
+        # ошибки в новых ревизиях до того как они сольются в main.
+        env:
+          DEV_MODE: "true"
+          APP_ENV: "dev"
+          JWT_SECRET: "ci-secret-not-for-prod"
+          DATABASE_URL: "sqlite:///./ci_alembic_check.db"
+        run: |
+          python -m alembic upgrade head
+          python -m alembic current
+          rm -f ci_alembic_check.db
+
       - name: Pytest
         env:
           DEV_MODE: "true"
