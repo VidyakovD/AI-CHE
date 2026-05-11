@@ -1,6 +1,10 @@
 fastapi==0.111.0
 uvicorn==0.29.0
 sqlalchemy==2.0.30
+# Alembic для версионируемых миграций. Подключён параллельно с
+# LIGHTWEIGHT_MIGRATIONS (см. alembic/README.md). Используется для
+# сложных изменений схемы (DROP COLUMN, data migrations, FK changes).
+alembic==1.13.2
 # CVE-2026-28684 fixed in 1.2.2
 python-dotenv==1.2.2
 openai==1.30.1
