@@ -977,7 +977,10 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
     if len(instructions) > 2000:
         raise HTTPException(400, "Инструкция слишком длинная (максимум 2000 символов)")
 
-    cost = CODE_ITER_CH_COST  # 5 ₽ за правку (TODO: перейти на real × margin)
+    # Цена правки сайта — через pricing_config (ключ site.iter, дефолт 5 ₽).
+    # Админ может менять через /admin/pricing. Real-cost × margin — отдельная
+    # задача (см. TODO_NEXT «Сайты — /iterate цена фикс 5 ₽»).
+    cost = _get_price("site.iter", default=CODE_ITER_CH_COST)
     if not deduct_strict(db, user.id, cost):
         raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
     p.price_tokens += cost

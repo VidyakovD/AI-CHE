@@ -25,9 +25,21 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/proposals", tags=["proposals"])
 
-# Цены: КП — 50 ₽, правка — 5 ₽. Можно перенести в pricing_config позже.
-PROPOSAL_COST_KOP = 5000
-PROPOSAL_EDIT_COST_KOP = 500
+# Цены КП теперь динамические через pricing_config — админ может менять без редеплоя.
+# Ключи: `proposal.create` (50 ₽ дефолт), `proposal.edit` (5 ₽). Старые
+# константы оставлены как fallback на случай если pricing.get_price упадёт.
+from server.pricing import get_price as _get_price  # noqa: E402
+
+PROPOSAL_COST_KOP_FALLBACK = 5000
+PROPOSAL_EDIT_COST_KOP_FALLBACK = 500
+
+
+def _proposal_create_cost() -> int:
+    return _get_price("proposal.create", default=PROPOSAL_COST_KOP_FALLBACK)
+
+
+def _proposal_edit_cost() -> int:
+    return _get_price("proposal.edit", default=PROPOSAL_EDIT_COST_KOP_FALLBACK)
 
 # Цвет HEX валидация — короткая или полная
 _HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -546,9 +558,10 @@ def generate_proposal_endpoint(project_id: int, db: Session = Depends(get_db),
 
     _validate_proposal_for_generation(p)
 
-    # Цена: первый раз — 50 ₽, перегенерация — 5 ₽
+    # Цена: первый раз — proposal.create (дефолт 50 ₽), перегенерация — proposal.edit (5 ₽).
+    # Админ может менять через POST /admin/pricing без редеплоя.
     is_regen = p.status == "done"
-    cost = PROPOSAL_EDIT_COST_KOP if is_regen else PROPOSAL_COST_KOP
+    cost = _proposal_edit_cost() if is_regen else _proposal_create_cost()
 
     from server.billing import deduct_strict
     if not deduct_strict(db, user.id, cost):
