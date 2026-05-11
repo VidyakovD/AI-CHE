@@ -465,6 +465,17 @@ def serve_icons():
     )
 
 
+@app.get("/shared.js", include_in_schema=False)
+def serve_shared_js():
+    """Общие хелперы для всех HTML: esc/escHtml/fmtRub/aiFetch/humanizeError.
+    Подключается ПЕРЕД icons.js в каждом HTML."""
+    return FileResponse(
+        os.path.join(_BASE, "shared.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "public, max-age=60, must-revalidate"},
+    )
+
+
 @app.get("/knowledge-ui.js", include_in_schema=False)
 def serve_knowledge_ui():
     """Общая модалка управления RAG-базой знаний (для агентов и ботов)."""
