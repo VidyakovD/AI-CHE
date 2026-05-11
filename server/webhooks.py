@@ -92,11 +92,13 @@ def deliver_webhook(webhook_id: int, payload: dict, sync: bool = False) -> dict:
     """
     if sync:
         return _post_sync(webhook_id, payload)
-    # Fire-and-forget: создаём задачу но НЕ ждём
+    # Fire-and-forget: создаём задачу но НЕ ждём.
+    # spawn() сохраняет ссылку до done, иначе GC может убить task раньше времени.
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            asyncio.create_task(_post_async(webhook_id, payload))
+            from server._async_tasks import spawn
+            spawn(_post_async(webhook_id, payload), name=f"webhook:{webhook_id}")
         else:
             # В sync-контексте (например webhook handler) — крутим в потоке
             import threading

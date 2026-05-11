@@ -414,6 +414,20 @@ def _inject_chatbot_widget(html: str, bot_id: int, app_url: str) -> str:
 
 import asyncio
 
+# Сильные ссылки на фоновые задачи генерации сайтов. Без этого Python GC
+# может собрать task раньше времени (asyncio хранит только weakref в loop).
+# discard в done-callback — освобождает память после завершения.
+_pending_site_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_site_task(coro):
+    """Запустить background-задачу и сохранить ссылку до завершения.
+    Возвращает Task — на случай если caller хочет await."""
+    task = asyncio.create_task(coro)
+    _pending_site_tasks.add(task)
+    task.add_done_callback(_pending_site_tasks.discard)
+    return task
+
 
 def _build_site_prompt(spec_text: str, image_paths_json: str | None) -> tuple[str, list[str]]:
     """Строит финальный prompt для Claude по ТЗ + картинкам пользователя."""
@@ -826,8 +840,9 @@ async def site_project_generate_code(project_id: int, body: dict | None = None,
     p.conversation_phase = "generating_code"
     db.commit()
 
-    # Запускаем фоновую задачу с выбранным tier'ом
-    asyncio.create_task(_run_site_generation(project_id, quality=quality))
+    # Запускаем фоновую задачу с выбранным tier'ом. _spawn_site_task сохраняет
+    # ссылку в _pending_site_tasks — иначе GC может убить task раньше времени.
+    _spawn_site_task(_run_site_generation(project_id, quality=quality))
 
     from server.audit_log import log_action
     log_action("site.generate_start", user_id=user.id, target_type="site_project",

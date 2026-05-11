@@ -435,8 +435,10 @@ async def orchestra_start(solution_id: int, body: OrchestraStartBody,
         pass
 
     # Запуск в фоне — НЕ ждём окончания. Фронт подключается к SSE-потоку.
+    # spawn() сохраняет ссылку до done — без неё GC может убить task раньше.
     from server.solutions_orchestra import run_orchestra
-    asyncio.create_task(run_orchestra(run.id))
+    from server._async_tasks import spawn
+    spawn(run_orchestra(run.id), name=f"orchestra:run:{run.id}")
     return {"run_id": run.id, "chat_id": chat_id, "status": "running"}
 
 
@@ -531,10 +533,11 @@ async def orchestra_start_compare(solution_id: int, body: OrchestraCompareBody,
     except Exception:
         pass
 
-    # Запускаем параллельно
+    # Запускаем параллельно — каждый prog в свою task с сохранённой ссылкой.
     from server.solutions_orchestra import run_orchestra
+    from server._async_tasks import spawn
     for r in runs_info:
-        asyncio.create_task(run_orchestra(r["run_id"]))
+        spawn(run_orchestra(r["run_id"]), name=f"orchestra:compare:{r['run_id']}")
 
     return {"compare_group": cmp_group, "runs": runs_info, "status": "running"}
 
@@ -727,7 +730,8 @@ async def orchestra_restage(run_id: int, body: RestageBody,
     except Exception:
         pass
     from server.solutions_orchestra import restage as _restage
-    asyncio.create_task(_restage(run_id, sid, extra or None))
+    from server._async_tasks import spawn
+    spawn(_restage(run_id, sid, extra or None), name=f"orchestra:restage:{run_id}:{sid}")
     return {"run_id": run_id, "status": "running", "stage_id": sid}
 
 
@@ -821,7 +825,8 @@ async def template_run(template_id: int, db: Session = Depends(get_db),
     )
     db.add(run); db.commit(); db.refresh(run)
     from server.solutions_orchestra import run_orchestra
-    asyncio.create_task(run_orchestra(run.id))
+    from server._async_tasks import spawn
+    spawn(run_orchestra(run.id), name=f"orchestra:template:{run.id}")
     return {"run_id": run.id, "chat_id": chat_id, "status": "running",
             "from_template": t.id}
 
