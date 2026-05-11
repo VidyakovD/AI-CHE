@@ -231,6 +231,9 @@ def decode_token(token: str, require_type: str = None) -> dict | None:
     last_exc: Exception | None = None
     for secret in _all_jwt_secrets():
         try:
+            # TODO 2026-06-10: после истечения 30-дневного TTL refresh-токенов
+            # с момента 2026-05-11 переключить на `verify_aud=True, verify_iss=True`.
+            # См. TODO_NEXT.md → «JWT aud/iss strict verify».
             payload = jwt.decode(
                 token, secret, algorithms=[ALGORITHM],
                 options={"verify_aud": False, "verify_iss": False},
