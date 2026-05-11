@@ -1060,7 +1060,7 @@ async def sign_public_proposal(public_token: str, request: "Request"):
             _send(owner_email, f"✓ Подписано: «{proposal_name[:40]}»", email_html)
     except Exception:
         pass
-    # Webhook
+    # Webhook (Public API подписчики)
     try:
         from server.webhooks import dispatch_event
         dispatch_event(owner_id, "proposal.signed", {
@@ -1075,6 +1075,24 @@ async def sign_public_proposal(public_token: str, request: "Request"):
         })
     except Exception:
         pass
+    # CRM-интеграция: подписавший клиент = лид. UX в /api.html → CRM обещает
+    # «лид в Bitrix24/amoCRM», без этого вызова туда не приходило ничего.
+    try:
+        from server.crm import dispatch_record_to_crm
+        dispatch_record_to_crm(owner_id, {
+            "customer_name": name,
+            "customer_email": email,
+            "customer_phone": phone,
+            "bot_name": f"КП «{proposal_name[:50]}»",
+            "platform": "proposal_signed",
+            "record_type": "lead",
+            "comment": f"Подписано КП «{proposal_name}». "
+                       f"Подписант: {name}"
+                       + (f", {position}" if position else "")
+                       + f". IP={ip}, hash={sig_hash[:16]}",
+        })
+    except Exception as e:
+        log.warning(f"[proposal-sign] CRM dispatch failed: {type(e).__name__}: {e}")
     return {"status": "signed", "signer_name": name,
             "signed_at": signed_at.isoformat() + "Z",
             "sig_hash": sig_hash[:16]}

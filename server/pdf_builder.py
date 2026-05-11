@@ -324,7 +324,10 @@ def _inject_dejavu_font_face(html: str) -> str:
     return face + html
 
 
-def html_to_pdf_bytes(full_html: str) -> bytes:
+_PDF_TIMEOUT_SEC = 30
+
+
+def html_to_pdf_bytes(full_html: str, timeout_sec: int = _PDF_TIMEOUT_SEC) -> bytes:
     """Конвертит готовый HTML (со своим <style>) в PDF-bytes.
     В отличие от markdown_to_pdf — не добавляет _BRAND_CSS и не заворачивает
     в обложку. Используется в proposal_builder где у нас свой шаблон бренда.
@@ -332,17 +335,35 @@ def html_to_pdf_bytes(full_html: str) -> bytes:
     Регистрирует DejaVu Sans для поддержки кириллицы (без этого вместо
     русских букв — квадратики).
 
-    Кидает RuntimeError при ошибке pisa.
+    Конвертация запускается в отдельном thread с timeout (default 30 сек) —
+    защита от кривого HTML который может зависнуть xhtml2pdf на минуты и
+    забить uvicorn worker. При timeout кидает RuntimeError, thread остаётся
+    в фоне (но не блокирует caller'а).
+
+    Кидает RuntimeError при ошибке pisa или таймауте.
     """
     from xhtml2pdf import pisa
     import io
+    import concurrent.futures
     _ensure_cyrillic_font_registered()
     full_html = _inject_dejavu_font_face(full_html)
-    buf = io.BytesIO()
-    res = pisa.CreatePDF(full_html, dest=buf, encoding="utf-8")
-    if res.err:
-        raise RuntimeError(f"PDF generation failed: {res.err} errors")
-    return buf.getvalue()
+
+    def _do_pdf():
+        buf = io.BytesIO()
+        res = pisa.CreatePDF(full_html, dest=buf, encoding="utf-8")
+        if res.err:
+            raise RuntimeError(f"PDF generation failed: {res.err} errors")
+        return buf.getvalue()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        future = ex.submit(_do_pdf)
+        try:
+            return future.result(timeout=timeout_sec)
+        except concurrent.futures.TimeoutError:
+            raise RuntimeError(
+                f"PDF generation timed out after {timeout_sec}s — "
+                "HTML слишком сложный или содержит цикл в xhtml2pdf"
+            )
 
 
 def markdown_to_pdf(md_text: str, title: str = "Бизнес-отчёт",

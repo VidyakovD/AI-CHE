@@ -311,18 +311,49 @@ def site_project_upload_image(project_id: int, db: Session = Depends(get_db),
 @router.post("/sites/projects/{project_id}/attach-image")
 def site_project_attach_image(project_id: int, body: dict, db: Session = Depends(get_db),
                                user: User = Depends(current_user)):
-    """Attach an uploaded image path to the project."""
+    """Attach an uploaded image path to the project.
+
+    URL валидируется: должен начинаться с /uploads/ (наш собственный путь)
+    или быть data:image/. Раньше принимался ЛЮБОЙ URL → AI вставлял
+    https://evil.com/track.gif в <img> финального сайта который потом
+    хостился через /sites/hosted/{token} — SSRF/трекинг через AI-вывод.
+    """
     p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Body должен быть JSON-объектом")
+    file_url = (body.get("file_url") or "").strip()
+    if not file_url:
+        raise HTTPException(400, "file_url обязателен")
+    # Whitelist: либо наш own upload, либо inline data:image
+    if not (file_url.startswith("/uploads/") or file_url.startswith("data:image/")):
+        raise HTTPException(400,
+            "file_url должен быть из /uploads/ (загруженный файл) или "
+            "data:image/ (inline). Внешние URL запрещены.")
+    # Проверяем что наш файл реально существует (если это /uploads/)
+    if file_url.startswith("/uploads/"):
+        import os as _os
+        from urllib.parse import unquote as _unq
+        # Безопасный resolve: запрещаем path-traversal через "/"
+        rel = _unq(file_url.lstrip("/"))  # "uploads/img/foo.jpg"
+        if ".." in rel.replace("\\", "/").split("/"):
+            raise HTTPException(400, "Недопустимый путь")
+        abs_path = _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), "..", rel)
+        if not _os.path.exists(abs_path):
+            raise HTTPException(404, "Файл не найден на сервере")
+    # Лимит: 30 картинок на проект
     try:
         imgs = json.loads(p.image_paths) if p.image_paths else []
     except Exception:
         imgs = []
-    imgs.append(body["file_url"])
+    if len(imgs) >= 30:
+        raise HTTPException(409, "Лимит 30 картинок на проект достигнут")
+    imgs.append(file_url)
     p.image_paths = json.dumps(imgs)
     db.commit()
-    return {"status": "ok"}
+    return {"status": "ok", "count": len(imgs)}
 
 
 class AttachBotBody(BaseModel):
@@ -841,7 +872,15 @@ def site_project_generation_status(project_id: int,
 def site_project_repair_code(project_id: int, db: Session = Depends(get_db),
                              user: User = Depends(current_user)):
     """Бесплатно дописывает обрезанный HTML до закрывающего </html>.
-    Используется когда генерация прошла, но Claude не успел дописать."""
+    Используется когда генерация прошла, но Claude не успел дописать.
+
+    Pre-checks:
+      • Баланс юзера ≥ 100 коп (1 ₽) — мы вызываем Claude 16k токенов, это
+        не бесплатно для нас; чтобы не было DoS-вектора «дёргать в цикле
+        с нулевым балансом» — требуем минимум 1 ₽ (НЕ списываем, просто gate).
+      • Rate-limit обрабатывается middleware: /sites/projects/ имеет общий
+        лимит 120/мин — repair-code входит сюда.
+    """
     p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
@@ -849,6 +888,12 @@ def site_project_repair_code(project_id: int, db: Session = Depends(get_db),
         raise HTTPException(400, "Сначала сгенерируйте код")
     if "</html>" in p.code_html.lower():
         return {"status": "ok", "note": "уже закрыт", "code_html": p.code_html}
+    # Gate: чтобы не был DoS-вектор для юзеров с нулевым балансом
+    from server.billing import get_balance
+    if get_balance(db, user.id) < 100:
+        raise HTTPException(402,
+            "Для починки кода нужен баланс минимум 1 ₽ "
+            "(сама починка бесплатна, но мы защищаемся от спама).")
 
     content = p.code_html
     base_prompt = (
@@ -885,6 +930,12 @@ def site_project_repair_code(project_id: int, db: Session = Depends(get_db),
     return {"status": "ok", "code_html": content}
 
 
+# Лимит размера ручно-сохраняемого кода. 2 МБ хватит даже на тяжёлый
+# одностраничник с inline-картинками base64. Больше — почти наверняка
+# либо ошибка, либо попытка забить БД через DevTools.
+_SITE_CODE_MAX_BYTES = 2 * 1024 * 1024
+
+
 @router.put("/sites/projects/{project_id}/save-code")
 def site_project_save_code(project_id: int, body: dict, db: Session = Depends(get_db),
                             user: User = Depends(current_user)):
@@ -892,7 +943,15 @@ def site_project_save_code(project_id: int, body: dict, db: Session = Depends(ge
     p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
-    p.code_html = body.get("code_html", p.code_html)
+    code = body.get("code_html", p.code_html)
+    if not isinstance(code, str):
+        raise HTTPException(400, "code_html должен быть строкой")
+    code_bytes = code.encode("utf-8", errors="replace")
+    if len(code_bytes) > _SITE_CODE_MAX_BYTES:
+        raise HTTPException(413,
+            f"Код слишком большой ({len(code_bytes)//1024} КБ). "
+            f"Лимит: {_SITE_CODE_MAX_BYTES//1024} КБ.")
+    p.code_html = code
     if p.conversation_phase not in ("done", "generating_code"):
         p.conversation_phase = "done"
         p.status = "done"
@@ -913,15 +972,27 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
         raise HTTPException(400, "Сначала сгенерируйте код")
 
     instructions = body.get("instructions", "").strip()
-    if not instructions:
-        raise HTTPException(400, "Пустая инструкция")
+    if len(instructions) < 5:
+        raise HTTPException(400, "Инструкция слишком короткая (минимум 5 символов)")
+    if len(instructions) > 2000:
+        raise HTTPException(400, "Инструкция слишком длинная (максимум 2000 символов)")
 
-    cost = CODE_ITER_CH_COST  # 5 ₽ за правку
+    cost = CODE_ITER_CH_COST  # 5 ₽ за правку (TODO: перейти на real × margin)
     if not deduct_strict(db, user.id, cost):
         raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
     p.price_tokens += cost
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
                        description=f"Правка сайта ({cost/100:.0f} ₽)"))
+
+    def _refund_iter(reason: str):
+        """Возврат при ошибке AI. Раньше при non-HTML response юзер терял
+        5 ₽ — теперь возвращаем + помечаем в БД."""
+        from server.billing import credit_atomic
+        credit_atomic(db, user.id, cost)
+        p.price_tokens = max(0, p.price_tokens - cost)
+        db.add(Transaction(user_id=user.id, type="refund", tokens_delta=cost,
+                           description=f"Возврат: правка сайта — {reason}"))
+        db.commit()
 
     prompt = (
         f"Вот текущий HTML сайта:\n\n{p.code_html}\n\n"
@@ -930,13 +1001,18 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
         f"Без markdown-обёрток, без объяснений, без сокращений."
     )
 
-    answer = generate_response("claude", [{"role": "user", "content": prompt}],
-                               extra={"max_tokens": 16000})
+    try:
+        answer = generate_response("claude", [{"role": "user", "content": prompt}],
+                                   extra={"max_tokens": 16000})
+    except Exception as e:
+        _refund_iter(f"исключение AI: {type(e).__name__}")
+        raise HTTPException(503, f"AI временно недоступен ({type(e).__name__}). Деньги возвращены.")
     content = answer.get("content", "") if isinstance(answer, dict) else ""
 
-    # Guard: if AI returned an error message instead of HTML — don't overwrite
+    # Guard: if AI returned an error message instead of HTML — refund + don't overwrite
     if not content.strip().startswith("<") or "временно недоступен" in content:
-        raise HTTPException(503, "AI не вернул корректный HTML. Попробуйте ещё раз.")
+        _refund_iter("AI вернул не-HTML")
+        raise HTTPException(503, "AI не вернул корректный HTML. Деньги возвращены.")
 
     # Clean markdown
     for marker in ["```html\n", "```\n", "```html", "```"]:
