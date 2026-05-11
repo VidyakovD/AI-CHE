@@ -1103,6 +1103,39 @@ class ActionLog(Base):
     error       = Column(Text, nullable=True)                         # текст исключения если success=False
 
 
+class AiRequestLog(Base):
+    """Отдельный лог AI-вызовов для аналитики (адаптация Dolibarr `airequestlog`).
+
+    Зачем рядом с Transaction/ActionLog: эти таблицы решают другие задачи —
+    Transaction = биллинг, ActionLog = аудит общих действий. AiRequestLog даёт
+    быстрые ответы на специфические AI-вопросы:
+      - Какая модель самая дорогая за месяц?
+      - У какого юзера самый длинный promptt?
+      - Сколько токенов выжигает orchestra-pipeline X?
+      - Сколько % запросов failed (по провайдеру/модели)?
+
+    Записывается из server/ai.py:generate_response() fire-and-forget
+    (исключения глотаются, биллинг не блокируется).
+    """
+    __tablename__ = "ai_request_logs"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    ts           = Column(DateTime, default=datetime.utcnow, index=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"),
+                          index=True, nullable=True)
+    provider     = Column(String, index=True, nullable=False)         # openai / anthropic / perplexity / ...
+    model        = Column(String, index=True, nullable=False)         # gpt-4o / claude-sonnet-4-6 / sonar-pro
+    purpose      = Column(String, nullable=True, index=True)          # chat / orchestra / proposal / sites / agent / etc.
+    input_tokens = Column(Integer, default=0)
+    output_tokens= Column(Integer, default=0)
+    cost_kop     = Column(Integer, default=0, index=True)              # реальная стоимость в копейках (× margin не применён)
+    duration_ms  = Column(Integer, default=0)                          # сколько занял HTTP-вызов
+    success      = Column(Boolean, default=True, index=True)
+    error        = Column(String, nullable=True)                       # type(e).__name__ при failure
+    user_key     = Column(Boolean, default=False)                      # юзер использовал свой API-ключ?
+    request_id   = Column(String, nullable=True, index=True)           # X-Request-ID для связи с logs
+
+
 class BotRecord(Base):
     """Универсальная таблица заявок/броней/заказов/опросов из чат-бота.
 

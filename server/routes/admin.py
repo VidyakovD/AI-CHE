@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, Integer
 
 from server.routes.deps import get_db, current_user, _user_dict, _tx_dict
 from server.models import (
@@ -265,6 +265,94 @@ def admin_stats(user: User = Depends(current_user), db: Session = Depends(get_db
         "total_messages": db.query(Message).count(),
         "total_revenue":  db.query(Transaction).filter_by(type="payment")
                             .with_entities(func.sum(Transaction.amount_rub)).scalar() or 0,
+    }
+
+
+@router.get("/ai-stats")
+def admin_ai_stats(
+    days: int = 7,
+    user: User = Depends(current_user), db: Session = Depends(get_db),
+):
+    """AI-аналитика за N дней: запросы / стоимость / латентность по моделям.
+
+    Источник — таблица ai_request_logs. Каждый вызов generate_response()
+    логируется fire-and-forget (см. server/ai.py).
+    """
+    require_admin(user)
+    from datetime import datetime, timedelta
+    from server.models import AiRequestLog
+
+    days = max(1, min(int(days or 7), 90))
+    since = datetime.utcnow() - timedelta(days=days)
+
+    # Агрегаты по модели
+    rows = (
+        db.query(
+            AiRequestLog.provider,
+            AiRequestLog.model,
+            func.count(AiRequestLog.id).label("count"),
+            func.sum(AiRequestLog.input_tokens).label("input_tokens"),
+            func.sum(AiRequestLog.output_tokens).label("output_tokens"),
+            func.sum(AiRequestLog.cost_kop).label("cost_kop"),
+            func.avg(AiRequestLog.duration_ms).label("avg_ms"),
+            func.sum(func.cast(AiRequestLog.success, Integer)).label("success_count"),
+        )
+        .filter(AiRequestLog.ts >= since)
+        .group_by(AiRequestLog.provider, AiRequestLog.model)
+        .order_by(func.sum(AiRequestLog.cost_kop).desc())
+        .limit(50)
+        .all()
+    )
+    by_model = [
+        {
+            "provider": r.provider,
+            "model": r.model,
+            "requests": int(r.count or 0),
+            "input_tokens": int(r.input_tokens or 0),
+            "output_tokens": int(r.output_tokens or 0),
+            "cost_kop": int(r.cost_kop or 0),
+            "avg_ms": int(r.avg_ms or 0),
+            "success_rate": round(100 * (r.success_count or 0) / r.count, 1) if r.count else 0,
+        }
+        for r in rows
+    ]
+
+    # Totals
+    totals = db.query(
+        func.count(AiRequestLog.id),
+        func.sum(AiRequestLog.cost_kop),
+        func.sum(AiRequestLog.input_tokens),
+        func.sum(AiRequestLog.output_tokens),
+    ).filter(AiRequestLog.ts >= since).first()
+
+    # Топ юзеров по расходу
+    top_users = (
+        db.query(
+            AiRequestLog.user_id,
+            func.count(AiRequestLog.id).label("requests"),
+            func.sum(AiRequestLog.cost_kop).label("cost_kop"),
+        )
+        .filter(AiRequestLog.ts >= since, AiRequestLog.user_id.isnot(None))
+        .group_by(AiRequestLog.user_id)
+        .order_by(func.sum(AiRequestLog.cost_kop).desc())
+        .limit(10)
+        .all()
+    )
+
+    return {
+        "since": since.isoformat(),
+        "days": days,
+        "totals": {
+            "requests": int(totals[0] or 0),
+            "cost_kop": int(totals[1] or 0),
+            "input_tokens": int(totals[2] or 0),
+            "output_tokens": int(totals[3] or 0),
+        },
+        "by_model": by_model,
+        "top_users": [
+            {"user_id": u.user_id, "requests": int(u.requests), "cost_kop": int(u.cost_kop or 0)}
+            for u in top_users
+        ],
     }
 
 

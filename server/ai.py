@@ -1358,12 +1358,47 @@ def resolve_model(model: str):
     return MODEL_REGISTRY.get(model)
 
 
+def _log_ai_request(*, provider: str, model: str, purpose: str | None,
+                    user_id: int | None, input_tokens: int, output_tokens: int,
+                    cost_kop: int, duration_ms: int, success: bool,
+                    error: str | None = None, user_key: bool = False,
+                    request_id: str | None = None) -> None:
+    """Fire-and-forget запись в ai_request_logs. Никогда не raise'ит —
+    AI-биллинг не блокируется логированием."""
+    try:
+        from server.db import db_session
+        from server.models import AiRequestLog
+        with db_session() as db:
+            db.add(AiRequestLog(
+                user_id=user_id,
+                provider=provider[:50],
+                model=model[:100] if model else "?",
+                purpose=(purpose or None) and str(purpose)[:50],
+                input_tokens=int(input_tokens or 0),
+                output_tokens=int(output_tokens or 0),
+                cost_kop=int(cost_kop or 0),
+                duration_ms=int(duration_ms or 0),
+                success=bool(success),
+                error=(error or None) and str(error)[:200],
+                user_key=bool(user_key),
+                request_id=(request_id or None) and str(request_id)[:64],
+            ))
+            db.commit()
+    except Exception as e:
+        log.warning(f"[ai_request_log] failed: {type(e).__name__}: {e}")
+
+
 def generate_response(model: str, messages: list, extra: dict = None,
                       user_api_key: str = None) -> dict:
     """Вызов AI-модели.
 
     user_api_key — если передан, используется вместо сервисного ключа.
     Прокидывается через extra["_user_key"] в провайдер.
+
+    extra может содержать:
+      _purpose: str — для AiRequestLog (chat/orchestra/proposal/sites/agent)
+      _user_id: int — для AiRequestLog
+      _request_id: str — X-Request-ID для cross-log трассировки
     """
     cfg = resolve_model(model)
     if not cfg:
@@ -1391,15 +1426,50 @@ def generate_response(model: str, messages: list, extra: dict = None,
             if not keys:
                 log.error(f"[AI] {cfg['provider']}: НЕТ ключей в БД!")
 
+    # Метаданные для AiRequestLog (поглощаются через extra, не передаются handler'у)
+    _purpose = (_extra or {}).get("_purpose") if _extra else None
+    _user_id = (_extra or {}).get("_user_id") if _extra else None
+    _request_id = (_extra or {}).get("_request_id") if _extra else None
+
     real = cfg["real_model"]
+    start_ms = int(time.time() * 1000)
     try:
         if cfg["provider"] in ("kling", "veo"):
-            return handler(real, messages, _extra)
-        # Для провайдеров поддерживающих user_key передаём через extra
-        if user_api_key and cfg["provider"] in ("anthropic", "openai", "gemini", "grok"):
-            return handler(real, messages, user_key=user_api_key)
-        return handler(real, messages)
+            result = handler(real, messages, _extra)
+        elif user_api_key and cfg["provider"] in ("anthropic", "openai", "gemini", "grok"):
+            result = handler(real, messages, user_key=user_api_key)
+        else:
+            result = handler(real, messages)
+
+        # Логирование успеха (fire-and-forget — не блокирует ответ)
+        try:
+            usage = result.get("usage", {}) if isinstance(result, dict) else {}
+            _log_ai_request(
+                provider=cfg["provider"], model=real, purpose=_purpose,
+                user_id=_user_id,
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+                cost_kop=int(usage.get("actual_cost_kop", 0) or 0),
+                duration_ms=int(time.time() * 1000) - start_ms,
+                success=True, user_key=bool(user_api_key),
+                request_id=_request_id,
+            )
+        except Exception:
+            pass
+        return result
     except Exception as e:
         log.error(f"[AI] Ошибка {cfg['provider']} ({real}): {type(e).__name__}: {e}")
+        # Логирование ошибки тоже
+        try:
+            _log_ai_request(
+                provider=cfg["provider"], model=real, purpose=_purpose,
+                user_id=_user_id,
+                input_tokens=0, output_tokens=0, cost_kop=0,
+                duration_ms=int(time.time() * 1000) - start_ms,
+                success=False, error=type(e).__name__,
+                user_key=bool(user_api_key), request_id=_request_id,
+            )
+        except Exception:
+            pass
         _notify_admin(f"{cfg['provider']} ({real}): {e}")
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
