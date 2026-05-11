@@ -342,7 +342,7 @@ YOOKASSA_TAX_SYSTEM_CODE=2     # УСН доходы
 - **Splitting `chatbot_engine.py`** ✅ ЧАСТИЧНО (2026-05-11) — senders/voice/sandbox вынесены, осталось `_execute_node` (~1100 строк)
 - **`views/icons.js`** (~3700 строк) — разбить на icons/labels/drag-drop модули
 - **Tailwind CDN → build-step** ✅ ИНФРА ГОТОВА (2026-05-11) — параллельный режим, CDN убрать после 1 недели визуального тестирования (target ~2026-05-18)
-- **Удалить unused Inter/Manrope woff2** в `views/fonts/` (~250 KB лишних — теперь используется Golos Text)
+- ~~**Удалить unused Inter/Manrope woff2**~~ ✅ ЗАКРЫТО — `views/fonts/` уже содержит только Golos Text + Material Symbols. Inter/Manrope упоминаются только как fallback в `font-family` (на случай если Golos не загрузится — system-font). Это правильное поведение.
 - **JWT aud/iss strict verify** — план:
   - **T=2026-05-11 (сейчас)**: все НОВЫЕ токены содержат `aud=aiche.ru`, `iss=aiche.ru`. Старые без них продолжают работать (`verify_aud=False, verify_iss=False`).
   - **T+30 дней = 2026-06-10**: refresh-token TTL=30 дней → все legacy токены истекут. После этой даты безопасно включить `verify_aud=True, verify_iss=True` в `server/auth.py:236`. Это закрывает атаку «обмен токена между разными окружениями» (dev↔prod).
