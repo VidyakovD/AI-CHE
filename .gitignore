@@ -10,3 +10,8 @@ uploads/
 server/.jwt_secret
 .backup_encryption_key
 *.log
+
+# Frontend build (Tailwind)
+node_modules/
+# package-lock.json коммитим — гарантирует reproducible build на проде
+# views/styles.css генерируется через `npm run build:css` и коммитится в репо

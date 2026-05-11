@@ -476,6 +476,24 @@ def serve_shared_js():
     )
 
 
+@app.get("/styles.css", include_in_schema=False)
+def serve_styles_css():
+    """Скомпилированный Tailwind. Генерируется через `npm run build:css`.
+    Подключается как замена CDN-скрипта `cdn.tailwindcss.com` (~100KB JIT).
+
+    Если файл отсутствует — возвращаем 404; HTML тогда всё ещё работает на
+    CDN-script-fallback. Это безопасно во время постепенного перехода."""
+    path = os.path.join(_BASE, "styles.css")
+    if not os.path.exists(path):
+        from fastapi.responses import Response
+        return Response(status_code=404)
+    return FileResponse(
+        path,
+        media_type="text/css",
+        headers={"Cache-Control": "public, max-age=600, must-revalidate"},
+    )
+
+
 @app.get("/knowledge-ui.js", include_in_schema=False)
 def serve_knowledge_ui():
     """Общая модалка управления RAG-базой знаний (для агентов и ботов)."""

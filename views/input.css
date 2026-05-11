@@ -1,0 +1,38 @@
+/* Tailwind input — обрабатывается tailwindcss CLI и компилится в views/styles.css.
+   Build: npx tailwindcss -i ./views/input.css -o ./views/styles.css --minify */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Кастом-стили которые жили inline в index.html/etc ──────────────────────
+   Раньше каждый HTML содержал свои <style>...</style>. Постепенно стоит
+   перенести сюда то что встречается в нескольких файлах. */
+
+@layer components {
+  .glass {
+    background: rgba(39, 32, 24, 0.75);
+    backdrop-filter: blur(20px);
+  }
+
+  .ghost {
+    border-top: 1px solid rgba(74, 63, 47, 0.3);
+    border-left: 1px solid rgba(74, 63, 47, 0.3);
+  }
+
+  .sig {
+    background: linear-gradient(135deg, #ff8c42 0%, #ffb347 100%);
+  }
+
+  .sig-text {
+    background: linear-gradient(135deg, #ff8c42, #ffb347);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .overlay {
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(8px);
+  }
+}
