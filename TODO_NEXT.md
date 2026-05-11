@@ -4,6 +4,71 @@ _Последнее обновление: 2026-05-10 после спринта v
 
 ---
 
+## 🚧 СЛЕДУЮЩАЯ СЕССИЯ — что делать (приоритет ↓)
+
+_Обновлено 2026-05-11 после аудита сайтов + КП и P0-фиксов._
+
+### 🟠 КП — что осталось (после P0 batch)
+
+1. **WYSIWYG iframe `allow-scripts` + batch-sanitize старых записей** — модалка редактирования секции рендерит `generated_html` из БД с `sandbox="allow-same-origin allow-scripts"`. Если в БД лежат старые записи **до** bleach-фикса (`dc7eecf`), они могут выполнить JS. Решение: написать миграционный скрипт `scripts/sanitize_legacy_proposal_html.py` который прогоняет все ProposalProject.generated_html через `bleach.clean()` с whitelist'ом.
+2. **Email-валидация формальная** ([server/routes/proposals.py:920](server/routes/proposals.py:920)) — проверяется только `"@" in to`. Юзер вводит «abc@» → SMTP 553, refund нет. Решение: использовать `EMAIL_RE` из `server/security.py` в `send-email` и `update_project`.
+3. **Кириллица в filename PDF** — `Content-Disposition` без `filename*=UTF-8''…` старые браузеры покажут `_______.pdf`. Решение: добавить `filename*` через `urllib.parse.quote`.
+4. **`PROPOSAL_COST_KOP=5000` хардкод** ([server/routes/proposals.py:29](server/routes/proposals.py:29)) — игнорирует `pricing_config`. Решение: читать через `pricing.get("proposal.create", 5000)`.
+5. **Public proposal page как inline f-string** ([main.py:759-907](main.py:759)) — 150 строк HTML+JS в Python. Решение: вынести в `views/proposal_public.html` + `jinja2.TemplateResponse`.
+6. **Счётчик повторных открытий КП** — `opened_at` фиксируется только первый раз. Юзер хочет знать «клиент смотрел 5 раз». Решение: миграция `open_count INTEGER DEFAULT 0` + инкремент при каждом GET.
+7. **`max_tokens=6000` хардкод** ([server/proposal_builder.py:1155](server/proposal_builder.py:1155)) — для длинных прайсов >50 позиций JSON обрезается. Решение: `6000 + len(price_text)//4`.
+8. **Snapshot-version race** ([server/routes/proposals.py:496](server/routes/proposals.py:496)) — retention через offset, при гонке может остаться >10 версий. Не критично, но `id NOT IN (top-10)` чище.
+
+### 🟠 Сайты — что осталось (после P0 batch)
+
+1. **`/iterate` цена фикс 5 ₽** — реальный cost Sonnet 16k токенов ~30-50 ₽, минус-маржа. Решение: брать `usage` из `generate_response` ответа, считать `real_cost × pricing.ai.improve_margin_pct` (как в `/edit-block`). Сейчас в коде стоит TODO-комментарий.
+2. **`/iterate` sync вызов 60+ сек блокирует worker** ([server/routes/sites.py:903](server/routes/sites.py:903)) — Решение: переиспользовать паттерн `_run_site_generation` (asyncio background task + polling status), либо отдать через SSE.
+3. **`_strip_markdown_code_fence` дублируется** — функция есть на :522, но inline-копипаст в `/iterate` (942-946) и `/edit-block` (1048-1052). Решение: вызывать функцию.
+4. **Closure-bug в lambda** ([server/routes/sites.py:619, :666](server/routes/sites.py:619)) — `prompt`/`model_id` захватываются по ссылке. Сейчас работает, но при будущем рефакторе loop'а легко словить bug. Решение: `lambda p=prompt, m=model_id: ...`.
+5. **`asyncio.create_task` без хранения ссылки** ([server/routes/sites.py:799](server/routes/sites.py:799)) — task может быть GC'd до завершения. Решение: `_pending_tasks.add(task); task.add_done_callback(_pending_tasks.discard)`.
+6. **`/sites/code` мёртвый endpoint** ([server/routes/sites.py:1283](server/routes/sites.py:1283)) — `site_decode_code` нигде не используется из фронта. Решение: удалить либо задокументировать.
+7. **Phase `generating_code` после reload вкладки** — если юзер закрыл вкладку при генерации, `openProject` уходит в ветку показа done с пустым codeEditor. Решение: при `gen_status='running'` перезапустить polling вместо showDonePhase.
+8. **`copyCode()` ломается без `event`** ([views/sites.html:1230](views/sites.html:1230)) — глобальный `event.target` только Chrome. Решение: передавать `event` параметром.
+9. **Нет ETA в loader-е генерации** — юзер не знает что Sonnet генерит 1-3 мин, Opus 3-7. Решение: добавить «обычно 2-4 минуты» в `showLoading`.
+10. **a11y на radio quality-option** ([views/sites.html:267](views/sites.html:267)) — отсутствуют `aria-label`. Решение: `role="radiogroup"` + `aria-describedby`.
+11. **Sequential `project.id` в физпути** ([server/routes/sites.py:1105](server/routes/sites.py:1105)) — URL уже unguessable, но файлы в `<id>/`. Решение: переехать на `public_token` подпуть.
+
+### 💡 Идеи — продуктовые фичи (отдельные спринты)
+
+**Сайты:**
+- **Custom-домен через CNAME** — для B2B-юзеров «/sites/hosted/{token}/» не unsellable клиенту
+- **SEO-preview stage** — OG-теги, robots.txt, sitemap.xml за +50 ₽
+- **Шаблоны сайтов one-click** — таблица `SiteTemplate` есть, эндпоинт возвращает `[]`. Можно запилить 5-10 готовых ТЗ (лендинг кофейни, портфолио фотографа, юр. услуги)
+- **Auto-flag failed-generation** — если %failed за час >30% → email админу (scheduler-задача)
+- **Кнопка «Регенерировать»** с тем же ТЗ + другой моделью
+
+**КП:**
+- **«Напомнить клиенту» cron** — `sent_at > 3 дня` и `opened_at IS NULL` → авто-фоллоуап
+- **Sticky-watermark «Подписано»** в PDF после подписи + QR-верификация
+- **Шаблоны КП по нише** one-click (веб-студия / IT / ремонт)
+- **A/B сравнение 3 presets** за одну цену (один AI-call → три рендер-pipeline'а)
+- **Auto-fill `client_email` из IMAP** — paste raw email → парсим поля
+
+### 📋 Прочее из аудита v2-решений (уже было)
+
+- Тестирование 40 пилотов на реальных кейсах + тюнинг промптов
+- Пересчёт цен после реальных тестов
+- Видео-демки
+- A/B новой формы vs textarea
+- Для 31-40 (orchestra-deep) — если output плохой, переписать промпты на `{field.x}` синтаксис
+
+### ✅ ЗАКРЫТО P0 batch (2026-05-11, текущая сессия)
+- КП: CRM-dispatch при подписи → лиды теперь идут в Bitrix24/amoCRM
+- КП: prompt-injection защита (`<user_data>` теги + system-guard)
+- КП: PDF timeout 30s через ThreadPoolExecutor
+- КП: проверка длины генерированного HTML ≥ 800 байт + refund при провале
+- Сайты: attach-image URL whitelist (/uploads/ или data:image/), лимит 30 шт
+- Сайты: save-code body-size limit 2 МБ
+- Сайты: /iterate validation + try/except + refund при non-HTML response
+- Сайты: /repair-code gate баланс ≥ 1 ₽ против DoS
+
+---
+
 ## 🎉 v2-редизайн завершён (40/40)
 
 Все бизнес-решения теперь имеют `input_schema` — форма с полями вместо одной textarea.
