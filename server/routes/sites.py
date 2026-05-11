@@ -974,10 +974,138 @@ def site_project_save_code(project_id: int, body: dict, db: Session = Depends(ge
     return {"status": "ok"}
 
 
+async def _run_site_iteration(project_id: int, user_id: int, instructions: str, cost: int) -> None:
+    """Фоновая правка кода сайта. Аналог _run_site_generation, но для /iterate.
+
+    Перевод в background решает проблему: sync-вызов /iterate занимал
+    worker на 60-180 сек × Claude (16k tokens × до 3 calls для autocontinue).
+    На 4 worker'ах прода один активный юзер = 25% capacity.
+
+    Все исключения пишем в БД (gen_status=failed + gen_error) + автоматический
+    refund. Фронт polling'ит через тот же /generation-status."""
+    from server.db import db_session
+    from server.billing import credit_atomic
+
+    def _refund(db, p, reason: str) -> None:
+        try:
+            credit_atomic(db, user_id, cost)
+            p.price_tokens = max(0, (p.price_tokens or 0) - cost)
+            db.add(Transaction(user_id=user_id, type="refund", tokens_delta=cost,
+                               description=f"Возврат: правка сайта — {reason}"))
+            p.gen_status = "refunded"
+            p.gen_error = f"AI: {reason}"
+            db.commit()
+        except Exception as e:
+            log.error(f"[sites/iterate-bg] refund failed for {project_id}: {type(e).__name__}: {e}")
+
+    try:
+        with db_session() as db:
+            p = db.query(SiteProject).filter_by(id=project_id, user_id=user_id).first()
+            if not p:
+                log.error(f"[sites/iterate-bg] project {project_id} not found")
+                return
+            current_html = p.code_html or ""
+            p.gen_status = "running"
+            p.gen_progress = "Применяю правку…"
+            p.gen_error = None
+            db.commit()
+
+        prompt = (
+            f"Вот текущий HTML сайта:\n\n{current_html}\n\n"
+            f"Пользователь просит: {instructions}\n"
+            f"Верни ТОЛЬКО обновлённый полный HTML-код целиком, от <!DOCTYPE до </html>. "
+            f"Без markdown-обёрток, без объяснений, без сокращений."
+        )
+
+        loop = asyncio.get_event_loop()
+        try:
+            answer = await loop.run_in_executor(
+                None,
+                lambda: generate_response("claude", [{"role": "user", "content": prompt}],
+                                          extra={"max_tokens": 16000})
+            )
+        except Exception as e:
+            with db_session() as db:
+                p = db.query(SiteProject).filter_by(id=project_id).first()
+                if p:
+                    _refund(db, p, f"исключение AI: {type(e).__name__}")
+            return
+
+        content = answer.get("content", "") if isinstance(answer, dict) else ""
+
+        if not content.strip().startswith("<") or "временно недоступен" in content:
+            with db_session() as db:
+                p = db.query(SiteProject).filter_by(id=project_id).first()
+                if p:
+                    _refund(db, p, "AI вернул не-HTML")
+            return
+
+        for marker in ["```html\n", "```\n", "```html", "```"]:
+            if content.startswith(marker):
+                content = content[len(marker):]
+                content = content.rsplit("```", 1)[0] if "```" in content else content
+                break
+
+        # Auto-continue если ответ обрезался
+        for attempt in range(2):
+            if "</html>" in content.lower():
+                break
+            cont_messages = [
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": content},
+                {"role": "user", "content": (
+                    "Ответ обрезался. Продолжи строго с того места где остановился, "
+                    "до </html>. Не меняй тематику. Только HTML, без объяснений."
+                )},
+            ]
+            try:
+                cont = await loop.run_in_executor(
+                    None,
+                    lambda: generate_response("claude", cont_messages, extra={"max_tokens": 16000})
+                )
+            except Exception:
+                break
+            cont_text = cont.get("content", "") if isinstance(cont, dict) else ""
+            for marker in ["```html\n", "```\n", "```html", "```"]:
+                if cont_text.startswith(marker):
+                    cont_text = cont_text[len(marker):]
+                    cont_text = cont_text.rsplit("```", 1)[0] if "```" in cont_text else cont_text
+                    break
+            if not cont_text.strip():
+                break
+            content += cont_text
+
+        if "</html>" not in content.lower():
+            if "</body>" not in content.lower():
+                content += "\n</body>"
+            content += "\n</html>"
+
+        with db_session() as db:
+            p = db.query(SiteProject).filter_by(id=project_id).first()
+            if p:
+                p.code_html = content
+                p.gen_status = "done"
+                p.gen_progress = "Правка применена"
+                db.commit()
+    except Exception as e:
+        log.error(f"[sites/iterate-bg] unexpected error project={project_id}: {type(e).__name__}: {e}")
+        try:
+            with db_session() as db:
+                p = db.query(SiteProject).filter_by(id=project_id).first()
+                if p:
+                    _refund(db, p, f"внутренняя ошибка ({type(e).__name__})")
+        except Exception:
+            pass
+
+
 @router.post("/sites/projects/{project_id}/iterate")
 def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_db),
                           user: User = Depends(current_user)):
-    """Iterate on generated code with user instructions."""
+    """Iterate on generated code with user instructions.
+
+    По умолчанию (без `async=true` в body) работает синхронно — 60-180 сек ответ.
+    С `async=true` → запускаем _run_site_iteration в background, фронт polling'ит
+    через /sites/projects/{id}/generation-status."""
     if not user:
         raise HTTPException(401, "Нужна авторизация")
     p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
@@ -992,9 +1120,6 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
     if len(instructions) > 2000:
         raise HTTPException(400, "Инструкция слишком длинная (максимум 2000 символов)")
 
-    # Цена правки сайта — через pricing_config (ключ site.iter, дефолт 5 ₽).
-    # Админ может менять через /admin/pricing. Real-cost × margin — отдельная
-    # задача (см. TODO_NEXT «Сайты — /iterate цена фикс 5 ₽»).
     cost = _get_price("site.iter", default=CODE_ITER_CH_COST)
     if not deduct_strict(db, user.id, cost):
         raise HTTPException(402, f"Недостаточно средств (нужно {cost/100:.0f} ₽)")
@@ -1002,6 +1127,19 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
     db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-cost,
                        description=f"Правка сайта ({cost/100:.0f} ₽)"))
 
+    # ── ASYNC mode ───────────────────────────────────────────────────────────
+    # Запускаем в фоне, фронт polling'ит /generation-status. Worker свободен.
+    if body.get("async") is True:
+        from datetime import datetime as _dt
+        p.gen_status = "running"
+        p.gen_started_at = _dt.utcnow()
+        p.gen_progress = "Запускаю правку…"
+        p.gen_error = None
+        db.commit()
+        _spawn_site_task(_run_site_iteration(project_id, user.id, instructions, cost))
+        return {"status": "running", "project_id": project_id, "async": True}
+
+    # ── SYNC mode (legacy, default) ──────────────────────────────────────────
     def _refund_iter(reason: str):
         """Возврат при ошибке AI. Раньше при non-HTML response юзер терял
         5 ₽ — теперь возвращаем + помечаем в БД."""
