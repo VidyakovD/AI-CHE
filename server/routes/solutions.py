@@ -267,14 +267,30 @@ def run_solution(solution_id: int, db: Session = Depends(get_db),
     chat_id = str(uuid.uuid4())
     run = SolutionRun(user_id=user.id if user else None,
                       solution_id=solution_id, chat_id=chat_id,
-                      current_step=0, status="running", context=json.dumps({}))
+                      current_step=0, status="waiting_input", context=json.dumps({}))
     db.add(run)
     db.commit()
     db.refresh(run)
 
+    # Orchestra-пилот без legacy steps: возвращаем waiting_input с маркером
+    # is_orchestra=True. Фронт собирает поля из input_schema и шлёт через
+    # /continue, который автоматически spawn'ит run_orchestra (см. ниже).
+    # Раньше: пустой SolutionRun → status=waiting_input → continue → done с пустым
+    # final_output → юзер видел пустой чат (баг был именно тут).
+    if not s.steps and s.orchestra_json:
+        return {
+            "run_id": run.id, "chat_id": chat_id, "status": "waiting_input",
+            "step": {
+                "is_orchestra": True,
+                "user_hint": "Заполните поля и нажмите «Запустить»",
+            },
+        }
+
     # Если первый шаг не ждёт ввода — сразу выполняем
     first_step = s.steps[0] if s.steps else None
     if first_step and not first_step.wait_for_user:
+        run.status = "running"
+        db.commit()
         return _execute_step(run, first_step, None, db, user)
 
     return {"run_id": run.id, "chat_id": chat_id, "status": "waiting_input",
@@ -297,6 +313,22 @@ def continue_run(run_id: int, body: dict, db: Session = Depends(get_db),
         return {"status": "done"}
 
     solution = db.query(Solution).filter_by(id=run.solution_id).first()
+
+    # Orchestra-пилот: прокидываем input в run_orchestra и spawn'им в фоне.
+    # Возвращаем status=running + run_id для подключения к /stream.
+    if not solution.steps and solution.orchestra_json:
+        user_input = body.get("input", "")
+        run.user_input = (user_input or "")[:50000]
+        run.status = "running"
+        db.commit()
+        from server.solutions_orchestra import run_orchestra
+        from server._async_tasks import spawn
+        spawn(run_orchestra(run.id), name=f"continue:orchestra:{run.id}")
+        return {
+            "status": "running", "chat_id": run.chat_id, "run_id": run.id,
+            "is_orchestra": True,
+        }
+
     steps = solution.steps
     if run.current_step >= len(steps):
         run.status = "done"

@@ -4572,7 +4572,17 @@ async function continueRun(){
     document.getElementById("runInput").value="";
     // Очищаем динамические поля если есть
     document.querySelectorAll("#runInputFields [data-run-field]").forEach(el => el.value = "");
-    updateRunUI(data);
+    // Orchestra-пилот: backend запустил run_orchestra в фоне, подключаемся к SSE/polling.
+    if(data.is_orchestra && data.status === "running"){
+      activeRun.orchestra = true;
+      document.getElementById("runInputArea").classList.add("hidden");
+      document.getElementById("runContinueBtn").classList.add("hidden");
+      document.getElementById("runStepLabel").textContent = "⏳ Агенты работают...";
+      document.getElementById("runHint").textContent = "Можешь свернуть это окно — задача выполнится в фоне.";
+      listenOrchestraStream(data.run_id || activeRun.run_id);
+    } else {
+      updateRunUI(data);
+    }
   }catch(e){document.getElementById("runErr").textContent=e.message;document.getElementById("runErr").classList.remove("hidden");}
   btn.disabled=false;document.getElementById("runBtnLabel").textContent="Продолжить";
 }
