@@ -1262,21 +1262,34 @@ let selectedImg = null;
 
 function refreshPreview(){
   const code = document.getElementById('codeEditor').value;
-  const frame = document.getElementById('previewFrame');
-  if(!frame || !code) return;
+  const oldFrame = document.getElementById('previewFrame');
+  if(!oldFrame || !code) return;
   console.log('[refreshPreview] editMode=', editMode, 'aiBlockMode=', aiBlockMode,
               'codeLen=', code.length);
 
-  // Sandbox: в edit/aiBlock режиме добавляем allow-same-origin — иначе в
-  // некоторых браузерах contenteditable на null-origin iframe не применяется
-  // через JS (write-операция к document.body заблокирована). В обычном
-  // просмотре оставляем строгий sandbox для безопасности AI-сгенерированного HTML.
+  // Sandbox: в edit/aiBlock режиме добавляем allow-same-origin — иначе
+  // contenteditable на null-origin iframe не применяется через JS
+  // (write-операция к document.body заблокирована браузером).
   const needsSameOrigin = !!(editMode || aiBlockMode);
   const sandboxAttr = needsSameOrigin
     ? 'allow-scripts allow-modals allow-forms allow-same-origin'
     : 'allow-scripts allow-modals allow-forms';
-  if (frame.getAttribute('sandbox') !== sandboxAttr) {
+
+  // ВАЖНО: sandbox-атрибут применяется браузером ТОЛЬКО при навигации iframe.
+  // Если просто сменить attribute и установить srcdoc — новый sandbox НЕ
+  // вступит в силу (старый sandbox-context кэшируется браузером).
+  // Решение: пересоздать iframe полностью при изменении sandbox.
+  const sandboxChanged = oldFrame.getAttribute('sandbox') !== sandboxAttr;
+  let frame = oldFrame;
+  if (sandboxChanged) {
+    frame = document.createElement('iframe');
+    frame.id = 'previewFrame';
+    frame.className = oldFrame.className;
     frame.setAttribute('sandbox', sandboxAttr);
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    // copy listeners-relevant attrs if нужны (тут только width/height — все
+    // через class). loading/allow аттрибуты не используем.
+    oldFrame.parentNode.replaceChild(frame, oldFrame);
   }
 
   // Editing runtime injected ПЕРЕД закрывающим body. JSON.stringify
