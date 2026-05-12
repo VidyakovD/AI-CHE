@@ -1576,6 +1576,11 @@ function _setupEditFromParent(frame) {
     };
     doc.addEventListener('input', syncCode);
     doc.body.addEventListener('blur', syncCode, true);
+
+    // ── Плавающий text-toolbar: цвет / размер / bold / italic ──────────────
+    // Появляется при выделении текста (selectionchange). execCommand хотя
+    // и deprecated, но в Chrome для contenteditable работает надёжно.
+    _setupEditToolbar(frame, doc);
   }
 
   if (aiBlockMode) {
@@ -1589,12 +1594,191 @@ function _setupEditFromParent(frame) {
       el.addEventListener('mouseleave', () => el.style.outline = '');
       el.addEventListener('click', (ev) => {
         ev.preventDefault(); ev.stopPropagation();
-        const blockHtml = el.outerHTML;
+        // ВАЖНО: el.outerHTML включает НАШИ мутации
+        // (style="cursor:pointer", data-edit-id) — а в code_html на сервере
+        // их НЕТ. backend ищет точное совпадение → «блок не найден».
+        // Решение: клонируем узел, очищаем от наших мутаций, потом outerHTML.
+        const clone = el.cloneNode(true);
+        clone.removeAttribute('data-edit-id');
+        if (clone.style && clone.style.cursor) clone.style.removeProperty('cursor');
+        if (clone.style && clone.style.outline) clone.style.removeProperty('outline');
+        // Если после removeProperty атрибут style пустой — убираем целиком
+        if (clone.getAttribute('style') === '') clone.removeAttribute('style');
+        const blockHtml = clone.outerHTML;
         const blockId = el.dataset.editId;
         if (typeof aiEditBlock === 'function') aiEditBlock(blockId, blockHtml);
       }, true);
     });
   }
+}
+
+// Плавающий toolbar над выделенным текстом в превью.
+// Содержит: B/I/U, выбор размера (px), цветовая палитра + custom-color, очистка
+// форматирования. Появляется когда есть селекция внутри iframe-body, прячется
+// когда селекция пустая. Toolbar живёт в PARENT (не в iframe) — чтобы не
+// инжектить ничего в код юзера.
+function _setupEditToolbar(frame, doc) {
+  // Удаляем старый toolbar если был
+  const oldTb = document.getElementById('editTextToolbar');
+  if (oldTb) oldTb.remove();
+
+  const tb = document.createElement('div');
+  tb.id = 'editTextToolbar';
+  tb.style.cssText = [
+    'position:absolute', 'z-index:9999',
+    'background:#1e1a14', 'border:1px solid rgba(255,140,66,0.5)',
+    'border-radius:10px', 'padding:6px',
+    'display:none', 'gap:4px', 'align-items:center',
+    'box-shadow:0 8px 24px rgba(0,0,0,0.55)',
+    'font-family:Inter,sans-serif', 'font-size:12px',
+  ].join(';');
+  tb.innerHTML = `
+    <button data-tb-cmd="bold" title="Жирный (Ctrl+B)" class="tb-btn"><b>B</b></button>
+    <button data-tb-cmd="italic" title="Курсив (Ctrl+I)" class="tb-btn"><i>I</i></button>
+    <button data-tb-cmd="underline" title="Подчёркивание" class="tb-btn"><u>U</u></button>
+    <span class="tb-sep"></span>
+    <select data-tb-cmd="size" title="Размер шрифта" class="tb-sel">
+      <option value="">Размер</option>
+      <option value="12px">12</option><option value="14px">14</option>
+      <option value="16px">16</option><option value="18px">18</option>
+      <option value="20px">20</option><option value="24px">24</option>
+      <option value="28px">28</option><option value="32px">32</option>
+      <option value="40px">40</option><option value="48px">48</option>
+      <option value="56px">56</option><option value="64px">64</option>
+    </select>
+    <span class="tb-sep"></span>
+    <button data-tb-color="#ffffff" title="Белый" class="tb-color" style="background:#ffffff"></button>
+    <button data-tb-color="#1e1a14" title="Чёрный" class="tb-color" style="background:#1e1a14;border:1px solid #555"></button>
+    <button data-tb-color="#ff8c42" title="Оранжевый" class="tb-color" style="background:#ff8c42"></button>
+    <button data-tb-color="#ffb347" title="Светло-оранжевый" class="tb-color" style="background:#ffb347"></button>
+    <button data-tb-color="#ff6b6b" title="Красный" class="tb-color" style="background:#ff6b6b"></button>
+    <button data-tb-color="#4ade80" title="Зелёный" class="tb-color" style="background:#4ade80"></button>
+    <button data-tb-color="#60a5fa" title="Синий" class="tb-color" style="background:#60a5fa"></button>
+    <input data-tb-cmd="customColor" type="color" title="Свой цвет" class="tb-pick"/>
+    <span class="tb-sep"></span>
+    <button data-tb-cmd="clear" title="Убрать форматирование" class="tb-btn">⨯</button>
+  `;
+  // CSS кнопок
+  const tbStyle = document.createElement('style');
+  tbStyle.textContent = `
+    #editTextToolbar .tb-btn{background:#272018;border:1px solid rgba(74,63,47,0.5);color:#f0e6d8;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;min-width:26px}
+    #editTextToolbar .tb-btn:hover{border-color:#ff8c42;color:#ff8c42}
+    #editTextToolbar .tb-sel{background:#272018;border:1px solid rgba(74,63,47,0.5);color:#f0e6d8;border-radius:6px;padding:4px 6px;font-size:12px;cursor:pointer}
+    #editTextToolbar .tb-sep{width:1px;height:18px;background:rgba(74,63,47,0.5)}
+    #editTextToolbar .tb-color{width:22px;height:22px;border-radius:6px;cursor:pointer;border:1px solid rgba(255,255,255,0.15);padding:0}
+    #editTextToolbar .tb-color:hover{transform:scale(1.1);border-color:#ff8c42}
+    #editTextToolbar .tb-pick{width:24px;height:24px;border:1px solid rgba(74,63,47,0.5);border-radius:6px;background:transparent;cursor:pointer;padding:0}
+  `;
+  document.head.appendChild(tbStyle);
+
+  // Toolbar должен лежать поверх iframe — добавляем в previewWrap (relative)
+  const wrap = document.getElementById('previewWrap');
+  if (wrap) {
+    if (getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+    wrap.appendChild(tb);
+  } else {
+    document.body.appendChild(tb);
+  }
+
+  // exec helper — выполняет команду внутри iframe doc
+  const exec = (cmd, value) => {
+    try {
+      doc.execCommand('styleWithCSS', false, true);
+      doc.execCommand(cmd, false, value || null);
+      // Sync code_html сразу
+      const ce = document.getElementById('codeEditor');
+      if (ce) ce.value = doc.documentElement.outerHTML;
+      if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+    } catch (e) {
+      console.warn('[toolbar] exec failed:', cmd, e.message);
+    }
+  };
+
+  // Обработчики кнопок
+  tb.querySelectorAll('.tb-btn').forEach(btn => {
+    btn.addEventListener('mousedown', e => e.preventDefault()); // не теряем селекцию
+    btn.addEventListener('click', () => {
+      const cmd = btn.dataset.tbCmd;
+      if (cmd === 'clear') {
+        exec('removeFormat');
+        exec('foreColor', '#000000'); // сброс цвета (часто не очищается removeFormat)
+      } else if (cmd === 'bold' || cmd === 'italic' || cmd === 'underline') {
+        exec(cmd);
+      }
+    });
+  });
+  // Размер
+  const sizeSel = tb.querySelector('[data-tb-cmd="size"]');
+  if (sizeSel) {
+    sizeSel.addEventListener('mousedown', e => e.stopPropagation());
+    sizeSel.addEventListener('change', () => {
+      const v = sizeSel.value;
+      if (!v) return;
+      // execCommand fontSize принимает 1-7 — не px. Поэтому оборачиваем сами:
+      // 1. Получаем selection через document.execCommand insertHTML с span'ом
+      const sel = doc.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { sizeSel.value = ''; return; }
+      const range = sel.getRangeAt(0);
+      const span = doc.createElement('span');
+      span.style.fontSize = v;
+      try {
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+        sel.removeAllRanges();
+        // Sync
+        const ce = document.getElementById('codeEditor');
+        if (ce) ce.value = doc.documentElement.outerHTML;
+        if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+      } catch (e) {
+        console.warn('[toolbar] size failed:', e.message);
+      }
+      sizeSel.value = '';
+    });
+  }
+  // Цветовая палитра
+  tb.querySelectorAll('.tb-color').forEach(btn => {
+    btn.addEventListener('mousedown', e => e.preventDefault());
+    btn.addEventListener('click', () => exec('foreColor', btn.dataset.tbColor));
+  });
+  // Кастомный color picker
+  const picker = tb.querySelector('[data-tb-cmd="customColor"]');
+  if (picker) {
+    picker.addEventListener('mousedown', e => e.stopPropagation());
+    picker.addEventListener('input', () => exec('foreColor', picker.value));
+  }
+
+  // Selection tracking
+  const updateToolbar = () => {
+    if (!editMode) { tb.style.display = 'none'; return; }
+    const sel = doc.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+      tb.style.display = 'none';
+      return;
+    }
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      tb.style.display = 'none';
+      return;
+    }
+    // Координаты iframe относительно previewWrap
+    const frameRect = frame.getBoundingClientRect();
+    const wrapRect = (wrap || document.body).getBoundingClientRect();
+    // Позиция выделения в координатах previewWrap
+    const top = (frameRect.top - wrapRect.top) + rect.top - 44; // 44px над текстом
+    const left = (frameRect.left - wrapRect.left) + rect.left;
+    tb.style.display = 'flex';
+    tb.style.top = Math.max(4, top) + 'px';
+    tb.style.left = Math.max(4, Math.min(left, (wrap ? wrap.clientWidth : window.innerWidth) - tb.offsetWidth - 4)) + 'px';
+  };
+  doc.addEventListener('selectionchange', updateToolbar);
+  doc.addEventListener('mouseup', updateToolbar);
+  doc.addEventListener('keyup', updateToolbar);
+  // Скрываем toolbar при клике вне iframe
+  document.addEventListener('mousedown', (e) => {
+    if (tb.contains(e.target)) return;
+    tb.style.display = 'none';
+  });
 }
 
 function toggleAiBlockMode(){
