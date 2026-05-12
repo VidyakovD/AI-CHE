@@ -1266,11 +1266,25 @@ function refreshPreview(){
   if(!frame || !code) return;
   console.log('[refreshPreview] editMode=', editMode, 'aiBlockMode=', aiBlockMode,
               'codeLen=', code.length);
+
+  // Sandbox: в edit/aiBlock режиме добавляем allow-same-origin — иначе в
+  // некоторых браузерах contenteditable на null-origin iframe не применяется
+  // через JS (write-операция к document.body заблокирована). В обычном
+  // просмотре оставляем строгий sandbox для безопасности AI-сгенерированного HTML.
+  const needsSameOrigin = !!(editMode || aiBlockMode);
+  const sandboxAttr = needsSameOrigin
+    ? 'allow-scripts allow-modals allow-forms allow-same-origin'
+    : 'allow-scripts allow-modals allow-forms';
+  if (frame.getAttribute('sandbox') !== sandboxAttr) {
+    frame.setAttribute('sandbox', sandboxAttr);
+  }
+
   // Editing runtime injected ПЕРЕД закрывающим body. JSON.stringify
   // для всех значений — anti-injection в template-string.
   const runtimePart = `
 <script>
   console.log('[aiche-edit] runtime loaded, editMode=', ${JSON.stringify(!!editMode)});
+  try { window.parent.postMessage({type:'site:runtimeReady', editMode: ${JSON.stringify(!!editMode)}}, '*'); } catch(_) {}
   window.__editMode = ${JSON.stringify(!!editMode)};
   window.__aiBlockMode = ${JSON.stringify(!!aiBlockMode)};
   // Origin родителя — постим только сюда, не через '*'. Защита: даже если
@@ -1579,24 +1593,46 @@ function setViewport(mode){
   });
 }
 
+let _runtimeReadyTimer = null;
+let _runtimeReadyHandshake = false;
 function toggleEditMode(){
   editMode = !editMode;
   document.getElementById('editModeLabel').textContent = editMode ? 'Готово' : 'Редактировать';
   document.getElementById('editHint').classList.toggle('hidden', !editMode);
+  // Сбрасываем handshake-flag и через 2 сек проверяем что runtime в iframe
+  // успел прислать site:runtimeReady. Если нет — показываем плашку.
+  _runtimeReadyHandshake = false;
+  if (_runtimeReadyTimer) clearTimeout(_runtimeReadyTimer);
   refreshPreview();
+  if (editMode) {
+    _runtimeReadyTimer = setTimeout(() => {
+      if (!_runtimeReadyHandshake) {
+        if (window.aiToast) {
+          window.aiToast('Edit-режим не загрузился. Проверь DevTools → Console и пришли мне.', 'error');
+        } else {
+          alert('Edit-runtime не отвечает. Открой F12 → Console и пришли логи.');
+        }
+      }
+    }, 2000);
+  }
 }
 
 // Слушаем сообщения от iframe.
-// Sandbox без allow-same-origin → e.origin === "null" — поэтому проверяем
-// e.source строго против contentWindow нашего фрейма. Любые сообщения от
-// чужих окон/iframe (включая встроенные через innerHTML) — игнорируем.
+// Sandbox с allow-same-origin в edit-режиме → e.origin = window.location.origin.
+// Sandbox без него → e.origin === "null". Проверяем e.source строго против
+// contentWindow нашего фрейма — этого достаточно для anti-spoofing.
 window.addEventListener('message', e => {
   const frame = document.getElementById('previewFrame');
   if(!frame || e.source !== frame.contentWindow) return;
   if(!e.data || typeof e.data !== 'object') return;
   // Доп. защита: тип сообщения должен быть строкой из allow-list
-  const allowedTypes = new Set(['site:htmlChange','site:imgClick','site:iconClick','site:blockClick','site:nav']);
+  const allowedTypes = new Set(['site:htmlChange','site:imgClick','site:iconClick','site:blockClick','site:nav','site:runtimeReady']);
   if(!allowedTypes.has(e.data.type)) return;
+  if(e.data.type === 'site:runtimeReady'){
+    _runtimeReadyHandshake = true;
+    console.log('[parent] iframe runtime ready, editMode=', e.data.editMode);
+    return;
+  }
   if(e.data.type === 'site:htmlChange'){
     if(editMode && typeof e.data.html === 'string'){
       document.getElementById('codeEditor').value = e.data.html;
