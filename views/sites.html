@@ -588,6 +588,25 @@ async function saveProject(){
 // ── Open Project Detail ───────────────────────────────────────────────────
 async function openProject(id){
   currentProjectId = id;
+  // Сброс edit-состояний — иначе если юзер ранее включил «Редактировать» и
+  // переходит в другой проект (или вернулся в этот же), превью открылось бы
+  // сразу в режиме редактирования без нажатия кнопки.
+  editMode = false;
+  aiBlockMode = false;
+  const editLbl = document.getElementById('editModeLabel');
+  if (editLbl) editLbl.textContent = 'Редактировать вручную';
+  const aiLbl = document.getElementById('aiBlockLabel');
+  if (aiLbl) aiLbl.textContent = 'Переделать через AI';
+  const editHint = document.getElementById('editHint');
+  if (editHint) editHint.classList.add('hidden');
+  const aiHint = document.getElementById('aiBlockHint');
+  if (aiHint) aiHint.classList.add('hidden');
+  // Скрываем тулбар редактирования если был от предыдущей сессии
+  const oldTb = document.getElementById('editTextToolbar');
+  if (oldTb) oldTb.remove();
+  const banner = document.getElementById('editDiagBanner');
+  if (banner) banner.remove();
+
   try{
     const r = await fetch(`${API}/sites/projects/${id}`,{headers:authHeaders()});
     if(!r.ok) throw new Error(r.statusText);
@@ -730,6 +749,11 @@ async function closeDetail(){
   if(_unsavedChanges && currentProjectId){
     await saveCode({silent: true});
   }
+  // Сброс edit-состояний чтобы следующий проект не открылся сразу в edit-режиме
+  editMode = false;
+  aiBlockMode = false;
+  const tb = document.getElementById('editTextToolbar');
+  if (tb) tb.remove();
   document.getElementById('detailModal').classList.remove('show');
 }
 
