@@ -1599,23 +1599,59 @@ function setViewport(mode){
 
 let _runtimeReadyTimer = null;
 let _runtimeReadyHandshake = false;
+let _runtimeReadyEditMode = null;
+let _runtimeMessagesGot = [];
+function _showEditDiagBanner(text, bgcolor){
+  let banner = document.getElementById('editDiagBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'editDiagBanner';
+    banner.style.cssText = 'padding:10px 14px;margin-bottom:8px;border-radius:10px;font-size:12px;font-family:monospace;white-space:pre-wrap;word-break:break-word;line-height:1.5';
+    const preview = document.getElementById('dtab-preview');
+    if (preview) preview.insertBefore(banner, preview.firstChild);
+  }
+  banner.style.background = bgcolor || 'rgba(255,107,107,0.15)';
+  banner.style.border = '1px solid ' + (bgcolor ? bgcolor : 'rgba(255,107,107,0.4)');
+  banner.style.color = '#ff8c42';
+  banner.textContent = text;
+}
+function _hideEditDiagBanner(){
+  const banner = document.getElementById('editDiagBanner');
+  if (banner) banner.remove();
+}
 function toggleEditMode(){
   editMode = !editMode;
   document.getElementById('editModeLabel').textContent = editMode ? 'Готово' : 'Редактировать';
   document.getElementById('editHint').classList.toggle('hidden', !editMode);
   // Сбрасываем handshake-flag и через 2 сек проверяем что runtime в iframe
-  // успел прислать site:runtimeReady. Если нет — показываем плашку.
+  // успел прислать site:runtimeReady. Если нет — показываем баннер с диагностикой.
   _runtimeReadyHandshake = false;
+  _runtimeReadyEditMode = null;
+  _runtimeMessagesGot = [];
   if (_runtimeReadyTimer) clearTimeout(_runtimeReadyTimer);
+  _hideEditDiagBanner();
   refreshPreview();
   if (editMode) {
     _runtimeReadyTimer = setTimeout(() => {
+      const frame = document.getElementById('previewFrame');
+      const info = [
+        '═══ Диагностика edit-режима ═══',
+        'editMode (parent): ' + editMode,
+        'iframe.sandbox: ' + (frame ? frame.getAttribute('sandbox') : 'NO_FRAME'),
+        'iframe.has_srcdoc: ' + (frame ? !!frame.srcdoc : false) + ' (' + (frame && frame.srcdoc ? frame.srcdoc.length + ' chars' : '0') + ')',
+        'iframe.has_src: ' + (frame ? !!frame.getAttribute('src') : false),
+        'handshake_received: ' + _runtimeReadyHandshake,
+        'editMode in iframe: ' + (_runtimeReadyEditMode === null ? 'НЕ ПОЛУЧИЛИ' : _runtimeReadyEditMode),
+        'received messages: ' + (_runtimeMessagesGot.length ? _runtimeMessagesGot.join(', ') : '(нет)'),
+      ];
       if (!_runtimeReadyHandshake) {
-        if (window.aiToast) {
-          window.aiToast('Edit-режим не загрузился. Проверь DevTools → Console и пришли мне.', 'error');
-        } else {
-          alert('Edit-runtime не отвечает. Открой F12 → Console и пришли логи.');
-        }
+        info.push('');
+        info.push('❌ Runtime НЕ ответил за 2 сек. Скриншот этого баннера → пришли в чат.');
+        _showEditDiagBanner(info.join('\n'));
+      } else if (editMode && _runtimeReadyEditMode !== true) {
+        info.push('');
+        info.push('⚠ Handshake получен, но editMode внутри iframe = ' + _runtimeReadyEditMode);
+        _showEditDiagBanner(info.join('\n'), 'rgba(255,179,71,0.15)');
       }
     }, 2000);
   }
@@ -1632,8 +1668,11 @@ window.addEventListener('message', e => {
   // Доп. защита: тип сообщения должен быть строкой из allow-list
   const allowedTypes = new Set(['site:htmlChange','site:imgClick','site:iconClick','site:blockClick','site:nav','site:runtimeReady']);
   if(!allowedTypes.has(e.data.type)) return;
+  // Учёт всех приходящих типов для диагностики
+  if (_runtimeMessagesGot.length < 30) _runtimeMessagesGot.push(e.data.type);
   if(e.data.type === 'site:runtimeReady'){
     _runtimeReadyHandshake = true;
+    _runtimeReadyEditMode = e.data.editMode;
     console.log('[parent] iframe runtime ready, editMode=', e.data.editMode);
     return;
   }
