@@ -1545,11 +1545,27 @@
       if (document.getElementById('sidebarBalance')) return null;
 
       const css = `
-#ai-balance-pill{position:fixed;top:12px;right:62px;z-index:99996;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:rgba(20,20,22,.72);backdrop-filter:blur(8px);font:12px/1 system-ui,-apple-system,sans-serif;font-weight:600;cursor:pointer;transition:transform .15s,box-shadow .15s;text-decoration:none;color:#fff}
-#ai-balance-pill:hover{transform:scale(1.04);box-shadow:0 4px 14px rgba(0,0,0,.3)}
-#ai-balance-pill .bal-em{font-size:13px;line-height:1}
-#ai-balance-pill .bal-num{font-variant-numeric:tabular-nums}
-@media(max-width:640px){#ai-balance-pill{top:8px;right:54px;padding:5px 9px;font-size:11px}}
+#ai-balance-pill{
+  position:fixed;top:14px;right:64px;z-index:99996;
+  display:flex;align-items:center;gap:7px;
+  padding:7px 14px;border-radius:999px;
+  border:1px solid rgba(255,140,66,.4);
+  background:linear-gradient(135deg,rgba(30,26,20,.92),rgba(39,32,24,.92));
+  box-shadow:0 0 0 1px rgba(255,140,66,.1),0 6px 20px rgba(0,0,0,.35);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  font:600 12px/1 'Golos Text','Inter',system-ui,-apple-system,sans-serif;
+  letter-spacing:.01em;cursor:pointer;text-decoration:none;color:#ffb347;
+  transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;
+}
+#ai-balance-pill:hover{
+  transform:translateY(-1px) scale(1.03);
+  border-color:rgba(255,140,66,.7);
+  box-shadow:0 0 0 1px rgba(255,140,66,.25),0 10px 28px rgba(255,140,66,.18);
+  color:#ff8c42;
+}
+#ai-balance-pill .bal-em{font-size:14px;line-height:1;filter:hue-rotate(0deg)}
+#ai-balance-pill .bal-num{font-variant-numeric:tabular-nums;color:#f0e6d8}
+@media(max-width:640px){#ai-balance-pill{top:10px;right:56px;padding:6px 11px;font-size:11px}}
 @media(max-width:380px){#ai-balance-pill{display:none}}
 `;
       const style = document.createElement('style');
