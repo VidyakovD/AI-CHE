@@ -1265,13 +1265,10 @@ function refreshPreview(){
   const frame = document.getElementById('previewFrame');
   if(!frame || !code) return;
   console.log('[refreshPreview] editMode=', editMode, 'aiBlockMode=', aiBlockMode,
-              'hasCloseBody=', /<\/body>/i.test(code),
               'codeLen=', code.length);
-  // Inject editing runtime into preview iframe.
-  // ВАЖНО: JSON.stringify для всех значений — даже если переменная
-  // когда-то станет string-ом (refactor), это не даст
-  // JS-injection в код юзера через template-string interpolation.
-  const injected = code.replace(/<\/body>/i, `
+  // Editing runtime injected ПЕРЕД закрывающим body. JSON.stringify
+  // для всех значений — anti-injection в template-string.
+  const runtimePart = `
 <script>
   console.log('[aiche-edit] runtime loaded, editMode=', ${JSON.stringify(!!editMode)});
   window.__editMode = ${JSON.stringify(!!editMode)};
@@ -1462,7 +1459,19 @@ function refreshPreview(){
     });
   })();
 <\/script>
-</body>`);
+`;
+  // Inject ПЕРЕД последним закрывающим body-тегом. lastIndexOf надёжнее
+  // regex.replace: тот заменял первый match, в т.ч. внутри inline-скрипта
+  // юзера, и runtime не выполнялся.
+  const lcCode = code.toLowerCase();
+  const idx = lcCode.lastIndexOf('<' + '/body>');
+  let injected;
+  if (idx >= 0) {
+    injected = code.slice(0, idx) + runtimePart + code.slice(idx);
+  } else {
+    console.warn('[refreshPreview] close-body tag not found, appending runtime');
+    injected = code + runtimePart;
+  }
   const blob = new Blob([injected],{type:'text/html'});
   frame.src = URL.createObjectURL(blob);
   // Сброс адресной строки мини-браузера при перезагрузке превью
