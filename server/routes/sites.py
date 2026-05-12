@@ -1155,40 +1155,114 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
                            description=f"Возврат: правка сайта — {reason}"))
         db.commit()
 
-    prompt = (
-        f"Вот текущий HTML сайта:\n\n{p.code_html}\n\n"
-        f"Пользователь просит: {instructions}\n"
-        f"Верни ТОЛЬКО обновлённый полный HTML-код целиком, от <!DOCTYPE до </html>. "
-        f"Без markdown-обёрток, без объяснений, без сокращений."
+    # PATCH-mode: просим Claude вернуть ТОЛЬКО найти-заменить пары вместо
+    # переписывания всего сайта (16k tokens output → дорого + Claude иногда
+    # «улучшает» куски которые юзер не просил трогать).
+    # JSON-формат: {"patches":[{"find":"<точный текущий HTML>","replace":"<новый HTML>"}]}
+    # find ДОЛЖЕН точно совпадать с подстрокой в code_html. Если patches пусты
+    # или не валидны — fallback на полный HTML (старое поведение).
+    patch_prompt = (
+        "Ты — веб-разработчик. Тебе передан HTML сайта и инструкция юзера. "
+        "Сделай ТОЧЕЧНУЮ правку, не переписывай весь сайт.\n\n"
+        f"=== ТЕКУЩИЙ HTML ===\n{p.code_html}\n=== КОНЕЦ HTML ===\n\n"
+        f"=== ИНСТРУКЦИЯ ЮЗЕРА ===\n{instructions}\n=== КОНЕЦ ===\n\n"
+        "Верни СТРОГО JSON в формате:\n"
+        '{"patches":[{"find":"<точная подстрока из HTML которая меняется>",'
+        '"replace":"<новая подстрока>"},...]}\n\n'
+        "Правила:\n"
+        "- `find` должно быть ТОЧНОЙ копией куска из текущего HTML (включая отступы/переносы) — иначе подмена не сработает.\n"
+        "- Каждый patch — минимально достаточный кусок (одну фразу/элемент/секцию). Не оборачивай в больше чем надо.\n"
+        "- Если меняется только текст внутри тега — `find` это ТОЛЬКО этот текст или максимум сам тег с содержимым.\n"
+        "- 1-10 patches на запрос обычно достаточно. Если нужно поменять сразу 20+ — это уже регенерация, верни {\"patches\":[],\"reason\":\"too_many_changes\"}.\n"
+        "- Никаких markdown-обёрток ```json — только сам JSON-объект.\n"
+        "- Никаких объяснений до или после JSON."
     )
 
     try:
-        answer = generate_response("claude", [{"role": "user", "content": prompt}],
-                                   extra={"max_tokens": 16000})
+        answer = generate_response("claude", [{"role": "user", "content": patch_prompt}],
+                                   extra={"max_tokens": 8000})
     except Exception as e:
         _refund_iter(f"исключение AI: {type(e).__name__}")
         raise HTTPException(503, f"AI временно недоступен ({type(e).__name__}). Деньги возвращены.")
-    content = (answer.get("content", "") if isinstance(answer, dict) else "").strip()
+    raw = (answer.get("content", "") if isinstance(answer, dict) else "").strip()
+    # Снимаем markdown-обёртку если есть
+    for marker in ["```json\n", "```\n", "```json", "```"]:
+        if raw.startswith(marker):
+            raw = raw[len(marker):]
+            raw = raw.rsplit("```", 1)[0] if "```" in raw else raw
+            break
+    raw = raw.strip()
 
-    # Strip markdown code-fence ДО проверки на «<» (Claude иногда оборачивает
-    # ответ в ```html ...```, ложный refund при правильном HTML).
+    import json as _json
+    patches = None
+    try:
+        parsed = _json.loads(raw)
+        if isinstance(parsed, dict) and isinstance(parsed.get("patches"), list):
+            patches = parsed["patches"]
+    except Exception:
+        patches = None
+
+    # Если получили валидный JSON с patches → применяем как string-replace
+    if patches is not None:
+        if not patches:
+            # AI решил что менять нечего или слишком много изменений
+            _refund_iter("AI: too_many_changes или нет изменений")
+            reason = parsed.get("reason") if isinstance(parsed, dict) else None
+            raise HTTPException(400,
+                f"AI не смог сделать точечную правку{f' ({reason})' if reason else ''}. "
+                f"Попробуйте уточнить запрос или использовать «Переделать через AI» по конкретному блоку. "
+                f"Деньги возвращены.")
+
+        new_code = p.code_html
+        applied = 0
+        skipped = []
+        for pt in patches[:30]:  # max 30 patches per request
+            if not isinstance(pt, dict):
+                continue
+            find = pt.get("find")
+            replace = pt.get("replace")
+            if not isinstance(find, str) or not isinstance(replace, str) or not find:
+                continue
+            if find not in new_code:
+                skipped.append(find[:80])
+                continue
+            new_code = new_code.replace(find, replace, 1)  # только первое вхождение
+            applied += 1
+
+        if applied == 0:
+            _refund_iter("Ни один patch не подошёл (find не нашёлся в HTML)")
+            raise HTTPException(422,
+                f"AI попытался применить {len(patches)} правок, но ни одна не нашла точное "
+                f"совпадение в HTML. Это бывает когда Claude меняет отступы. "
+                f"Попробуйте перефразировать. Деньги возвращены.")
+
+        p.code_html = new_code
+        db.commit()
+        from server.audit_log import log_action
+        log_action("site.patch_applied", user_id=user.id, target_type="site_project",
+                   target_id=project_id, level="info", success=True,
+                   details={"applied": applied, "skipped": len(skipped),
+                            "instructions": instructions[:300]})
+        return {"code_html": new_code, "patches_applied": applied,
+                "patches_skipped": len(skipped)}
+
+    # ── Fallback: AI вернул не JSON, а HTML (старое поведение «полная правка») ──
+    content = raw
     for marker in ["```html\n", "```\n", "```html", "```"]:
         if content.startswith(marker):
             content = content[len(marker):]
             content = content.rsplit("```", 1)[0] if "```" in content else content
             break
-
-    # Guard: if AI returned an error message instead of HTML — refund + don't overwrite
     if not content.startswith("<") or "временно недоступен" in content:
-        _refund_iter("AI вернул не-HTML")
-        raise HTTPException(503, "AI не вернул корректный HTML. Деньги возвращены.")
+        _refund_iter("AI вернул не-HTML и не-JSON-patches")
+        raise HTTPException(503, "AI не понял запрос. Деньги возвращены.")
 
-    # Auto-continue с полным контекстом (тз + уже написанное)
+    # Auto-continue с полным контекстом (если HTML обрезался)
     for attempt in range(2):
         if "</html>" in content.lower():
             break
         cont_messages = [
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": patch_prompt},
             {"role": "assistant", "content": content},
             {"role": "user", "content": (
                 "Ответ обрезался. Продолжи строго с того места где остановился, "
@@ -1212,7 +1286,7 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
 
     p.code_html = content
     db.commit()
-    return {"code_html": content}
+    return {"code_html": content, "patches_applied": 0, "mode": "fallback_full"}
 
 
 # ---------------------------------------------------------------------------
