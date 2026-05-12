@@ -1268,14 +1268,8 @@ function refreshPreview(){
   // ВАЖНО: JSON.stringify+`!!` для всех значений — даже если переменная
   // когда-то станет string'ом (refactor / опечатка), это не даст
   // JS-injection в код юзера через template-string interpolation.
-  //
-  // Bug-fix: используем lastIndexOf('</body>'), а не regex.replace(.../i),
-  // потому что regex заменял ПЕРВЫЙ </body> — если он случайно есть внутри
-  // <script> юзера как литерал-строка, runtime инжектился НЕ туда и не
-  // выполнялся. lastIndexOf ловит финальный закрывающий тег страницы.
-  const runtimeScript = `
+  const injected = code.replace(/<\/body>/i, `
 <script>
-  console.log('[aiche-edit] runtime loaded, editMode=', ${JSON.stringify(!!editMode)});
   window.__editMode = ${JSON.stringify(!!editMode)};
   window.__aiBlockMode = ${JSON.stringify(!!aiBlockMode)};
   // Origin родителя — постим только сюда, не через '*'. Защита: даже если
@@ -1463,24 +1457,8 @@ function refreshPreview(){
       }
     });
   })();
-<\/script>`;
-
-  // Финализируем тег </script> у конца runtimeScript (закрытие пишем здесь
-  // потому что вложить </script> внутрь template-string в HTML-блоке нельзя —
-  // парсер ломается. Используем escaped <\/script> выше и собираем тут.)
-
-  // Вставляем runtime перед ПОСЛЕДНИМ </body> в коде. Если </body>
-  // отсутствует (битый HTML) — append в конец, runtime всё равно
-  // выполнится потому что browser auto-closes implicit body.
-  let injected;
-  const lastBody = code.toLowerCase().lastIndexOf('</body>');
-  if (lastBody >= 0) {
-    injected = code.slice(0, lastBody) + runtimeScript + code.slice(lastBody);
-  } else {
-    console.warn('[aiche-edit] </body> not found in code_html, appending runtime');
-    injected = code + runtimeScript;
-  }
-
+<\/script>
+</body>`);
   const blob = new Blob([injected],{type:'text/html'});
   frame.src = URL.createObjectURL(blob);
   // Сброс адресной строки мини-браузера при перезагрузке превью
