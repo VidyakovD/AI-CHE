@@ -91,11 +91,25 @@ SYSTEM_PROMPT = (
     "3) Координаты: триггер слева (x≈80), далее вправо +260 на каждый шаг, y центрируй на 200.\n"
     "4) Ветви разводи по y (200, 380, 60). Слияние ветвей — обратно к одному y.\n"
     "5) edges = [{id, from, to}] — обычно последовательно n1→n2→n3...\n"
-    "6) Если задача про чат-бота в TG — обязательно завершай output_tg в конце AI-ветки.\n"
+    "6) Если задача про чат-бота в TG — завершай output_tg в КОНЦЕ каждой ветки.\n"
     "7) В props пиши только реально нужные поля (см. каталог); пустые/токены — оставь пустыми.\n"
     "8) Когда юзер хочет «по-разному отвечать на разные темы» — используй orchestrator + 2-3 AI-ветки.\n"
     "9) Системные промпты в node_claude/node_gpt пиши на русском, конкретно по задаче.\n"
     "10) Минимум кода: 2-5 нод хватает для большинства задач.\n\n"
+    "‼ АНТИ-ПАТТЕРНЫ (никогда так не делай):\n"
+    "❌ НЕ ставь output_tg / output_max / output_vk МЕЖДУ trigger и AI/RAG/обработкой.\n"
+    "   Юзер написал боту → сразу отвечать «ничего» ДО анализа = бессмыслица.\n"
+    "   Правильно: trigger → ОБРАБОТКА (kb_rag / node_claude / orchestrator) → output_X.\n"
+    "❌ НЕ создавай ноды без входящих edges (orphan-ноды). КАЖДАЯ нода кроме trigger'а\n"
+    "   должна иметь хотя бы один входящий edge в wfc_edges.\n"
+    "❌ НЕ дублируй output_tg/output_max в одной линейной ветке — один на ветку максимум.\n"
+    "❌ НЕ оставляй ветку condition/switch без output_X в конце — юзер не получит ответа.\n"
+    "❌ НЕ повторяй ОДНУ И ТУ ЖЕ ноду несколько раз — каждый id уникален.\n\n"
+    "✅ ПРАВИЛЬНАЯ СТРУКТУРА (пример для FAQ-RAG):\n"
+    "   trigger_tg (n1) → kb_rag (n2) → condition (n3) →\n"
+    "     ветка ДА (не нашёл): n4 save_record → n5 output_tg «передал оператору»\n"
+    "     ветка НЕТ (нашёл):   n6 output_tg (ответ из RAG, {{input}} = ответ)\n"
+    "   wfc_edges: n1→n2, n2→n3, n3→n4, n4→n5, n3→n6\n\n"
     "Отвечай СТРОГО валидным JSON по схеме:\n"
     '{\n'
     '  "name": "Короткое имя воркфлоу (3-6 слов)",\n'
@@ -186,10 +200,29 @@ def _validate(g: dict) -> dict:
         f, t = e.get("from"), e.get("to")
         if f in valid_ids and t in valid_ids:
             norm_edges.append({"id": str(e.get("id") or f"e{j}"), "from": f, "to": t})
+
+    # Очистка orphan-нод: всё что НЕ trigger и НЕ имеет входящего edge — удаляем
+    # (LLM часто оставляет «висящие» output_tg которые не подключены к графу
+    # и появляются в UI как непонятные обрезки).
+    incoming = {e["to"] for e in norm_edges}
+    pruned = []
+    dropped = []
+    for n in norm_nodes:
+        is_trigger = n["type"].startswith("trigger_")
+        if is_trigger or n["id"] in incoming:
+            pruned.append(n)
+        else:
+            dropped.append(n["id"])
+    if dropped:
+        log.info(f"workflow_builder: pruned {len(dropped)} orphan node(s): {dropped}")
+        # Заодно чистим edges которые указывают на удалённые ноды
+        kept_ids = {n["id"] for n in pruned}
+        norm_edges = [e for e in norm_edges if e["from"] in kept_ids and e["to"] in kept_ids]
+
     return {
         "name": (g.get("name") or "AI-воркфлоу")[:60],
         "explanation": (g.get("explanation") or "").strip()[:500],
-        "wfc_nodes": norm_nodes,
+        "wfc_nodes": pruned,
         "wfc_edges": norm_edges,
     }
 
