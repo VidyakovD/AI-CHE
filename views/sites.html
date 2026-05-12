@@ -612,9 +612,27 @@ async function openProject(id){
     // Phase 2: Spec ready for review
     document.getElementById('phaseSpecReady').classList.remove('hidden');
     document.getElementById('specDisplay').textContent = proj.spec_text || '';
-  } else if(phase === 'collecting_images'){
-    // Phase 2.5: Image collection
+  } else if(phase === 'collecting_images' || phase === 'spec_approved'){
+    // Phase 2.5: Image collection + кнопка генерации.
+    // spec_approved — это либо ТЗ только что подтверждено,
+    // либо предыдущая попытка генерации упала (gen_status=failed)
+    // и юзер вернулся для retry. В обоих случаях нужны фото + кнопка.
     document.getElementById('phaseImages').classList.remove('hidden');
+    if(proj.gen_status === 'failed' || proj.gen_status === 'refunded'){
+      // Заметная плашка «прошлая попытка упала, деньги вернулись»
+      const notice = document.createElement('div');
+      notice.className = 'bg-error/10 border border-error/30 rounded-xl px-5 py-4 mb-3';
+      notice.innerHTML = `
+        <p class="text-sm font-semibold text-error mb-1">Прошлая попытка не удалась</p>
+        <p class="text-xs text-on-dim">${proj.gen_error || 'AI вернул некорректный ответ.'} Можно попробовать снова — деньги уже возвращены на баланс.</p>
+      `;
+      const phaseImagesEl = document.getElementById('phaseImages');
+      // Убираем старую плашку если уже была
+      const old = phaseImagesEl.querySelector('.gen-failed-notice');
+      if(old) old.remove();
+      notice.classList.add('gen-failed-notice');
+      phaseImagesEl.insertBefore(notice, phaseImagesEl.firstChild);
+    }
     await loadProjectImages();
   } else if(phase === 'done' || phase === 'generating_code'){
     // Phase 3+: Code generated
