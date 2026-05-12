@@ -1486,27 +1486,115 @@ function refreshPreview(){
   })();
 <\/script>
 `;
-  // Inject ПЕРЕД последним закрывающим body-тегом. lastIndexOf надёжнее
-  // regex.replace: тот заменял первый match, в т.ч. внутри inline-скрипта
-  // юзера, и runtime не выполнялся.
-  const lcCode = code.toLowerCase();
-  const idx = lcCode.lastIndexOf('<' + '/body>');
+  // === Два режима inject'а ===
+  // В edit-режиме (needsSameOrigin=true) НЕ инжектим <script> — CSP-наследование
+  // в srcdoc-iframe с allow-same-origin блокирует inline-scripts даже при
+  // 'unsafe-inline'. Вместо этого парент САМ добавляет contenteditable и
+  // listeners через frame.contentDocument после load (см. _setupEditFromParent).
+  // В view-режиме инжектим scripts для history/navigation как раньше.
   let injected;
-  if (idx >= 0) {
-    injected = code.slice(0, idx) + runtimePart + code.slice(idx);
+  if (needsSameOrigin) {
+    // Чистый код юзера, без инжекции. Plain content.
+    injected = code;
   } else {
-    console.warn('[refreshPreview] close-body tag not found, appending runtime');
-    injected = code + runtimePart;
+    const lcCode = code.toLowerCase();
+    const idx = lcCode.lastIndexOf('<' + '/body>');
+    if (idx >= 0) {
+      injected = code.slice(0, idx) + runtimePart + code.slice(idx);
+    } else {
+      console.warn('[refreshPreview] close-body tag not found, appending runtime');
+      injected = code + runtimePart;
+    }
   }
-  // Используем srcdoc (а не blob URL). С allow-same-origin srcdoc получает
-  // тот же origin что parent → JS-операции типа contenteditable работают
-  // без ограничений. blob: URL имеет opaque origin даже с allow-same-origin
-  // в Chromium — это могло быть причиной почему contenteditable не применялся.
+
   frame.removeAttribute('src');
+  // Регистрируем onload ПЕРЕД установкой srcdoc — иначе можем пропустить событие
+  frame.onload = () => {
+    console.log('[refreshPreview] iframe loaded, editMode=', editMode);
+    if (needsSameOrigin) {
+      // Setup edit-режима из parent (без зависимости от inline-scripts в iframe)
+      _setupEditFromParent(frame);
+    }
+  };
   frame.srcdoc = injected;
   // Сброс адресной строки мини-браузера при перезагрузке превью
   const elUrl = document.getElementById('prevNavUrl');
   if(elUrl) elUrl.textContent = '/ (главная)';
+}
+
+// Setup edit-режима из parent (через contentDocument) — без инжекции script
+// в iframe. Обходит CSP-блокировку inline-scripts в srcdoc.
+function _setupEditFromParent(frame) {
+  let doc;
+  try { doc = frame.contentDocument; } catch (_) { return; }
+  if (!doc || !doc.body) {
+    console.warn('[setupEdit] no contentDocument or body');
+    return;
+  }
+
+  // Отправим parent'у handshake (имитация прежнего site:runtimeReady)
+  try {
+    window.postMessage = window.postMessage || (() => {});
+    _runtimeReadyHandshake = true;
+    _runtimeReadyEditMode = !!editMode;
+  } catch (_) {}
+
+  if (editMode) {
+    // ВСЁ тело редактируется
+    doc.body.setAttribute('contenteditable', 'true');
+    doc.body.spellcheck = true;
+    // CSS для подсветки активного элемента
+    const oldStyle = doc.getElementById('__editmode_css');
+    if (oldStyle) oldStyle.remove();
+    const styleEl = doc.createElement('style');
+    styleEl.id = '__editmode_css';
+    styleEl.textContent =
+      'body[contenteditable="true"] *:hover{outline:1px dashed rgba(255,140,66,0.4);outline-offset:1px}' +
+      'body[contenteditable="true"] *:focus{outline:2px solid #ff8c42 !important;outline-offset:2px}';
+    doc.head.appendChild(styleEl);
+    // Медиа/интерактивные — НЕ редактируются
+    doc.querySelectorAll('img, svg, video, audio, iframe, picture, source, canvas, input, select, textarea').forEach(el => {
+      el.setAttribute('contenteditable', 'false');
+    });
+    // Click по картинке — открыть file picker (через parent)
+    doc.querySelectorAll('img').forEach(el => {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        selectedImg = el;
+        document.getElementById('replaceImgBtn').classList.remove('hidden');
+      }, true);
+    });
+    // Изменения текста — sync code_html в parent
+    const syncCode = () => {
+      try {
+        const html = doc.documentElement.outerHTML;
+        const ce = document.getElementById('codeEditor');
+        if (ce) ce.value = html;
+        _scheduleAutoSave();
+      } catch (_) {}
+    };
+    doc.addEventListener('input', syncCode);
+    doc.body.addEventListener('blur', syncCode, true);
+  }
+
+  if (aiBlockMode) {
+    // Подсветка top-level блоков, click → AI-edit
+    const BLOCK_TAGS = ['SECTION','HEADER','FOOTER','MAIN','ARTICLE','ASIDE','NAV'];
+    let seq = 0;
+    doc.querySelectorAll(BLOCK_TAGS.join(',')).forEach(el => {
+      if (!el.dataset.editId) el.dataset.editId = 'b' + (++seq);
+      el.style.cursor = 'pointer';
+      el.addEventListener('mouseenter', () => el.style.outline = '2px dashed rgba(255,140,66,0.7)');
+      el.addEventListener('mouseleave', () => el.style.outline = '');
+      el.addEventListener('click', (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        const blockHtml = el.outerHTML;
+        const blockId = el.dataset.editId;
+        if (typeof aiEditBlock === 'function') aiEditBlock(blockId, blockHtml);
+      }, true);
+    });
+  }
 }
 
 function toggleAiBlockMode(){
