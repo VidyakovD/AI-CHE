@@ -1486,8 +1486,12 @@ function refreshPreview(){
     console.warn('[refreshPreview] close-body tag not found, appending runtime');
     injected = code + runtimePart;
   }
-  const blob = new Blob([injected],{type:'text/html'});
-  frame.src = URL.createObjectURL(blob);
+  // Используем srcdoc (а не blob URL). С allow-same-origin srcdoc получает
+  // тот же origin что parent → JS-операции типа contenteditable работают
+  // без ограничений. blob: URL имеет opaque origin даже с allow-same-origin
+  // в Chromium — это могло быть причиной почему contenteditable не применялся.
+  frame.removeAttribute('src');
+  frame.srcdoc = injected;
   // Сброс адресной строки мини-браузера при перезагрузке превью
   const elUrl = document.getElementById('prevNavUrl');
   if(elUrl) elUrl.textContent = '/ (главная)';
