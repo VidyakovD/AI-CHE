@@ -668,6 +668,11 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
         )
         content = (ans.get("content", "") if isinstance(ans, dict) else "").strip()
 
+        # Snimaem markdown code-fence ДО проверки — Claude/Opus иногда обвязывает
+        # ответ в ```html ... ```, и тогда первый символ не «<», ложный refund
+        # (раньше юзер терял 1990 ₽ при правильно сгенерированном сайте).
+        content = _strip_markdown_code_fence(content)
+
         if not content.startswith("<") or "временно недоступен" in content:
             with db_session() as db:
                 p = db.query(SiteProject).filter_by(id=project_id).first()
@@ -678,8 +683,6 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
                     db.commit()
             _refund_site_generation(project_id, "AI returned non-HTML")
             return
-
-        content = _strip_markdown_code_fence(content)
 
         # 4. Auto-continue до </html>. Premium → больше попыток (Opus умеет
         # генерить длинно — не будем останавливать его раньше времени).
@@ -1031,20 +1034,22 @@ async def _run_site_iteration(project_id: int, user_id: int, instructions: str, 
                     _refund(db, p, f"исключение AI: {type(e).__name__}")
             return
 
-        content = answer.get("content", "") if isinstance(answer, dict) else ""
+        content = (answer.get("content", "") if isinstance(answer, dict) else "").strip()
 
-        if not content.strip().startswith("<") or "временно недоступен" in content:
-            with db_session() as db:
-                p = db.query(SiteProject).filter_by(id=project_id).first()
-                if p:
-                    _refund(db, p, "AI вернул не-HTML")
-            return
-
+        # Strip markdown code-fence ДО проверки на «<» (Claude иногда оборачивает
+        # ответ в ```html ...```, ложный refund при правильном HTML).
         for marker in ["```html\n", "```\n", "```html", "```"]:
             if content.startswith(marker):
                 content = content[len(marker):]
                 content = content.rsplit("```", 1)[0] if "```" in content else content
                 break
+
+        if not content.startswith("<") or "временно недоступен" in content:
+            with db_session() as db:
+                p = db.query(SiteProject).filter_by(id=project_id).first()
+                if p:
+                    _refund(db, p, "AI вернул не-HTML")
+            return
 
         # Auto-continue если ответ обрезался
         for attempt in range(2):
@@ -1163,19 +1168,20 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
     except Exception as e:
         _refund_iter(f"исключение AI: {type(e).__name__}")
         raise HTTPException(503, f"AI временно недоступен ({type(e).__name__}). Деньги возвращены.")
-    content = answer.get("content", "") if isinstance(answer, dict) else ""
+    content = (answer.get("content", "") if isinstance(answer, dict) else "").strip()
 
-    # Guard: if AI returned an error message instead of HTML — refund + don't overwrite
-    if not content.strip().startswith("<") or "временно недоступен" in content:
-        _refund_iter("AI вернул не-HTML")
-        raise HTTPException(503, "AI не вернул корректный HTML. Деньги возвращены.")
-
-    # Clean markdown
+    # Strip markdown code-fence ДО проверки на «<» (Claude иногда оборачивает
+    # ответ в ```html ...```, ложный refund при правильном HTML).
     for marker in ["```html\n", "```\n", "```html", "```"]:
         if content.startswith(marker):
             content = content[len(marker):]
             content = content.rsplit("```", 1)[0] if "```" in content else content
             break
+
+    # Guard: if AI returned an error message instead of HTML — refund + don't overwrite
+    if not content.startswith("<") or "временно недоступен" in content:
+        _refund_iter("AI вернул не-HTML")
+        raise HTTPException(503, "AI не вернул корректный HTML. Деньги возвращены.")
 
     # Auto-continue с полным контекстом (тз + уже написанное)
     for attempt in range(2):
