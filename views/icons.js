@@ -456,6 +456,24 @@
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     window.addEventListener('load', function(){
       navigator.serviceWorker.register('/sw.js', {scope: '/'})
+        .then(function(reg){
+          // Force-check обновления при каждом load — иначе SW обновляется
+          // только при первой регистрации (юзеры могут зависнуть на старой
+          // версии неделями). reg.update() инициирует fetch /sw.js,
+          // сравнение байт-в-байт; если изменился — install новый SW.
+          try { reg.update(); } catch(_) {}
+          // Когда новый SW активировался и взял control — reload страницы.
+          // skipWaiting + clients.claim в sw.js уже стоят, но клиент должен
+          // ПЕРЕЗАГРУЗИТЬСЯ чтобы рендериться из свежего HTML.
+          if (reg && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.addEventListener('controllerchange', function(){
+              if (window.__aicheReloadInFlight) return;
+              window.__aicheReloadInFlight = true;
+              // Маленькая задержка чтобы новый SW успел claim() остальные клиенты
+              setTimeout(function(){ window.location.reload(); }, 200);
+            });
+          }
+        })
         .catch(function(){ /* offline — не критично, регистрируется при следующем заходе */ });
     });
   }

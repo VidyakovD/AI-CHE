@@ -11,7 +11,7 @@
  * автоматически почистился при первой регистрации нового SW.
  */
 
-const CACHE_VERSION = 'aiche-v2-2026-04-28';
+const CACHE_VERSION = 'aiche-v3-2026-05-12-edit';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const HTML_CACHE = `${CACHE_VERSION}-html`;
 
