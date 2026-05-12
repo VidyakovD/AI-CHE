@@ -42,6 +42,7 @@ from server.routes.public_api import (
 )
 from server.routes.schedules import router as schedules_router
 from server.routes.crm import router as crm_router
+from server.routes.mcp import router as mcp_router
 
 load_dotenv()
 
@@ -412,6 +413,7 @@ app.include_router(api_tokens_router)
 app.include_router(public_api_router)
 app.include_router(schedules_router)
 app.include_router(crm_router)
+app.include_router(mcp_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")

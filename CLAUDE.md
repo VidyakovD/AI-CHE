@@ -30,6 +30,10 @@
 - **Презентации v2** — `/presentations.html`: PPTX/HTML/PDF, color picker, vision-анализ фото, графики, ТЗ-визард
 - **Marketplace ботов** — публикация шаблонов с revenue-split 70/30 + админ-модерация (`/marketplace.html`)
 - **Public API** (`/api.html`) — Bearer-токены + scope-проверка + Webhooks (7 событий с HMAC-подписью + auto-disable) + полная документация
+- **MCP Server** (`/mcp`) — JSON-RPC 2.0 endpoint для подключения как инструмент к Claude Desktop / Cursor / любому MCP-клиенту. 7 tools: `get_balance` / `list_solutions` / `run_solution` / `get_solution_status` / `list_proposals` / `get_proposal` / `create_proposal`. Auth через тот же ApiToken что Public API. Адаптация Dolibarr `htdocs/ai/server/mcp_server.php`.
+- **PrivacyGuard** — маскировка PII (ИНН/КПП/ОГРН/СНИЛС/email/phone/cards с Luhn) перед отправкой в LLM, unmask на ответе. 152-ФЗ ст. 6 compliance. Использование: `safe, guard = with_pii_protection(text); ans = generate_response(...); final = guard.unmask_response(ans["content"])`. Адаптация Dolibarr `privacy_guard.class.php`.
+- **AiRequestLog** — отдельная таблица `ai_request_logs` для AI-аналитики (provider/model/purpose/tokens/cost/duration). Endpoint `/admin/ai-stats?days=N` с totals + by_model + top_users.
+- **Data-retention cron** — автоматическая анонимизация User с `last_login_at > N мес` и purge старого `ProposalProject.generated_html > N лет` (152-ФЗ ст. 5). Настраивается через env `DATA_RETENTION_USER_INACTIVE_MONTHS / DATA_RETENTION_PROPOSAL_YEARS / DATA_RETENTION_DRY_RUN`. Адаптация Dolibarr `datapolicycron.class.php`.
 - **CRM-интеграции** — Bitrix24/amoCRM/generic webhook native UI с маппингом полей, тестовая кнопка
 - **Cron-расписания orchestra** — превращает разовые покупки в подписку («каждый понедельник запусти SWOT»)
 - **Платежи ЮKassa** с **54-ФЗ чеком** через ОФД
