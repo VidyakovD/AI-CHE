@@ -1276,9 +1276,10 @@ function refreshPreview(){
     : 'allow-scripts allow-modals allow-forms';
 
   // ВАЖНО: sandbox-атрибут применяется браузером ТОЛЬКО при навигации iframe.
-  // Если просто сменить attribute и установить srcdoc — новый sandbox НЕ
-  // вступит в силу (старый sandbox-context кэшируется браузером).
-  // Решение: пересоздать iframe полностью при изменении sandbox.
+  // Если просто сменить attribute — sandbox-context кэшируется.
+  // Решение: пересоздать iframe-элемент. КРИТИЧНО: сначала attach в DOM,
+  // потом srcdoc — иначе в Chrome detached iframe не имеет browsing context
+  // и srcdoc не загружается / JS не выполняется.
   const sandboxChanged = oldFrame.getAttribute('sandbox') !== sandboxAttr;
   let frame = oldFrame;
   if (sandboxChanged) {
@@ -1287,8 +1288,6 @@ function refreshPreview(){
     frame.className = oldFrame.className;
     frame.setAttribute('sandbox', sandboxAttr);
     frame.setAttribute('referrerpolicy', 'no-referrer');
-    // copy listeners-relevant attrs if нужны (тут только width/height — все
-    // через class). loading/allow аттрибуты не используем.
     oldFrame.parentNode.replaceChild(frame, oldFrame);
   }
 
@@ -1647,14 +1646,31 @@ function toggleEditMode(){
   if (editMode) {
     _runtimeReadyTimer = setTimeout(() => {
       const frame = document.getElementById('previewFrame');
+      // Пробуем прочитать iframe.contentDocument — с allow-same-origin это
+      // должно работать. Если TypeError — sandbox/CSP реально блокирует.
+      let docReadable = false, docHtmlStart = '', frameEditMode = '?', readErr = '';
+      try {
+        const cd = frame && frame.contentDocument;
+        if (cd) {
+          docReadable = true;
+          docHtmlStart = (cd.documentElement && cd.documentElement.outerHTML || '').slice(0, 300);
+          try { frameEditMode = String(frame.contentWindow.__editMode); }
+          catch (e2) { frameEditMode = 'win-access-err: ' + e2.message; }
+        }
+      } catch (e1) {
+        readErr = 'contentDocument-err: ' + e1.message;
+      }
       const info = [
         '═══ Диагностика edit-режима ═══',
         'editMode (parent): ' + editMode,
         'iframe.sandbox: ' + (frame ? frame.getAttribute('sandbox') : 'NO_FRAME'),
         'iframe.has_srcdoc: ' + (frame ? !!frame.srcdoc : false) + ' (' + (frame && frame.srcdoc ? frame.srcdoc.length + ' chars' : '0') + ')',
         'iframe.has_src: ' + (frame ? !!frame.getAttribute('src') : false),
+        'iframe.contentDocument-readable: ' + docReadable + (readErr ? ' [' + readErr + ']' : ''),
+        'iframe DOM[0..300]: ' + (docHtmlStart || '(empty)').replace(/\s+/g, ' '),
+        'iframe.window.__editMode: ' + frameEditMode,
         'handshake_received: ' + _runtimeReadyHandshake,
-        'editMode in iframe: ' + (_runtimeReadyEditMode === null ? 'НЕ ПОЛУЧИЛИ' : _runtimeReadyEditMode),
+        'editMode in iframe (from msg): ' + (_runtimeReadyEditMode === null ? 'НЕ ПОЛУЧИЛИ' : _runtimeReadyEditMode),
         'received messages: ' + (_runtimeMessagesGot.length ? _runtimeMessagesGot.join(', ') : '(нет)'),
       ];
       if (!_runtimeReadyHandshake) {
