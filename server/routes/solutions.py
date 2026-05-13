@@ -623,6 +623,69 @@ def orchestra_compare_get(compare_group: str,
     return {"compare_group": compare_group, "runs": out}
 
 
+@router.get("/solutions/runs/my")
+def list_my_runs(limit: int = 50, offset: int = 0, status: str = "",
+                 db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
+    """История бизнес-решений юзера (платных и бесплатных).
+    Возвращает страницу + total для пагинации.
+
+    Параметры:
+      limit — кол-во запусков (max 100)
+      offset — смещение для пагинации
+      status — фильтр: '', 'running', 'done', 'failed'
+    """
+    limit = max(1, min(int(limit or 50), 100))
+    offset = max(0, int(offset or 0))
+    q = (
+        db.query(SolutionRun, Solution.title, Solution.subcategory)
+        .outerjoin(Solution, SolutionRun.solution_id == Solution.id)
+        .filter(SolutionRun.user_id == user.id)
+    )
+    if status and status in ("running", "done", "failed", "queued", "waiting_input"):
+        q = q.filter(SolutionRun.status == status)
+    total = q.count()
+    rows = (
+        q.order_by(SolutionRun.id.desc())
+        .limit(limit).offset(offset)
+        .all()
+    )
+    # Иконки по subcategory
+    _icon_map = {
+        "research": "🔬", "marketing": "📈", "sales": "💼", "strategy": "📊",
+        "legal": "⚖️", "finance": "💰", "hr": "👥",
+    }
+    items = []
+    for run, title, subcategory in rows:
+        icon = _icon_map.get(subcategory or "", "✨")
+        # Preview final_output: первые 200 символов
+        preview = ""
+        if run.final_output:
+            preview = run.final_output[:200].strip()
+            if len(run.final_output) > 200:
+                preview += "…"
+        items.append({
+            "run_id": run.id,
+            "solution_id": run.solution_id,
+            "solution_title": title or "Удалённое решение",
+            "solution_icon": icon,
+            "subcategory": subcategory,
+            "status": run.status,
+            "total_cost_kop": run.total_cost_kop or 0,
+            "preview": preview,
+            "has_pdf": bool(run.pdf_path),
+            "pdf_path": run.pdf_path,
+            "public_token": run.public_token,
+            "created_at": run.created_at.isoformat() if run.created_at else None,
+        })
+    return {
+        "items": items,
+        "total": int(total),
+        "limit": limit,
+        "offset": offset,
+    }
+
+
 @router.get("/solutions/runs/{run_id}")
 def orchestra_run_get(run_id: int, db: Session = Depends(get_db),
                        user: User = Depends(current_user)):
