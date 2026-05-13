@@ -2328,7 +2328,28 @@ function switchDetailTab(tab, btn){
   const el = document.getElementById('dtab-'+tab);
   el.classList.add('active');
   el.style.display = (tab==='code')?'flex':'block';
-  if(tab==='preview') refreshPreview();
+  if(tab==='preview'){
+    // ВАЖНО: каждый раз когда юзер переходит на «Превью» — сбрасываем
+    // edit-state. Иначе если он раньше нажимал «Редактировать вручную»
+    // и переключился на «Код», то при возврате превью открывается уже
+    // в edit-режиме без явного клика — это сбивало юзеров с толку.
+    if (editMode || aiBlockMode){
+      console.log('[switchDetailTab=preview] resetting editMode/aiBlockMode (was:', editMode, aiBlockMode, ')');
+      editMode = false;
+      aiBlockMode = false;
+      const editLbl = document.getElementById('editModeLabel');
+      if (editLbl) editLbl.textContent = 'Редактировать вручную';
+      const aiLbl = document.getElementById('aiBlockLabel');
+      if (aiLbl) aiLbl.textContent = 'Переделать через AI';
+      const editHint = document.getElementById('editHint');
+      if (editHint) editHint.classList.add('hidden');
+      const aiHint = document.getElementById('aiBlockHint');
+      if (aiHint) aiHint.classList.add('hidden');
+      const tb = document.getElementById('editTextToolbar');
+      if (tb) tb.remove();
+    }
+    refreshPreview();
+  }
 }
 
 // ── Loading overlay ───────────────────────────────────────────────────────
