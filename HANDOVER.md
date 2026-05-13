@@ -2,11 +2,51 @@
 
 > История спринтов. **Чтобы понять что было сделано — открой нужный модуль ниже.** Для деталей коммитов — `git log --oneline -100`.
 
-**Свежее состояние:** 2026-05-13, последний коммит `671b99b`. Прод на `193.187.92.147`. **299 тестов проходят.**
+**Свежее состояние:** 2026-05-13, последние коммиты — 6 итераций модуля «Креаторы». Прод на `193.187.92.147`. **299 тестов проходят.**
 
 ---
 
-## 🆕 Последний спринт (2026-05-12/13) — РЕФАКТОРИНГ + DOLIBARR + САЙТ-РЕДАКТОР
+## 🆕 Спринт 2026-05-13: МОДУЛЬ «КРЕАТОРЫ» — MVP за 6 итераций
+
+Полный новый продуктовый модуль для контент-планирования бизнеса/SMM. От нуля до prod за один спринт.
+
+### По итерациям
+
+1. **`0650245`** (it.1) — Фундамент: 5 моделей (`CreatorBrand`/`ContentCalendar`/`ContentItem`/`CreatorChannelConnection`/`CreatorAnalysisRun`), CRUD брендов до 10/юзер, страница `/creators.html` с модалкой профиля 8-полей (название/ниша/тон/продукт/аудитория/темы/стоп-слова/лого), ссылка NEW в sidebar главной.
+2. **`f80165d`** (it.2) — Генерация контент-плана: `creators_planner.py` раскидывает 30-50 слотов по платформам/дням (TG 4/нед, VK 3/нед, YT 1/нед, IG 4/нед), Sonnet заполняет brief'ы. Календарный grid 7-колонок с цветами по типу контента, фильтр платформ чипами, модалка карточки поста с datetime-local/brief/type, cooldown 60 мин против абуза.
+3. **`e3d16d7`** (it.3) — Подготовка постов (Шаг B): `creators_prepare.py` — для news Perplexity sonar-pro + Sonnet, для evergreen чистый Sonnet, type∈{image,reels} → DALL-E 3 опционально. Freemium 3 поста/бренд/мес → потом 15-30 ₽. POST `/items/{id}/prepare` + scheduler `creators_prepare_loop` (5 мин, лимит 5/тик, auto-refund при ошибке).
+4. **`b7da00c`** (it.4) — TG автопостинг: `creators_publisher.py` + `verify_tg_channel` (getMe+getChat), CRUD каналов с EncryptedString(2048) для bot-token, `creators_publish_loop` (1 мин), кнопки тест/toggle/delete в UI, кнопка «📤 Опубликовать» в модалке ready-поста.
+5. **`1d5b2b1`** (it.5) — VK автопостинг: `creators_vk.py` — `verify_vk_community`, 3-шаговый upload фото (getWallUploadServer → POST file → saveWallPhoto), `publish_to_vk_wall` с from_group=1. Модалка подключения с chip-выбором TG/VK и отдельными инструкциями.
+6. **`276c614`** (it.6) — Анализ соцсетей: `creators_analyzer.py` — Perplexity (sonar-pro для own / sonar-reasoning-pro для competitor) → Sonnet структурированный отчёт. POST `/brands/{id}/analyze`, fix-price 150/200 ₽ с auto-refund. Блок с двумя кнопками + модалка ввода URL + модалка просмотра markdown-отчёта.
+
+### Что работает на проде
+
+- 21 endpoint под `/creators/*` (brands · calendar · items · prepare · publish · channels · analyze)
+- Два scheduler-loop'а с worker_lock
+- 5 новых таблиц (auto-created через create_all)
+- UI с 5 модалками (brand · item · channel · analysis input · analysis result)
+- TG автопостинг через @BotFather бота → канал-админ
+- VK автопостинг через community access_token с правами wall+photos+manage
+- Биллинг с freemium + auto-refund + Transaction log
+
+### Что НЕ сделано в MVP (см. TODO_NEXT)
+
+- Drag-n-drop постов по календарю
+- Цены через `pricing_config` (сейчас захардкожены)
+- Push при готовности поста (если канал не подключён)
+- YouTube OAuth + upload + Instagram Meta API (рискованно из РФ)
+- Bulk prepare для всех planned
+- Аналитика опубликованных постов
+- Тариф подписки 990 ₽/мес
+- Unit-тесты для creators_planner/prepare/analyzer
+
+### Тесты
+
+299 passed на каждой итерации, без регрессий.
+
+---
+
+## Предыдущий спринт (2026-05-12/13) — РЕФАКТОРИНГ + DOLIBARR + САЙТ-РЕДАКТОР
 
 ### Что произошло одним абзацем
 

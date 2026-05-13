@@ -6,9 +6,11 @@
 
 ---
 
-## 🔴 Текущая главная задача
+## ✅ Свежий спринт — Креаторы MVP (2026-05-13)
 
-**Модуль «Креаторы»** (контент-креаторы / блогеры / TG-каналы / YouTube). Параллельный продукт к B2B-инструментам. Подробности и развилка приоритетов — в [docs/modules/21-creators-roadmap.md](docs/modules/21-creators-roadmap.md). **В новом чате сначала уточни у юзера сценарий**, потом строй MVP с одного flagship-пилота.
+**Полный модуль «Креаторы» отгружен на прод за 6 итераций.** Профиль бренда → AI-план в календарном виде → подготовка постов (freemium 3/мес) → автопостинг TG/VK → анализ соцсетей (свой 150 ₽ / конкурент 200 ₽). Детали — [docs/modules/21-creators-roadmap.md](docs/modules/21-creators-roadmap.md).
+
+Следующие крупные направления — см. [TODO_NEXT.md](TODO_NEXT.md).
 
 ---
 
@@ -16,7 +18,7 @@
 
 **B2B AI-платформа для предпринимателей.** FastAPI + HTML SPA (PWA отключён) + Public REST API + Webhooks + CRM-интеграции + **MCP-сервер для Claude Desktop**.
 
-**Продукты:** Чат с AI (5 провайдеров) · Бизнес-решения PRO (40 пилотов) · Чат-боты (6 каналов) · AI-агенты (workflow) · Сайты под ключ · КП с e-подписью · Презентации · Public API + MCP · CRM-интеграции · RAG база знаний.
+**Продукты:** Чат с AI (5 провайдеров) · Бизнес-решения PRO (40 пилотов) · Чат-боты (6 каналов) · AI-агенты (workflow) · **Креаторы (контент-планирование с автопостингом TG/VK)** · Сайты под ключ · КП с e-подписью · Презентации · Public API + MCP · CRM-интеграции · RAG база знаний.
 
 **Простой гайд для самих юзеров:** [USER_GUIDE.md](USER_GUIDE.md).
 **История спринтов (changelog):** [HANDOVER.md](HANDOVER.md).
@@ -51,7 +53,7 @@
 | 18 | [privacy-compliance](docs/modules/18-privacy-compliance.md) | PrivacyGuard PII, data-retention, 152-ФЗ |
 | 19 | [admin](docs/modules/19-admin.md) | /admin/*, 2FA, reencrypt-secrets, ai-stats |
 | 20 | [infra-deploy](docs/modules/20-infra-deploy.md) | db.py, alembic, scheduler, миграция |
-| 21 | [creators-roadmap](docs/modules/21-creators-roadmap.md) | 🔴 Roadmap нового модуля |
+| 21 | [creators](docs/modules/21-creators-roadmap.md) | Креаторы: бренд / план / подготовка / автопостинг TG·VK / анализ |
 
 ---
 
