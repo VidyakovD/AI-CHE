@@ -1621,12 +1621,15 @@ function _setupEditFromParent(frame) {
     doc.querySelectorAll('img, svg, video, audio, iframe, picture, source, canvas, input, select, textarea').forEach(el => {
       el.setAttribute('contenteditable', 'false');
     });
-    // Click по картинке — открыть file picker (через parent)
+    // Click по картинке — открыть file picker (через parent).
+    // ВАЖНО: selectedImg должен быть URL-строкой (el.src), не DOM-элементом —
+    // дальше код в replaceSelectedImage() вызывает .startsWith() / new URL()
+    // на selectedImg. При DOM-объекте — TypeError "startsWith is not a function".
     doc.querySelectorAll('img').forEach(el => {
       el.style.cursor = 'pointer';
       el.addEventListener('click', (ev) => {
         ev.preventDefault(); ev.stopPropagation();
-        selectedImg = el;
+        selectedImg = el.src;  // строка URL, не DOM-элемент
         document.getElementById('replaceImgBtn').classList.remove('hidden');
       }, true);
     });
