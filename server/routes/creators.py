@@ -613,6 +613,134 @@ def delete_channel(channel_id: int, user: User = Depends(current_user), db: Sess
     return {"ok": True}
 
 
+# ── Social analysis (Perplexity + Sonnet) ────────────────────────────────────
+
+class AnalyzeIn(BaseModel):
+    target_type: str = Field(..., pattern="^(own|competitor)$")
+    target_url: str = Field(..., min_length=8, max_length=500)
+
+
+def _analysis_dict(a: CreatorAnalysisRun) -> dict:
+    return {
+        "id": a.id,
+        "target_type": a.target_type,
+        "target_url": a.target_url,
+        "platform": a.platform,
+        "status": a.status,
+        "result_md": a.result_md,
+        "cost_kop": int(a.cost_kop or 0),
+        "error": a.error,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+    }
+
+
+@router.post("/brands/{brand_id}/analyze")
+def run_brand_analysis(
+    brand_id: int,
+    payload: AnalyzeIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Анализ соцсети: свой профиль (150 ₽) или конкурент (200 ₽).
+
+    Списываем ДО вызова Perplexity. Если pipeline упадёт — refund.
+    """
+    from server.creators_analyzer import (
+        run_analysis, cost_for, detect_platform, is_valid_url, VALID_TARGET_TYPES,
+    )
+    from server.billing import credit_atomic
+
+    b = db.query(CreatorBrand).filter_by(id=brand_id, user_id=user.id).first()
+    if not b:
+        raise HTTPException(404, "Бренд не найден")
+    if payload.target_type not in VALID_TARGET_TYPES:
+        raise HTTPException(400, f"target_type ∈ {sorted(VALID_TARGET_TYPES)}")
+    if not is_valid_url(payload.target_url):
+        raise HTTPException(400, "Невалидный URL. Нужен http(s):// и домен")
+
+    price_kop = cost_for(payload.target_type)
+    if not deduct_strict(db, user.id, price_kop):
+        raise HTTPException(402, f"Недостаточно средств. Нужно {price_kop / 100:.2f} ₽")
+    db.add(Transaction(
+        user_id=user.id, type="usage", tokens_delta=-price_kop,
+        description=f"Creators · анализ ({payload.target_type})",
+        model="sonar-reasoning-pro+claude-sonnet-4-6",
+    ))
+
+    platform = detect_platform(payload.target_url)
+    run = CreatorAnalysisRun(
+        brand_id=brand_id,
+        target_type=payload.target_type,
+        target_url=payload.target_url,
+        platform=platform,
+        status="running",
+        cost_kop=price_kop,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    try:
+        out = run_analysis(b, payload.target_url, payload.target_type, user_id=user.id)
+    except Exception as e:
+        log.exception("[creators.analyze] run=%s failed: %s", run.id, e)
+        # Refund
+        credit_atomic(db, user.id, price_kop)
+        db.add(Transaction(
+            user_id=user.id, type="refund", tokens_delta=price_kop,
+            description=f"Creators refund · анализ #{run.id}",
+        ))
+        run.status = "failed"
+        run.error = str(e)[:500]
+        run.cost_kop = 0
+        db.commit()
+        raise HTTPException(500, f"Анализ не удался: {e}")
+
+    run.result_md = out["result_md"]
+    run.platform = out["platform"] or platform
+    run.status = "done"
+    db.commit()
+    db.refresh(run)
+
+    log_action("creator.analysis_completed", user_id=user.id, brand_id=brand_id,
+               run_id=run.id, target_type=payload.target_type, cost_kop=price_kop)
+    return _analysis_dict(run)
+
+
+@router.get("/brands/{brand_id}/analysis")
+def list_analysis(brand_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    b = db.query(CreatorBrand).filter_by(id=brand_id, user_id=user.id).first()
+    if not b:
+        raise HTTPException(404, "Бренд не найден")
+    rows = (db.query(CreatorAnalysisRun)
+              .filter_by(brand_id=brand_id)
+              .order_by(CreatorAnalysisRun.id.desc())
+              .limit(50).all())
+    return {"runs": [_analysis_dict(r) for r in rows]}
+
+
+@router.get("/analysis/{run_id}")
+def get_analysis(run_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    a = db.query(CreatorAnalysisRun).join(CreatorBrand).filter(
+        CreatorAnalysisRun.id == run_id, CreatorBrand.user_id == user.id,
+    ).first()
+    if not a:
+        raise HTTPException(404, "Анализ не найден")
+    return _analysis_dict(a)
+
+
+@router.delete("/analysis/{run_id}")
+def delete_analysis(run_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    a = db.query(CreatorAnalysisRun).join(CreatorBrand).filter(
+        CreatorAnalysisRun.id == run_id, CreatorBrand.user_id == user.id,
+    ).first()
+    if not a:
+        raise HTTPException(404, "Анализ не найден")
+    db.delete(a)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/channels/{channel_id}/test")
 async def test_channel(channel_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Отправить тестовое сообщение в канал (TG или VK)."""

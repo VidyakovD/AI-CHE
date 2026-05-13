@@ -191,16 +191,21 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
     </div>
   </section>
 
-  <!-- Analysis — заглушка -->
+  <!-- Analysis -->
   <section class="card p-4" id="analysisBlock" style="display:none">
-    <div class="flex items-center justify-between mb-3">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
       <div>
         <h2 class="text-lg font-bold">Анализ соцсетей</h2>
-        <p class="text-xs text-on-dim">Свой профиль (150 ₽) и конкуренты (200 ₽)</p>
+        <p class="text-xs text-on-dim">Perplexity-исследование + Sonnet-отчёт с рекомендациями</p>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <button class="btn-g" onclick="openAnalysisModal('own')">🔍 Свой профиль — 150 ₽</button>
+        <button class="btn-p" onclick="openAnalysisModal('competitor')">🕵 Конкурент — 200 ₽</button>
       </div>
     </div>
-    <div class="stub">
-      <b>Итерация 6:</b> Perplexity-парсинг + рекомендации.
+    <div id="analysisList" class="space-y-2"></div>
+    <div id="analysisEmpty" class="stub" style="display:none">
+      Анализов пока нет. Запусти первый — мы найдём что работает в твоей нише и что улучшить.
     </div>
   </section>
 
@@ -215,6 +220,41 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
     <button class="btn-p" onclick="openBrandModal()">+ Создать бренд</button>
   </section>
 
+</div>
+
+
+<!-- Analysis modal — запуск -->
+<div id="analysisModal" class="modal-bg">
+  <div class="card p-6" style="max-width:560px;width:100%">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-xl font-bold" id="anModalTitle">Анализ</h3>
+      <button class="btn-g" onclick="closeAnalysisModal()" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="text-xs text-on-dim mb-4" id="anModalHint"></div>
+    <div>
+      <label class="lbl">URL канала / профиля / сообщества</label>
+      <input id="an_url" class="inp" placeholder="https://t.me/example  •  https://vk.com/club123  •  https://www.youtube.com/@channel"/>
+      <div class="text-xs text-on-dim mt-2">
+        Поддерживаются: Telegram (t.me/...), VK (vk.com/...), YouTube, Instagram. Платформа определится автоматически.
+      </div>
+    </div>
+    <div class="flex items-center justify-end gap-3 mt-6">
+      <button class="btn-g" onclick="closeAnalysisModal()">Отмена</button>
+      <button id="anRunBtn" class="btn-p" onclick="runAnalysis()">Запустить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Analysis result modal -->
+<div id="analysisResultModal" class="modal-bg">
+  <div class="card p-6" style="max-width:760px;width:100%;max-height:90vh;overflow-y:auto">
+    <div class="flex items-center justify-between mb-4 sticky top-0 bg-surface py-2" style="background:#1e1a14">
+      <h3 class="text-xl font-bold" id="anResTitle">Отчёт</h3>
+      <button class="btn-g" onclick="closeAnalysisResult()" aria-label="Закрыть">✕</button>
+    </div>
+    <div id="anResMeta" class="text-xs text-on-dim mb-4 flex gap-2 flex-wrap"></div>
+    <div id="anResBody" class="text-sm" style="line-height:1.6;white-space:pre-wrap"></div>
+  </div>
 </div>
 
 
@@ -574,12 +614,13 @@ const STATUS_LABELS = {planned:'Запланирован',preparing:'Готов�
 
 async function loadCalendar(){
   const b = currentBrand();
-  if(!b){ _items = []; _calendar = null; renderCalendar(); renderChannels([]); return; }
+  if(!b){ _items = []; _calendar = null; renderCalendar(); renderChannels([]); renderAnalysis([]); return; }
   try{
     const [calRes] = await Promise.all([
       fetch(`/creators/brands/${b.id}/calendar`, {credentials:'include'}),
       loadFreemium(),
       loadChannels(),
+      loadAnalysisList(),
     ]);
     if(!calRes.ok) throw new Error('Ошибка ' + calRes.status);
     const d = await calRes.json();
@@ -692,6 +733,145 @@ document.addEventListener('click', async e =>{
     }
   }
 });
+
+// ── Social analysis ───────────────────────────────────────────────────────────
+let _anType = 'own';
+let _analyses = [];
+
+async function loadAnalysisList(){
+  const b = currentBrand();
+  if(!b){ _analyses = []; renderAnalysis([]); return; }
+  try{
+    const r = await fetch(`/creators/brands/${b.id}/analysis`, {credentials:'include'});
+    if(!r.ok) return;
+    const d = await r.json();
+    _analyses = d.runs || [];
+    renderAnalysis(_analyses);
+  }catch(e){}
+}
+
+function renderAnalysis(list){
+  const wrap = document.getElementById('analysisList');
+  const empty = document.getElementById('analysisEmpty');
+  wrap.innerHTML = '';
+  if(!list.length){
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  for(const a of list){
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid rgba(74,63,47,.4);background:#272018;cursor:pointer;flex-wrap:wrap';
+    const icon = a.target_type === 'competitor' ? '🕵' : '🔍';
+    const platLabel = a.platform ? (PLAT_LABELS[a.platform] || a.platform) : '—';
+    const statusBadge = a.status === 'done' ? '✅' : (a.status === 'failed' ? '❌' : '⏳');
+    const when = a.created_at ? new Date(a.created_at).toLocaleDateString('ru-RU') : '';
+    row.innerHTML = `
+      <span style="font-size:18px">${icon}</span>
+      <div style="flex:1;min-width:200px">
+        <div class="text-sm font-semibold">${esc(a.target_url)}</div>
+        <div class="text-xs text-on-dim">${platLabel} · ${a.target_type === 'competitor' ? 'Конкурент' : 'Свой профиль'} · ${when}</div>
+      </div>
+      <span class="stat-tag">${statusBadge} ${esc(a.status)}</span>
+      <span class="stat-tag">${(a.cost_kop / 100).toFixed(0)} ₽</span>
+      <button class="btn-d" data-an-delete="${a.id}" title="Удалить">🗑</button>
+    `;
+    row.onclick = (e) =>{
+      if(e.target.closest('[data-an-delete]')) return;
+      openAnalysisResult(a);
+    };
+    wrap.appendChild(row);
+  }
+}
+
+document.addEventListener('click', async e =>{
+  const del = e.target.closest('[data-an-delete]');
+  if(!del) return;
+  e.stopPropagation();
+  const id = del.dataset.anDelete;
+  const confirmFn = window.aiConfirm || ((m) => Promise.resolve(confirm(m)));
+  if(!(await confirmFn('Удалить отчёт?'))) return;
+  try{
+    const r = await fetch(`/creators/analysis/${id}`, {
+      method:'DELETE', credentials:'include',
+      headers: {'X-CSRF-Token': getCSRF()},
+    });
+    if(!r.ok) throw new Error('Ошибка ' + r.status);
+    loadAnalysisList();
+  }catch(err){
+    (window.aiToast || alert)(err.message);
+  }
+});
+
+function openAnalysisModal(type){
+  _anType = type;
+  const title = type === 'competitor' ? '🕵 Анализ конкурента (200 ₽)' : '🔍 Анализ своего профиля (150 ₽)';
+  document.getElementById('anModalTitle').textContent = title;
+  const hint = type === 'competitor'
+    ? 'Найдём что работает у конкурента — форматы, темы, лучшие посты, слабые места — и выдадим план как переиграть.'
+    : 'Аналитика твоего канала — какие посты заходят лучше, что улучшить, какие форматы попробовать.';
+  document.getElementById('anModalHint').textContent = hint;
+  document.getElementById('an_url').value = '';
+  document.getElementById('analysisModal').classList.add('show');
+  setTimeout(() => document.getElementById('an_url').focus(), 50);
+}
+
+function closeAnalysisModal(){
+  document.getElementById('analysisModal').classList.remove('show');
+}
+
+async function runAnalysis(){
+  const b = currentBrand();
+  if(!b){ (window.aiToast || alert)('Сначала выбери бренд'); return; }
+  const url = document.getElementById('an_url').value.trim();
+  if(!url || !/^https?:\/\//i.test(url)){
+    (window.aiToast || alert)('Нужен http(s):// URL');
+    return;
+  }
+  const btn = document.getElementById('anRunBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Анализ (30-90 сек)…';
+  try{
+    const r = await fetch(`/creators/brands/${b.id}/analyze`, {
+      method:'POST', credentials:'include',
+      headers: {'Content-Type':'application/json', 'X-CSRF-Token': getCSRF()},
+      body: JSON.stringify({target_type: _anType, target_url: url}),
+    });
+    if(!r.ok){
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || 'Ошибка ' + r.status);
+    }
+    const d = await r.json();
+    closeAnalysisModal();
+    await loadAnalysisList();
+    loadBalance();
+    openAnalysisResult(d);
+    (window.aiToast || (() => {}))(`Готово, списано ${(d.cost_kop/100).toFixed(0)} ₽`);
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'Запустить';
+  }
+}
+
+function openAnalysisResult(a){
+  document.getElementById('anResTitle').textContent =
+    (a.target_type === 'competitor' ? '🕵 Конкурент: ' : '🔍 Свой профиль: ') + a.target_url;
+  const meta = document.getElementById('anResMeta');
+  meta.innerHTML = `
+    <span class="stat-tag">${a.platform ? (PLAT_LABELS[a.platform] || a.platform) : '—'}</span>
+    <span class="stat-tag">${a.status}</span>
+    <span class="stat-tag">${(a.cost_kop / 100).toFixed(0)} ₽</span>
+    <span class="stat-tag">${a.created_at ? new Date(a.created_at).toLocaleString('ru-RU') : ''}</span>
+  `;
+  document.getElementById('anResBody').textContent = a.result_md || a.error || '(пусто)';
+  document.getElementById('analysisResultModal').classList.add('show');
+}
+
+function closeAnalysisResult(){
+  document.getElementById('analysisResultModal').classList.remove('show');
+}
 
 let _chPlatform = 'tg';
 
@@ -1178,10 +1358,18 @@ document.getElementById('itemModal').addEventListener('click', e =>{
 document.getElementById('channelModal').addEventListener('click', e =>{
   if(e.target.id === 'channelModal') closeChannelModal();
 });
+document.getElementById('analysisModal').addEventListener('click', e =>{
+  if(e.target.id === 'analysisModal') closeAnalysisModal();
+});
+document.getElementById('analysisResultModal').addEventListener('click', e =>{
+  if(e.target.id === 'analysisResultModal') closeAnalysisResult();
+});
 
-// Esc закрывает любую открытую модалку
+// Esc закрывает любую открытую модалку (топ first)
 document.addEventListener('keydown', e =>{
   if(e.key !== 'Escape') return;
+  if(document.getElementById('analysisResultModal').classList.contains('show')){ closeAnalysisResult(); return; }
+  if(document.getElementById('analysisModal').classList.contains('show')){ closeAnalysisModal(); return; }
   if(document.getElementById('channelModal').classList.contains('show')){ closeChannelModal(); return; }
   if(document.getElementById('itemModal').classList.contains('show')){ closeItemModal(); return; }
   if(document.getElementById('brandModal').classList.contains('show')){ closeBrandModal(); }
