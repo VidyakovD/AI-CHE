@@ -8,7 +8,7 @@
 """
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,6 +21,7 @@ from server.models import (
     CreatorChannelConnection, CreatorAnalysisRun,
 )
 from server.audit_log import log_action
+from server.creators_planner import generate_plan, PLAN_MIN_DAYS, PLAN_MAX_DAYS, PLAN_DEFAULT_DAYS, VALID_PLATFORMS as VALID_PLATFORMS_PLANNER
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/creators", tags=["creators"])
@@ -178,6 +179,186 @@ def get_calendar(brand_id: int, user: User = Depends(current_user), db: Session 
         },
         "items": [_item_dict(i) for i in items],
     }
+
+
+# ── Calendar generation (Шаг A — бесплатно) ──────────────────────────────────
+
+class CalendarGenerateIn(BaseModel):
+    days: Optional[int] = Field(default=PLAN_DEFAULT_DAYS, ge=PLAN_MIN_DAYS, le=PLAN_MAX_DAYS)
+    platforms: Optional[list[str]] = None  # tg/vk/yt/ig; пусто = все
+
+
+CALENDAR_REGEN_COOLDOWN_MIN = 60  # анти-абуз: не чаще раза в час
+
+
+@router.post("/brands/{brand_id}/calendar/generate")
+def generate_calendar(
+    brand_id: int,
+    payload: CalendarGenerateIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Сгенерировать контент-план на N дней. Бесплатно (входит в freemium).
+
+    Подготовка отдельных постов (Шаг B) — отдельный платный шаг, 3/мес бесплатно.
+    """
+    b = db.query(CreatorBrand).filter_by(id=brand_id, user_id=user.id).first()
+    if not b:
+        raise HTTPException(404, "Бренд не найден")
+
+    # Анти-абуз: проверяем cooldown по последнему active календарю
+    last = db.query(ContentCalendar).filter_by(brand_id=brand_id).order_by(ContentCalendar.id.desc()).first()
+    if last and last.generated_at:
+        age = datetime.utcnow() - last.generated_at
+        if age < timedelta(minutes=CALENDAR_REGEN_COOLDOWN_MIN):
+            wait = int((timedelta(minutes=CALENDAR_REGEN_COOLDOWN_MIN) - age).total_seconds() / 60) + 1
+            raise HTTPException(429, f"План уже сгенерирован недавно. Попробуйте через ~{wait} мин.")
+
+    platforms = payload.platforms
+    if platforms:
+        invalid = [p for p in platforms if p not in VALID_PLATFORMS_PLANNER]
+        if invalid:
+            raise HTTPException(400, f"Недопустимые платформы: {invalid}. Допустимо: {sorted(VALID_PLATFORMS_PLANNER)}")
+
+    try:
+        plan = generate_plan(b, days=payload.days or PLAN_DEFAULT_DAYS, platforms=platforms, user_id=user.id)
+    except Exception as e:
+        log.exception("[creators.generate] brand=%s failed: %s", brand_id, e)
+        raise HTTPException(500, f"Не удалось сгенерировать план: {e}")
+
+    # Архивируем все старые active календари бренда
+    db.query(ContentCalendar).filter_by(brand_id=brand_id, status="active").update({"status": "archived"})
+
+    cal = ContentCalendar(
+        brand_id=brand_id,
+        period_start=plan["period_start"],
+        period_end=plan["period_end"],
+        status="active",
+        generated_at=datetime.utcnow(),
+    )
+    db.add(cal)
+    db.flush()
+
+    for item in plan["items"]:
+        db.add(ContentItem(
+            calendar_id=cal.id,
+            schedule_at=item["schedule_at"],
+            platform=item["platform"],
+            type=item["type"],
+            is_news=item["is_news"],
+            brief=item["brief"] or None,
+            status="planned",
+        ))
+    db.commit()
+    db.refresh(cal)
+
+    log_action(
+        "creator.calendar_generated", user_id=user.id, brand_id=brand_id,
+        calendar_id=cal.id, items_count=len(plan["items"]),
+        days=payload.days, platforms=",".join(platforms or sorted(VALID_PLATFORMS_PLANNER)),
+        brief_filled=plan["raw_brief_count"],
+    )
+
+    items = db.query(ContentItem).filter_by(calendar_id=cal.id).order_by(ContentItem.schedule_at).all()
+    return {
+        "calendar": {
+            "id": cal.id,
+            "period_start": cal.period_start.isoformat(),
+            "period_end": cal.period_end.isoformat(),
+            "status": cal.status,
+            "generated_at": cal.generated_at.isoformat(),
+        },
+        "items": [_item_dict(i) for i in items],
+        "stats": {
+            "total": len(items),
+            "brief_filled": plan["raw_brief_count"],
+            "by_platform": _count_by(items, "platform"),
+            "by_type": _count_by(items, "type"),
+        },
+    }
+
+
+def _count_by(items: list, attr: str) -> dict:
+    out: dict = {}
+    for i in items:
+        v = getattr(i, attr, None) or "?"
+        out[v] = out.get(v, 0) + 1
+    return out
+
+
+# ── Item edit / skip ──────────────────────────────────────────────────────────
+
+class ItemUpdateIn(BaseModel):
+    schedule_at: Optional[datetime] = None
+    brief: Optional[str] = None
+    type: Optional[str] = None
+    is_news: Optional[bool] = None
+    status: Optional[str] = None  # planned/skipped только
+
+
+VALID_TYPES = {"text", "image", "reels", "youtube", "poll", "news"}
+EDITABLE_STATUSES = {"planned", "skipped"}
+
+
+@router.put("/items/{item_id}")
+def update_item(
+    item_id: int,
+    payload: ItemUpdateIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Изменить пост в плане. Доступно пока status in {planned, skipped, ready}.
+
+    После published — менять нельзя.
+    """
+    item = db.query(ContentItem).join(ContentCalendar).join(CreatorBrand).filter(
+        ContentItem.id == item_id, CreatorBrand.user_id == user.id,
+    ).first()
+    if not item:
+        raise HTTPException(404, "Пост не найден")
+    if item.status == "published":
+        raise HTTPException(400, "Опубликованный пост менять нельзя")
+
+    if payload.schedule_at is not None:
+        item.schedule_at = payload.schedule_at
+    if payload.brief is not None:
+        item.brief = (payload.brief.strip() or None)
+        item.manual_override = True
+    if payload.type is not None:
+        if payload.type not in VALID_TYPES:
+            raise HTTPException(400, f"type ∉ {sorted(VALID_TYPES)}")
+        item.type = payload.type
+    if payload.is_news is not None:
+        item.is_news = bool(payload.is_news)
+    if payload.status is not None:
+        if payload.status not in EDITABLE_STATUSES:
+            raise HTTPException(400, "status ∈ {planned, skipped}")
+        item.status = payload.status
+
+    db.commit()
+    db.refresh(item)
+    log_action("creator.item_updated", user_id=user.id, item_id=item.id)
+    return _item_dict(item)
+
+
+@router.delete("/items/{item_id}")
+def delete_item(
+    item_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Полностью удалить пост из плана (отличается от status=skipped)."""
+    item = db.query(ContentItem).join(ContentCalendar).join(CreatorBrand).filter(
+        ContentItem.id == item_id, CreatorBrand.user_id == user.id,
+    ).first()
+    if not item:
+        raise HTTPException(404, "Пост не найден")
+    if item.status == "published":
+        raise HTTPException(400, "Опубликованный пост удалить нельзя")
+    db.delete(item)
+    db.commit()
+    log_action("creator.item_deleted", user_id=user.id, item_id=item_id)
+    return {"ok": True}
 
 
 def _item_dict(i: ContentItem) -> dict:

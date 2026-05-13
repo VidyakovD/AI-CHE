@@ -57,10 +57,31 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
 .stub{padding:24px;text-align:center;border:1.5px dashed rgba(74,63,47,0.4);border-radius:14px;color:#a89880}
 .stub b{color:#ffb347;font-weight:600}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
-.cal-cell{aspect-ratio:1;background:#272018;border-radius:8px;padding:6px;font-size:11px;color:#a89880;border:1px solid transparent;transition:border-color .15s;cursor:pointer}
-.cal-cell:hover{border-color:#ff8c42}
-.cal-cell.dim{opacity:0.4}
-.cal-cell-date{font-weight:600;color:#f0e6d8;font-size:12px}
+.cal-head{font-size:10px;color:#a89880;text-align:center;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:6px 0}
+.cal-cell{min-height:96px;background:#272018;border-radius:8px;padding:6px;font-size:11px;color:#a89880;border:1px solid transparent;transition:border-color .15s;display:flex;flex-direction:column;gap:4px}
+.cal-cell:hover{border-color:rgba(255,140,66,.45)}
+.cal-cell.outside{opacity:.3}
+.cal-cell.today{border-color:#ff8c42}
+.cal-cell-date{font-weight:600;color:#f0e6d8;font-size:12px;display:flex;justify-content:space-between;align-items:center}
+.cal-cell-date .cnt{font-size:10px;color:#a89880;font-weight:500}
+.cal-cell-items{display:flex;flex-direction:column;gap:3px;overflow:hidden}
+.cal-item{display:flex;align-items:center;gap:5px;font-size:10px;padding:2px 5px;border-radius:4px;background:rgba(0,0,0,.18);cursor:pointer;border:1px solid transparent;transition:border-color .12s}
+.cal-item:hover{border-color:#ff8c42}
+.cal-item .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.cal-item .ttl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f0e6d8}
+.cal-item .tim{font-size:9px;color:#a89880}
+.cal-item.skipped{opacity:.4;text-decoration:line-through}
+.cal-item.published{opacity:.55}
+.type-text{background:#4dabf7}
+.type-image{background:#ffd43b}
+.type-reels{background:#ff87b7}
+.type-youtube{background:#fa5252}
+.type-poll{background:#a78bfa}
+.legend-row{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:#a89880}
+.legend-row .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
+.is-news{outline:1px solid #ff8c42;outline-offset:1px}
+.stat-tag{padding:3px 8px;background:#322a1e;border-radius:6px;font-size:11px;color:#a89880}
+.stat-tag b{color:#ffb347;font-weight:600}
 </style>
 <script src="/shared.js" defer></script>
 <script src="/icons.js" defer></script>
@@ -107,21 +128,50 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
     </div>
   </section>
 
-  <!-- Calendar — заглушка под итерацию 2 -->
+  <!-- Calendar -->
   <section class="card p-4 mb-6" id="calendarBlock" style="display:none">
-    <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
       <div>
         <h2 class="text-lg font-bold">Контент-план</h2>
-        <p class="text-xs text-on-dim">AI разбрасывает посты по дням и платформам</p>
+        <p class="text-xs text-on-dim">AI разбрасывает посты по дням и платформам. Бесплатно.</p>
       </div>
-      <button class="btn-p" onclick="generatePlan()" disabled title="Итерация 2">
-        ✨ Сгенерировать на месяц
-      </button>
+      <div class="flex items-center gap-2 flex-wrap">
+        <label class="text-xs text-on-dim">Дней:</label>
+        <select id="planDays" class="inp" style="width:80px;padding:6px 10px">
+          <option value="7">7</option>
+          <option value="14">14</option>
+          <option value="30" selected>30</option>
+        </select>
+        <button class="btn-p" id="genPlanBtn" onclick="generatePlan()">
+          ✨ Сгенерировать
+        </button>
+      </div>
     </div>
-    <div class="stub">
+
+    <!-- Stats / legend -->
+    <div id="planStats" class="flex items-center gap-2 flex-wrap mb-3" style="display:none"></div>
+    <div class="legend-row mb-3" id="planLegend" style="display:none">
+      <span><span class="dot type-text"></span>Текст</span>
+      <span><span class="dot type-image"></span>Картинка</span>
+      <span><span class="dot type-reels"></span>Reels</span>
+      <span><span class="dot type-youtube"></span>YouTube</span>
+      <span><span class="dot type-poll"></span>Опрос</span>
+      <span><span class="dot" style="background:#ff8c42;outline:1px solid #ff8c42;outline-offset:1px"></span>Новостной (актуальный)</span>
+    </div>
+
+    <!-- Grid headers -->
+    <div class="cal-grid mb-1" id="calHeaders" style="display:none">
+      <div class="cal-head">Пн</div><div class="cal-head">Вт</div><div class="cal-head">Ср</div>
+      <div class="cal-head">Чт</div><div class="cal-head">Пт</div><div class="cal-head">Сб</div><div class="cal-head">Вс</div>
+    </div>
+
+    <!-- Grid -->
+    <div class="cal-grid" id="calGrid"></div>
+
+    <!-- Empty state inside calendar -->
+    <div id="calEmpty" class="stub" style="display:none">
       <div style="font-size:32px;margin-bottom:8px">📅</div>
-      <div><b>Итерация 2:</b> календарная сетка дней + цветные плашки по типу контента</div>
-      <div class="mt-2 text-xs">Сейчас работает: профиль бренда (CRUD). Дальше: генерация плана → подготовка постов → автопостинг.</div>
+      <div>План пока не создан. Нажми «✨ Сгенерировать» — AI разбросает ~30 постов на месяц по платформам и дням.</div>
     </div>
   </section>
 
@@ -162,6 +212,57 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
     <button class="btn-p" onclick="openBrandModal()">+ Создать бренд</button>
   </section>
 
+</div>
+
+
+<!-- Item modal (детальная карточка поста) -->
+<div id="itemModal" class="modal-bg">
+  <div class="card p-6" style="max-width:560px;width:100%">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-xl font-bold">Пост в плане</h3>
+      <button class="btn-g" onclick="closeItemModal()" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="space-y-4 text-sm">
+      <div class="flex items-center gap-3 flex-wrap">
+        <span id="im_platform" class="stat-tag"></span>
+        <span id="im_type" class="stat-tag"></span>
+        <span id="im_news" class="stat-tag" style="display:none">📰 Новостной</span>
+        <span id="im_status" class="stat-tag"></span>
+      </div>
+      <div>
+        <label class="lbl">Дата и время (UTC)</label>
+        <input id="im_schedule" type="datetime-local" class="inp"/>
+      </div>
+      <div>
+        <label class="lbl">Brief — о чём пост</label>
+        <textarea id="im_brief" class="inp" rows="4" placeholder="Концепт / angle / что хотим донести"></textarea>
+      </div>
+      <div>
+        <label class="lbl">Тип</label>
+        <select id="im_type_sel" class="inp">
+          <option value="text">Текст</option>
+          <option value="image">Картинка</option>
+          <option value="reels">Reels</option>
+          <option value="youtube">YouTube</option>
+          <option value="poll">Опрос</option>
+        </select>
+      </div>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input id="im_is_news" type="checkbox"/>
+        <span>Актуальная новость (готовить в день постинга)</span>
+      </label>
+    </div>
+    <div class="flex items-center justify-between gap-3 mt-6">
+      <button class="btn-d" onclick="deleteItem()">🗑 Удалить</button>
+      <div class="flex gap-2">
+        <button class="btn-g" onclick="toggleSkip()" id="im_skip_btn">⏸ Пропустить</button>
+        <button class="btn-p" onclick="saveItem()">💾 Сохранить</button>
+      </div>
+    </div>
+    <div class="mt-4 text-xs text-on-dim" id="im_prep_hint">
+      <b>Подготовка</b> (текст + опц. картинка) появится в итерации 3 — scheduler сам подготовит за день до публикации.
+    </div>
+  </div>
 </div>
 
 
@@ -279,7 +380,8 @@ function renderBrands(){
   blocks.forEach(id => document.getElementById(id).style.display = '');
 
   updateSummary();
-  sel.onchange = updateSummary;
+  loadCalendar();
+  sel.onchange = () => { updateSummary(); loadCalendar(); };
 }
 
 function updateSummary(){
@@ -395,27 +497,321 @@ async function deleteCurrentBrand(){
   }
 }
 
-function generatePlan(){
-  // Реализация в итерации 2
-  (window.aiToast || alert)('Генерация плана — в итерации 2');
+// ── Calendar state ────────────────────────────────────────────────────────────
+let _items = [];          // все items текущего календаря
+let _calendar = null;     // объект {id, period_start, period_end, status, generated_at}
+let _editingItemId = null;
+const _activePlatforms = new Set(['tg','vk','yt','ig']);
+
+const TYPE_LABELS = {text:'Текст',image:'Картинка',reels:'Reels',youtube:'YouTube',poll:'Опрос'};
+const PLAT_LABELS = {tg:'📨 TG', vk:'🔵 VK', yt:'▶ YouTube', ig:'📷 Instagram'};
+const STATUS_LABELS = {planned:'Запланирован',preparing:'Готовится',ready:'Готов',published:'Опубликован',skipped:'Пропущен'};
+
+async function loadCalendar(){
+  const b = currentBrand();
+  if(!b){ _items = []; _calendar = null; renderCalendar(); return; }
+  try{
+    const r = await fetch(`/creators/brands/${b.id}/calendar`, {credentials:'include'});
+    if(!r.ok) throw new Error('Ошибка ' + r.status);
+    const d = await r.json();
+    _calendar = d.calendar;
+    _items = d.items || [];
+    renderCalendar();
+    renderStats();
+  }catch(e){
+    console.error(e);
+  }
 }
 
-// Платформенный фильтр (для будущего календаря)
+async function generatePlan(){
+  const b = currentBrand();
+  if(!b){ (window.aiToast || alert)('Выбери бренд'); return; }
+  if(!b.product && !b.audience && !b.niche){
+    const confirmFn = window.aiConfirm || ((m) => Promise.resolve(confirm(m)));
+    const ok = await confirmFn('Профиль бренда почти пустой — план будет неточным. Заполнить сейчас?');
+    if(ok){ editCurrentBrand(); return; }
+  }
+  const platforms = [...document.querySelectorAll('.chip[data-platform].chip-active')].map(el => el.dataset.platform);
+  if(!platforms.length){ (window.aiToast || alert)('Выбери хотя бы одну платформу'); return; }
+  const days = parseInt(document.getElementById('planDays').value, 10) || 30;
+
+  const btn = document.getElementById('genPlanBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Генерация…';
+  try{
+    const r = await fetch(`/creators/brands/${b.id}/calendar/generate`, {
+      method:'POST', credentials:'include',
+      headers: {'Content-Type':'application/json', 'X-CSRF-Token': getCSRF()},
+      body: JSON.stringify({days, platforms}),
+    });
+    if(!r.ok){
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || 'Ошибка ' + r.status);
+    }
+    const d = await r.json();
+    _calendar = d.calendar;
+    _items = d.items || [];
+    renderCalendar();
+    renderStats(d.stats);
+    (window.aiToast || (() => {}))(`План создан: ${_items.length} постов`);
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '✨ Сгенерировать';
+  }
+}
+
+function renderStats(stats){
+  const el = document.getElementById('planStats');
+  const legend = document.getElementById('planLegend');
+  if(!_items.length){ el.style.display = 'none'; legend.style.display = 'none'; return; }
+  legend.style.display = 'flex';
+  el.style.display = 'flex';
+
+  if(!stats){
+    // считаем сами из _items
+    stats = {total: _items.length, by_platform: {}, by_type: {}};
+    _items.forEach(i =>{
+      stats.by_platform[i.platform] = (stats.by_platform[i.platform] || 0) + 1;
+      stats.by_type[i.type] = (stats.by_type[i.type] || 0) + 1;
+    });
+  }
+  const parts = [`<span class="stat-tag"><b>${stats.total}</b> постов</span>`];
+  for(const p of Object.keys(stats.by_platform || {})){
+    parts.push(`<span class="stat-tag">${PLAT_LABELS[p] || p}: <b>${stats.by_platform[p]}</b></span>`);
+  }
+  if(_calendar){
+    const d1 = new Date(_calendar.period_start).toLocaleDateString('ru-RU');
+    const d2 = new Date(_calendar.period_end).toLocaleDateString('ru-RU');
+    parts.push(`<span class="stat-tag">${d1} — ${d2}</span>`);
+  }
+  el.innerHTML = parts.join('');
+}
+
+function renderCalendar(){
+  const grid = document.getElementById('calGrid');
+  const headers = document.getElementById('calHeaders');
+  const empty = document.getElementById('calEmpty');
+  grid.innerHTML = '';
+
+  if(!_calendar || !_items.length){
+    headers.style.display = 'none';
+    empty.style.display = '';
+    return;
+  }
+  headers.style.display = '';
+  empty.style.display = 'none';
+
+  // Период
+  const start = new Date(_calendar.period_start);
+  const end = new Date(_calendar.period_end);
+  // Сетку начинаем с понедельника недели start
+  const gridStart = new Date(start);
+  const jsDay = gridStart.getDay(); // 0=Sun..6=Sat
+  const offsetToMon = (jsDay === 0 ? 6 : jsDay - 1);
+  gridStart.setDate(gridStart.getDate() - offsetToMon);
+  gridStart.setHours(0,0,0,0);
+
+  // Группируем посты по YYYY-MM-DD (UTC даты публикации; но отображаем в МСК для дружелюбия)
+  const itemsByDay = {};
+  for(const item of _items){
+    if(!_activePlatforms.has(item.platform)) continue;
+    const dt = new Date(item.schedule_at);
+    // Сдвигаем в МСК для группировки по дню (UTC+3)
+    const mskDay = new Date(dt.getTime() + 3 * 3600 * 1000);
+    const key = mskDay.toISOString().slice(0, 10);
+    (itemsByDay[key] = itemsByDay[key] || []).push(item);
+  }
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const totalDays = Math.ceil((end - gridStart) / 86400000);
+  const rows = Math.ceil(totalDays / 7);
+
+  for(let r = 0; r < rows; r++){
+    for(let c = 0; c < 7; c++){
+      const d = new Date(gridStart);
+      d.setDate(d.getDate() + r * 7 + c);
+      const key = d.toISOString().slice(0, 10);
+      const outside = (d < start || d > end);
+      const isToday = (d.getTime() === today.getTime());
+
+      const cell = document.createElement('div');
+      cell.className = 'cal-cell' + (outside ? ' outside' : '') + (isToday ? ' today' : '');
+      const dayNum = d.getDate();
+      const dayItems = itemsByDay[key] || [];
+
+      const head = document.createElement('div');
+      head.className = 'cal-cell-date';
+      head.innerHTML = `<span>${dayNum}</span>${dayItems.length ? `<span class="cnt">${dayItems.length}</span>` : ''}`;
+      cell.appendChild(head);
+
+      const itemsBox = document.createElement('div');
+      itemsBox.className = 'cal-cell-items';
+      // Сортируем по времени
+      dayItems.sort((a, b) => new Date(a.schedule_at) - new Date(b.schedule_at));
+      for(const item of dayItems.slice(0, 4)){
+        itemsBox.appendChild(_renderItemChip(item));
+      }
+      if(dayItems.length > 4){
+        const more = document.createElement('div');
+        more.className = 'cal-item';
+        more.style.opacity = '.7';
+        more.innerHTML = `<span class="ttl">+${dayItems.length - 4} ещё</span>`;
+        itemsBox.appendChild(more);
+      }
+      cell.appendChild(itemsBox);
+      grid.appendChild(cell);
+    }
+  }
+}
+
+function _renderItemChip(item){
+  const el = document.createElement('div');
+  const typeClass = 'type-' + item.type;
+  el.className = 'cal-item ' + (item.status === 'skipped' ? 'skipped' : '') + ' ' + (item.status === 'published' ? 'published' : '');
+  if(item.is_news) el.classList.add('is-news');
+  const dt = new Date(item.schedule_at);
+  // Время в МСК для красоты
+  const msk = new Date(dt.getTime() + 3 * 3600 * 1000);
+  const hh = String(msk.getUTCHours()).padStart(2, '0');
+  const mm = String(msk.getUTCMinutes()).padStart(2, '0');
+  const platIcon = (PLAT_LABELS[item.platform] || '').split(' ')[0];
+  const title = (item.brief || '— brief пустой —').slice(0, 60);
+  el.innerHTML = `<span class="dot ${typeClass}"></span><span class="ttl" title="${esc(item.brief || '')}">${platIcon} ${esc(title)}</span><span class="tim">${hh}:${mm}</span>`;
+  el.onclick = () => openItemModal(item);
+  return el;
+}
+
+// ── Item modal ────────────────────────────────────────────────────────────────
+function openItemModal(item){
+  _editingItemId = item.id;
+  document.getElementById('im_platform').textContent = PLAT_LABELS[item.platform] || item.platform;
+  document.getElementById('im_type').textContent = TYPE_LABELS[item.type] || item.type;
+  document.getElementById('im_news').style.display = item.is_news ? 'inline-flex' : 'none';
+  document.getElementById('im_status').textContent = STATUS_LABELS[item.status] || item.status;
+
+  // datetime-local ожидает локальное (МСК) время без TZ
+  const dt = new Date(item.schedule_at);
+  const msk = new Date(dt.getTime() + 3 * 3600 * 1000);
+  const localStr = msk.toISOString().slice(0, 16);
+  document.getElementById('im_schedule').value = localStr;
+  document.getElementById('im_brief').value = item.brief || '';
+  document.getElementById('im_type_sel').value = item.type === 'news' ? 'text' : item.type;
+  document.getElementById('im_is_news').checked = !!item.is_news;
+
+  const skipBtn = document.getElementById('im_skip_btn');
+  skipBtn.textContent = item.status === 'skipped' ? '↻ Вернуть' : '⏸ Пропустить';
+  skipBtn.style.display = item.status === 'published' ? 'none' : 'inline-flex';
+
+  document.getElementById('itemModal').classList.add('show');
+}
+
+function closeItemModal(){
+  document.getElementById('itemModal').classList.remove('show');
+  _editingItemId = null;
+}
+
+async function saveItem(){
+  if(!_editingItemId) return;
+  // МСК (из datetime-local) → UTC
+  const mskStr = document.getElementById('im_schedule').value;
+  let scheduleAt = null;
+  if(mskStr){
+    const msk = new Date(mskStr + ':00');
+    const utc = new Date(msk.getTime() - 3 * 3600 * 1000);
+    scheduleAt = utc.toISOString();
+  }
+  const payload = {
+    schedule_at: scheduleAt,
+    brief: document.getElementById('im_brief').value.trim(),
+    type: document.getElementById('im_type_sel').value,
+    is_news: document.getElementById('im_is_news').checked,
+  };
+  try{
+    const r = await fetch(`/creators/items/${_editingItemId}`, {
+      method:'PUT', credentials:'include',
+      headers: {'Content-Type':'application/json', 'X-CSRF-Token': getCSRF()},
+      body: JSON.stringify(payload),
+    });
+    if(!r.ok){ const e = await r.json().catch(() => ({})); throw new Error(e.detail || 'Ошибка'); }
+    const upd = await r.json();
+    const idx = _items.findIndex(x => x.id === upd.id);
+    if(idx >= 0) _items[idx] = upd;
+    closeItemModal();
+    renderCalendar();
+    (window.aiToast || (() => {}))('Сохранено');
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+  }
+}
+
+async function toggleSkip(){
+  if(!_editingItemId) return;
+  const item = _items.find(x => x.id === _editingItemId);
+  if(!item) return;
+  const newStatus = item.status === 'skipped' ? 'planned' : 'skipped';
+  try{
+    const r = await fetch(`/creators/items/${_editingItemId}`, {
+      method:'PUT', credentials:'include',
+      headers: {'Content-Type':'application/json', 'X-CSRF-Token': getCSRF()},
+      body: JSON.stringify({status: newStatus}),
+    });
+    if(!r.ok) throw new Error('Ошибка ' + r.status);
+    const upd = await r.json();
+    const idx = _items.findIndex(x => x.id === upd.id);
+    if(idx >= 0) _items[idx] = upd;
+    closeItemModal();
+    renderCalendar();
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+  }
+}
+
+async function deleteItem(){
+  if(!_editingItemId) return;
+  const confirmFn = window.aiConfirm || ((m) => Promise.resolve(confirm(m)));
+  const ok = await confirmFn('Удалить пост из плана?');
+  if(!ok) return;
+  try{
+    const r = await fetch(`/creators/items/${_editingItemId}`, {
+      method:'DELETE', credentials:'include',
+      headers: {'X-CSRF-Token': getCSRF()},
+    });
+    if(!r.ok) throw new Error('Ошибка ' + r.status);
+    _items = _items.filter(x => x.id !== _editingItemId);
+    closeItemModal();
+    renderCalendar();
+    renderStats();
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+  }
+}
+
+// Платформенный фильтр (применяется к календарю)
 document.addEventListener('click', e =>{
   const chip = e.target.closest('.chip[data-platform]');
   if(!chip) return;
   chip.classList.toggle('chip-active');
-  // TODO итерация 2: фильтр на календаре
+  const p = chip.dataset.platform;
+  if(chip.classList.contains('chip-active')) _activePlatforms.add(p);
+  else _activePlatforms.delete(p);
+  renderCalendar();
 });
 
-// Закрытие модалки по клику на фон
+// Закрытие модалок по клику на фон
 document.getElementById('brandModal').addEventListener('click', e =>{
   if(e.target.id === 'brandModal') closeBrandModal();
 });
+document.getElementById('itemModal').addEventListener('click', e =>{
+  if(e.target.id === 'itemModal') closeItemModal();
+});
 
-// Esc закрывает
+// Esc закрывает любую открытую модалку
 document.addEventListener('keydown', e =>{
-  if(e.key === 'Escape') closeBrandModal();
+  if(e.key !== 'Escape') return;
+  if(document.getElementById('itemModal').classList.contains('show')){ closeItemModal(); return; }
+  if(document.getElementById('brandModal').classList.contains('show')){ closeBrandModal(); }
 });
 
 // Хелперы
