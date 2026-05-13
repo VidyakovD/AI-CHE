@@ -1565,12 +1565,12 @@
    привязаны к ВСЕМ link-state селекторам явно.
    forced-color-adjust:none — отключает Windows High Contrast override.
    text-decoration:none !important — против дефолтного underline visited. */
-#ai-balance-pill,
-#ai-balance-pill:link,
-#ai-balance-pill:visited,
-#ai-balance-pill:active,
-#ai-balance-pill:focus,
-#ai-balance-pill:focus-visible{
+#aiche-stat-card,
+#aiche-stat-card:link,
+#aiche-stat-card:visited,
+#aiche-stat-card:active,
+#aiche-stat-card:focus,
+#aiche-stat-card:focus-visible{
   position:fixed !important;top:14px !important;right:64px !important;z-index:99996 !important;
   display:flex !important;align-items:center !important;gap:7px !important;
   padding:7px 14px !important;border-radius:999px !important;
@@ -1587,20 +1587,20 @@
   -webkit-text-fill-color:#ffb347 !important;
   transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;
 }
-#ai-balance-pill:hover{
+#aiche-stat-card:hover{
   transform:translateY(-1px) scale(1.03);
   border-color:rgba(255,140,66,.7) !important;
   box-shadow:0 0 0 1px rgba(255,140,66,.25),0 10px 28px rgba(255,140,66,.18) !important;
   color:#ff8c42 !important;
   -webkit-text-fill-color:#ff8c42 !important;
 }
-#ai-balance-pill .bal-em{font-size:14px !important;line-height:1 !important;color:#ffd166 !important;-webkit-text-fill-color:initial !important}
-#ai-balance-pill .bal-num{font-variant-numeric:tabular-nums;color:#f0e6d8 !important;-webkit-text-fill-color:#f0e6d8 !important}
-@media(max-width:640px){#ai-balance-pill{top:10px !important;right:56px !important;padding:6px 11px !important;font-size:11px !important}}
-@media(max-width:380px){#ai-balance-pill{display:none !important}}
+#aiche-stat-card .bal-em{font-size:14px !important;line-height:1 !important;color:#ffd166 !important;-webkit-text-fill-color:initial !important}
+#aiche-stat-card .bal-num{font-variant-numeric:tabular-nums;color:#f0e6d8 !important;-webkit-text-fill-color:#f0e6d8 !important}
+@media(max-width:640px){#aiche-stat-card{top:10px !important;right:56px !important;padding:6px 11px !important;font-size:11px !important}}
+@media(max-width:380px){#aiche-stat-card{display:none !important}}
 /* Windows High Contrast / forced-colors mode — явно оранжевый */
 @media(forced-colors:active){
-  #ai-balance-pill{
+  #aiche-stat-card{
     border:2px solid Highlight !important;
     background:Canvas !important;
     color:CanvasText !important;
@@ -1609,18 +1609,24 @@
 }
 `;
       const style = document.createElement('style');
-      style.id = 'ai-balance-style';
+      style.id = 'aiche-stat-style';
       style.textContent = css;
       document.head.appendChild(style);
 
-      const a = document.createElement('a');
-      a.id = 'ai-balance-pill';
-      a.href = '/?tab=tokens';
-      a.title = 'Баланс — клик для пополнения';
-      a.innerHTML = `<span class="bal-em">💰</span><span class="bal-num">— ₽</span>`;
-      document.body.appendChild(a);
-      _slotEl = a;
-      return a;
+      // НЕ <a href> + НЕ id "balance" — иначе расширения TronLink / Polkadot.js /
+      // BrowserOverlay сканируют по этим маркерам и injектят зелёный overlay
+      // через inline-styles (перебивают даже наш !important).
+      // Используем <button> с нейтральным id "aiche-stat-card".
+      const btn = document.createElement('button');
+      btn.id = 'aiche-stat-card';
+      btn.type = 'button';
+      btn.title = 'Кабинет — пополнить счёт';
+      btn.setAttribute('data-aiche-no-overlay', '1');
+      btn.innerHTML = `<span class="bal-em" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="color:#ffd166"><path d="M12 2L1 7l11 5 11-5-11-5zm0 13L1 10v7l11 5 11-5v-7l-11 5z"/></svg></span><span class="bal-num">— ₽</span>`;
+      btn.addEventListener('click', () => { location.href = '/?tab=tokens'; });
+      document.body.appendChild(btn);
+      _slotEl = btn;
+      return btn;
     }
 
     window.aiBalance = {
