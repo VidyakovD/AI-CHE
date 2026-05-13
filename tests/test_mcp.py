@@ -244,3 +244,145 @@ class TestMcpJsonRpcErrors:
         assert r.status_code == 200
         err = r.json()["error"]
         assert err["code"] == -32601
+
+
+class TestMcpResources:
+    """Resources — статичные данные (категории / прайс / модели)
+    которые Claude может прочитать как контекст."""
+
+    def test_resources_list(self, mcp_client, mcp_auth):
+        headers, _ = mcp_auth
+        r = mcp_client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 100, "method": "resources/list"},
+            headers=headers,
+        )
+        assert r.status_code == 200
+        result = r.json()["result"]
+        uris = {res["uri"] for res in result["resources"]}
+        assert "aiche://categories" in uris
+        assert "aiche://pricing" in uris
+        assert "aiche://models" in uris
+
+    def test_read_pricing(self, mcp_client, mcp_auth):
+        headers, _ = mcp_auth
+        r = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0", "id": 101,
+                "method": "resources/read",
+                "params": {"uri": "aiche://pricing"},
+            },
+            headers=headers,
+        )
+        assert r.status_code == 200
+        result = r.json()["result"]
+        assert "contents" in result
+        content = result["contents"][0]
+        assert content["mimeType"] == "application/json"
+        import json
+        data = json.loads(content["text"])
+        # Должны быть какие-то pricing items
+        assert "items" in data
+        assert len(data["items"]) > 5
+        # Проверка структуры одного item'а
+        item = data["items"][0]
+        assert "key" in item and "label" in item
+        assert "value_kop" in item and "value_rub" in item
+
+    def test_read_categories(self, mcp_client, mcp_auth):
+        headers, _ = mcp_auth
+        r = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0", "id": 102,
+                "method": "resources/read",
+                "params": {"uri": "aiche://categories"},
+            },
+            headers=headers,
+        )
+        assert r.status_code == 200
+        result = r.json()["result"]
+        assert "contents" in result
+
+    def test_read_models(self, mcp_client, mcp_auth):
+        headers, _ = mcp_auth
+        r = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0", "id": 103,
+                "method": "resources/read",
+                "params": {"uri": "aiche://models"},
+            },
+            headers=headers,
+        )
+        assert r.status_code == 200
+        result = r.json()["result"]
+        assert "contents" in result
+
+    def test_read_unknown_resource(self, mcp_client, mcp_auth):
+        headers, _ = mcp_auth
+        r = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0", "id": 104,
+                "method": "resources/read",
+                "params": {"uri": "aiche://nope"},
+            },
+            headers=headers,
+        )
+        assert r.status_code == 200
+        err = r.json()["error"]
+        assert err["code"] == -32601
+
+
+class TestMcpNewTools:
+    """Новые tools: list_chatbots, recent_records, generate_proposal."""
+
+    def test_list_chatbots_no_bots_returns_empty(self, mcp_client, mcp_auth):
+        headers, _ = mcp_auth
+        r = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0", "id": 200,
+                "method": "tools/call",
+                "params": {"name": "list_chatbots", "arguments": {"limit": 10}},
+            },
+            headers=headers,
+        )
+        assert r.status_code == 200
+        result = r.json()["result"]
+        import json
+        data = json.loads(result["content"][0]["text"])
+        assert "items" in data
+        assert isinstance(data["items"], list)
+
+    def test_recent_records_no_records_returns_empty(self, mcp_client, mcp_auth):
+        headers, _ = mcp_auth
+        r = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0", "id": 201,
+                "method": "tools/call",
+                "params": {"name": "recent_records", "arguments": {"limit": 5}},
+            },
+            headers=headers,
+        )
+        assert r.status_code == 200
+        result = r.json()["result"]
+        import json
+        data = json.loads(result["content"][0]["text"])
+        assert "items" in data
+
+    def test_initialize_includes_resources_capability(self, mcp_client, mcp_auth):
+        """После добавления resources — initialize должен заявлять capability."""
+        headers, _ = mcp_auth
+        r = mcp_client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 300, "method": "initialize"},
+            headers=headers,
+        )
+        assert r.status_code == 200
+        caps = r.json()["result"]["capabilities"]
+        assert "resources" in caps
+        assert "tools" in caps

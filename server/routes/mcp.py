@@ -49,6 +49,7 @@ from server.routes.deps import get_db
 from server.routes.public_api import authenticate_token
 from server.models import (
     User, Solution, SolutionRun, ProposalProject, ProposalBrand,
+    ChatBot, BotRecord, PricingConfig,
 )
 
 log = logging.getLogger(__name__)
@@ -170,9 +171,57 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "generate_proposal",
+        "description": "Создать ПОЛНОЦЕННОЕ КП через AI-генерацию (списывает "
+                       "proposal.create ₽, default 50 ₽). Синхронный вызов, "
+                       "занимает 30-90 сек. Возвращает preview_url для клиента.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Внутреннее название КП"},
+                "client_name": {"type": "string"},
+                "client_email": {"type": "string"},
+                "client_request": {
+                    "type": "string",
+                    "description": "Задача клиента / детальное описание (10-50000 симв)",
+                },
+                "brand_id": {"type": "integer", "description": "ID бренда (опц)"},
+            },
+            "required": ["name", "client_request"],
+        },
+    },
+    {
+        "name": "list_chatbots",
+        "description": "Список чат-ботов пользователя с базовой инфой (id, name, status, channels).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 50, "maximum": 100},
+                "status": {"type": "string", "description": "active / inactive / paused"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "recent_records",
+        "description": "Последние заявки/брони/заказы из чат-ботов (BotRecord). "
+                       "Содержит имя/телефон/email клиента + payload.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 20, "maximum": 100},
+                "record_type": {
+                    "type": "string",
+                    "description": "lead / booking / order / quiz / ticket / subscriber",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "create_proposal",
-        "description": "Создать КП-черновик (без AI-генерации). Для генерации потом "
-                       "используй обычный API /api/v1/proposals/generate.",
+        "description": "Создать КП-ЧЕРНОВИК (без AI-генерации). Для AI-генерации "
+                       "используй generate_proposal.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -380,6 +429,117 @@ def _tool_create_proposal(user: User, db: Session, args: dict) -> dict:
     }
 
 
+def _tool_generate_proposal(user: User, db: Session, args: dict) -> dict:
+    """Полноценная AI-генерация КП — создаёт draft, потом дёргает proposal_builder.
+
+    В отличие от create_proposal (только draft) — здесь сразу запускается
+    AI и возвращается ссылка на готовое КП. Цена: pricing.proposal.create
+    (default 50 ₽), списывается через атомарный billing.
+    """
+    name = (args.get("name") or "").strip()
+    request_text = (args.get("client_request") or "").strip()
+    if not name or not request_text:
+        raise ValueError("name и client_request обязательны")
+
+    # Pre-check баланса (для дружелюбного error message)
+    from server.billing import get_balance as _get_bal
+    from server.pricing import get_price as _gp
+    cost = int(_gp("proposal.create", default=5000))
+    if _get_bal(db, user.id) < cost:
+        raise ValueError(f"Недостаточно средств: нужно {cost/100:.0f} ₽, "
+                         f"баланс {_get_bal(db, user.id)/100:.2f} ₽")
+
+    brand_id = args.get("brand_id")
+    if brand_id:
+        b = db.query(ProposalBrand).filter_by(id=int(brand_id), user_id=user.id).first()
+        if not b:
+            raise ValueError(f"Бренд #{brand_id} не найден")
+
+    p = ProposalProject(
+        user_id=user.id,
+        name=name[:200],
+        client_name=(args.get("client_name") or "")[:200] or None,
+        client_email=(args.get("client_email") or "")[:200] or None,
+        client_request=request_text[:50000],
+        brand_id=int(brand_id) if brand_id else None,
+        status="draft",
+    )
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+
+    # Запускаем full-AI генерацию (синхронно, занимает 30-90 сек)
+    try:
+        from server.proposal_builder import generate_proposal as _gen
+        from server.billing import deduct_strict
+        if not deduct_strict(db, user.id, cost):
+            raise ValueError("Не удалось списать средства (race)")
+        _gen(db, p)  # обновляет p.generated_html / p.status='done'
+    except Exception as e:
+        log.error(f"[mcp] generate_proposal failed: {type(e).__name__}: {e}")
+        raise ValueError(f"AI-генерация упала: {type(e).__name__}")
+
+    app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+    return {
+        "id": p.id,
+        "name": p.name,
+        "status": p.status,
+        "preview_url": f"{app_url}/p/{p.public_token}" if p.public_token else None,
+        "edit_url": f"{app_url}/proposals.html#{p.id}",
+        "cost_charged_kop": cost,
+    }
+
+
+def _tool_list_chatbots(user: User, db: Session, args: dict) -> dict:
+    """Список чат-ботов юзера с базовой инфой."""
+    limit = min(int(args.get("limit") or 50), 100)
+    status = (args.get("status") or "").strip()
+    q = db.query(ChatBot).filter_by(user_id=user.id)
+    if status:
+        q = q.filter_by(status=status)
+    q = q.order_by(ChatBot.id.desc()).limit(limit)
+    return {
+        "items": [
+            {
+                "id": b.id, "name": b.name, "status": b.status,
+                "tg_username": b.tg_username,
+                "max_username": getattr(b, "max_username", None),
+                "created_at": b.created_at.isoformat() if b.created_at else None,
+                "reply_count_today": getattr(b, "reply_count_today", 0),
+            }
+            for b in q
+        ]
+    }
+
+
+def _tool_recent_records(user: User, db: Session, args: dict) -> dict:
+    """Последние заявки/брони/заказы из ботов (BotRecord)."""
+    limit = min(int(args.get("limit") or 20), 100)
+    record_type = (args.get("record_type") or "").strip()
+    # JOIN через ChatBot чтобы фильтровать только записи юзера
+    q = (
+        db.query(BotRecord)
+        .join(ChatBot, BotRecord.bot_id == ChatBot.id)
+        .filter(ChatBot.user_id == user.id)
+    )
+    if record_type:
+        q = q.filter(BotRecord.record_type == record_type)
+    q = q.order_by(BotRecord.id.desc()).limit(limit)
+    items = []
+    for r in q:
+        items.append({
+            "id": r.id, "bot_id": r.bot_id,
+            "record_type": r.record_type,
+            "customer_name": r.customer_name,
+            "customer_phone": r.customer_phone,
+            "customer_email": r.customer_email,
+            "channel": r.channel,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "payload": (r.payload or "")[:500],
+        })
+    return {"items": items}
+
+
 _TOOL_HANDLERS = {
     "get_balance": _tool_get_balance,
     "list_solutions": _tool_list_solutions,
@@ -388,7 +548,121 @@ _TOOL_HANDLERS = {
     "list_proposals": _tool_list_proposals,
     "get_proposal": _tool_get_proposal,
     "create_proposal": _tool_create_proposal,
+    "generate_proposal": _tool_generate_proposal,
+    "list_chatbots": _tool_list_chatbots,
+    "recent_records": _tool_recent_records,
 }
+
+
+# ── MCP Resources ─────────────────────────────────────────────────────────
+# Resources — статичные/полу-статичные данные которые Claude может прочитать
+# для контекста (категории решений, прайс-лист, доступные модели).
+# В Claude Desktop это видится как «attachable resources» в UI.
+
+RESOURCES: list[dict] = [
+    {
+        "uri": "aiche://categories",
+        "name": "Категории бизнес-решений",
+        "description": "Все категории решений в каталоге с counts и иконками",
+        "mimeType": "application/json",
+    },
+    {
+        "uri": "aiche://pricing",
+        "name": "Текущий прайс-лист",
+        "description": "Все цены сервиса (КП / сайты / решения / маржа) в копейках и рублях",
+        "mimeType": "application/json",
+    },
+    {
+        "uri": "aiche://models",
+        "name": "Доступные AI-модели",
+        "description": "Каталог LLM-моделей (Claude/GPT-4o/Perplexity/Grok/Gemini) с описаниями",
+        "mimeType": "application/json",
+    },
+]
+
+
+def _resource_categories(user: User, db: Session) -> dict:
+    """Сводка по категориям бизнес-решений."""
+    from sqlalchemy import func
+    rows = (
+        db.query(Solution.subcategory, func.count(Solution.id))
+        .filter(Solution.is_active == True)  # noqa: E712
+        .group_by(Solution.subcategory)
+        .all()
+    )
+    icons = {
+        "research": "🔬", "marketing": "📈", "sales": "💼",
+        "strategy": "📊", "legal": "⚖️", "finance": "💰", "hr": "👥",
+    }
+    cats = []
+    for sub, n in rows:
+        if not sub:
+            continue
+        cats.append({
+            "key": sub, "icon": icons.get(sub, "✨"),
+            "count": int(n),
+        })
+    return {"categories": sorted(cats, key=lambda c: -c["count"])}
+
+
+def _resource_pricing(user: User, db: Session) -> dict:
+    """Текущий прайс из pricing_config + DEFAULTS."""
+    from server.pricing import DEFAULTS, get_price
+    items = []
+    for key, (default_kop, label) in DEFAULTS.items():
+        current = get_price(key, default=default_kop)
+        items.append({
+            "key": key, "label": label,
+            "value_kop": current, "value_rub": round(current / 100, 2),
+            "is_custom": current != default_kop,
+        })
+    return {"items": sorted(items, key=lambda x: x["key"])}
+
+
+def _resource_models(user: User, db: Session) -> dict:
+    """Список доступных моделей."""
+    from server.ai import MODEL_REGISTRY
+    items = []
+    for mid, cfg in MODEL_REGISTRY.items():
+        items.append({
+            "id": mid,
+            "provider": cfg.get("provider"),
+            "real_model": cfg.get("real_model"),
+            "description": cfg.get("description", ""),
+            "kind": cfg.get("kind", "chat"),
+        })
+    return {"models": items}
+
+
+_RESOURCE_HANDLERS = {
+    "aiche://categories": _resource_categories,
+    "aiche://pricing": _resource_pricing,
+    "aiche://models": _resource_models,
+}
+
+
+def _handle_resources_list(req_id: Any, params: dict) -> dict:
+    return _rpc_result(req_id, {"resources": RESOURCES})
+
+
+def _handle_resources_read(req_id: Any, params: dict, user: User, db: Session) -> dict:
+    uri = (params or {}).get("uri") or ""
+    handler = _RESOURCE_HANDLERS.get(uri)
+    if not handler:
+        return _rpc_error(req_id, JSON_RPC_METHOD_NOT_FOUND, f"Unknown resource: {uri}")
+    try:
+        data = handler(user, db)
+    except Exception as e:
+        log.error(f"[mcp] resource {uri} failed: {type(e).__name__}: {e}")
+        return _rpc_error(req_id, JSON_RPC_INTERNAL_ERROR,
+                          f"Resource read failed: {type(e).__name__}")
+    return _rpc_result(req_id, {
+        "contents": [{
+            "uri": uri,
+            "mimeType": "application/json",
+            "text": json.dumps(data, ensure_ascii=False, indent=2, default=str),
+        }],
+    })
 
 
 # ── JSON-RPC dispatcher ───────────────────────────────────────────────────
@@ -399,6 +673,7 @@ def _handle_initialize(req_id: Any, params: dict) -> dict:
         "protocolVersion": MCP_PROTOCOL_VERSION,
         "capabilities": {
             "tools": {"listChanged": False},
+            "resources": {"listChanged": False, "subscribe": False},
         },
         "serverInfo": SERVER_INFO,
     })
@@ -456,6 +731,10 @@ def _dispatch(req: dict, user: User, db: Session) -> dict:
         return _handle_tools_list(req_id, params)
     if method == "tools/call":
         return _handle_tools_call(req_id, params, user, db)
+    if method == "resources/list":
+        return _handle_resources_list(req_id, params)
+    if method == "resources/read":
+        return _handle_resources_read(req_id, params, user, db)
 
     return _rpc_error(req_id, JSON_RPC_METHOD_NOT_FOUND, f"Unknown method: {method}")
 
@@ -507,5 +786,6 @@ async def mcp_info():
         "transport": "http",
         "auth": "Bearer ApiToken (создать в кабинете → 'API & интеграции')",
         "tools_count": len(TOOLS),
+        "resources_count": len(RESOURCES),
         "doc_url": "https://aiche.ru/api.html",
     }
