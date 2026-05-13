@@ -43,6 +43,7 @@ from server.routes.public_api import (
 from server.routes.schedules import router as schedules_router
 from server.routes.crm import router as crm_router
 from server.routes.mcp import router as mcp_router
+from server.routes.creators import router as creators_router
 
 load_dotenv()
 
@@ -414,6 +415,7 @@ app.include_router(public_api_router)
 app.include_router(schedules_router)
 app.include_router(crm_router)
 app.include_router(mcp_router)
+app.include_router(creators_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -650,6 +652,10 @@ def serve_marketplace():
 @app.get("/api.html", include_in_schema=False)
 def serve_api_docs():
     return _html("api.html")
+
+@app.get("/creators.html", include_in_schema=False)
+def serve_creators():
+    return _html("creators.html")
 
 
 def _verify_proposal_pdf_path(p):

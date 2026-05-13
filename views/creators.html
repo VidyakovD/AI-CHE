@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<script>
+(function(){try{
+  var V='aiche-v6-2026-05-13-creators';
+  var stored=localStorage.getItem('aiche_client_version');
+  if(stored===V) return;
+  if(!('serviceWorker' in navigator)){localStorage.setItem('aiche_client_version',V);return;}
+  var loopGuard=sessionStorage.getItem('aiche_bootstrap_inflight');
+  if(loopGuard){localStorage.setItem('aiche_client_version',V);sessionStorage.removeItem('aiche_bootstrap_inflight');return;}
+  sessionStorage.setItem('aiche_bootstrap_inflight','1');
+  navigator.serviceWorker.getRegistrations().then(function(regs){
+    return Promise.all(regs.map(function(r){return r.unregister();}));
+  }).then(function(){
+    if(!self.caches)return null;
+    return caches.keys().then(function(keys){
+      return Promise.all(keys.map(function(k){return caches.delete(k);}));
+    });
+  }).then(function(){
+    localStorage.setItem('aiche_client_version',V);
+    location.reload();
+  }).catch(function(){localStorage.setItem('aiche_client_version',V);sessionStorage.removeItem('aiche_bootstrap_inflight');});
+}catch(e){}})();
+</script>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Креаторы</title>
+<link rel="stylesheet" href="/fonts.css"/>
+<link rel="stylesheet" href="/styles.css"/>
+<script src="https://cdn.tailwindcss.com/3.4.0"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<style>
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
+*::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;min-height:100vh}
+.sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
+.sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;font-family:inherit;transition:border-color .2s}
+.inp:focus{border-color:#ff8c42}.inp::placeholder{color:#a89880}
+textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.45}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.btn-d{background:rgba(255,107,107,0.1);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-d:hover{background:rgba(255,107,107,0.2)}
+.card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
+.empty{padding:48px 24px;text-align:center;color:#a89880}
+.lbl{display:block;font-size:12px;color:#a89880;margin-bottom:5px;font-weight:500}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:#322a1e;border:1px solid rgba(74,63,47,0.5);border-radius:8px;font-size:12px;cursor:pointer;transition:all .15s}
+.chip:hover{border-color:#ff8c42}
+.chip-active{background:linear-gradient(135deg,rgba(255,140,66,.15),rgba(255,179,71,.15));border-color:#ff8c42;color:#ffb347}
+.platform-toggle{display:flex;gap:8px;flex-wrap:wrap}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
+.modal-bg.show{display:flex}
+.stub{padding:24px;text-align:center;border:1.5px dashed rgba(74,63,47,0.4);border-radius:14px;color:#a89880}
+.stub b{color:#ffb347;font-weight:600}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.cal-cell{aspect-ratio:1;background:#272018;border-radius:8px;padding:6px;font-size:11px;color:#a89880;border:1px solid transparent;transition:border-color .15s;cursor:pointer}
+.cal-cell:hover{border-color:#ff8c42}
+.cal-cell.dim{opacity:0.4}
+.cal-cell-date{font-weight:600;color:#f0e6d8;font-size:12px}
+</style>
+<script src="/shared.js" defer></script>
+<script src="/icons.js" defer></script>
+</head>
+<body class="dark" data-assistant-section="creators" data-assistant-label="Креаторы · контент-планирование">
+
+<div class="max-w-6xl mx-auto px-4 py-6">
+
+  <!-- Header -->
+  <header class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-3">
+      <a href="/" class="btn-g" title="На главную">← На главную</a>
+      <div>
+        <h1 class="text-2xl font-bold sig-text">📅 Креаторы</h1>
+        <p class="text-xs text-on-dim">Рабочая зона: профиль бренда → AI-контент-план → автопостинг</p>
+      </div>
+    </div>
+    <div id="balancePill" class="text-sm text-on-dim"></div>
+  </header>
+
+  <!-- Brand selector -->
+  <section class="card p-4 mb-6">
+    <div class="flex items-center gap-3 flex-wrap">
+      <label class="text-sm text-on-dim">Бренд / компания:</label>
+      <select id="brandSelect" class="inp" style="max-width:340px"></select>
+      <button class="btn-g" onclick="openBrandModal()">+ Новый бренд</button>
+      <button class="btn-g" id="editBrandBtn" onclick="editCurrentBrand()" style="display:none">⚙ Настроить</button>
+      <button class="btn-d" id="deleteBrandBtn" onclick="deleteCurrentBrand()" style="display:none">Удалить</button>
+    </div>
+    <div id="brandSummary" class="mt-3 text-xs text-on-dim" style="display:none"></div>
+  </section>
+
+  <!-- Platform filter (для будущего календаря) -->
+  <section class="card p-4 mb-6" id="platformsBlock" style="display:none">
+    <div class="flex items-center gap-3 mb-3">
+      <span class="text-sm font-semibold">Платформы</span>
+      <span class="text-xs text-on-dim">(показать на календаре)</span>
+    </div>
+    <div class="platform-toggle">
+      <button class="chip chip-active" data-platform="tg">📨 Telegram</button>
+      <button class="chip chip-active" data-platform="vk">🔵 VK</button>
+      <button class="chip chip-active" data-platform="yt">▶ YouTube</button>
+      <button class="chip chip-active" data-platform="ig">📷 Instagram</button>
+    </div>
+  </section>
+
+  <!-- Calendar — заглушка под итерацию 2 -->
+  <section class="card p-4 mb-6" id="calendarBlock" style="display:none">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-lg font-bold">Контент-план</h2>
+        <p class="text-xs text-on-dim">AI разбрасывает посты по дням и платформам</p>
+      </div>
+      <button class="btn-p" onclick="generatePlan()" disabled title="Итерация 2">
+        ✨ Сгенерировать на месяц
+      </button>
+    </div>
+    <div class="stub">
+      <div style="font-size:32px;margin-bottom:8px">📅</div>
+      <div><b>Итерация 2:</b> календарная сетка дней + цветные плашки по типу контента</div>
+      <div class="mt-2 text-xs">Сейчас работает: профиль бренда (CRUD). Дальше: генерация плана → подготовка постов → автопостинг.</div>
+    </div>
+  </section>
+
+  <!-- Channels — заглушка -->
+  <section class="card p-4 mb-6" id="channelsBlock" style="display:none">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h2 class="text-lg font-bold">Подключения каналов</h2>
+        <p class="text-xs text-on-dim">Для автопостинга</p>
+      </div>
+    </div>
+    <div class="stub">
+      <b>Итерация 4-5:</b> подключи TG-бот к каналу как админа, VK-токен сообщества, YouTube OAuth.
+    </div>
+  </section>
+
+  <!-- Analysis — заглушка -->
+  <section class="card p-4" id="analysisBlock" style="display:none">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h2 class="text-lg font-bold">Анализ соцсетей</h2>
+        <p class="text-xs text-on-dim">Свой профиль (150 ₽) и конкуренты (200 ₽)</p>
+      </div>
+    </div>
+    <div class="stub">
+      <b>Итерация 6:</b> Perplexity-парсинг + рекомендации.
+    </div>
+  </section>
+
+  <!-- Empty state — если брендов нет -->
+  <section id="emptyState" class="empty" style="display:none">
+    <div style="font-size:48px;margin-bottom:12px">🎯</div>
+    <div class="text-lg font-semibold text-on-surface mb-2">Создай первый бренд</div>
+    <div class="text-sm mb-4 max-w-md mx-auto">
+      Бренд — это компания или продукт, для которого AI будет строить контент-план.
+      Если ведёшь несколько клиентов — создай отдельный бренд под каждого.
+    </div>
+    <button class="btn-p" onclick="openBrandModal()">+ Создать бренд</button>
+  </section>
+
+</div>
+
+
+<!-- Brand modal -->
+<div id="brandModal" class="modal-bg">
+  <div class="card p-6" style="max-width:640px;width:100%">
+    <div class="flex items-center justify-between mb-5">
+      <h3 id="brandModalTitle" class="text-xl font-bold">Новый бренд</h3>
+      <button class="btn-g" onclick="closeBrandModal()" aria-label="Закрыть">✕</button>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="md:col-span-2">
+        <label class="lbl">Название бренда / компании *</label>
+        <input id="bf_name" class="inp" placeholder="Например — Кофейня «Уют»" maxlength="200"/>
+      </div>
+
+      <div>
+        <label class="lbl">Ниша</label>
+        <select id="bf_niche" class="inp">
+          <option value="">— не выбрана —</option>
+          <option value="ecommerce">E-commerce / онлайн-магазин</option>
+          <option value="services">Услуги</option>
+          <option value="it">IT / SaaS</option>
+          <option value="manufacturing">Производство</option>
+          <option value="food">Общепит / еда</option>
+          <option value="medicine">Медицина</option>
+          <option value="beauty">Красота / уход</option>
+          <option value="education">Образование</option>
+          <option value="realestate">Недвижимость</option>
+          <option value="other">Другое</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="lbl">Tone of voice</label>
+        <select id="bf_tone" class="inp">
+          <option value="">— не выбран —</option>
+          <option value="friendly">Дружеский</option>
+          <option value="expert">Экспертный</option>
+          <option value="premium">Премиум</option>
+          <option value="provocative">Провокативный</option>
+          <option value="neutral">Нейтральный</option>
+        </select>
+      </div>
+
+      <div class="md:col-span-2">
+        <label class="lbl">Что продаёте / о чём бренд</label>
+        <textarea id="bf_product" class="inp" rows="3" placeholder="Кратко: продукт, главная ценность, что отличает от конкурентов"></textarea>
+      </div>
+
+      <div class="md:col-span-2">
+        <label class="lbl">Целевая аудитория</label>
+        <textarea id="bf_audience" class="inp" rows="2" placeholder="Возраст, пол, география, интересы, боли"></textarea>
+      </div>
+
+      <div class="md:col-span-2">
+        <label class="lbl">Ключевые темы (через запятую, 3-5 шт)</label>
+        <input id="bf_topics" class="inp" placeholder="Например — кофейная культура, рецепты, события в районе"/>
+      </div>
+
+      <div class="md:col-span-2">
+        <label class="lbl">Стоп-слова (через запятую)</label>
+        <input id="bf_stopwords" class="inp" placeholder="Что НЕ писать. Например — скидки, распродажа, акция"/>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-end gap-3 mt-6">
+      <button class="btn-g" onclick="closeBrandModal()">Отмена</button>
+      <button id="brandSaveBtn" class="btn-p" onclick="saveBrand()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+let _brands = [];
+let _editingId = null;
+
+async function loadBrands(){
+  try{
+    const r = await fetch('/creators/brands', {credentials:'include'});
+    if(r.status === 401){ location.href = '/'; return; }
+    const data = await r.json();
+    _brands = data.brands || [];
+    renderBrands();
+  }catch(e){
+    console.error(e);
+    (window.aiToast || alert)('Не удалось загрузить бренды');
+  }
+}
+
+function renderBrands(){
+  const sel = document.getElementById('brandSelect');
+  const empty = document.getElementById('emptyState');
+  const editBtn = document.getElementById('editBrandBtn');
+  const delBtn = document.getElementById('deleteBrandBtn');
+  const summary = document.getElementById('brandSummary');
+  const blocks = ['platformsBlock','calendarBlock','channelsBlock','analysisBlock'];
+
+  if(!_brands.length){
+    sel.innerHTML = '<option>— нет брендов —</option>';
+    empty.style.display = 'block';
+    editBtn.style.display = 'none';
+    delBtn.style.display = 'none';
+    summary.style.display = 'none';
+    blocks.forEach(id => document.getElementById(id).style.display = 'none');
+    return;
+  }
+
+  empty.style.display = 'none';
+  sel.innerHTML = _brands.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
+  editBtn.style.display = 'inline-flex';
+  delBtn.style.display = 'inline-flex';
+  blocks.forEach(id => document.getElementById(id).style.display = '');
+
+  updateSummary();
+  sel.onchange = updateSummary;
+}
+
+function updateSummary(){
+  const sel = document.getElementById('brandSelect');
+  const id = parseInt(sel.value, 10);
+  const b = _brands.find(x => x.id === id);
+  const s = document.getElementById('brandSummary');
+  if(!b){ s.style.display = 'none'; return; }
+  const parts = [];
+  if(b.niche) parts.push(nicheLabel(b.niche));
+  if(b.tone) parts.push('тон: ' + toneLabel(b.tone));
+  if(b.topics && b.topics.length) parts.push('темы: ' + b.topics.join(', '));
+  s.style.display = parts.length ? 'block' : 'none';
+  s.textContent = parts.join(' · ');
+}
+
+function currentBrand(){
+  const id = parseInt(document.getElementById('brandSelect').value, 10);
+  return _brands.find(x => x.id === id);
+}
+
+function openBrandModal(){
+  _editingId = null;
+  document.getElementById('brandModalTitle').textContent = 'Новый бренд';
+  ['bf_name','bf_niche','bf_product','bf_audience','bf_tone','bf_topics','bf_stopwords'].forEach(id =>{
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('brandModal').classList.add('show');
+  setTimeout(() => document.getElementById('bf_name').focus(), 50);
+}
+
+function editCurrentBrand(){
+  const b = currentBrand();
+  if(!b) return;
+  _editingId = b.id;
+  document.getElementById('brandModalTitle').textContent = 'Настроить бренд';
+  document.getElementById('bf_name').value = b.name || '';
+  document.getElementById('bf_niche').value = b.niche || '';
+  document.getElementById('bf_tone').value = b.tone || '';
+  document.getElementById('bf_product').value = b.product || '';
+  document.getElementById('bf_audience').value = b.audience || '';
+  document.getElementById('bf_topics').value = (b.topics || []).join(', ');
+  document.getElementById('bf_stopwords').value = b.stopwords || '';
+  document.getElementById('brandModal').classList.add('show');
+}
+
+function closeBrandModal(){
+  document.getElementById('brandModal').classList.remove('show');
+}
+
+async function saveBrand(){
+  const name = document.getElementById('bf_name').value.trim();
+  if(!name){ (window.aiToast || alert)('Введи название'); return; }
+  const topics = document.getElementById('bf_topics').value.split(',').map(s => s.trim()).filter(Boolean);
+  if(topics.length > 8){ (window.aiToast || alert)('Максимум 8 тем'); return; }
+
+  const payload = {
+    name,
+    niche: document.getElementById('bf_niche').value || null,
+    tone: document.getElementById('bf_tone').value || null,
+    product: document.getElementById('bf_product').value.trim() || null,
+    audience: document.getElementById('bf_audience').value.trim() || null,
+    topics: topics.length ? topics : null,
+    stopwords: document.getElementById('bf_stopwords').value.trim() || null,
+  };
+
+  const btn = document.getElementById('brandSaveBtn');
+  btn.disabled = true;
+  try{
+    const url = _editingId ? `/creators/brands/${_editingId}` : '/creators/brands';
+    const method = _editingId ? 'PUT' : 'POST';
+    const r = await fetch(url, {
+      method, credentials:'include',
+      headers: {'Content-Type':'application/json', 'X-CSRF-Token': (window.getCSRF && getCSRF()) || ''},
+      body: JSON.stringify(payload),
+    });
+    if(!r.ok){
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || 'Ошибка ' + r.status);
+    }
+    closeBrandModal();
+    await loadBrands();
+    // Выбрать только что созданный/изменённый
+    if(!_editingId && _brands.length){
+      const sel = document.getElementById('brandSelect');
+      sel.value = _brands[0].id;
+      updateSummary();
+    }
+    (window.aiToast || (() => {}))('Сохранено');
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function deleteCurrentBrand(){
+  const b = currentBrand();
+  if(!b) return;
+  const confirmFn = window.aiConfirm || ((m) => Promise.resolve(confirm(m)));
+  const ok = await confirmFn(`Удалить бренд «${b.name}» вместе с его календарём, постами и подключениями?`);
+  if(!ok) return;
+  try{
+    const r = await fetch(`/creators/brands/${b.id}`, {
+      method: 'DELETE', credentials:'include',
+      headers: {'X-CSRF-Token': (window.getCSRF && getCSRF()) || ''},
+    });
+    if(!r.ok) throw new Error('Ошибка ' + r.status);
+    await loadBrands();
+    (window.aiToast || (() => {}))('Удалено');
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+  }
+}
+
+function generatePlan(){
+  // Реализация в итерации 2
+  (window.aiToast || alert)('Генерация плана — в итерации 2');
+}
+
+// Платформенный фильтр (для будущего календаря)
+document.addEventListener('click', e =>{
+  const chip = e.target.closest('.chip[data-platform]');
+  if(!chip) return;
+  chip.classList.toggle('chip-active');
+  // TODO итерация 2: фильтр на календаре
+});
+
+// Закрытие модалки по клику на фон
+document.getElementById('brandModal').addEventListener('click', e =>{
+  if(e.target.id === 'brandModal') closeBrandModal();
+});
+
+// Esc закрывает
+document.addEventListener('keydown', e =>{
+  if(e.key === 'Escape') closeBrandModal();
+});
+
+// Хелперы
+function esc(s){ return (window.esc ? window.esc(s) : String(s || '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))); }
+function nicheLabel(n){
+  return ({ecommerce:'e-commerce',services:'услуги',it:'IT/SaaS',manufacturing:'производство',food:'еда',medicine:'медицина',beauty:'красота',education:'образование',realestate:'недвижимость',other:'другое'})[n] || n;
+}
+function toneLabel(t){
+  return ({friendly:'дружеский',expert:'экспертный',premium:'премиум',provocative:'провокативный',neutral:'нейтральный'})[t] || t;
+}
+
+// CSRF helper (shared.js может предоставить getCSRF)
+window.getCSRF = window.getCSRF || function(){
+  const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+};
+
+// Balance pill (если icons.js предоставляет aiBalance)
+async function loadBalance(){
+  try{
+    const r = await fetch('/auth/me', {credentials:'include'});
+    if(!r.ok) return;
+    const u = await r.json();
+    const kop = u.balance_kopecks || 0;
+    document.getElementById('balancePill').textContent = '💰 ' + (window.fmtRub ? window.fmtRub(kop) : (kop/100).toFixed(2) + ' ₽');
+  }catch(e){}
+}
+
+document.addEventListener('DOMContentLoaded', () =>{
+  loadBalance();
+  loadBrands();
+});
+</script>
+
+</body>
+</html>

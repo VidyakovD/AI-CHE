@@ -1480,3 +1480,130 @@ class ProposalProject(Base):
     # Юзер выбирает при создании КП. Default — classic (как было раньше).
     header_layout   = Column(String, default="classic")
     created_at      = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Creators (контент-планирование) ───────────────────────────────────────────
+
+class CreatorBrand(Base):
+    """Бренд/компания, для которой строим контент-план.
+
+    Юзер может вести несколько брендов (агентство ведёт 5 клиентов).
+    Не путать с CompanyProfile — тот для КП/презентаций, один на юзера.
+    """
+    __tablename__ = "creator_brands"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name            = Column(String, nullable=False)
+    niche           = Column(String, nullable=True)               # e-commerce / услуги / IT / ...
+    product         = Column(Text, nullable=True)                  # что продаёте
+    audience        = Column(Text, nullable=True)                  # ЦА: возраст/пол/география/интересы
+    tone            = Column(String, nullable=True)                # friendly / expert / premium / provocative / neutral
+    topics_json     = Column(Text, nullable=True)                  # JSON-array из 3-5 ключевых тем
+    stopwords       = Column(Text, nullable=True)                  # стоп-слова
+    logo_url        = Column(String, nullable=True)                # /uploads/...
+    # Freemium-счётчик
+    free_posts_used_this_month = Column(Integer, default=0)
+    free_posts_reset_at        = Column(DateTime, nullable=True)   # 1 число следующего месяца
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", backref="creator_brands")
+
+
+class ContentCalendar(Base):
+    """Контент-план на период (обычно месяц). Один активный календарь на бренд."""
+    __tablename__ = "content_calendars"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    brand_id        = Column(Integer, ForeignKey("creator_brands.id", ondelete="CASCADE"), nullable=False, index=True)
+    period_start    = Column(DateTime, nullable=False)
+    period_end      = Column(DateTime, nullable=False)
+    status          = Column(String, default="active", index=True)  # draft / active / archived
+    generated_at    = Column(DateTime, default=datetime.utcnow)
+
+    brand = relationship("CreatorBrand", backref="calendars")
+
+
+class ContentItem(Base):
+    """Отдельный пост в контент-плане.
+
+    status:
+      planned   — запланирован, ничего не подготовлено
+      preparing — scheduler готовит (текст/картинку)
+      ready     — готов, ждёт публикации или одобрения
+      published — опубликован
+      skipped   — пропущен юзером
+
+    is_news: True = «актуальный» (готовим в день постинга через Perplexity),
+             False = evergreen (готовим заранее через Sonnet).
+    """
+    __tablename__ = "content_items"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    calendar_id     = Column(Integer, ForeignKey("content_calendars.id", ondelete="CASCADE"), nullable=False, index=True)
+    schedule_at     = Column(DateTime, nullable=False, index=True)   # планируемая дата+время публикации (UTC)
+    platform        = Column(String, nullable=False, index=True)     # tg / vk / yt / ig
+    type            = Column(String, nullable=False)                 # text / image / reels / youtube / poll / news
+    is_news         = Column(Boolean, default=False)
+    brief           = Column(Text, nullable=True)                    # о чём пост (от плана)
+    prepared_content_md = Column(Text, nullable=True)                # готовый текст
+    prepared_media_url  = Column(String, nullable=True)              # картинка/видео (если есть)
+    status          = Column(String, default="planned", index=True)
+    cost_kop        = Column(Integer, default=0)                     # сколько списано за подготовку (0 для freemium)
+    published_at    = Column(DateTime, nullable=True)
+    error           = Column(Text, nullable=True)
+    manual_override = Column(Boolean, default=False)                  # юзер отредактировал руками
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    calendar = relationship("ContentCalendar", backref="items")
+
+
+class CreatorChannelConnection(Base):
+    """Подключение канала бренда — TG/VK/YouTube/Instagram.
+
+    token — зашифрован EncryptedString. Для TG это bot-token (юзер делает бота
+    админом канала); для VK — community access_token; для YT — OAuth refresh_token;
+    для Instagram — не используется (только генерация, постит юзер сам).
+    """
+    __tablename__ = "creator_channel_connections"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    brand_id        = Column(Integer, ForeignKey("creator_brands.id", ondelete="CASCADE"), nullable=False, index=True)
+    platform        = Column(String, nullable=False)         # tg / vk / yt / ig
+    channel_id      = Column(String, nullable=True)           # @channel_name или -100... для TG, group_id для VK
+    title           = Column(String, nullable=True)           # отображаемое имя
+    token           = Column(EncryptedString(2048), nullable=True)
+    is_active       = Column(Boolean, default=True)
+    fail_count      = Column(Integer, default=0)
+    last_error_at   = Column(DateTime, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    brand = relationship("CreatorBrand", backref="channels")
+
+    __table_args__ = (
+        UniqueConstraint("brand_id", "platform", "channel_id", name="uq_creator_channel"),
+    )
+
+
+class CreatorAnalysisRun(Base):
+    """Запуск анализа соцсети (свой профиль или конкурент).
+
+    target_type: own | competitor
+    target_url: URL аккаунта / канала
+    result_md: рекомендации в markdown
+    """
+    __tablename__ = "creator_analysis_runs"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    brand_id        = Column(Integer, ForeignKey("creator_brands.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_type     = Column(String, nullable=False)         # own / competitor
+    target_url      = Column(String, nullable=False)
+    platform        = Column(String, nullable=True)          # tg / vk / yt / ig — для удобства фильтрации
+    status          = Column(String, default="running", index=True)  # running / done / failed
+    result_md       = Column(Text, nullable=True)
+    cost_kop        = Column(Integer, default=0)
+    error           = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow, index=True)
+
+    brand = relationship("CreatorBrand", backref="analysis_runs")
