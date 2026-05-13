@@ -252,15 +252,26 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
         <span>Актуальная новость (готовить в день постинга)</span>
       </label>
     </div>
-    <div class="flex items-center justify-between gap-3 mt-6">
-      <button class="btn-d" onclick="deleteItem()">🗑 Удалить</button>
-      <div class="flex gap-2">
-        <button class="btn-g" onclick="toggleSkip()" id="im_skip_btn">⏸ Пропустить</button>
-        <button class="btn-p" onclick="saveItem()">💾 Сохранить</button>
+    <!-- Prepared content preview (когда status >= ready) -->
+    <div id="im_prepared_box" class="mt-4" style="display:none">
+      <label class="lbl">Готовый контент</label>
+      <div id="im_prepared_text" class="inp" style="min-height:120px;white-space:pre-wrap;font-size:13px;line-height:1.5"></div>
+      <div id="im_prepared_image_wrap" class="mt-2" style="display:none">
+        <img id="im_prepared_image" alt="" style="max-width:100%;border-radius:8px;border:1px solid rgba(74,63,47,.4)"/>
       </div>
     </div>
-    <div class="mt-4 text-xs text-on-dim" id="im_prep_hint">
-      <b>Подготовка</b> (текст + опц. картинка) появится в итерации 3 — scheduler сам подготовит за день до публикации.
+
+    <div class="flex items-center justify-between gap-3 mt-6 flex-wrap">
+      <button class="btn-d" onclick="deleteItem()">🗑 Удалить</button>
+      <div class="flex gap-2 flex-wrap">
+        <button class="btn-g" onclick="toggleSkip()" id="im_skip_btn">⏸ Пропустить</button>
+        <button class="btn-g" onclick="saveItem()">💾 Сохранить</button>
+        <button class="btn-p" onclick="prepareItem()" id="im_prep_btn">✨ Подготовить</button>
+      </div>
+    </div>
+    <div class="mt-3 text-xs text-on-dim flex items-center gap-3 flex-wrap" id="im_prep_hint">
+      <span id="im_freemium_status"></span>
+      <span id="im_cost_hint"></span>
     </div>
   </div>
 </div>
@@ -511,9 +522,12 @@ async function loadCalendar(){
   const b = currentBrand();
   if(!b){ _items = []; _calendar = null; renderCalendar(); return; }
   try{
-    const r = await fetch(`/creators/brands/${b.id}/calendar`, {credentials:'include'});
-    if(!r.ok) throw new Error('Ошибка ' + r.status);
-    const d = await r.json();
+    const [calRes] = await Promise.all([
+      fetch(`/creators/brands/${b.id}/calendar`, {credentials:'include'}),
+      loadFreemium(),
+    ]);
+    if(!calRes.ok) throw new Error('Ошибка ' + calRes.status);
+    const d = await calRes.json();
     _calendar = d.calendar;
     _items = d.items || [];
     renderCalendar();
@@ -684,6 +698,18 @@ function _renderItemChip(item){
 }
 
 // ── Item modal ────────────────────────────────────────────────────────────────
+let _freemium = null;
+
+async function loadFreemium(){
+  const b = currentBrand();
+  if(!b){ _freemium = null; return; }
+  try{
+    const r = await fetch(`/creators/brands/${b.id}/freemium`, {credentials:'include'});
+    if(!r.ok) return;
+    _freemium = await r.json();
+  }catch(e){}
+}
+
 function openItemModal(item){
   _editingItemId = item.id;
   document.getElementById('im_platform').textContent = PLAT_LABELS[item.platform] || item.platform;
@@ -704,7 +730,87 @@ function openItemModal(item){
   skipBtn.textContent = item.status === 'skipped' ? '↻ Вернуть' : '⏸ Пропустить';
   skipBtn.style.display = item.status === 'published' ? 'none' : 'inline-flex';
 
+  // Prepared content preview
+  const prepBox = document.getElementById('im_prepared_box');
+  const prepText = document.getElementById('im_prepared_text');
+  const prepImgWrap = document.getElementById('im_prepared_image_wrap');
+  const prepImg = document.getElementById('im_prepared_image');
+  if(item.prepared_content_md){
+    prepBox.style.display = 'block';
+    prepText.textContent = item.prepared_content_md;
+    if(item.prepared_media_url){
+      prepImgWrap.style.display = 'block';
+      prepImg.src = item.prepared_media_url;
+    }else{
+      prepImgWrap.style.display = 'none';
+    }
+  }else{
+    prepBox.style.display = 'none';
+  }
+
+  // Prepare button + freemium hint
+  const prepBtn = document.getElementById('im_prep_btn');
+  if(item.status === 'published'){
+    prepBtn.style.display = 'none';
+  }else{
+    prepBtn.style.display = 'inline-flex';
+    prepBtn.textContent = item.status === 'ready' ? '↻ Перегенерировать' : '✨ Подготовить';
+    prepBtn.disabled = false;
+  }
+  updatePrepHint(item);
+
   document.getElementById('itemModal').classList.add('show');
+}
+
+function updatePrepHint(item){
+  const costMap = {text: 15, image: 30, reels: 30, youtube: 15, poll: 15};
+  let cost = costMap[item.type] ?? 15;
+  if(item.is_news) cost = 25;
+  const fEl = document.getElementById('im_freemium_status');
+  const cEl = document.getElementById('im_cost_hint');
+  if(_freemium && _freemium.remaining > 0){
+    fEl.innerHTML = `🎁 Бесплатно: <b>${_freemium.remaining}</b>/${_freemium.limit} осталось`;
+    cEl.innerHTML = `Или после лимита — <b>${cost} ₽</b>`;
+  }else if(_freemium){
+    fEl.innerHTML = `Лимит freemium (${_freemium.limit}) исчерпан`;
+    cEl.innerHTML = `Подготовка — <b>${cost} ₽</b>`;
+  }else{
+    fEl.textContent = '';
+    cEl.innerHTML = `Подготовка — <b>${cost} ₽</b>`;
+  }
+}
+
+async function prepareItem(){
+  if(!_editingItemId) return;
+  const btn = document.getElementById('im_prep_btn');
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = '⏳ Генерация (15-40 сек)…';
+  try{
+    const r = await fetch(`/creators/items/${_editingItemId}/prepare`, {
+      method:'POST', credentials:'include',
+      headers: {'Content-Type':'application/json', 'X-CSRF-Token': getCSRF()},
+      body: JSON.stringify({use_free: true}),
+    });
+    if(!r.ok){
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || 'Ошибка ' + r.status);
+    }
+    const d = await r.json();
+    // Обновляем item в локальном кеше
+    const idx = _items.findIndex(x => x.id === d.item.id);
+    if(idx >= 0) _items[idx] = d.item;
+    _freemium = d.freemium;
+    renderCalendar();
+    // Перерисовать модалку с новыми данными
+    openItemModal(d.item);
+    loadBalance();
+    (window.aiToast || (() => {}))(d.was_free ? 'Готово (бесплатно)' : `Готово, списано ${(d.charged_kop/100).toFixed(2)} ₽`);
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
 }
 
 function closeItemModal(){

@@ -21,7 +21,15 @@ from server.models import (
     CreatorChannelConnection, CreatorAnalysisRun,
 )
 from server.audit_log import log_action
+from server.billing import deduct_strict
+from server.models import Transaction
 from server.creators_planner import generate_plan, PLAN_MIN_DAYS, PLAN_MAX_DAYS, PLAN_DEFAULT_DAYS, VALID_PLATFORMS as VALID_PLATFORMS_PLANNER
+from server.creators_prepare import (
+    prepare_item as _prepare_item_pipeline,
+    compute_cost_kop,
+    freemium_status,
+    consume_freemium,
+)
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/creators", tags=["creators"])
@@ -339,6 +347,113 @@ def update_item(
     db.refresh(item)
     log_action("creator.item_updated", user_id=user.id, item_id=item.id)
     return _item_dict(item)
+
+
+# ── Item prepare (Шаг B — платно или freemium) ───────────────────────────────
+
+class PrepareIn(BaseModel):
+    with_image: Optional[bool] = None
+    use_free: Optional[bool] = True  # по умолчанию пытаемся бесплатный, если есть остаток
+
+
+@router.get("/brands/{brand_id}/freemium")
+def get_freemium(brand_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Текущий статус freemium для бренда (used / remaining / limit)."""
+    b = db.query(CreatorBrand).filter_by(id=brand_id, user_id=user.id).first()
+    if not b:
+        raise HTTPException(404, "Бренд не найден")
+    return freemium_status(b)
+
+
+@router.post("/items/{item_id}/prepare")
+def prepare_item_endpoint(
+    item_id: int,
+    payload: PrepareIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Подготовить пост: AI генерирует текст (+ опц. картинку).
+
+    Списание: первые 3 поста бренда в месяц бесплатно, дальше compute_cost_kop().
+    """
+    item = db.query(ContentItem).join(ContentCalendar).join(CreatorBrand).filter(
+        ContentItem.id == item_id, CreatorBrand.user_id == user.id,
+    ).first()
+    if not item:
+        raise HTTPException(404, "Пост не найден")
+    if item.status not in ("planned", "ready"):
+        # ready — повторная подготовка / regenerate
+        raise HTTPException(400, f"Подготовка возможна только для planned/ready (текущий: {item.status})")
+
+    brand = db.query(CreatorBrand).join(ContentCalendar, CreatorBrand.id == ContentCalendar.brand_id).filter(
+        ContentCalendar.id == item.calendar_id,
+    ).first()
+    if not brand:
+        raise HTTPException(500, "Бренд для поста не найден")
+
+    cost_kop = compute_cost_kop(item)
+    fs = freemium_status(brand)
+    use_free = bool(payload.use_free) and fs["remaining"] > 0
+
+    charged_kop = 0
+    if not use_free:
+        if not deduct_strict(db, user.id, cost_kop):
+            raise HTTPException(402, f"Недостаточно средств. Нужно {cost_kop / 100:.2f} ₽")
+        charged_kop = cost_kop
+        db.add(Transaction(
+            user_id=user.id, type="usage", tokens_delta=-cost_kop,
+            description=f"Creators · подготовка поста (бренд {brand.id})",
+            model="claude-sonnet-4-6" + (" + sonar-pro" if item.is_news else ""),
+        ))
+    else:
+        # Списать 1 freemium-credit
+        consume_freemium(brand)
+
+    # Помечаем как preparing
+    item.status = "preparing"
+    db.commit()
+
+    # Запускаем pipeline (синхронно — для MVP). Если упадёт — refund.
+    try:
+        result = _prepare_item_pipeline(item, brand, user_id=user.id, with_image=payload.with_image)
+    except Exception as e:
+        log.exception("[creators.prepare] item=%s failed: %s", item_id, e)
+        # Refund
+        if charged_kop > 0:
+            from server.billing import credit_atomic
+            credit_atomic(db, user.id, charged_kop)
+            db.add(Transaction(
+                user_id=user.id, type="refund", tokens_delta=charged_kop,
+                description=f"Creators refund · подготовка #{item_id}",
+            ))
+        if use_free and brand.free_posts_used_this_month and brand.free_posts_used_this_month > 0:
+            brand.free_posts_used_this_month -= 1
+        item.status = "planned"
+        item.error = str(e)[:500]
+        db.commit()
+        raise HTTPException(500, f"Не удалось подготовить: {e}")
+
+    item.prepared_content_md = result["text"] or None
+    item.prepared_media_url = result["media_url"]
+    item.status = "ready"
+    item.cost_kop = (item.cost_kop or 0) + charged_kop
+    item.error = None
+    db.commit()
+    db.refresh(item)
+
+    log_action(
+        "creator.item_prepared", user_id=user.id, item_id=item.id,
+        brand_id=brand.id, cost_kop=charged_kop, freemium=use_free,
+        with_image=bool(result["media_url"]),
+        models=",".join(result.get("model_chain") or []),
+    )
+
+    return {
+        "item": _item_dict(item),
+        "freemium": freemium_status(brand),
+        "charged_kop": charged_kop,
+        "was_free": use_free,
+    }
 
 
 @router.delete("/items/{item_id}")
