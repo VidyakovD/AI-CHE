@@ -175,16 +175,19 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
     </div>
   </section>
 
-  <!-- Channels — заглушка -->
+  <!-- Channels -->
   <section class="card p-4 mb-6" id="channelsBlock" style="display:none">
-    <div class="flex items-center justify-between mb-3">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
       <div>
         <h2 class="text-lg font-bold">Подключения каналов</h2>
-        <p class="text-xs text-on-dim">Для автопостинга</p>
+        <p class="text-xs text-on-dim">Для автопостинга. В MVP — Telegram (VK / YouTube — позже)</p>
       </div>
+      <button class="btn-p" onclick="openChannelModal()">+ Подключить TG</button>
     </div>
-    <div class="stub">
-      <b>Итерация 4-5:</b> подключи TG-бот к каналу как админа, VK-токен сообщества, YouTube OAuth.
+    <div id="channelsList" class="space-y-2">
+      <div class="stub" id="channelsEmpty">
+        Каналов пока нет. Подключи Telegram, чтобы AI публиковал готовые посты автоматически.
+      </div>
     </div>
   </section>
 
@@ -212,6 +215,38 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
     <button class="btn-p" onclick="openBrandModal()">+ Создать бренд</button>
   </section>
 
+</div>
+
+
+<!-- Channel modal -->
+<div id="channelModal" class="modal-bg">
+  <div class="card p-6" style="max-width:560px;width:100%">
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="text-xl font-bold">📨 Подключить Telegram-канал</h3>
+      <button class="btn-g" onclick="closeChannelModal()" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="text-xs text-on-dim space-y-2 mb-5 p-3 rounded-lg" style="background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.2)">
+      <div><b class="text-on-surface">Как подключить:</b></div>
+      <div>1. Создай бота через <code>@BotFather</code> в Telegram, получи <b>токен</b> (вида <code>1234:ABC…</code>)</div>
+      <div>2. Добавь бота в свой канал как <b>администратора</b> с правом «Публиковать сообщения»</div>
+      <div>3. Сюда вставь токен и <b>@username</b> канала (или ID вида <code>-100…</code>)</div>
+      <div>4. После сохранения мы пошлём <b>тестовое сообщение</b> чтобы проверить связь</div>
+    </div>
+    <div class="space-y-4">
+      <div>
+        <label class="lbl">Bot Token (от @BotFather)</label>
+        <input id="ch_token" class="inp" placeholder="1234567890:ABCdefGhIJKlmNOpqRsTuVwXyZ" maxlength="2048"/>
+      </div>
+      <div>
+        <label class="lbl">Канал (@username или -100…)</label>
+        <input id="ch_channel" class="inp" placeholder="@my_brand_channel" maxlength="200"/>
+      </div>
+    </div>
+    <div class="flex items-center justify-end gap-3 mt-6">
+      <button class="btn-g" onclick="closeChannelModal()">Отмена</button>
+      <button id="chSaveBtn" class="btn-p" onclick="saveChannel()">Подключить</button>
+    </div>
+  </div>
 </div>
 
 
@@ -266,6 +301,7 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
       <div class="flex gap-2 flex-wrap">
         <button class="btn-g" onclick="toggleSkip()" id="im_skip_btn">⏸ Пропустить</button>
         <button class="btn-g" onclick="saveItem()">💾 Сохранить</button>
+        <button class="btn-g" onclick="publishNow()" id="im_pub_btn" style="display:none">📤 Опубликовать</button>
         <button class="btn-p" onclick="prepareItem()" id="im_prep_btn">✨ Подготовить</button>
       </div>
     </div>
@@ -520,11 +556,12 @@ const STATUS_LABELS = {planned:'Запланирован',preparing:'Готов�
 
 async function loadCalendar(){
   const b = currentBrand();
-  if(!b){ _items = []; _calendar = null; renderCalendar(); return; }
+  if(!b){ _items = []; _calendar = null; renderCalendar(); renderChannels([]); return; }
   try{
     const [calRes] = await Promise.all([
       fetch(`/creators/brands/${b.id}/calendar`, {credentials:'include'}),
       loadFreemium(),
+      loadChannels(),
     ]);
     if(!calRes.ok) throw new Error('Ошибка ' + calRes.status);
     const d = await calRes.json();
@@ -534,6 +571,146 @@ async function loadCalendar(){
     renderStats();
   }catch(e){
     console.error(e);
+  }
+}
+
+// ── Channels ──────────────────────────────────────────────────────────────────
+let _channels = [];
+
+async function loadChannels(){
+  const b = currentBrand();
+  if(!b){ _channels = []; renderChannels([]); return; }
+  try{
+    const r = await fetch(`/creators/brands/${b.id}/channels`, {credentials:'include'});
+    if(!r.ok) return;
+    const d = await r.json();
+    _channels = d.channels || [];
+    renderChannels(_channels);
+  }catch(e){}
+}
+
+function renderChannels(list){
+  const wrap = document.getElementById('channelsList');
+  const empty = document.getElementById('channelsEmpty');
+  wrap.innerHTML = '';
+  if(!list.length){
+    wrap.appendChild(empty);
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  for(const c of list){
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid rgba(74,63,47,.4);background:#272018;flex-wrap:wrap';
+    const dot = c.is_active ? '🟢' : '⚪';
+    const failTag = (c.fail_count >= 3) ? `<span class="stat-tag" style="color:#ff6b6b">⚠ ${c.fail_count} ошибок</span>` : '';
+    row.innerHTML = `
+      <span style="font-size:18px">${dot}</span>
+      <div style="flex:1;min-width:200px">
+        <div class="text-sm font-semibold">${esc(c.title || c.channel_id)}</div>
+        <div class="text-xs text-on-dim">${PLAT_LABELS[c.platform] || c.platform} · ${esc(c.channel_id)}</div>
+      </div>
+      ${failTag}
+      <button class="btn-g" data-test="${c.id}">🧪 Тест</button>
+      <button class="btn-g" data-toggle="${c.id}">${c.is_active ? '⏸ Откл.' : '▶ Вкл.'}</button>
+      <button class="btn-d" data-delete="${c.id}">🗑</button>
+    `;
+    wrap.appendChild(row);
+  }
+}
+
+// Делегирование кликов для кнопок каналов
+document.addEventListener('click', async e =>{
+  const t = e.target.closest('[data-test]');
+  const tg = e.target.closest('[data-toggle]');
+  const dl = e.target.closest('[data-delete]');
+  if(t){
+    const cid = t.dataset.test;
+    t.disabled = true; t.textContent = '⏳';
+    try{
+      const r = await fetch(`/creators/channels/${cid}/test`, {
+        method:'POST', credentials:'include',
+        headers: {'X-CSRF-Token': getCSRF()},
+      });
+      const d = await r.json().catch(() => ({}));
+      if(!r.ok) throw new Error(d.detail || 'Ошибка');
+      (window.aiToast || alert)('✅ Тест отправлен');
+    }catch(err){
+      (window.aiToast || alert)('❌ ' + err.message);
+    }finally{
+      t.disabled = false; t.textContent = '🧪 Тест';
+      loadChannels();
+    }
+    return;
+  }
+  if(tg){
+    const cid = tg.dataset.toggle;
+    try{
+      const r = await fetch(`/creators/channels/${cid}/toggle`, {
+        method:'PUT', credentials:'include',
+        headers: {'X-CSRF-Token': getCSRF()},
+      });
+      if(!r.ok) throw new Error('Ошибка ' + r.status);
+      loadChannels();
+    }catch(err){
+      (window.aiToast || alert)(err.message);
+    }
+    return;
+  }
+  if(dl){
+    const cid = dl.dataset.delete;
+    const confirmFn = window.aiConfirm || ((m) => Promise.resolve(confirm(m)));
+    const ok = await confirmFn('Отключить и удалить этот канал?');
+    if(!ok) return;
+    try{
+      const r = await fetch(`/creators/channels/${cid}`, {
+        method:'DELETE', credentials:'include',
+        headers: {'X-CSRF-Token': getCSRF()},
+      });
+      if(!r.ok) throw new Error('Ошибка ' + r.status);
+      loadChannels();
+    }catch(err){
+      (window.aiToast || alert)(err.message);
+    }
+  }
+});
+
+function openChannelModal(){
+  document.getElementById('ch_token').value = '';
+  document.getElementById('ch_channel').value = '';
+  document.getElementById('channelModal').classList.add('show');
+  setTimeout(() => document.getElementById('ch_token').focus(), 50);
+}
+
+function closeChannelModal(){
+  document.getElementById('channelModal').classList.remove('show');
+}
+
+async function saveChannel(){
+  const b = currentBrand();
+  if(!b){ (window.aiToast || alert)('Сначала выбери бренд'); return; }
+  const token = document.getElementById('ch_token').value.trim();
+  const channel = document.getElementById('ch_channel').value.trim();
+  if(!token || !channel){ (window.aiToast || alert)('Заполни оба поля'); return; }
+  const btn = document.getElementById('chSaveBtn');
+  btn.disabled = true; btn.textContent = '⏳ Проверка…';
+  try{
+    const r = await fetch(`/creators/brands/${b.id}/channels`, {
+      method:'POST', credentials:'include',
+      headers: {'Content-Type':'application/json', 'X-CSRF-Token': getCSRF()},
+      body: JSON.stringify({platform: 'tg', channel_id: channel, token}),
+    });
+    if(!r.ok){
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || 'Ошибка ' + r.status);
+    }
+    closeChannelModal();
+    loadChannels();
+    (window.aiToast || (() => {}))('Канал подключён');
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Подключить';
   }
 }
 
@@ -750,12 +927,18 @@ function openItemModal(item){
 
   // Prepare button + freemium hint
   const prepBtn = document.getElementById('im_prep_btn');
+  const pubBtn = document.getElementById('im_pub_btn');
   if(item.status === 'published'){
     prepBtn.style.display = 'none';
+    pubBtn.style.display = 'none';
   }else{
     prepBtn.style.display = 'inline-flex';
     prepBtn.textContent = item.status === 'ready' ? '↻ Перегенерировать' : '✨ Подготовить';
     prepBtn.disabled = false;
+    // Кнопка «Опубликовать» доступна только для ready + платформа, поддерживающая автопостинг (tg)
+    pubBtn.style.display = (item.status === 'ready' && item.platform === 'tg') ? 'inline-flex' : 'none';
+    pubBtn.disabled = false;
+    pubBtn.textContent = '📤 Опубликовать';
   }
   updatePrepHint(item);
 
@@ -777,6 +960,34 @@ function updatePrepHint(item){
   }else{
     fEl.textContent = '';
     cEl.innerHTML = `Подготовка — <b>${cost} ₽</b>`;
+  }
+}
+
+async function publishNow(){
+  if(!_editingItemId) return;
+  const confirmFn = window.aiConfirm || ((m) => Promise.resolve(confirm(m)));
+  const ok = await confirmFn('Опубликовать пост в канал прямо сейчас?');
+  if(!ok) return;
+  const btn = document.getElementById('im_pub_btn');
+  btn.disabled = true; btn.textContent = '⏳ Публикация…';
+  try{
+    const r = await fetch(`/creators/items/${_editingItemId}/publish`, {
+      method:'POST', credentials:'include',
+      headers: {'X-CSRF-Token': getCSRF()},
+    });
+    if(!r.ok){
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || 'Ошибка ' + r.status);
+    }
+    const d = await r.json();
+    const idx = _items.findIndex(x => x.id === d.item.id);
+    if(idx >= 0) _items[idx] = d.item;
+    renderCalendar();
+    openItemModal(d.item);
+    (window.aiToast || (() => {}))('✅ Опубликовано');
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+    btn.disabled = false; btn.textContent = '📤 Опубликовать';
   }
 }
 
@@ -912,10 +1123,14 @@ document.getElementById('brandModal').addEventListener('click', e =>{
 document.getElementById('itemModal').addEventListener('click', e =>{
   if(e.target.id === 'itemModal') closeItemModal();
 });
+document.getElementById('channelModal').addEventListener('click', e =>{
+  if(e.target.id === 'channelModal') closeChannelModal();
+});
 
 // Esc закрывает любую открытую модалку
 document.addEventListener('keydown', e =>{
   if(e.key !== 'Escape') return;
+  if(document.getElementById('channelModal').classList.contains('show')){ closeChannelModal(); return; }
   if(document.getElementById('itemModal').classList.contains('show')){ closeItemModal(); return; }
   if(document.getElementById('brandModal').classList.contains('show')){ closeBrandModal(); }
 });

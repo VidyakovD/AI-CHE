@@ -476,6 +476,159 @@ def delete_item(
     return {"ok": True}
 
 
+# ── Item publish (manual) ─────────────────────────────────────────────────────
+
+@router.post("/items/{item_id}/publish")
+async def publish_item_endpoint(
+    item_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Опубликовать сейчас (вручную). Требует status=ready и подключённый канал."""
+    from server.creators_publisher import publish_item as _publish
+
+    item = db.query(ContentItem).join(ContentCalendar).join(CreatorBrand).filter(
+        ContentItem.id == item_id, CreatorBrand.user_id == user.id,
+    ).first()
+    if not item:
+        raise HTTPException(404, "Пост не найден")
+    result = await _publish(db, item)
+    log_action("creator.item_published_manual", user_id=user.id, item_id=item.id, ok=result.get("ok"))
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("description") or "Не удалось опубликовать")
+    db.refresh(item)
+    return {"item": _item_dict(item), "result": result}
+
+
+# ── Channel connections (TG в MVP, VK/YT/IG позже) ────────────────────────────
+
+class ChannelIn(BaseModel):
+    platform: str  # tg / vk / yt / ig
+    channel_id: str = Field(..., min_length=1, max_length=200)
+    title: Optional[str] = None
+    token: str = Field(..., min_length=1, max_length=2048)
+
+
+def _channel_dict(c: CreatorChannelConnection) -> dict:
+    return {
+        "id": c.id,
+        "platform": c.platform,
+        "channel_id": c.channel_id,
+        "title": c.title,
+        "is_active": bool(c.is_active),
+        "fail_count": int(c.fail_count or 0),
+        "last_error_at": c.last_error_at.isoformat() if c.last_error_at else None,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+    }
+
+
+SUPPORTED_AUTO_PUBLISH = {"tg"}  # VK/YT/IG — позже
+
+
+@router.get("/brands/{brand_id}/channels")
+def list_channels(brand_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    b = db.query(CreatorBrand).filter_by(id=brand_id, user_id=user.id).first()
+    if not b:
+        raise HTTPException(404, "Бренд не найден")
+    rows = db.query(CreatorChannelConnection).filter_by(brand_id=brand_id).order_by(CreatorChannelConnection.id).all()
+    return {"channels": [_channel_dict(c) for c in rows]}
+
+
+@router.post("/brands/{brand_id}/channels")
+async def add_channel(
+    brand_id: int,
+    payload: ChannelIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Подключить канал. Для TG валидируем bot-token + права (getMe + getChat)."""
+    b = db.query(CreatorBrand).filter_by(id=brand_id, user_id=user.id).first()
+    if not b:
+        raise HTTPException(404, "Бренд не найден")
+    if payload.platform not in SUPPORTED_AUTO_PUBLISH:
+        raise HTTPException(400, f"Автопостинг для платформы '{payload.platform}' пока недоступен. В MVP: только TG.")
+
+    # Уникальность (brand, platform, channel_id) ловится UniqueConstraint
+    existing = db.query(CreatorChannelConnection).filter_by(
+        brand_id=brand_id, platform=payload.platform, channel_id=payload.channel_id,
+    ).first()
+    if existing:
+        raise HTTPException(409, "Этот канал уже подключён")
+
+    title = payload.title
+    if payload.platform == "tg":
+        from server.creators_publisher import verify_tg_channel
+        v = await verify_tg_channel(payload.token, payload.channel_id)
+        if not v.get("ok"):
+            raise HTTPException(400, f"Не удалось подключиться: {v.get('description', 'неизвестная ошибка')}")
+        title = v.get("title") or title
+
+    c = CreatorChannelConnection(
+        brand_id=brand_id,
+        platform=payload.platform,
+        channel_id=payload.channel_id,
+        title=title,
+        token=payload.token,
+        is_active=True,
+    )
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    log_action("creator.channel_added", user_id=user.id, brand_id=brand_id,
+               platform=payload.platform, channel_id=payload.channel_id)
+    return _channel_dict(c)
+
+
+@router.put("/channels/{channel_id}/toggle")
+def toggle_channel(channel_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    c = db.query(CreatorChannelConnection).join(CreatorBrand).filter(
+        CreatorChannelConnection.id == channel_id, CreatorBrand.user_id == user.id,
+    ).first()
+    if not c:
+        raise HTTPException(404, "Канал не найден")
+    c.is_active = not bool(c.is_active)
+    if c.is_active:
+        c.fail_count = 0  # обнуляем при возврате в строй
+    db.commit()
+    db.refresh(c)
+    return _channel_dict(c)
+
+
+@router.delete("/channels/{channel_id}")
+def delete_channel(channel_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    c = db.query(CreatorChannelConnection).join(CreatorBrand).filter(
+        CreatorChannelConnection.id == channel_id, CreatorBrand.user_id == user.id,
+    ).first()
+    if not c:
+        raise HTTPException(404, "Канал не найден")
+    db.delete(c)
+    db.commit()
+    log_action("creator.channel_deleted", user_id=user.id, channel_id=channel_id)
+    return {"ok": True}
+
+
+@router.post("/channels/{channel_id}/test")
+async def test_channel(channel_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Отправить тестовое сообщение в канал."""
+    from server.messaging.senders import send_telegram
+    c = db.query(CreatorChannelConnection).join(CreatorBrand).filter(
+        CreatorChannelConnection.id == channel_id, CreatorBrand.user_id == user.id,
+    ).first()
+    if not c:
+        raise HTTPException(404, "Канал не найден")
+    if c.platform != "tg":
+        raise HTTPException(400, "Тест доступен только для TG")
+    r = await send_telegram(c.token, c.channel_id,
+                             "✅ Тест из AI Студии Че: канал подключён успешно.",
+                             parse_mode=None)
+    if not r.get("ok"):
+        c.fail_count = (c.fail_count or 0) + 1
+        c.last_error_at = datetime.utcnow()
+        db.commit()
+        raise HTTPException(400, r.get("description") or "Тест провалился")
+    return {"ok": True}
+
+
 def _item_dict(i: ContentItem) -> dict:
     return {
         "id": i.id,

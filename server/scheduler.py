@@ -1314,6 +1314,55 @@ async def creators_prepare_loop():
         await asyncio.sleep(300)  # 5 мин
 
 
+async def _creators_publish_tick():
+    """Публикуем ready-items с schedule_at <= now.
+
+    Только в каналы платформы, поддерживающей автопостинг (MVP — TG).
+    Для других платформ оставляем ready — юзер копирует руками.
+    """
+    from server.db import db_session
+    from server.models import ContentItem
+    from server.creators_publisher import publish_item, _platform_supports_auto_publish
+    from server.audit_log import log_action
+
+    now = datetime.utcnow()
+    try:
+        with db_session() as db:
+            items = (db.query(ContentItem)
+                       .filter(ContentItem.status == "ready",
+                               ContentItem.schedule_at <= now)
+                       .order_by(ContentItem.schedule_at)
+                       .limit(10).all())
+            for item in items:
+                if not _platform_supports_auto_publish(item.platform):
+                    continue  # юзер опубликует сам
+                try:
+                    res = await publish_item(db, item)
+                    log_action(
+                        "creator.item_published_auto", user_id=None,
+                        item_id=item.id, ok=bool(res.get("ok")),
+                        description=res.get("description"),
+                    )
+                except Exception as e:
+                    log.exception(f"[creators.publish] item={item.id} exception: {e}")
+    except Exception as e:
+        log.error(f"[creators.publish] tick error: {type(e).__name__}: {e}")
+
+
+async def creators_publish_loop():
+    """Раз в минуту публикуем созревшие ready-item'ы. Worker-lock."""
+    from server.worker_lock import worker_lock
+    await asyncio.sleep(240)  # старт через 4 мин (после prepare_loop)
+    while True:
+        try:
+            with worker_lock("creators_publish", ttl_sec=55) as acquired:
+                if acquired:
+                    await _creators_publish_tick()
+        except Exception as e:
+            log.error(f"[creators.publish] loop error: {e}")
+        await asyncio.sleep(60)
+
+
 def start_scheduler():
     """Фоновые задачи: scheduler / health / cleanup PDF / backup / conv / audit."""
     asyncio.create_task(scheduler_loop())
@@ -1327,3 +1376,4 @@ def start_scheduler():
     asyncio.create_task(idempotency_cleanup_loop())
     asyncio.create_task(data_retention_loop())
     asyncio.create_task(creators_prepare_loop())
+    asyncio.create_task(creators_publish_loop())
