@@ -456,25 +456,23 @@ def serve_fonts_css():
 def serve_icons():
     """Единый набор векторных иконок — заменяет эмодзи в UI.
 
-    Cache: 60 секунд + must-revalidate. Так после деплоя клиент получит свежий
-    icons.js за минуту, а не через час (старый max-age=3600 однажды залип
-    PWA-кэшем и юзер не видел обновлений UI до жёсткого hard-reload).
+    Временно: Cache-Control no-cache, must-revalidate чтобы юзеры быстрее
+    получали правки после деплоя (бывшие проблемы с PWA-кэшем).
     """
     return FileResponse(
         os.path.join(_BASE, "icons.js"),
         media_type="application/javascript",
-        headers={"Cache-Control": "public, max-age=60, must-revalidate"},
+        headers={"Cache-Control": "no-cache, must-revalidate"},
     )
 
 
 @app.get("/shared.js", include_in_schema=False)
 def serve_shared_js():
-    """Общие хелперы для всех HTML: esc/escHtml/fmtRub/aiFetch/humanizeError.
-    Подключается ПЕРЕД icons.js в каждом HTML."""
+    """Общие хелперы для всех HTML: esc/escHtml/fmtRub/aiFetch/humanizeError."""
     return FileResponse(
         os.path.join(_BASE, "shared.js"),
         media_type="application/javascript",
-        headers={"Cache-Control": "public, max-age=60, must-revalidate"},
+        headers={"Cache-Control": "no-cache, must-revalidate"},
     )
 
 

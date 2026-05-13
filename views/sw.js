@@ -1,132 +1,56 @@
 /**
- * Service Worker для AI Студии Че.
+ * KILL-SWITCH Service Worker для AI Студии Че.
  *
- * Минимальная стратегия:
- *   - Иконки/manifest/static-assets — cache-first (быстрый старт offline)
- *   - HTML-страницы — network-first с fallback на кэш (при потере сети)
- *   - API-запросы (/proposals, /chatbots, /chat...) — НЕ кэшируем
- *     (всегда свежие данные)
+ * После недели проблем с агрессивным кэшированием — мы УБИРАЕМ SW
+ * полностью. Этот sw.js при активации:
+ *   1. Удаляет ВСЕ caches (старого SW)
+ *   2. Unregister-ит сам себя
+ *   3. Force-reload-ит всех активных clients
  *
- * Версия v1: при изменении — поднять CACHE_VERSION чтобы старый кэш
- * автоматически почистился при первой регистрации нового SW.
+ * Браузеры юзеров с СТАРЫМ SW получат этот новый файл через
+ * network-first или периодический check. Новый SW активируется,
+ * сделает cleanup, перезагрузит вкладку. Дальше SW нет — браузер
+ * сам обращается к серверу напрямую, кэшировать нечего.
+ *
+ * Когда захотим вернуть PWA-кэш — пишем sw.js заново.
  */
 
-const CACHE_VERSION = 'aiche-v4-2026-05-12-bootstrap';
-const STATIC_CACHE = `${CACHE_VERSION}-static`;
-const HTML_CACHE = `${CACHE_VERSION}-html`;
-
-// Что прекэшируем при install — критичные shell-ассеты
-const PRECACHE_URLS = [
-  '/icon.svg',
-  '/manifest.json',
-  '/icons.js',
-];
+const CACHE_VERSION = 'aiche-killswitch-2026-05-12';
 
 self.addEventListener('install', (event) => {
-  // skipWaiting() — новый SW активируется сразу, не ждёт закрытия вкладок
+  // skipWaiting() — новый SW активируется СРАЗУ, не ждёт закрытия вкладок
   self.skipWaiting();
-  event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE_URLS))
-      .catch(() => { /* offline-сеть при install — не критично */ })
-  );
 });
 
 self.addEventListener('activate', (event) => {
-  // Удаляем кэши старых версий
-  event.waitUntil(
-    caches.keys().then((keys) => Promise.all(
-      keys.filter((k) => !k.startsWith(CACHE_VERSION)).map((k) => caches.delete(k))
-    )).then(() => self.clients.claim())
-  );
-});
+  event.waitUntil((async () => {
+    try {
+      // 1. Удаляем все caches
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+      console.log('[killswitch-sw] cleared caches:', keys);
 
-self.addEventListener('fetch', (event) => {
-  const req = event.request;
-  if (req.method !== 'GET') return;
-  const url = new URL(req.url);
+      // 2. Unregister самого себя
+      await self.registration.unregister();
+      console.log('[killswitch-sw] unregistered');
 
-  // Skip cross-origin (CDN'ы — Tailwind/icons и т.д.) — браузер сам кэширует
-  if (url.origin !== self.location.origin) return;
-
-  // НЕ кэшируем API-запросы (всё что не статика и не HTML)
-  // Признак API: путь не заканчивается на .html, .css, .js, .svg, .png, .jpg, .ico, и НЕ корень
-  const path = url.pathname;
-  const isApi = (
-    path.startsWith('/auth/') ||
-    path.startsWith('/proposals/') ||
-    path.startsWith('/chatbots/') ||
-    path.startsWith('/sites/') ||
-    path.startsWith('/chat/') ||
-    path.startsWith('/admin/') ||
-    path.startsWith('/agent/') ||
-    path.startsWith('/payment/') ||
-    path.startsWith('/webhook/') ||
-    path.startsWith('/widget/') ||
-    path.startsWith('/user/') ||
-    path.startsWith('/assets/') ||
-    path.startsWith('/uploads/') ||
-    path === '/message' ||
-    path === '/upload'
-  );
-  if (isApi) return;  // дефолтный браузерный fetch без перехвата
-
-  // HTML-страницы: network-first (всегда свежий после деплоя).
-  // cache: 'no-store' — обходим браузерный HTTP-кэш, чтобы юзер не залипал
-  // на старой версии HTML из-за HTTP-заголовков на nginx.
-  const isHtml = path === '/' || path.endsWith('.html');
-  if (isHtml) {
-    event.respondWith(
-      fetch(req, {cache: 'no-store'}).then((resp) => {
-        // Кэшируем успешный ответ для offline
-        if (resp && resp.status === 200) {
-          const respClone = resp.clone();
-          caches.open(HTML_CACHE).then((c) => c.put(req, respClone));
-        }
-        return resp;
-      }).catch(() => caches.match(req).then((cached) => cached || new Response(
-        '<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Нет сети</title>' +
-        '<style>body{background:#1C1C1C;color:#f0e6d8;font-family:sans-serif;padding:40px;text-align:center}' +
-        'h1{color:#ff8c42}</style></head><body><h1>Нет интернета</h1>' +
-        '<p>Подключитесь к сети и обновите страницу.</p></body></html>',
-        { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
-      )))
-    );
-    return;
-  }
-
-  // JS/CSS — network-first: иначе после деплоя нового icons.js юзер
-  // продолжит видеть старую версию из кэша. При offline — fallback на кэш.
-  // cache: 'no-store' — также обходим HTTP-кэш браузера для свежести.
-  const isCode = path.endsWith('.js') || path.endsWith('.css');
-  if (isCode) {
-    event.respondWith(
-      fetch(req, {cache: 'no-store'}).then((resp) => {
-        if (resp && resp.status === 200) {
-          const respClone = resp.clone();
-          caches.open(STATIC_CACHE).then((c) => c.put(req, respClone));
-        }
-        return resp;
-      }).catch(() => caches.match(req))
-    );
-    return;
-  }
-
-  // Иконки/SVG/PNG/manifest — cache-first (бинарные ассеты редко меняются)
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) return cached;
-      return fetch(req).then((resp) => {
-        if (resp && resp.status === 200) {
-          const respClone = resp.clone();
-          caches.open(STATIC_CACHE).then((c) => c.put(req, respClone));
-        }
-        return resp;
+      // 3. Force-reload всех клиентов
+      const clients = await self.clients.matchAll({ type: 'window' });
+      clients.forEach((c) => {
+        try { c.navigate(c.url); } catch (_) {}
       });
-    })
-  );
+    } catch (e) {
+      console.error('[killswitch-sw] activate error:', e);
+    }
+  })());
 });
 
-// Обработка push-уведомлений (для будущего: события «новый КП», «ответ клиента»)
+// fetch — пропускаем всё насквозь. Никакого кэша.
+self.addEventListener('fetch', (event) => {
+  // НЕ перехватываем — браузер сам fetch к серверу
+});
+
+// Push-уведомления оставляем (если кто-то подписан — пусть работает)
 self.addEventListener('push', (event) => {
   if (!event.data) return;
   let data = {};

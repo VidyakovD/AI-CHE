@@ -452,30 +452,26 @@
   }
   _ensurePwaTags();
 
-  // SW регистрируем на /sw.js — контролирует всё приложение (scope=/)
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    window.addEventListener('load', function(){
-      navigator.serviceWorker.register('/sw.js', {scope: '/'})
-        .then(function(reg){
-          // Force-check обновления при каждом load — иначе SW обновляется
-          // только при первой регистрации (юзеры могут зависнуть на старой
-          // версии неделями). reg.update() инициирует fetch /sw.js,
-          // сравнение байт-в-байт; если изменился — install новый SW.
-          try { reg.update(); } catch(_) {}
-          // Когда новый SW активировался и взял control — reload страницы.
-          // skipWaiting + clients.claim в sw.js уже стоят, но клиент должен
-          // ПЕРЕЗАГРУЗИТЬСЯ чтобы рендериться из свежего HTML.
-          if (reg && navigator.serviceWorker.controller) {
-            navigator.serviceWorker.addEventListener('controllerchange', function(){
-              if (window.__aicheReloadInFlight) return;
-              window.__aicheReloadInFlight = true;
-              // Маленькая задержка чтобы новый SW успел claim() остальные клиенты
-              setTimeout(function(){ window.location.reload(); }, 200);
-            });
-          }
-        })
-        .catch(function(){ /* offline — не критично, регистрируется при следующем заходе */ });
-    });
+  // SW ВРЕМЕННО ОТКЛЮЧЁН — слишком агрессивно кэшировал HTML/JS и удерживал
+  // юзеров на старой версии. Если регистрация ещё ЕСТЬ — наш kill-switch sw.js
+  // её снимет при следующем check. Здесь — больше не регистрируем.
+  // Подчищаем существующую регистрацию на случай если осталась:
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(regs){
+      regs.forEach(function(r){
+        // Не unregister'им СРАЗУ если SW уже kill-switch (он сам себя снимет).
+        // Просто инициируем update — если файл изменился, активируется новый.
+        try { r.update(); } catch(_) {}
+      });
+    }).catch(function(){});
+    // Если controller сменился (новый SW взял control) — reload, чтобы видеть свежий контент
+    if (navigator.serviceWorker.controller) {
+      navigator.serviceWorker.addEventListener('controllerchange', function(){
+        if (window.__aicheReloadInFlight) return;
+        window.__aicheReloadInFlight = true;
+        setTimeout(function(){ window.location.reload(); }, 200);
+      });
+    }
   }
 
   // Перехват install-prompt (Chrome/Edge desktop+Android). Откладываем
