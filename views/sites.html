@@ -1590,6 +1590,20 @@ function _setupEditFromParent(frame) {
     _runtimeReadyEditMode = !!editMode;
   } catch (_) {}
 
+  // CLEANUP старых edit-артефактов из загружаемого HTML.
+  // Если юзер раньше редактировал и autosave сохранил contenteditable=true +
+  // __editmode_css в БД, при просмотре они применятся. Чистим в любом режиме.
+  try {
+    doc.body.removeAttribute('contenteditable');
+    doc.body.removeAttribute('spellcheck');
+    if (doc.body.style && doc.body.style.opacity === '1') doc.body.style.removeProperty('opacity');
+    const oldCss = doc.getElementById('__editmode_css');
+    if (oldCss) oldCss.remove();
+    doc.querySelectorAll('[contenteditable="false"]').forEach(el => el.removeAttribute('contenteditable'));
+    doc.querySelectorAll('[data-edit-id]').forEach(el => el.removeAttribute('data-edit-id'));
+    doc.querySelectorAll('[data-edit-icon]').forEach(el => el.removeAttribute('data-edit-icon'));
+  } catch (_) {}
+
   if (editMode) {
     // ВСЁ тело редактируется
     doc.body.setAttribute('contenteditable', 'true');
@@ -1616,12 +1630,42 @@ function _setupEditFromParent(frame) {
         document.getElementById('replaceImgBtn').classList.remove('hidden');
       }, true);
     });
-    // Изменения текста — sync code_html в parent
+    // Изменения текста — sync code_html в parent.
+    // КРИТИЧНО: outerHTML включает НАШИ мутации (body contenteditable=true,
+    // <style id=__editmode_css>, data-edit-id). Если их сохранить в БД —
+    // при следующей загрузке body будет contenteditable С ПОРОГА (без клика),
+    // dashed-outlines применяются всегда → юзеру кажется edit-режим завис.
+    // Чистим перед сохранением.
     const syncCode = () => {
       try {
-        const html = doc.documentElement.outerHTML;
+        // Клонируем DOM чтобы не сломать активный iframe
+        const clone = doc.documentElement.cloneNode(true);
+        // 1. Снять contenteditable + spellcheck с body
+        const bodyClone = clone.querySelector('body');
+        if (bodyClone) {
+          bodyClone.removeAttribute('contenteditable');
+          bodyClone.removeAttribute('spellcheck');
+        }
+        // 2. Удалить мой <style id="__editmode_css">
+        const oldCss = clone.querySelector('#__editmode_css');
+        if (oldCss) oldCss.remove();
+        // 3. Снять contenteditable=false с медиа-элементов (мой fix только для edit)
+        clone.querySelectorAll('[contenteditable="false"]').forEach(el => {
+          el.removeAttribute('contenteditable');
+        });
+        // 4. Снять мои dataset.editId / dataset.editIcon
+        clone.querySelectorAll('[data-edit-id]').forEach(el => el.removeAttribute('data-edit-id'));
+        clone.querySelectorAll('[data-edit-icon]').forEach(el => el.removeAttribute('data-edit-icon'));
+        // 5. Снять inline-style cursor:pointer и outline (от моих hover-listeners)
+        clone.querySelectorAll('img, svg, i').forEach(el => {
+          if (el.style.cursor === 'pointer') el.style.removeProperty('cursor');
+          if (el.style.outline) el.style.removeProperty('outline');
+          // Если style теперь пустой — удаляем атрибут
+          if (el.getAttribute('style') === '') el.removeAttribute('style');
+        });
+        const cleanHtml = '<!DOCTYPE html>\n' + clone.outerHTML;
         const ce = document.getElementById('codeEditor');
-        if (ce) ce.value = html;
+        if (ce) ce.value = cleanHtml;
         _scheduleAutoSave();
       } catch (_) {}
     };
