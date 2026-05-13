@@ -254,8 +254,8 @@ def get_solution(solution_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/solutions/{solution_id}/run")
-def run_solution(solution_id: int, db: Session = Depends(get_db),
-                 user=Depends(optional_user)):
+async def run_solution(solution_id: int, db: Session = Depends(get_db),
+                       user=Depends(optional_user)):
     s = db.query(Solution).filter_by(id=solution_id, is_active=True).first()
     if not s:
         raise HTTPException(404, "Решение не найдено")
@@ -298,8 +298,8 @@ def run_solution(solution_id: int, db: Session = Depends(get_db),
 
 
 @router.post("/solutions/runs/{run_id}/continue")
-def continue_run(run_id: int, body: dict, db: Session = Depends(get_db),
-                 user=Depends(optional_user)):
+async def continue_run(run_id: int, body: dict, db: Session = Depends(get_db),
+                       user=Depends(optional_user)):
     run = db.query(SolutionRun).filter_by(id=run_id).first()
     if not run:
         raise HTTPException(404, "Run не найден")
