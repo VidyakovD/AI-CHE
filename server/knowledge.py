@@ -60,10 +60,21 @@ def _abs_path(rel: str) -> str:
     попытка `..` или абсолютного пути за пределами этих директорий → ValueError.
     Все callers сейчас уже валидируют через `_validate_attachments` /
     upload-роуты, но проверка здесь спасает при добавлении нового caller'а
-    забывшего санитайзить путь."""
+    забывшего санитайзить путь.
+
+    Trick: `/uploads/foo.pdf` — это **URL-path** (от FastAPI app.mount), НЕ
+    абсолютный файловый путь Linux. os.path.isabs() на нём = True, но
+    resolve() даст несуществующий /uploads/foo.pdf. Поэтому пути, начинающиеся
+    с /uploads/ или /backups/ — трактуем как URL-path относительно base.
+    """
     from pathlib import Path as _P
     base = _P(__file__).resolve().parent.parent  # корень проекта
-    if os.path.isabs(rel):
+    if rel.startswith(("/uploads/", "/backups/")):
+        # URL-path: режем ведущий / и резолвим от корня проекта
+        candidate = (base / rel.lstrip("/")).resolve()
+    elif os.path.isabs(rel):
+        # Реально абсолютный путь (например /tmp/foo.bin) — оставляем как есть,
+        # дальше проверка allowed_roots всё равно его отвергнет если не разрешено
         candidate = _P(rel).resolve()
     else:
         candidate = (base / rel.lstrip("/")).resolve()
