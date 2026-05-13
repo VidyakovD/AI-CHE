@@ -1559,28 +1559,54 @@
       if (document.getElementById('sidebarBalance')) return null;
 
       const css = `
-#ai-balance-pill{
-  position:fixed;top:14px;right:64px;z-index:99996;
-  display:flex;align-items:center;gap:7px;
-  padding:7px 14px;border-radius:999px;
-  border:1px solid rgba(255,140,66,.4);
-  background:linear-gradient(135deg,rgba(30,26,20,.92),rgba(39,32,24,.92));
-  box-shadow:0 0 0 1px rgba(255,140,66,.1),0 6px 20px rgba(0,0,0,.35);
+/* ВАЖНО: balance-pill — это <a href>, а Chrome красит :visited links
+   своим default-цветом (часто зелёный/фиолетовый) и игнорирует CSS
+   background-image из-за privacy-restrictions. Поэтому ВСЕ цвета
+   привязаны к ВСЕМ link-state селекторам явно.
+   forced-color-adjust:none — отключает Windows High Contrast override.
+   text-decoration:none !important — против дефолтного underline visited. */
+#ai-balance-pill,
+#ai-balance-pill:link,
+#ai-balance-pill:visited,
+#ai-balance-pill:active,
+#ai-balance-pill:focus,
+#ai-balance-pill:focus-visible{
+  position:fixed !important;top:14px !important;right:64px !important;z-index:99996 !important;
+  display:flex !important;align-items:center !important;gap:7px !important;
+  padding:7px 14px !important;border-radius:999px !important;
+  border:1px solid rgba(255,140,66,.4) !important;
+  background:linear-gradient(135deg,rgba(30,26,20,.92),rgba(39,32,24,.92)) !important;
+  background-color:rgba(30,26,20,.92) !important;
+  box-shadow:0 0 0 1px rgba(255,140,66,.1),0 6px 20px rgba(0,0,0,.35) !important;
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-  font:600 12px/1 'Golos Text','Inter',system-ui,-apple-system,sans-serif;
-  letter-spacing:.01em;cursor:pointer;text-decoration:none;color:#ffb347;
+  font:600 12px/1 'Golos Text','Inter',system-ui,-apple-system,sans-serif !important;
+  letter-spacing:.01em;cursor:pointer !important;text-decoration:none !important;
+  color:#ffb347 !important;
+  outline:none !important;
+  forced-color-adjust:none;
+  -webkit-text-fill-color:#ffb347 !important;
   transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;
 }
 #ai-balance-pill:hover{
   transform:translateY(-1px) scale(1.03);
-  border-color:rgba(255,140,66,.7);
-  box-shadow:0 0 0 1px rgba(255,140,66,.25),0 10px 28px rgba(255,140,66,.18);
-  color:#ff8c42;
+  border-color:rgba(255,140,66,.7) !important;
+  box-shadow:0 0 0 1px rgba(255,140,66,.25),0 10px 28px rgba(255,140,66,.18) !important;
+  color:#ff8c42 !important;
+  -webkit-text-fill-color:#ff8c42 !important;
 }
-#ai-balance-pill .bal-em{font-size:14px;line-height:1;filter:hue-rotate(0deg)}
-#ai-balance-pill .bal-num{font-variant-numeric:tabular-nums;color:#f0e6d8}
-@media(max-width:640px){#ai-balance-pill{top:10px;right:56px;padding:6px 11px;font-size:11px}}
-@media(max-width:380px){#ai-balance-pill{display:none}}
+#ai-balance-pill .bal-em{font-size:14px !important;line-height:1 !important;color:#ffd166 !important;-webkit-text-fill-color:initial !important}
+#ai-balance-pill .bal-num{font-variant-numeric:tabular-nums;color:#f0e6d8 !important;-webkit-text-fill-color:#f0e6d8 !important}
+@media(max-width:640px){#ai-balance-pill{top:10px !important;right:56px !important;padding:6px 11px !important;font-size:11px !important}}
+@media(max-width:380px){#ai-balance-pill{display:none !important}}
+/* Windows High Contrast / forced-colors mode — явно оранжевый */
+@media(forced-colors:active){
+  #ai-balance-pill{
+    border:2px solid Highlight !important;
+    background:Canvas !important;
+    color:CanvasText !important;
+    forced-color-adjust:none;
+  }
+}
 `;
       const style = document.createElement('style');
       style.id = 'ai-balance-style';

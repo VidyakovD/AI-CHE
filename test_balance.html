@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<title>balance-pill test</title>
+<style>
+body{background:#141210;color:#fff;font-family:system-ui;padding:80px}
+#ai-balance-pill{
+  position:fixed;top:14px;right:64px;z-index:99996;
+  display:flex;align-items:center;gap:7px;
+  padding:7px 14px;border-radius:999px;
+  border:1px solid rgba(255,140,66,.4);
+  background:linear-gradient(135deg,rgba(30,26,20,.92),rgba(39,32,24,.92));
+  box-shadow:0 0 0 1px rgba(255,140,66,.1),0 6px 20px rgba(0,0,0,.35);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  font:600 12px/1 'Golos Text','Inter',system-ui,-apple-system,sans-serif;
+  letter-spacing:.01em;cursor:pointer;text-decoration:none;color:#ffb347;
+}
+#ai-balance-pill .bal-em{font-size:14px;line-height:1}
+#ai-balance-pill .bal-num{font-variant-numeric:tabular-nums;color:#f0e6d8}
+</style>
+</head><body>
+<a id="ai-balance-pill" href="#"><span class="bal-em">💰</span><span class="bal-num">9 996 437 ₽</span></a>
+<h1>Test page</h1>
+<p>Эта страница содержит ТОЛЬКО balance-pill из моего CSS, без всего остального.</p>
+<p>Если pill зелёный — значит проблема НЕ в моём CSS, а в браузерном расширении или системной теме.</p>
+</body></html>

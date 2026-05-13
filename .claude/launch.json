@@ -14,6 +14,12 @@
         "JWT_SECRET": "dev-jwt-secret-32-chars-long-yes-yes",
         "PYTHONIOENCODING": "utf-8"
       }
+    },
+    {
+      "name": "balance-test",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "9876"],
+      "port": 9876
     }
   ]
 }
