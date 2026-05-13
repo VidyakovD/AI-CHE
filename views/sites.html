@@ -3,7 +3,7 @@
 <head>
 <script>
 (function(){try{
-  var V='aiche-v4-2026-05-12-bootstrap';
+  var V='aiche-v5-2026-05-13-killsw';
   var stored=localStorage.getItem('aiche_client_version');
   if(stored===V) return;
   if(!('serviceWorker' in navigator)){localStorage.setItem('aiche_client_version',V);return;}
@@ -608,8 +608,13 @@ async function saveProject(){
 }
 
 // ── Open Project Detail ───────────────────────────────────────────────────
+// Метка версии — для диагностики что юзер реально получил свежий HTML
+console.log('%c[sites.html] v5-2026-05-13-killsw loaded', 'color:#ff8c42;font-weight:bold');
+window.__AICHE_SITES_VERSION = 'v5-2026-05-13-killsw';
+
 async function openProject(id){
   currentProjectId = id;
+  console.log('[openProject] resetting editMode/aiBlockMode (was:', editMode, aiBlockMode, ')');
   // Сброс edit-состояний — иначе если юзер ранее включил «Редактировать» и
   // переходит в другой проект (или вернулся в этот же), превью открылось бы
   // сразу в режиме редактирования без нажатия кнопки.
