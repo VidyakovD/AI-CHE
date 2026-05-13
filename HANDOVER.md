@@ -1,10 +1,54 @@
 # HANDOVER — для нового AI-ассистента
 
-Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. Тут **состояние на 2026-05-09 после спринта Perplexity + UI бизнес-решений + миграции SMTP/шрифты/PostgreSQL**.
+Если ты впервые в этом проекте — после `CLAUDE.md` прочитай этот файл. **Состояние на 2026-05-13** после большого спринта (рефакторинг 13 пунктов + 4 фичи из Dolibarr + сайт-редактор + UX).
 
 ---
 
-## 🆕 Спринт «Perplexity + UI бизнес-решений» (2026-05-08/09) — ПОСЛЕДНИЙ
+## 🆕 Спринт «Рефакторинг + Dolibarr + сайт-редактор» (2026-05-12/13) — ПОСЛЕДНИЙ
+
+### Объём
+- **~50 коммитов** за 2 дня
+- **299 тестов проходят** (+75 новых: smoke / privacy / ai-stats / retention / mcp)
+
+### Главное
+
+**1. Рефакторинг 13 пунктов аудита** (декомпозиция chatbot_engine на messaging/sandbox, views/shared.js, smoke-тесты, Tailwind build, pricing_config, Alembic, CI миграции, scripts/ cleanup, _pending_tasks, /iterate async, sanitize_legacy_proposal_html, JWT дата, шрифты). ⚠️ В `scripts/check_google_keys.py` был хардкоженный API key — удалён, **юзер должен ротировать** в Google Console.
+
+**2. 4 фичи из Dolibarr:**
+- **PrivacyGuard** — PII-маскировка (ИНН/КПП/ОГРН/СНИЛС/email/phone/cards с Luhn) перед LLM. 152-ФЗ ст. 6 killer-feature. 22 теста.
+- **AiRequestLog** — таблица + `/admin/ai-stats`. Hook в generate_response. 6 тестов.
+- **Data-retention cron** — анонимизация неактивных юзеров + purge старых КП. 152-ФЗ ст. 5. 5 тестов.
+- **MCP Server** (`/mcp`) — 10 tools + 3 resources, гайд `docs/mcp_setup.md`, 19 тестов.
+
+**3. Сайт-редактор (20+ коммитов)**:
+- Code-fence strip ДО проверки «<» — закрыло ложные refund'ы 1990 ₽
+- Edit-режим переписан: `srcdoc + allow-same-origin`, parent управляет contentDocument БЕЗ inline-script (победили CSP)
+- Edit-toolbar: B/I/U/S, размер 12-64px, цвет текста+фона, align, list, link, undo/redo
+- Scroll position сохраняется, edit только по кнопке
+- Autosave не сохраняет edit-артефакты (contenteditable, __editmode_css) + migration script
+- `/iterate` → **patch-based** (JSON {find,replace} вместо переписывания)
+- AI-правка блока: clone DOM без data-edit-id перед outerHTML
+
+**4. PWA — kill-switch SW** (после длинной саги с залипанием юзеров на старых версиях)
+
+**5. Balance-pill — победа над TronLink/Polkadot.js**: id `ai-balance-pill` → `aiche-stat-card`, `<a>` → `<button>`, эмодзи 💰 → SVG (расширения сканировали по «balance»-маркерам и красили зелёным `#7ED957`)
+
+**6. Solutions v2** — `type:'file'` в input_schema + seed для 5 решений (#31-35). Найден bug в `_abs_path` (`/uploads/foo.pdf` это URL-path, не Linux abs path). Промпт #36 переписан под ИП (12-цифровой ИНН).
+
+**7. Workflow-builder**: анти-паттерны в SYSTEM_PROMPT, автоочистка orphan-нод, обрезка мульти-триггерных графов.
+
+**8. UX**: вкладка **«🎯 Мои запуски»** в кабинете + унифицированный runModal footer.
+
+### Деплой
+Все коммиты на проде `193.187.92.147`. Последний: `a562b59`.
+
+### Что осталось юзеру сделать
+- Ротировать Google API key (utility-скрипт был с захардкоженным)
+- При желании: `.env` → `DATA_RETENTION_DRY_RUN=true` чтобы включить 152-ФЗ-cron
+
+---
+
+## 🆕 Спринт «Perplexity + UI бизнес-решений» (2026-05-08/09)
 
 ### Главное
 - Глубоко интегрирован **Perplexity (sonar / sonar-pro / sonar-reasoning-pro)** в три слоя:

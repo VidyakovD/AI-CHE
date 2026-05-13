@@ -4,17 +4,23 @@
 
 ## Что делать при каждом новом запуске
 1. **Прочитай этот файл целиком** — здесь актуальное состояние.
-2. Прочитай `HANDOVER.md` — детальная история последних спринтов.
-3. Прочитай `TODO_NEXT.md` — что в очереди + действия юзера.
+2. Прочитай `TODO_NEXT.md` — **там 🔴 первостепенная задача** + остальное.
+3. Прочитай `HANDOVER.md` — детальная история последних спринтов.
 4. `git log --oneline -25` — последние коммиты.
 5. Если нужны live-логи прода — запроси у юзера дамп `/admin/actions.txt?since_hours=72`.
 
+## 🔴 ГЛАВНАЯ ЗАДАЧА (для нового чата)
+
+**Сделать отдельный модуль для креаторов** (контент-креаторы / блогеры / TG-каналы / YouTube). Подробности и идеи в [TODO_NEXT.md → 🔴 ПЕРВОСТЕПЕННАЯ ЗАДАЧА](TODO_NEXT.md). **Начни с уточнения у юзера** — какой именно сценарий приоритетен (контент-конвейер / канал-автомат / монетизация / аналитика трендов), потом строй MVP с одного flagship-пилота.
+
 ## Краткое описание
-**B2B AI-платформа для предпринимателей.** Веб-приложение FastAPI + HTML SPA + PWA + Public REST API + Webhooks + CRM-интеграции.
+**B2B AI-платформа для предпринимателей.** Веб-приложение FastAPI + HTML SPA (PWA выключен) + Public REST API + Webhooks + CRM-интеграции + **MCP-сервер для Claude Desktop**.
 
 Простой пользовательский гайд (для самих юзеров): **`USER_GUIDE.md`** — 1100 строк, 19 разделов, без жаргона.
 
-## Главные продукты (на 2026-05-10)
+⚠️ **PWA Service Worker ОТКЛЮЧЁН** (kill-switch sw.js на 2026-05-12, см. `7f27ee0`) — после долгих проблем с агрессивным кэшированием. Когда захотим вернуть — писать новый.
+
+## Главные продукты (на 2026-05-13)
 
 - **Чат с AI** — GPT-4o / Claude Sonnet+Opus+Haiku / Perplexity sonar+sonar-pro+sonar-reasoning-pro / Grok / GPT-image / Imagen 4 / Veo 3 + **голосовой ввод (Whisper) и TTS (6 голосов OpenAI)**
 - **Бизнес-решения PRO** (multi-agent orchestra) — **40 пилотов** в новом UI с поиском, 8 chip-фильтрами (✨ Все · 🔬 Ресёрч · 📈 Маркетинг · 💼 Продажи · 📊 Стратегия · ⚖️ Юр · 💰 Финансы · 👥 HR), **группировкой по категориям при «Все»**, бейджами категории на карточке + бейджами 🔥 ХИТ / 🆕 NEW / 💎 DEEP / 🤖 PRO.
@@ -30,7 +36,7 @@
 - **Презентации v2** — `/presentations.html`: PPTX/HTML/PDF, color picker, vision-анализ фото, графики, ТЗ-визард
 - **Marketplace ботов** — публикация шаблонов с revenue-split 70/30 + админ-модерация (`/marketplace.html`)
 - **Public API** (`/api.html`) — Bearer-токены + scope-проверка + Webhooks (7 событий с HMAC-подписью + auto-disable) + полная документация
-- **MCP Server** (`/mcp`) — JSON-RPC 2.0 endpoint для подключения как инструмент к Claude Desktop / Cursor / любому MCP-клиенту. 7 tools: `get_balance` / `list_solutions` / `run_solution` / `get_solution_status` / `list_proposals` / `get_proposal` / `create_proposal`. Auth через тот же ApiToken что Public API. Адаптация Dolibarr `htdocs/ai/server/mcp_server.php`.
+- **MCP Server** (`/mcp`) — JSON-RPC 2.0 endpoint для подключения как инструмент к Claude Desktop / Cursor / любому MCP-клиенту. **10 tools**: `get_balance` / `list_solutions` / `run_solution` / `get_solution_status` / `list_proposals` / `get_proposal` / `create_proposal` / **`generate_proposal`** (полная AI-генерация) / **`list_chatbots`** / **`recent_records`** (заявки/брони из ботов). **3 resources**: `aiche://categories` / `aiche://pricing` / `aiche://models`. Auth через тот же ApiToken что Public API. Гайд для юзеров — `docs/mcp_setup.md`. Адаптация Dolibarr `htdocs/ai/server/mcp_server.php`.
 - **PrivacyGuard** — маскировка PII (ИНН/КПП/ОГРН/СНИЛС/email/phone/cards с Luhn) перед отправкой в LLM, unmask на ответе. 152-ФЗ ст. 6 compliance. Использование: `safe, guard = with_pii_protection(text); ans = generate_response(...); final = guard.unmask_response(ans["content"])`. Адаптация Dolibarr `privacy_guard.class.php`.
 - **AiRequestLog** — отдельная таблица `ai_request_logs` для AI-аналитики (provider/model/purpose/tokens/cost/duration). Endpoint `/admin/ai-stats?days=N` с totals + by_model + top_users.
 - **Data-retention cron** — автоматическая анонимизация User с `last_login_at > N мес` и purge старого `ProposalProject.generated_html > N лет` (152-ФЗ ст. 5). Настраивается через env `DATA_RETENTION_USER_INACTIVE_MONTHS / DATA_RETENTION_PROPOSAL_YEARS / DATA_RETENTION_DRY_RUN`. Адаптация Dolibarr `datapolicycron.class.php`.
@@ -446,11 +452,16 @@ Endpoints: `/admin/actions(.txt|.jsonl)`. Cleanup retention в scheduler.
 - **SMTP:** Yandex 360 (`smtp.yandex.ru:465 SSL`), ящик `info@aiche.ru` с app-password. Код в `server/email_service.py` поддерживает оба варианта (465 SSL / 587 STARTTLS) через `_open_smtp()`. **Кириллица в From/Subject** обязательно через `_encode_address_header()` (RFC2047), иначе Yandex отвечает 550 sender rejected.
 
 ## Тесты
-`pytest tests/` — **186 проходят, 1 flaky (TestApiWebhook), 2 skipped** (актуально на 2026-05-09).
+`pytest tests/` — **299 проходят, 8 skipped** (актуально на 2026-05-13). На dev-машине Python 3.14 часть smoke-тестов skipped (xhtml2pdf/python-docx/openpyxl не установлены), на проде Python 3.10 — все запускаются.
 - `tests/test_api.py` — auth, chat, chatbots, security, refresh single-use
 - `tests/test_billing.py` — atomic gates, race conditions, widget Origin
 - `tests/test_critical_paths.py` — promo, conversation, secrets HKDF, edit-block refund, **TestSolutionsOrchestra**, **TestMarketplace**, **TestPublicAPI**
-- **`tests/test_new_features.py`** — **+18 новых тестов** (signature/webhook/schedule/2fa/tts/idempotency)
+- `tests/test_new_features.py` — signature/webhook/schedule/2fa/tts/idempotency
+- **`tests/test_smoke_builders.py`** — pdf/docx/xlsx/scheduler/email/audit_log/agent_runner (+23)
+- **`tests/test_privacy_guard.py`** — PII-маскировка для LLM (+22)
+- **`tests/test_ai_request_log.py`** — AI-аналитика (+6)
+- **`tests/test_data_retention.py`** — 152-ФЗ анонимизация (+5)
+- **`tests/test_mcp.py`** — MCP Server JSON-RPC + tools + resources (+19)
 - `tests/test_assistant.py`, `tests/test_knowledge.py`, `tests/test_mobile.py`, `tests/test_qr_login.py`
 
 ```bash
@@ -483,9 +494,61 @@ ssh ... "cd /root/AI-CHE && /root/AI-CHE/venv/bin/python scripts/upgrade_orchest
 
 При добавлении новых категорий или переименовании Solution title — обновить `scripts/categorize_solutions.py` и прогнать `--force`.
 
-## Свежие коммиты (топ-30 на 2026-05-10)
+## Свежие коммиты (топ на 2026-05-13)
 
-**Спринт 2026-05-10 — v2-редизайн решений + UX/инфра:**
+**Спринт 2026-05-12/13 — БОЛЬШОЙ (~50 коммитов): рефакторинг + Dolibarr-фичи + сайт-редактор + UX/PWA:**
+
+### 13-пунктный рефакторинг из аудита кода
+- `56ce8d6` Декомпозиция chatbot_engine.py (3122→2390 строк): `server/messaging/senders.py` + `voice.py` + `server/sandbox.py`
+- `4bdb81e` `views/shared.js` — общие хелперы для 11 HTML (esc/fmtRub/aiFetch/humanizeError)
+- `b4aa243` Smoke-тесты для pdf/docx/xlsx/scheduler/email/audit_log/agent_runner (+23 теста)
+- `02e0e42` Tailwind build-step (config + styles.css), CDN остался safe-fallback
+- `cb74200` Хардкоды цен → pricing_config (`proposal.create`, `site.iter`)
+- `930cb85` Alembic baseline + workflow для миграций (parallel LIGHTWEIGHT_MIGRATIONS)
+- `b7e2ff2` CI прогоняет LIGHTWEIGHT_MIGRATIONS + alembic upgrade head на чистой SQLite
+- `e5f3fdd` scripts/ cleanup — удалены 9 dead-скриптов + scripts/README.md
+- `36c6af7` asyncio.create_task сохранять ссылки в _pending_tasks
+- `d85d58b` /iterate async-mode (фоновая правка без блокировки worker'а)
+- `65fd341` scripts/sanitize_legacy_proposal_html.py
+- `dd05348` JWT aud/iss дата (2026-06-10)
+- `9640510` Inter/Manrope шрифты удалены (~250KB)
+
+### 4 фичи из Dolibarr (модуль htdocs/ai)
+- `a4d9c77` **PrivacyGuard** — PII-маскировка перед LLM (РФ-адаптация). `server/privacy_guard.py` + 22 теста
+- `0201f81` **AiRequestLog** — таблица `ai_request_logs` + `/admin/ai-stats` + hook в `generate_response`
+- `ca8d8e5` **Data-retention cron** — анонимизация старых юзеров/КП (152-ФЗ ст. 5)
+- `d3deb70` + `f528d60` **MCP Server** — 10 tools + 3 resources, гайд `docs/mcp_setup.md`, 19 тестов
+
+### Сайт-редактор (длинная сага PWA + sandbox + editing)
+- `3676540` Code-fence strip ДО проверки «<» (закрыло ложные refund'ы 1990 ₽)
+- `3387075` Orchestra-пилоты через /run+/continue (пустой чат при «Проверке контрагента»)
+- `6e9e20c` Кнопка «Создать сайт» после refund (phase=spec_approved)
+- `dbc4cdb` → `9f3f6f7` → `1991f6e` Edit-режим: srcdoc + sandbox allow-same-origin **без inline-script** (parent сам управляет contentDocument). Преодолена CSP-блокировка
+- `563d972` + `211fae6` Edit-toolbar: B/I/U/S + размер + 7 цветов + кастом-picker + align/list/link/undo-redo + цвет фона
+- `8665710` Autosave не сохраняет contenteditable/__editmode_css/data-edit-id в БД + migration script `scripts/sanitize_site_code_html.py`
+- `b66ec46` selectedImg = el.src (а не DOM-объект)
+- `01b0f2d` **/iterate теперь patch-based** — Claude возвращает JSON-patches вместо переписывания всего HTML (5-10× дешевле)
+- `4f09d4a` + `f7c7bc5` Edit-режим **только по кнопке** — сброс editMode при openProject / closeDetail / switchDetailTab(preview)
+- `a057a20` + `7df0716` + `df9afaf` Balance-pill: orange-gradient, потом победа над TronLink/Polkadot inject — переименование `ai-balance-pill` → `aiche-stat-card` + `<a>` → `<button>`
+- `309a1b5` + `90609f6` + `7f27ee0` PWA SW: bumped versions → bootstrap script в HTML → **kill-switch SW** (полностью отключили). SW регистрация в icons.js удалена
+- `fb75bb9` runModal footer — главное действие + compact-row экспортов (PDF/DOCX/XLSX/Share)
+
+### Solutions v2 — file-attachments
+- `d47decc` `type:'file'` в input_schema + seed для 5 решений (#31-35) с file_extract/vision_describe/parallel_browse
+- `aa18470` `_abs_path` для `/uploads/*` как URL-path (закрыло «KB reject path»)
+- `51529d8` `async def` run_solution / continue_run (spawn() требует event loop)
+- `f57eb42` Промпт «Проверка контрагента» (#36) — поддержка ИП + не отказываться
+
+### Workflow builder (AI-сборка чат-ботов)
+- `6f590f0` Анти-паттерны в SYSTEM_PROMPT + автоочистка orphan-нод
+- `0dd0642` Один триггер на граф (мульти-канал → 3 отдельных бота)
+
+### UX
+- `a562b59` **Вкладка «🎯 Мои запуски»** в кабинете — список всех бизнес-решений + фильтр + повторное скачивание + share
+
+---
+
+## Спринт 2026-05-10 — v2-редизайн решений + UX/инфра (история):
 - `6d9d2b6` — feat(solutions v2): input_schema + multi-stage pipeline на 10 первых решениях
 - `d37e71d` — feat(ux): runModal — динамические поля + чистая верстка
 - `f53aaf2` — fix(ux): клик по карточке решения — event delegation вместо inline-onclick

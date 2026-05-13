@@ -1,12 +1,48 @@
 # TODO — задачи в работе и на очереди
 
-_Последнее обновление: 2026-05-10 после спринта v2-редизайна решений_
+_Последнее обновление: 2026-05-13 — после большого спринта по сайту-редактору, MCP, PWA fix, Dolibarr-фичам, AI-аналитике._
 
 ---
 
-## 🚧 СЛЕДУЮЩАЯ СЕССИЯ — что делать (приоритет ↓)
+## 🔴 ПЕРВОСТЕПЕННАЯ ЗАДАЧА (новый чат — начать с этого!)
 
-_Обновлено 2026-05-11 после аудита сайтов + КП и P0-фиксов._
+### Модуль «Креаторы»
+
+Юзер просит **отдельный модуль для контент-креаторов** (блогеры / Telegram-каналы / YouTube / агентства контента). Параллельный продукт к существующим B2B-инструментам (КП / Сайты / Чат-боты).
+
+**ВАЖНО:** в новом чате **СНАЧАЛА уточни у юзера видение** — формулировка пока абстрактная. Возможные направления:
+
+1. **Контент-конвейер**:
+   - Генерация постов под нишу (text + изображения)
+   - Контент-план на месяц одной кнопкой
+   - Адаптация поста под разные платформы (TG / VK / Instagram / X / Threads)
+   - Reels/Shorts сценарии + AI-озвучка через TTS
+   - SEO-оптимизация под YouTube/Yandex.Дзен
+
+2. **Канал-автомат**:
+   - Подключи TG-канал → AI публикует посты по расписанию
+   - Очередь постов с превью + одобрением
+   - A/B тест заголовков
+
+3. **Монетизация / партнёрки**:
+   - Bio-link страница (как Linktr.ee) с AI-генерацией
+   - Реклама / интеграции — генерация креативов
+   - Bridge с маркетплейсами рекламы
+
+4. **Аналитика**:
+   - Парсинг конкурентов через Perplexity
+   - Лучшее время для постинга
+   - Идеи на основе трендов
+
+**Подход:** новая категория Solution.subcategory=`creator` + новые orchestra-пилоты + (возможно) отдельная страница `/creators.html` если выйдет за рамки SOL. Скорее всего 10-15 пилотов хватит для MVP.
+
+**Первый шаг в новом чате:** уточнить у юзера 1-2 приоритетных сценария, начать с одного flagship-пилота (например «Контент-план YouTube на месяц по нише + SEO-оптимизация»), потом расширять.
+
+---
+
+## 🚧 ОСТАЛЬНЫЕ ЗАДАЧИ (приоритет ↓)
+
+_Обновлено 2026-05-13. Большой спринт по сайту-редактору закрыт, остались точечные._
 
 ### 🟠 КП — что осталось (после P0 batch)
 
@@ -19,19 +55,30 @@ _Обновлено 2026-05-11 после аудита сайтов + КП и P0
 7. **`max_tokens=6000` хардкод** ([server/proposal_builder.py:1155](server/proposal_builder.py:1155)) — для длинных прайсов >50 позиций JSON обрезается. Решение: `6000 + len(price_text)//4`.
 8. **Snapshot-version race** ([server/routes/proposals.py:496](server/routes/proposals.py:496)) — retention через offset, при гонке может остаться >10 версий. Не критично, но `id NOT IN (top-10)` чище.
 
-### 🟠 Сайты — что осталось (после P0 batch)
+### 🟠 Сайты — что осталось (после спринта 2026-05-13)
 
-1. **`/iterate` цена фикс 5 ₽** — реальный cost Sonnet 16k токенов ~30-50 ₽, минус-маржа. Решение: брать `usage` из `generate_response` ответа, считать `real_cost × pricing.ai.improve_margin_pct` (как в `/edit-block`). Сейчас в коде стоит TODO-комментарий.
-2. **`/iterate` sync вызов 60+ сек блокирует worker** ([server/routes/sites.py:903](server/routes/sites.py:903)) — Решение: переиспользовать паттерн `_run_site_generation` (asyncio background task + polling status), либо отдать через SSE.
-3. **`_strip_markdown_code_fence` дублируется** — функция есть на :522, но inline-копипаст в `/iterate` (942-946) и `/edit-block` (1048-1052). Решение: вызывать функцию.
-4. **Closure-bug в lambda** ([server/routes/sites.py:619, :666](server/routes/sites.py:619)) — `prompt`/`model_id` захватываются по ссылке. Сейчас работает, но при будущем рефакторе loop'а легко словить bug. Решение: `lambda p=prompt, m=model_id: ...`.
-5. **`asyncio.create_task` без хранения ссылки** ([server/routes/sites.py:799](server/routes/sites.py:799)) — task может быть GC'd до завершения. Решение: `_pending_tasks.add(task); task.add_done_callback(_pending_tasks.discard)`.
-6. **`/sites/code` мёртвый endpoint** ([server/routes/sites.py:1283](server/routes/sites.py:1283)) — `site_decode_code` нигде не используется из фронта. Решение: удалить либо задокументировать.
-7. **Phase `generating_code` после reload вкладки** — если юзер закрыл вкладку при генерации, `openProject` уходит в ветку показа done с пустым codeEditor. Решение: при `gen_status='running'` перезапустить polling вместо showDonePhase.
-8. **`copyCode()` ломается без `event`** ([views/sites.html:1230](views/sites.html:1230)) — глобальный `event.target` только Chrome. Решение: передавать `event` параметром.
-9. **Нет ETA в loader-е генерации** — юзер не знает что Sonnet генерит 1-3 мин, Opus 3-7. Решение: добавить «обычно 2-4 минуты» в `showLoading`.
-10. **a11y на radio quality-option** ([views/sites.html:267](views/sites.html:267)) — отсутствуют `aria-label`. Решение: `role="radiogroup"` + `aria-describedby`.
-11. **Sequential `project.id` в физпути** ([server/routes/sites.py:1105](server/routes/sites.py:1105)) — URL уже unguessable, но файлы в `<id>/`. Решение: переехать на `public_token` подпуть.
+✅ **Закрыто в этой сессии:**
+- `/iterate` теперь **patch-based** (Claude возвращает JSON-patches вместо переписывания) — `01b0f2d`
+- `/iterate` цена → pricing_config (`site.iter` key) — `cb74200`
+- `asyncio.create_task` со ссылкой через `_pending_site_tasks` — `36c6af7`
+- Edit-режим: srcdoc + sandbox allow-same-origin, без inline-script (parent управляет contentDocument) — `1991f6e`
+- Edit-toolbar: B/I/U/S + align/list/link + цвет текста + цвет фона + undo/redo — `211fae6`
+- Scroll position сохраняется при toggleEditMode — `211fae6`
+- Edit-режим **только по кнопке** — сброс editMode при openProject/closeDetail/switchDetailTab(preview) — `4f09d4a`, `f7c7bc5`
+- Autosave не сохраняет contenteditable/__editmode_css/data-edit-id в БД — `8665710`
+- Migration script для очистки legacy code_html — `scripts/sanitize_site_code_html.py` (запущен на проде)
+- selectedImg = el.src (а не DOM) — `b66ec46`
+- Code-fence strip ДО проверки «<» — закрыло ложные refund'ы 1990 ₽ — `3676540`
+
+**Осталось:**
+1. **`_strip_markdown_code_fence` дублируется** — inline-копипаст в `/iterate` и `/edit-block`. Решение: вызывать функцию.
+2. **Closure-bug в lambda** ([server/routes/sites.py:619, :666]) — `prompt`/`model_id` захватываются по ссылке. Сейчас работает, но при рефакторе loop'а легко словить bug.
+3. **`/sites/code` мёртвый endpoint** — `site_decode_code` нигде не используется из фронта.
+4. **Phase `generating_code` после reload вкладки** — `openProject` уходит в ветку showDone с пустым codeEditor. Решение: при `gen_status='running'` перезапустить polling.
+5. **`copyCode()` ломается без `event`** — глобальный `event.target` только Chrome.
+6. **Нет ETA в loader-е генерации** — добавить «обычно 2-4 минуты» в `showLoading`.
+7. **a11y на radio quality-option** — `role="radiogroup"` + `aria-describedby`.
+8. **Sequential `project.id` в физпути** — переехать на `public_token`.
 
 ### 💡 Идеи — продуктовые фичи (отдельные спринты)
 
@@ -66,6 +113,52 @@ _Обновлено 2026-05-11 после аудита сайтов + КП и P0
 - Сайты: save-code body-size limit 2 МБ
 - Сайты: /iterate validation + try/except + refund при non-HTML response
 - Сайты: /repair-code gate баланс ≥ 1 ₽ против DoS
+
+### ✅ ЗАКРЫТО — спринт 2026-05-12/13 (большой, ~40 коммитов)
+
+**13 пунктов рефакторинга из аудита кода:**
+- `56ce8d6` Декомпозиция chatbot_engine.py (3122 → 2390 строк): вынесены `server/messaging/senders.py` + `voice.py` + `server/sandbox.py`
+- `4bdb81e` views/shared.js — общие helpers для 11 HTML
+- `b4aa243` Smoke-тесты для pdf/docx/xlsx/scheduler/email_service/audit_log/agent_runner (+23)
+- `02e0e42` Tailwind build-step (config + styles.css), CDN остался safe-fallback
+- `cb74200` Хардкоды цен → pricing_config (`proposal.create`, `site.iter`)
+- `930cb85` Alembic baseline + workflow для миграций
+- `b7e2ff2` CI прогоняет LIGHTWEIGHT_MIGRATIONS + alembic upgrade head
+- `e5f3fdd` scripts/ cleanup — 9 dead-скриптов удалены + scripts/README.md
+- `36c6af7` asyncio.create_task сохранять ссылки в _pending_tasks (GC-safety)
+- `d85d58b` /iterate async-mode через `_run_site_iteration`
+- `65fd341` scripts/sanitize_legacy_proposal_html.py
+- `dd05348` JWT aud/iss дата (2026-06-10)
+- `9640510` Inter/Manrope шрифты удалены
+
+**4 фичи из Dolibarr-разбора:**
+- `a4d9c77` **PrivacyGuard** — PII-маскировка перед LLM (152-ФЗ ст. 6). ИНН/КПП/ОГРН/СНИЛС/email/phone/cards с Luhn. `server/privacy_guard.py` + 22 теста
+- `0201f81` **AiRequestLog** — отдельная таблица `ai_request_logs` + `/admin/ai-stats` (totals/by_model/top_users) + hook в `generate_response`
+- `ca8d8e5` **Data-retention cron** — `data_retention_loop()` в scheduler, анонимизирует User > `DATA_RETENTION_USER_INACTIVE_MONTHS` (default 24), purge ProposalProject > `DATA_RETENTION_PROPOSAL_YEARS` (default 3)
+- `d3deb70` + `f528d60` **MCP Server** — 10 tools (get_balance / list_solutions / run_solution / get_solution_status / list_proposals / get_proposal / create_proposal / **generate_proposal** / **list_chatbots** / **recent_records**) + **3 resources** (`aiche://categories` / `aiche://pricing` / `aiche://models`). JSON-RPC 2.0 на `/mcp`. Конфиг для Claude Desktop в `docs/mcp_setup.md`. 19 тестов
+
+**Сайт-редактор (длинная сага дебага PWA + sandbox + editing):**
+- `3676540` Code-fence strip ДО проверки «<» (закрыло ложные refund'ы 1990 ₽)
+- `3387075` Orchestra-пилоты через /run+/continue (пустой чат при ИНН-проверке)
+- `6e9e20c` Кнопка «Создать сайт» после refund (phase=spec_approved)
+- Длинная серия из 20 коммитов про edit-режим: srcdoc, sandbox allow-same-origin, no inline-script, contentDocument-control, edit-toolbar, scroll preserve, autosave cleanup, selectedImg fix
+- `01b0f2d` /iterate теперь **patch-based** (Claude возвращает JSON-patches)
+- `a057a20` + `7df0716` + `df9afaf` Balance-pill: orange-gradient, потом TronLink/Polkadot inject побеждён переименованием `ai-balance-pill` → `aiche-stat-card` + `<a>` → `<button>`
+- `309a1b5` + `90609f6` + `7f27ee0` PWA: bumped SW versions, bootstrap-script в HTML, **kill-switch SW** (полностью отключили, чтобы юзеры не залипали)
+- `fb75bb9` runModal footer — главное + compact-row экспортов
+
+**Solutions v2 — file-attachments:**
+- `d47decc` Поддержка `type:'file'` в input_schema + seed для 5 решений (#31-35) с file_extract/vision_describe/parallel_browse
+- `aa18470` `_abs_path` рассматривает `/uploads/*` как URL-path (закрыло «KB reject path» при загрузке договора)
+- `51529d8` async def run_solution / continue_run (spawn() требует event loop)
+- `f57eb42` Промпт «Проверка контрагента» (#36) — поддержка ИП + не отказываться
+
+**Workflow builder для AI-сборки чат-ботов:**
+- `6f590f0` Анти-паттерны в SYSTEM_PROMPT + автоочистка orphan-нод
+- `0dd0642` Один триггер на граф (мульти-канальные дубли обрезаются)
+
+**UX в кабинете:**
+- `a562b59` **Вкладка «🎯 Мои запуски»** — список всех платных бизнес-решений + фильтр по статусу + повторное скачивание PDF/DOCX/XLSX + share-ссылка
 
 ---
 
