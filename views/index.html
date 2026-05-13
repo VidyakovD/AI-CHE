@@ -162,6 +162,32 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{
 *::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
 *::-webkit-scrollbar-thumb:hover{background:rgba(255,140,66,0.5)}
 .tab-on{color:#ff8c42 !important;background:rgba(255,140,66,0.08) !important;border-color:rgba(255,140,66,0.3) !important}
+/* Result markdown в runModal — оформление готового бизнес-решения */
+.prose-result h1{font-size:1.15rem;font-weight:700;color:#ffb347;margin:14px 0 8px;line-height:1.3;font-family:'Golos Text',sans-serif}
+.prose-result h2{font-size:1.05rem;font-weight:700;color:#ffb347;margin:14px 0 6px;line-height:1.35;border-bottom:1px solid rgba(255,140,66,.15);padding-bottom:4px}
+.prose-result h3{font-size:.95rem;font-weight:600;color:#f0e6d8;margin:12px 0 4px;line-height:1.4}
+.prose-result h4{font-size:.88rem;font-weight:600;color:#f0e6d8;margin:10px 0 4px}
+.prose-result p{margin:6px 0;line-height:1.55}
+.prose-result ul,.prose-result ol{margin:6px 0 8px;padding-left:22px}
+.prose-result ul{list-style:disc}
+.prose-result ol{list-style:decimal}
+.prose-result li{margin:3px 0;line-height:1.5}
+.prose-result li::marker{color:#ff8c42}
+.prose-result strong,.prose-result b{font-weight:700;color:#ffd9b0}
+.prose-result em,.prose-result i{font-style:italic;color:#f0e6d8}
+.prose-result code{font-family:'JetBrains Mono','Fira Code',monospace;background:#322a1e;padding:1px 5px;border-radius:4px;font-size:.85em;color:#ffb347;border:1px solid rgba(255,140,66,.15)}
+.prose-result pre{background:#1c1814;border:1px solid rgba(74,63,47,.5);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:8px 0;font-size:.85em;line-height:1.45}
+.prose-result pre code{background:transparent;border:none;padding:0;color:#f0e6d8}
+.prose-result blockquote{border-left:3px solid #ff8c42;padding:4px 0 4px 12px;color:#cbb89a;margin:8px 0;font-style:italic;background:rgba(255,140,66,.04)}
+.prose-result table{border-collapse:collapse;width:100%;margin:8px 0;font-size:.85em}
+.prose-result th,.prose-result td{padding:6px 10px;border:1px solid rgba(74,63,47,.5);text-align:left}
+.prose-result th{background:rgba(255,140,66,.1);font-weight:600;color:#ffb347}
+.prose-result tr:nth-child(even) td{background:rgba(39,32,24,.4)}
+.prose-result hr{border:none;border-top:1px solid rgba(74,63,47,.4);margin:14px 0}
+.prose-result a{color:#ff8c42;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}
+.prose-result a:hover{color:#ffb347}
+.prose-result>*:first-child{margin-top:0}
+.prose-result>*:last-child{margin-bottom:0}
 /* AI image card: hover-кнопки скачать/перегенерировать */
 .ai-img-wrap:hover .ai-img-actions{opacity:1}
 .ai-img-btn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);color:#ffb347;border-radius:8px;border:1px solid rgba(255,179,71,0.25);cursor:pointer;transition:all .15s}
@@ -671,6 +697,12 @@ body.welcome #inputArea{display:none!important}
       <div id="solsChips" class="flex flex-wrap gap-2"></div>
     </div>
 
+    <!-- Tabs: Каталог / Архив -->
+    <div class="flex border-b border-outline/15 px-6 bg-surface/40">
+      <button id="solsTabCatalog" onclick="switchSolsView('catalog')" class="py-2.5 px-4 text-xs font-semibold text-primary border-b-2 border-primary transition">📋 Каталог</button>
+      <button id="solsTabArchive" onclick="switchSolsView('archive')" class="py-2.5 px-4 text-xs font-semibold text-on-surface-dim hover:text-primary border-b-2 border-transparent transition">📜 Архив запусков</button>
+    </div>
+
     <!-- ⭐ Топ новинки (показываются если есть is_featured решения, и нет активного фильтра/поиска) -->
     <div id="solsFeatured" class="hidden px-6 pt-5">
       <p class="text-[10px] uppercase tracking-widest text-on-surface-dim/60 font-bold mb-3">⭐ Топ новинки</p>
@@ -679,6 +711,20 @@ body.welcome #inputArea{display:none!important}
 
     <div id="solsGrid" class="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 min-h-48">
       <div class="col-span-3 text-center text-on-surface-dim/40 py-12 text-sm">Загрузка...</div>
+    </div>
+
+    <!-- Archive view (скрыт по умолчанию) -->
+    <div id="solsArchive" class="hidden p-6 min-h-48">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <p class="text-xs text-on-surface-dim">Все ваши запуски бизнес-решений — повторное скачивание, share, статусы</p>
+        <select id="solsArchiveFilter" onchange="loadSolutionsArchive()" class="inp text-xs" style="padding:6px 10px;width:auto">
+          <option value="">Все статусы</option>
+          <option value="done">✅ Готово</option>
+          <option value="running">⏳ В процессе</option>
+          <option value="failed">❌ Ошибка</option>
+        </select>
+      </div>
+      <div id="solsArchiveList" class="space-y-2"></div>
     </div>
   </div>
 </div>
@@ -706,19 +752,18 @@ body.welcome #inputArea{display:none!important}
         <textarea id="runInput" rows="4" class="inp resize-none" placeholder="Введите ответ..."></textarea>
         <p class="text-[10px] text-on-surface-dim/50">Ctrl+Enter — отправить</p>
       </div>
-      <div id="runResult" class="hidden bg-surface2 rounded-xl p-4 border border-outline/20 max-h-40 overflow-y-auto">
-        <p class="text-xs text-on-surface leading-relaxed whitespace-pre-wrap" id="runResultText"></p>
+      <div id="runResult" class="hidden bg-surface2 rounded-xl p-4 border border-outline/20 max-h-[400px] overflow-y-auto">
+        <div class="prose-result text-sm text-on-surface leading-relaxed" id="runResultText"></div>
       </div>
       <div id="runErr" class="text-error text-sm hidden"></div>
     </div>
     <div class="px-5 py-3 border-t border-outline/15 flex flex-col gap-2 flex-shrink-0 bg-surface/50">
-      <!-- Главное действие: Продолжить + Открыть чат -->
+      <!-- Главное действие: Продолжить + Открыть чат — ровный ряд, текст не вылезает -->
       <div class="flex gap-2">
-        <button id="runContinueBtn" onclick="continueRun()" class="flex-1 py-2.5 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition flex items-center justify-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px"><path d="M8 5v14l11-7z"/></svg>
-          <span id="runBtnLabel">Продолжить</span>
+        <button id="runContinueBtn" onclick="continueRun()" class="flex-1 h-11 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-90 transition inline-flex items-center justify-center px-4 whitespace-nowrap">
+          <span id="runBtnLabel" class="truncate">Продолжить</span>
         </button>
-        <button onclick="openRunChat()" id="runChatBtn" class="hidden px-4 py-2.5 rounded-xl bg-primary/10 text-primary font-medium text-sm hover:bg-primary/20 transition">Открыть чат</button>
+        <button onclick="openRunChat()" id="runChatBtn" class="hidden h-11 px-4 rounded-xl bg-primary/10 text-primary font-medium text-sm hover:bg-primary/20 transition whitespace-nowrap">Открыть чат</button>
       </div>
       <!-- Экспортные действия (PDF/DOCX/XLSX/Поделиться) — компактные, единый стиль.
            Заполняется JS-кодом в updateRunUI/listenOrchestraStream при наличии результата. -->
@@ -753,6 +798,156 @@ const API=localStorage.getItem("obs_api")||window.location.origin;
 window.fmtRub = (kop) => {
   const v = (+(kop||0)) / 100;
   return v.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽';
+};
+
+// ── Lightweight markdown render (для результата бизнес-решений) ──────────────
+// Не подключаем marked.js (лишние 50KB) — наш парсер закрывает 95% случаев:
+// h1-h4, **bold**, *italic*, `code`, ```pre```, lists, blockquote, links,
+// horizontal rule, простые таблицы.
+window.renderMd = function(src){
+  if(!src) return '';
+  const escapeHtml = s => String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+  // Извлекаем code-блоки заранее, чтобы их содержимое не парсилось
+  const codeBlocks = [];
+  src = src.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_, lang, code) => {
+    codeBlocks.push(`<pre><code>${escapeHtml(code.replace(/\n$/, ''))}</code></pre>`);
+    return `\x00CODE${codeBlocks.length - 1}\x00`;
+  });
+
+  const lines = src.split('\n');
+  const out = [];
+  let listStack = []; // элементы вида {tag:'ul'|'ol', indent:N}
+  let paraBuf = [];
+  let inTable = false, tableRows = [];
+
+  const flushPara = () => {
+    if(!paraBuf.length) return;
+    const txt = paraBuf.join(' ').trim();
+    if(txt) out.push('<p>' + inline(txt) + '</p>');
+    paraBuf = [];
+  };
+  const closeLists = (toLevel = 0) => {
+    while(listStack.length > toLevel){
+      const it = listStack.pop();
+      out.push('</li></' + it.tag + '>');
+    }
+  };
+  const flushTable = () => {
+    if(!inTable || !tableRows.length){ inTable = false; tableRows = []; return; }
+    const cells = tableRows.map((r, i) => {
+      const tag = i === 0 ? 'th' : 'td';
+      return '<tr>' + r.map(c => `<${tag}>${inline(c)}</${tag}>`).join('') + '</tr>';
+    }).join('');
+    out.push('<table>' + cells + '</table>');
+    inTable = false; tableRows = [];
+  };
+
+  function inline(s){
+    // Сначала escape (CODE-маркеры \x00…\x00 потом восстановим)
+    s = escapeHtml(s);
+    // inline code
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // bold **x** / __x__
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
+    // italic *x* / _x_ (не цепляем разделители списков)
+    s = s.replace(/(?<![\*\w])\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+    s = s.replace(/(?<![_\w])_([^_\n]+)_(?!_)/g, '<em>$1</em>');
+    // links [text](url)
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // auto-links
+    s = s.replace(/(^|[^"=>])(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g,
+                  '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+    return s;
+  }
+
+  for(let raw of lines){
+    const line = raw.replace(/\s+$/, '');
+
+    // Code-block placeholder — выводим как есть
+    const cm = line.match(/^\x00CODE(\d+)\x00$/);
+    if(cm){
+      flushPara(); closeLists(0); flushTable();
+      out.push(codeBlocks[+cm[1]]);
+      continue;
+    }
+
+    // Таблица: строка вида | a | b | c |
+    if(/^\s*\|.+\|\s*$/.test(line)){
+      // Разделитель |---|---|
+      if(/^\s*\|?[\s:-]*\|[\s:-|]+$/.test(line) && inTable){
+        continue;
+      }
+      const cells = line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      if(!inTable){ flushPara(); closeLists(0); inTable = true; tableRows = []; }
+      tableRows.push(cells);
+      continue;
+    }else if(inTable){
+      flushTable();
+    }
+
+    // Пустая строка — закрываем параграф (но не списки)
+    if(!line.trim()){
+      flushPara();
+      continue;
+    }
+
+    // Заголовки
+    const h = line.match(/^(#{1,4})\s+(.+)$/);
+    if(h){
+      flushPara(); closeLists(0);
+      out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`);
+      continue;
+    }
+
+    // Горизонтальная линия
+    if(/^\s*(\*\s*\*\s*\*|-\s*-\s*-|_\s*_\s*_)[\s\-_*]*$/.test(line)){
+      flushPara(); closeLists(0);
+      out.push('<hr/>');
+      continue;
+    }
+
+    // Blockquote
+    if(line.startsWith('>')){
+      flushPara(); closeLists(0);
+      out.push('<blockquote>' + inline(line.replace(/^>\s?/, '')) + '</blockquote>');
+      continue;
+    }
+
+    // Списки: - / * / + / N.
+    const ulm = line.match(/^(\s*)([-*+])\s+(.+)$/);
+    const olm = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
+    if(ulm || olm){
+      flushPara();
+      const indent = (ulm ? ulm[1] : olm[1]).length;
+      const tag = ulm ? 'ul' : 'ol';
+      const content = ulm ? ulm[3] : olm[3];
+      // Закрыть глубокие, открыть до нужного уровня
+      while(listStack.length && (listStack[listStack.length-1].indent > indent
+            || (listStack[listStack.length-1].indent === indent && listStack[listStack.length-1].tag !== tag))){
+        const it = listStack.pop(); out.push('</li></' + it.tag + '>');
+      }
+      if(!listStack.length || listStack[listStack.length-1].indent < indent){
+        out.push('<' + tag + '><li>');
+        listStack.push({tag, indent});
+      }else{
+        out.push('</li><li>');
+      }
+      out.push(inline(content));
+      continue;
+    }else if(listStack.length){
+      // Текст после списка с тем же отступом — продолжение li (мы упрощаем — закроем)
+      closeLists(0);
+    }
+
+    // Обычный параграф (склеиваем последовательные строки)
+    paraBuf.push(line);
+  }
+  flushPara(); closeLists(0); flushTable();
+  return out.join('\n');
 };
 window.fmtRubShort = (kop) => {
   const v = (+(kop||0)) / 100;
@@ -3588,7 +3783,92 @@ function buildUserHTML(text,fileUrl,isImg){
 }
 
 // ── solutions (только бизнес-решения) ─────────────────────────────────────
-async function openSolutions(_tab){openM("solutionsModal");switchSolTab("business");}
+async function openSolutions(_tab){openM("solutionsModal");switchSolTab("business");switchSolsView("catalog");}
+
+// ── Solutions: переключение Каталог / Архив ─────────────────────────────────
+function switchSolsView(view){
+  const tabCat = document.getElementById('solsTabCatalog');
+  const tabArc = document.getElementById('solsTabArchive');
+  const grid = document.getElementById('solsGrid');
+  const featured = document.getElementById('solsFeatured');
+  const archive = document.getElementById('solsArchive');
+  const searchBar = document.getElementById('solsSearch')?.closest('.relative')?.parentNode;
+  const onCat = view === 'catalog';
+  // Подсветка табов
+  for(const [el, active] of [[tabCat, onCat], [tabArc, !onCat]]){
+    if(!el) continue;
+    el.classList.toggle('text-primary', active);
+    el.classList.toggle('border-primary', active);
+    el.classList.toggle('border-transparent', !active);
+    el.classList.toggle('text-on-surface-dim', !active);
+  }
+  if(grid) grid.classList.toggle('hidden', !onCat);
+  if(archive) archive.classList.toggle('hidden', onCat);
+  // featured показываем только в каталоге и только если поиска нет
+  if(featured){
+    const showFeatured = onCat && !_solsState.query && _solsState.category === 'all'
+                          && _solsState.all.some(s => s.is_featured);
+    featured.classList.toggle('hidden', !showFeatured);
+  }
+  // Search/chip-фильтры в архиве не работают — прячем
+  if(searchBar) searchBar.style.display = onCat ? '' : 'none';
+  if(!onCat) loadSolutionsArchive();
+}
+
+async function loadSolutionsArchive(){
+  const wrap = document.getElementById('solsArchiveList');
+  if(!wrap) return;
+  if(!currentUser){
+    wrap.innerHTML = '<div class="text-center text-on-surface-dim/60 py-12 text-sm">Войдите чтобы увидеть свои запуски</div>';
+    return;
+  }
+  wrap.innerHTML = '<div class="text-center text-on-surface-dim/40 py-8 text-sm">Загрузка…</div>';
+  const status = document.getElementById('solsArchiveFilter')?.value || '';
+  try{
+    const url = `${API}/solutions/runs/my?limit=100${status ? '&status=' + encodeURIComponent(status) : ''}`;
+    const r = await api(url);
+    const runs = r.runs || [];
+    if(!runs.length){
+      wrap.innerHTML = '<div class="text-center text-on-surface-dim/60 py-12 text-sm">Пока ни одного запуска. Запустите любое решение из каталога.</div>';
+      return;
+    }
+    wrap.innerHTML = runs.map(_archiveRow).join('');
+  }catch(e){
+    wrap.innerHTML = `<div class="text-center text-error py-8 text-sm">Ошибка: ${(window.esc?window.esc(e.message):e.message)||e}</div>`;
+  }
+}
+
+function _archiveRow(run){
+  const esc = window.esc || (s => String(s || '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])));
+  const STATUS_ICON = {done:'✅', running:'⏳', failed:'❌', pending:'⏸'};
+  const icon = STATUS_ICON[run.status] || '•';
+  const dt = run.created_at ? new Date(run.created_at).toLocaleString('ru-RU', {dateStyle:'short', timeStyle:'short'}) : '';
+  const cost = run.total_cost_kop ? `· ${(run.total_cost_kop/100).toFixed(2)} ₽` : '';
+  return `<div onclick="_archiveOpenRun(${run.id})" class="cursor-pointer p-3 rounded-lg bg-surface2 hover:bg-surface3 border border-outline/20 hover:border-primary/40 transition flex items-center gap-3">
+    <span class="text-lg flex-shrink-0">${icon}</span>
+    <div class="flex-1 min-w-0">
+      <div class="text-sm font-semibold text-on-surface truncate">${esc(run.solution_title || 'Запуск #' + run.id)}</div>
+      <div class="text-[11px] text-on-surface-dim/70 mt-0.5">${dt} ${cost}</div>
+    </div>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-on-surface-dim/40"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+  </div>`;
+}
+
+// Открыть run из архива — НЕ закрываем solutionsModal, после закрытия runModal
+// вернёмся обратно в solutionsModal на вкладку Архив.
+function _archiveOpenRun(runId){
+  window._returnToSolutions = true;
+  closeM('solutionsModal');
+  activeRun = {run_id: runId, orchestra: true};
+  document.getElementById('runTitle').textContent = 'Результат запуска';
+  document.getElementById('runErr').classList.add('hidden');
+  document.getElementById('runInputArea')?.classList.add('hidden');
+  document.getElementById('runContinueBtn')?.classList.add('hidden');
+  document.getElementById('runStepLabel').textContent = '';
+  document.getElementById('runHint').textContent = '';
+  openM('runModal');
+  if(typeof listenOrchestraStream === 'function') listenOrchestraStream(runId);
+}
 
 // ── Solutions: state + filters + render ──────────────────────────────────────
 const _solsState = {
@@ -3915,70 +4195,75 @@ async function launchOrchestra(solutionId, title){
 }
 
 function renderOrchestraCompareBlock(solutionId){
+  // Блок размещается ВНУТРИ тела модалки (над footer'ом), а не сцеплен с кнопкой.
+  // Это даёт ровный layout — кнопка «Продолжить» получает свою отдельную полосу,
+  // а опции «Сравнить»/«Расписание» — отдельный compact-блок выше.
+  const inputArea = document.getElementById("runInputArea");
   let block = document.getElementById("orchCmpBlock");
   if(!block){
     block = document.createElement("div");
     block.id = "orchCmpBlock";
-    block.className = "mt-3";
-    document.getElementById("runContinueBtn").parentNode.insertBefore(
-      block, document.getElementById("runContinueBtn"));
+    block.className = "space-y-2";
+    inputArea.parentNode.insertBefore(block, inputArea.nextSibling);
   }
   block.innerHTML = `
-    <details class="bg-surface2 rounded-lg border border-outline/20 px-3 py-2">
-      <summary class="text-xs cursor-pointer text-on-dim hover:text-primary">
-        🔬 Сравнить модели (запустить параллельно на 2-3 моделях)
+    <details class="bg-surface2 rounded-xl border border-outline/20 overflow-hidden">
+      <summary class="text-[12px] cursor-pointer text-on-surface-dim hover:text-primary px-3 py-2 list-none flex items-center gap-2 transition select-none">
+        <span class="text-base leading-none">🔬</span>
+        <span class="flex-1 truncate">Сравнить модели</span>
+        <span class="text-[10px] text-on-surface-dim/60">▾</span>
       </summary>
-      <div class="mt-2 space-y-2">
-        <p class="text-[11px] text-on-surface-dim/70">
-          Запустим этот же ввод на разных моделях параллельно — увидишь
-          разницу в качестве и стоимости. Списание × N (за каждый запуск).
+      <div class="px-3 pb-3 pt-1 space-y-2 border-t border-outline/15">
+        <p class="text-[11px] text-on-surface-dim/70 leading-relaxed">
+          Запустим на 2-3 моделях параллельно — увидишь разницу в качестве. Списание × N.
         </p>
-        <div class="flex flex-wrap gap-2 text-xs">
-          <label class="flex items-center gap-1 cursor-pointer">
-            <input type="checkbox" class="cmp-model" value="claude-sonnet" checked/> Claude Sonnet
+        <div class="grid grid-cols-2 gap-1.5 text-[12px]">
+          <label class="flex items-center gap-1.5 cursor-pointer px-2 py-1 rounded-md bg-surface3/40 hover:bg-surface3 transition">
+            <input type="checkbox" class="cmp-model" value="claude-sonnet" checked/>
+            <span class="truncate">Claude Sonnet</span>
           </label>
-          <label class="flex items-center gap-1 cursor-pointer">
-            <input type="checkbox" class="cmp-model" value="claude-opus"/> Claude Opus
+          <label class="flex items-center gap-1.5 cursor-pointer px-2 py-1 rounded-md bg-surface3/40 hover:bg-surface3 transition">
+            <input type="checkbox" class="cmp-model" value="claude-opus"/>
+            <span class="truncate">Claude Opus</span>
           </label>
-          <label class="flex items-center gap-1 cursor-pointer">
-            <input type="checkbox" class="cmp-model" value="claude-haiku"/> Claude Haiku
+          <label class="flex items-center gap-1.5 cursor-pointer px-2 py-1 rounded-md bg-surface3/40 hover:bg-surface3 transition">
+            <input type="checkbox" class="cmp-model" value="claude-haiku"/>
+            <span class="truncate">Claude Haiku</span>
           </label>
-          <label class="flex items-center gap-1 cursor-pointer">
-            <input type="checkbox" class="cmp-model" value="gpt-4o"/> GPT-4o
+          <label class="flex items-center gap-1.5 cursor-pointer px-2 py-1 rounded-md bg-surface3/40 hover:bg-surface3 transition">
+            <input type="checkbox" class="cmp-model" value="gpt-4o"/>
+            <span class="truncate">GPT-4o</span>
           </label>
         </div>
         <button onclick="orchestraStartCompare(${solutionId})"
-                class="text-xs px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 transition border border-primary/30">
-          🔬 Сравнить выбранные
+                class="w-full text-[12px] px-3 py-2 rounded-lg bg-primary/15 hover:bg-primary/25 text-primary font-medium transition border border-primary/25">
+          Сравнить выбранные
         </button>
       </div>
     </details>
-    <details class="mt-3">
-      <summary class="cursor-pointer text-xs text-on-dim hover:text-primary inline-flex items-center gap-1">
-        📅 Запускать по расписанию (автоматически, без вашего участия)
+    <details class="bg-surface2 rounded-xl border border-outline/20 overflow-hidden">
+      <summary class="text-[12px] cursor-pointer text-on-surface-dim hover:text-primary px-3 py-2 list-none flex items-center gap-2 transition select-none">
+        <span class="text-base leading-none">📅</span>
+        <span class="flex-1 truncate">По расписанию</span>
+        <span class="text-[10px] text-on-surface-dim/60">▾</span>
       </summary>
-      <div class="mt-3 p-3 bg-surface2 rounded-lg space-y-2">
-        <p class="text-[11px] text-on-dim">
-          AI автоматически запустит это решение в выбранное время с тем
-          же запросом. Готовый отчёт придёт в кабинет + push на устройство.
-          Лимит 5 активных расписаний на юзера.
+      <div class="px-3 pb-3 pt-1 space-y-2 border-t border-outline/15">
+        <p class="text-[11px] text-on-surface-dim/70 leading-relaxed">
+          AI автоматически запустит решение в выбранное время. Лимит 5 расписаний.
         </p>
-        <div class="flex flex-wrap items-center gap-2 text-xs">
-          <label class="text-on-dim">Частота:</label>
-          <select id="orchSchedFreq" class="inp" style="padding:4px 8px;font-size:12px;width:auto">
-            <option value="daily_09">Каждый день · 12:00 МСК</option>
-            <option value="daily_18">Каждый день · 21:00 МСК</option>
-            <option value="weekly_mon_09" selected>Каждый понедельник · 12:00 МСК</option>
-            <option value="weekly_mon_18">Каждый понедельник · 21:00 МСК</option>
-            <option value="weekly_fri_09">Каждую пятницу · 12:00 МСК</option>
-            <option value="weekly_fri_18">Каждую пятницу · 21:00 МСК</option>
-            <option value="monthly_1_09">1-го числа · 12:00 МСК</option>
-            <option value="monthly_15_09">15-го числа · 12:00 МСК</option>
-          </select>
-        </div>
+        <select id="orchSchedFreq" class="inp text-[12px]" style="padding:6px 10px">
+          <option value="daily_09">Каждый день · 12:00 МСК</option>
+          <option value="daily_18">Каждый день · 21:00 МСК</option>
+          <option value="weekly_mon_09" selected>Каждый понедельник · 12:00 МСК</option>
+          <option value="weekly_mon_18">Каждый понедельник · 21:00 МСК</option>
+          <option value="weekly_fri_09">Каждую пятницу · 12:00 МСК</option>
+          <option value="weekly_fri_18">Каждую пятницу · 21:00 МСК</option>
+          <option value="monthly_1_09">1-го числа · 12:00 МСК</option>
+          <option value="monthly_15_09">15-го числа · 12:00 МСК</option>
+        </select>
         <button onclick="orchestraSchedule(${solutionId})"
-                class="text-xs px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 transition border border-primary/30">
-          📅 Создать расписание
+                class="w-full text-[12px] px-3 py-2 rounded-lg bg-primary/15 hover:bg-primary/25 text-primary font-medium transition border border-primary/25">
+          Создать расписание
         </button>
       </div>
     </details>`;
@@ -4443,7 +4728,8 @@ async function finalizeOrchestra(runId){
     const resultTxt = document.getElementById("runResultText");
     const resultEl = document.getElementById("runResult");
     if(data.final_output){
-      resultTxt.textContent = data.final_output.slice(0, 4000);
+      // Рендерим как markdown — заголовки, списки, таблицы, bold/italic, code
+      resultTxt.innerHTML = window.renderMd ? window.renderMd(data.final_output) : data.final_output;
       resultEl.classList.remove("hidden");
     }
     // Все экспортные кнопки идут в отдельный compact-row под главным footer.
@@ -4881,7 +5167,7 @@ function updateRunUI(data){
   if(data.status==="done"){
     stepLbl.textContent="✅ Завершено";hintEl.textContent="Решение выполнено! Результат в чате.";
     inputArea.classList.add("hidden");contBtn.classList.add("hidden");chatBtn.classList.remove("hidden");
-    if(data.result?.content){resultTxt.textContent=data.result.content;resultEl.classList.remove("hidden");}
+    if(data.result?.content){resultTxt.innerHTML=window.renderMd?window.renderMd(data.result.content):data.result.content;resultEl.classList.remove("hidden");}
     // Если это бизнес-решение и есть PDF — показываем кнопку «Скачать PDF»
     let pdfBtn = document.getElementById("runPdfBtn");
     if (data.pdf_url) {
@@ -4914,8 +5200,18 @@ function updateRunUI(data){
   }
 }
 
-function openRunChat(){if(!activeRun?.chat_id)return;closeM("runModal");currentChat=activeRun.chat_id;loadMessages(activeRun.chat_id);showChat();}
-function closeRun(){closeM("runModal");activeRun=null;}
+function openRunChat(){if(!activeRun?.chat_id)return;closeM("runModal");_returnToSolutions=false;currentChat=activeRun.chat_id;loadMessages(activeRun.chat_id);showChat();}
+function closeRun(){
+  closeM("runModal");
+  activeRun=null;
+  // Возвращаемся в модуль бизнес-решений если оттуда пришли (а не в общий чат)
+  if(window._returnToSolutions){
+    window._returnToSolutions = false;
+    openM("solutionsModal");
+    // Обновим архив на случай если только что завершили run
+    if(typeof loadSolutionsArchive === 'function') loadSolutionsArchive();
+  }
+}
 
 // ── utils ──────────────────────────────────────────────────────────────────
 function updateSendBtn(){
@@ -5166,7 +5462,7 @@ let pendingSolution = null;
 async function launchSolution(id, title, stepsCount, isOrchestra){
   // Auth: нужна и для orchestra, и для plain (если есть steps).
   if(!currentUser){
-    closeM('solutionsModal');
+    window._returnToSolutions = true; closeM('solutionsModal');
     openM('loginModal');
     return;
   }
@@ -5182,7 +5478,7 @@ async function launchSolution(id, title, stepsCount, isOrchestra){
   // v2 input_schema: запускаем как обычный run/orchestra, но с полями.
   // Backend сам решает (по orchestra_json или steps) что выполнять.
   if(_currentInputSchema){
-    closeM('solutionsModal');
+    window._returnToSolutions = true; closeM('solutionsModal');
     if(isOrchestra){
       // Orchestra с input_schema — открываем runModal с полями (а не
       // textarea launchOrchestra). Submit идёт через _launchSolutionChain
@@ -5197,7 +5493,7 @@ async function launchSolution(id, title, stepsCount, isOrchestra){
 
   // Multi-agent orchestra без input_schema — старый flow с одной textarea
   if(isOrchestra){
-    closeM('solutionsModal');
+    window._returnToSolutions = true; closeM('solutionsModal');
     return launchOrchestra(id, title);
   }
   // Plain solution без input_schema — prompt-editor для одношаговых.
@@ -5209,11 +5505,12 @@ async function launchSolution(id, title, stepsCount, isOrchestra){
       document.getElementById('promptEditorText').value = firstStep.user_prompt;
       document.getElementById('promptEditorHint').textContent = firstStep.user_hint || 'Отредактируйте промпт под свои нужды';
       document.getElementById('promptEditorCost').textContent = sol.price_tokens ? fmtRub(sol.price_tokens) : 'Бесплатно';
-      closeM('solutionsModal');
+      window._returnToSolutions = true; closeM('solutionsModal');
       openM('promptEditorModal');
       return;
     }
   }catch{}
+  window._returnToSolutions = true;
   closeM('solutionsModal');
   _launchSolutionChain(id, title, stepsCount);
 }
