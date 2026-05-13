@@ -11,7 +11,7 @@
  * автоматически почистился при первой регистрации нового SW.
  */
 
-const CACHE_VERSION = 'aiche-v3-2026-05-12-edit';
+const CACHE_VERSION = 'aiche-v4-2026-05-12-bootstrap';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const HTML_CACHE = `${CACHE_VERSION}-html`;
 
@@ -70,11 +70,13 @@ self.addEventListener('fetch', (event) => {
   );
   if (isApi) return;  // дефолтный браузерный fetch без перехвата
 
-  // HTML-страницы: network-first (всегда свежий после деплоя)
+  // HTML-страницы: network-first (всегда свежий после деплоя).
+  // cache: 'no-store' — обходим браузерный HTTP-кэш, чтобы юзер не залипал
+  // на старой версии HTML из-за HTTP-заголовков на nginx.
   const isHtml = path === '/' || path.endsWith('.html');
   if (isHtml) {
     event.respondWith(
-      fetch(req).then((resp) => {
+      fetch(req, {cache: 'no-store'}).then((resp) => {
         // Кэшируем успешный ответ для offline
         if (resp && resp.status === 200) {
           const respClone = resp.clone();
@@ -94,10 +96,11 @@ self.addEventListener('fetch', (event) => {
 
   // JS/CSS — network-first: иначе после деплоя нового icons.js юзер
   // продолжит видеть старую версию из кэша. При offline — fallback на кэш.
+  // cache: 'no-store' — также обходим HTTP-кэш браузера для свежести.
   const isCode = path.endsWith('.js') || path.endsWith('.css');
   if (isCode) {
     event.respondWith(
-      fetch(req).then((resp) => {
+      fetch(req, {cache: 'no-store'}).then((resp) => {
         if (resp && resp.status === 200) {
           const respClone = resp.clone();
           caches.open(STATIC_CACHE).then((c) => c.put(req, respClone));

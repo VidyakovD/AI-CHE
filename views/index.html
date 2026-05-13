@@ -1,6 +1,28 @@
 <!DOCTYPE html>
 <html class="dark" lang="ru">
 <head>
+<script>
+(function(){try{
+  var V='aiche-v4-2026-05-12-bootstrap';
+  var stored=localStorage.getItem('aiche_client_version');
+  if(stored===V) return;
+  if(!('serviceWorker' in navigator)){localStorage.setItem('aiche_client_version',V);return;}
+  var loopGuard=sessionStorage.getItem('aiche_bootstrap_inflight');
+  if(loopGuard){localStorage.setItem('aiche_client_version',V);sessionStorage.removeItem('aiche_bootstrap_inflight');return;}
+  sessionStorage.setItem('aiche_bootstrap_inflight','1');
+  navigator.serviceWorker.getRegistrations().then(function(regs){
+    return Promise.all(regs.map(function(r){return r.unregister();}));
+  }).then(function(){
+    if(!self.caches)return null;
+    return caches.keys().then(function(keys){
+      return Promise.all(keys.map(function(k){return caches.delete(k);}));
+    });
+  }).then(function(){
+    localStorage.setItem('aiche_client_version',V);
+    location.reload();
+  }).catch(function(){localStorage.setItem('aiche_client_version',V);sessionStorage.removeItem('aiche_bootstrap_inflight');});
+}catch(e){}})();
+</script>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <title>AI Студия Че</title>
