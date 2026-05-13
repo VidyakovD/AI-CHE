@@ -705,12 +705,18 @@ body.welcome #inputArea{display:none!important}
       </div>
       <div id="runErr" class="text-error text-sm hidden"></div>
     </div>
-    <div class="px-5 py-3 border-t border-outline/15 flex gap-2 flex-shrink-0 bg-surface/50">
-      <button id="runContinueBtn" onclick="continueRun()" class="flex-1 py-2.5 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition flex items-center justify-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px"><path d="M8 5v14l11-7z"/></svg>
-        <span id="runBtnLabel">Продолжить</span>
-      </button>
-      <button onclick="openRunChat()" id="runChatBtn" class="hidden px-4 py-2.5 rounded-xl bg-primary/10 text-primary font-medium text-sm hover:bg-primary/20 transition">Открыть чат</button>
+    <div class="px-5 py-3 border-t border-outline/15 flex flex-col gap-2 flex-shrink-0 bg-surface/50">
+      <!-- Главное действие: Продолжить + Открыть чат -->
+      <div class="flex gap-2">
+        <button id="runContinueBtn" onclick="continueRun()" class="flex-1 py-2.5 rounded-xl sig text-[#1e1a14] font-bold text-sm hover:opacity-88 transition flex items-center justify-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:14px;height:14px"><path d="M8 5v14l11-7z"/></svg>
+          <span id="runBtnLabel">Продолжить</span>
+        </button>
+        <button onclick="openRunChat()" id="runChatBtn" class="hidden px-4 py-2.5 rounded-xl bg-primary/10 text-primary font-medium text-sm hover:bg-primary/20 transition">Открыть чат</button>
+      </div>
+      <!-- Экспортные действия (PDF/DOCX/XLSX/Поделиться) — компактные, единый стиль.
+           Заполняется JS-кодом в updateRunUI/listenOrchestraStream при наличии результата. -->
+      <div id="runExportRow" class="hidden flex-wrap gap-1.5"></div>
     </div>
   </div>
 </div>
@@ -3727,8 +3733,10 @@ async function launchOrchestra(solutionId, title){
   document.getElementById("runInput").value = "";
   _orchestraAttachments = [];
   // Скрываем result-action кнопки (могли остаться от прошлого run'а)
-  ["runPdfBtn","runShareBtn","runDocxBtn","runReactionsRow","runRestageRow","runSaveTplBtn"]
+  ["runPdfBtn","runShareBtn","runDocxBtn","runXlsxBtn","runReactionsRow","runRestageRow","runSaveTplBtn"]
     .forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add("hidden")});
+  const _exportRow = document.getElementById("runExportRow");
+  if (_exportRow) { _exportRow.classList.add("hidden"); _exportRow.classList.remove("flex"); }
   const stagesList = document.getElementById("runStagesList");
   if(stagesList) stagesList.innerHTML = "";
   // Рисуем блок attachments если требуется
@@ -4275,6 +4283,14 @@ async function finalizeOrchestra(runId){
       resultTxt.textContent = data.final_output.slice(0, 4000);
       resultEl.classList.remove("hidden");
     }
+    // Все экспортные кнопки идут в отдельный compact-row под главным footer.
+    // Единый стиль — иконка SVG (не emoji) + короткая подпись, без gradient'ов.
+    const exportRow = document.getElementById("runExportRow");
+    const EXPORT_BTN_CLS = "px-3 py-1.5 rounded-lg text-[12px] font-medium bg-surface2 hover:bg-surface3 border border-outline/20 transition flex items-center gap-1.5 text-on-surface";
+    if (exportRow) {
+      exportRow.classList.remove("hidden");
+      exportRow.classList.add("flex");
+    }
     // Кнопка PDF
     let pdfBtn = document.getElementById("runPdfBtn");
     if(data.pdf_path){
@@ -4282,10 +4298,9 @@ async function finalizeOrchestra(runId){
         pdfBtn = document.createElement("a");
         pdfBtn.id = "runPdfBtn";
         pdfBtn.target = "_blank";
-        pdfBtn.className = "px-4 py-3 rounded-xl text-sm font-medium hover:opacity-90 transition flex items-center gap-2";
-        pdfBtn.style.cssText = "background:linear-gradient(135deg,#c89052,#ff8c42);color:#1e1a14";
-        pdfBtn.innerHTML = '📄 Скачать PDF';
-        document.getElementById("runChatBtn").parentNode.insertBefore(pdfBtn, document.getElementById("runChatBtn"));
+        pdfBtn.className = EXPORT_BTN_CLS;
+        pdfBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg><span>PDF</span>';
+        exportRow.appendChild(pdfBtn);
       }
       pdfBtn.href = data.pdf_path;
       pdfBtn.classList.remove("hidden");
@@ -4295,8 +4310,8 @@ async function finalizeOrchestra(runId){
     if(!shareBtn){
       shareBtn = document.createElement("button");
       shareBtn.id = "runShareBtn";
-      shareBtn.className = "px-4 py-3 rounded-xl text-sm font-medium bg-surface3 hover:bg-surface3/70 transition flex items-center gap-2";
-      shareBtn.innerHTML = '🔗 Поделиться';
+      shareBtn.className = EXPORT_BTN_CLS;
+      shareBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg><span>Поделиться</span>';
       shareBtn.onclick = async () => {
         try{
           const r = await apiPost(`/solutions/runs/${runId}/share`, {});
@@ -4305,7 +4320,7 @@ async function finalizeOrchestra(runId){
           aiAlert("Ссылка скопирована: " + url, "success");
         }catch(e){ aiAlert("Не удалось: " + (e.message||"ошибка"), "error"); }
       };
-      document.getElementById("runChatBtn").parentNode.insertBefore(shareBtn, document.getElementById("runChatBtn"));
+      exportRow.appendChild(shareBtn);
     }
     shareBtn.classList.remove("hidden");
     // Кнопка DOCX
@@ -4314,9 +4329,9 @@ async function finalizeOrchestra(runId){
       docxBtn = document.createElement("a");
       docxBtn.id = "runDocxBtn";
       docxBtn.target = "_blank";
-      docxBtn.className = "px-4 py-3 rounded-xl text-sm font-medium bg-surface3 hover:bg-surface3/70 transition flex items-center gap-2";
-      docxBtn.innerHTML = '📝 DOCX';
-      document.getElementById("runChatBtn").parentNode.insertBefore(docxBtn, document.getElementById("runChatBtn"));
+      docxBtn.className = EXPORT_BTN_CLS;
+      docxBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/></svg><span>DOCX</span>';
+      exportRow.appendChild(docxBtn);
     }
     // Бэкенд требует Authorization → не open-window напрямую. Делаем blob-скачивание.
     docxBtn.onclick = async (e) => {
@@ -4343,9 +4358,9 @@ async function finalizeOrchestra(runId){
       xlsxBtn = document.createElement("a");
       xlsxBtn.id = "runXlsxBtn";
       xlsxBtn.target = "_blank";
-      xlsxBtn.className = "px-4 py-3 rounded-xl text-sm font-medium bg-surface3 hover:bg-surface3/70 transition flex items-center gap-2";
-      xlsxBtn.innerHTML = '📊 XLSX';
-      document.getElementById("runChatBtn").parentNode.insertBefore(xlsxBtn, document.getElementById("runChatBtn"));
+      xlsxBtn.className = EXPORT_BTN_CLS;
+      xlsxBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM8 12h2v6H8v-6zm4-4h2v10h-2V8zm4 2h2v8h-2v-8z"/></svg><span>XLSX</span>';
+      exportRow.appendChild(xlsxBtn);
     }
     xlsxBtn.onclick = async (e) => {
       e.preventDefault();
