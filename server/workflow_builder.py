@@ -104,7 +104,14 @@ SYSTEM_PROMPT = (
     "   должна иметь хотя бы один входящий edge в wfc_edges.\n"
     "❌ НЕ дублируй output_tg/output_max в одной линейной ветке — один на ветку максимум.\n"
     "❌ НЕ оставляй ветку condition/switch без output_X в конце — юзер не получит ответа.\n"
-    "❌ НЕ повторяй ОДНУ И ТУ ЖЕ ноду несколько раз — каждый id уникален.\n\n"
+    "❌ НЕ повторяй ОДНУ И ТУ ЖЕ ноду несколько раз — каждый id уникален.\n"
+    "❌ НЕ делай НЕСКОЛЬКО триггеров (trigger_tg + trigger_max + trigger_avito)\n"
+    "   в одном графе для «мульти-канального» бота. chatbot-engine работает\n"
+    "   с ОДНИМ триггером на бота. Если юзер хочет 3 канала — это 3 отдельных\n"
+    "   бота, или ОДИН бот с trigger_webhook где external-сервис (n8n / Zapier)\n"
+    "   роутит входящие.\n"
+    "   В explanation добавь подсказку: «Для остальных каналов создайте\n"
+    "   отдельные боты по этому же шаблону» — но в graf'е оставь ОДИН триггер.\n\n"
     "✅ ПРАВИЛЬНАЯ СТРУКТУРА (пример для FAQ-RAG):\n"
     "   trigger_tg (n1) → kb_rag (n2) → condition (n3) →\n"
     "     ветка ДА (не нашёл): n4 save_record → n5 output_tg «передал оператору»\n"
@@ -201,6 +208,19 @@ def _validate(g: dict) -> dict:
         if f in valid_ids and t in valid_ids:
             norm_edges.append({"id": str(e.get("id") or f"e{j}"), "from": f, "to": t})
 
+    # Защита от мульти-триггерных графов: chatbot-engine работает с ОДНИМ триггером
+    # на бота. Если LLM выдал 3+ триггера (для «мульти-канального» бота) —
+    # оставляем только первый, остальные триггеры и их ветки помечаем для drop.
+    triggers = [n for n in norm_nodes if n["type"].startswith("trigger_")]
+    extra_trigger_ids: set[str] = set()
+    if len(triggers) > 1:
+        log.info(f"workflow_builder: {len(triggers)} triggers found, keeping first ({triggers[0]['id']}, {triggers[0]['type']})")
+        for t in triggers[1:]:
+            extra_trigger_ids.add(t["id"])
+        # Удаляем edges от лишних триггеров — это сделает их downstream-ноды orphan'ами,
+        # которые удалит следующая очистка.
+        norm_edges = [e for e in norm_edges if e["from"] not in extra_trigger_ids]
+
     # Очистка orphan-нод: всё что НЕ trigger и НЕ имеет входящего edge — удаляем
     # (LLM часто оставляет «висящие» output_tg которые не подключены к графу
     # и появляются в UI как непонятные обрезки).
@@ -208,6 +228,9 @@ def _validate(g: dict) -> dict:
     pruned = []
     dropped = []
     for n in norm_nodes:
+        if n["id"] in extra_trigger_ids:
+            dropped.append(n["id"])
+            continue
         is_trigger = n["type"].startswith("trigger_")
         if is_trigger or n["id"] in incoming:
             pruned.append(n)
