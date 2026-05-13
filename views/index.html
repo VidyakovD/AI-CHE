@@ -4488,6 +4488,26 @@ function _renderRunInputFields(hint){
       } else if(type === "textarea"){
         const rows = f.rows || 3;
         control = `<textarea data-v2-field="${esc(name)}" data-v2-label="${esc(label)}" data-v2-required="${required?1:0}" rows="${rows}" class="inp resize-none text-sm" placeholder="${esc(placeholder)}"></textarea>`;
+      } else if(type === "file"){
+        // Загрузка файла. Принимаем PDF/DOCX/XLSX/изображения — kind определяет
+        // что stage делает (file_extract для docs, vision_describe для image).
+        const accept = f.accept || ".pdf,.docx,.doc,.xlsx,.xls,.txt,.png,.jpg,.jpeg,.webp";
+        const kind = f.kind || "doc";
+        control = `
+          <div class="flex flex-col gap-2" data-v2-file-wrap="${esc(name)}">
+            <input type="file" id="v2file_${esc(name)}" accept="${esc(accept)}"
+                   class="hidden" data-v2-file-input="${esc(name)}"
+                   onchange="window._v2HandleFileUpload && _v2HandleFileUpload(this, '${esc(name)}', '${esc(kind)}')"/>
+            <input type="hidden" data-v2-field="${esc(name)}" data-v2-type="file"
+                   data-v2-kind="${esc(kind)}" data-v2-label="${esc(label)}"
+                   data-v2-required="${required?1:0}" value=""/>
+            <button type="button" onclick="document.getElementById('v2file_${esc(name)}').click()"
+                    class="btn-g text-sm flex items-center gap-2 justify-center">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+              <span data-v2-file-label="${esc(name)}">Выбрать файл (${esc(accept)})</span>
+            </button>
+            <div data-v2-file-status="${esc(name)}" class="text-[11px] text-on-surface-dim/70"></div>
+          </div>`;
       } else {
         control = `<input data-v2-field="${esc(name)}" data-v2-label="${esc(label)}" data-v2-required="${required?1:0}" type="${type === 'number' ? 'number' : 'text'}" class="inp text-sm" placeholder="${esc(placeholder)}"/>`;
       }
@@ -4533,6 +4553,59 @@ function _renderRunInputFields(hint){
   }).join("");
   const first = fieldsContainer.querySelector("[data-run-field]");
   if(first) setTimeout(() => first.focus(), 50);
+}
+
+// Глобальный store для file-uploads v2 формы. Ключ = name поля, значение =
+// {file_url, name, mime, kind, size} после успешного /upload.
+window._v2FileAttachments = window._v2FileAttachments || {};
+
+window._v2HandleFileUpload = async function(inputEl, fieldName, kind){
+  const file = inputEl.files && inputEl.files[0];
+  if(!file) return;
+  const statusEl = document.querySelector(`[data-v2-file-status="${fieldName}"]`);
+  const labelEl = document.querySelector(`[data-v2-file-label="${fieldName}"]`);
+  const hiddenEl = document.querySelector(`[data-v2-field="${fieldName}"][data-v2-type="file"]`);
+  if(file.size > 25 * 1024 * 1024){
+    if(statusEl) statusEl.textContent = "❌ Файл больше 25 МБ";
+    if(statusEl) statusEl.className = "text-[11px] text-error";
+    return;
+  }
+  if(statusEl){ statusEl.textContent = "⏳ Загружаем…"; statusEl.className = "text-[11px] text-primary"; }
+  const fd = new FormData();
+  fd.append("file", file);
+  try{
+    const hdrs = {};
+    if(typeof authToken !== "undefined" && authToken) hdrs["Authorization"] = "Bearer " + authToken;
+    const r = await fetch(`${API}/upload`, {method: "POST", body: fd, headers: hdrs, credentials: "include"});
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.detail || "Не удалось загрузить");
+    const fileUrl = data.url || data.file_url;
+    if(!fileUrl) throw new Error("Сервер не вернул URL");
+    window._v2FileAttachments[fieldName] = {
+      file_url: fileUrl, name: file.name, mime: file.type,
+      kind: kind, size: file.size,
+    };
+    if(hiddenEl) hiddenEl.value = fileUrl;
+    if(labelEl) labelEl.textContent = `✓ ${file.name}`;
+    if(statusEl){
+      statusEl.textContent = `Загружено: ${(file.size/1024).toFixed(0)} КБ`;
+      statusEl.className = "text-[11px] text-on-surface-dim";
+    }
+  }catch(e){
+    if(statusEl){ statusEl.textContent = "❌ " + (e.message || "Ошибка"); statusEl.className = "text-[11px] text-error"; }
+  }
+};
+
+function _collectRunAttachments(){
+  // Собираем все загруженные через type:'file' v2 поля
+  const out = [];
+  const fileFields = document.querySelectorAll('[data-v2-field][data-v2-type="file"]');
+  fileFields.forEach(el => {
+    const name = el.getAttribute("data-v2-field");
+    const att = window._v2FileAttachments && window._v2FileAttachments[name];
+    if(att && att.file_url) out.push(att);
+  });
+  return out;
 }
 
 function _collectRunInput(){
@@ -4588,12 +4661,18 @@ async function continueRun(){
   btn.disabled=true;document.getElementById("runBtnLabel").textContent="Выполняется...";
   try{
     const hdrs={"Content-Type":"application/json"};if(authToken)hdrs["Authorization"]="Bearer "+authToken;
-    const r=await fetch(`${API}/solutions/runs/${activeRun.run_id}/continue`,{method:"POST",headers:hdrs,body:JSON.stringify({input})});
+    // Прикреплённые через type:'file' attachments (для file_extract / vision_describe stages)
+    const attachments = (typeof _collectRunAttachments === "function") ? _collectRunAttachments() : [];
+    const body = {input};
+    if(attachments && attachments.length) body.attachments = attachments;
+    const r=await fetch(`${API}/solutions/runs/${activeRun.run_id}/continue`,{method:"POST",headers:hdrs,body:JSON.stringify(body)});
     const data=await r.json();if(!r.ok)throw new Error(data.detail||"Ошибка");
     activeRun.chat_id=data.chat_id||activeRun.chat_id;activeRun.current_step++;
     document.getElementById("runInput").value="";
     // Очищаем динамические поля если есть
     document.querySelectorAll("#runInputFields [data-run-field]").forEach(el => el.value = "");
+    // Очищаем v2 file-attachments после успешного запуска
+    if(window._v2FileAttachments) window._v2FileAttachments = {};
     // Orchestra-пилот: backend запустил run_orchestra в фоне, подключаемся к SSE/polling.
     if(data.is_orchestra && data.status === "running"){
       activeRun.orchestra = true;

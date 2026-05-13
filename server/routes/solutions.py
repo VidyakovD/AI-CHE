@@ -319,6 +319,23 @@ def continue_run(run_id: int, body: dict, db: Session = Depends(get_db),
     if not solution.steps and solution.orchestra_json:
         user_input = body.get("input", "")
         run.user_input = (user_input or "")[:50000]
+        # Прикреплённые файлы — пользователь загружает договор/excel/картинку
+        # через type:'file' поле в input_schema. Backend stages типа file_extract
+        # / vision_describe берут url отсюда. Reuse валидации из orchestra/start.
+        atts_raw = body.get("attachments")
+        if atts_raw and isinstance(atts_raw, list):
+            try:
+                from pydantic import TypeAdapter
+                adapter = TypeAdapter(list[OrchestraAttachment])
+                atts_typed = adapter.validate_python(atts_raw[:5])
+                atts_norm = _validate_attachments(atts_typed)
+                if atts_norm:
+                    run.attachments_json = json.dumps(atts_norm, ensure_ascii=False)
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.getLogger(__name__).warning(
+                    f"[continue] attachments parse failed: {type(e).__name__}: {e}")
         run.status = "running"
         db.commit()
         from server.solutions_orchestra import run_orchestra
