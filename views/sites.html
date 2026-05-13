@@ -1566,6 +1566,18 @@ function refreshPreview(){
       // Setup edit-режима из parent (без зависимости от inline-scripts в iframe)
       _setupEditFromParent(frame);
     }
+    // Восстанавливаем scroll который был перед refresh — чтобы юзер не «улетал»
+    // на верх сайта при toggleEditMode. Делаем после небольшой задержки,
+    // т.к. iframe рендерится не синхронно с onload.
+    if (window._sitesPendingScrollRestore && window._sitesPendingScrollRestore > 0) {
+      const targetScroll = window._sitesPendingScrollRestore;
+      window._sitesPendingScrollRestore = 0;
+      setTimeout(() => {
+        try {
+          if (frame.contentWindow) frame.contentWindow.scrollTo(0, targetScroll);
+        } catch (_) {}
+      }, 50);
+    }
   };
   frame.srcdoc = injected;
   // Сброс адресной строки мини-браузера при перезагрузке превью
@@ -1733,7 +1745,8 @@ function _setupEditToolbar(frame, doc) {
   tb.innerHTML = `
     <button data-tb-cmd="bold" title="Жирный (Ctrl+B)" class="tb-btn"><b>B</b></button>
     <button data-tb-cmd="italic" title="Курсив (Ctrl+I)" class="tb-btn"><i>I</i></button>
-    <button data-tb-cmd="underline" title="Подчёркивание" class="tb-btn"><u>U</u></button>
+    <button data-tb-cmd="underline" title="Подчёркивание (Ctrl+U)" class="tb-btn"><u>U</u></button>
+    <button data-tb-cmd="strike" title="Зачёркнутый" class="tb-btn"><s>S</s></button>
     <span class="tb-sep"></span>
     <select data-tb-cmd="size" title="Размер шрифта" class="tb-sel">
       <option value="">Размер</option>
@@ -1745,6 +1758,15 @@ function _setupEditToolbar(frame, doc) {
       <option value="56px">56</option><option value="64px">64</option>
     </select>
     <span class="tb-sep"></span>
+    <button data-tb-cmd="align-left" title="Слева" class="tb-btn">⬅</button>
+    <button data-tb-cmd="align-center" title="По центру" class="tb-btn">↔</button>
+    <button data-tb-cmd="align-right" title="Справа" class="tb-btn">➡</button>
+    <span class="tb-sep"></span>
+    <button data-tb-cmd="ul" title="Маркированный список" class="tb-btn">•—</button>
+    <button data-tb-cmd="ol" title="Нумерованный список" class="tb-btn">1.</button>
+    <button data-tb-cmd="link" title="Добавить ссылку" class="tb-btn">🔗</button>
+    <span class="tb-sep"></span>
+    <span class="tb-lbl" title="Цвет текста">A</span>
     <button data-tb-color="#ffffff" title="Белый" class="tb-color" style="background:#ffffff"></button>
     <button data-tb-color="#1e1a14" title="Чёрный" class="tb-color" style="background:#1e1a14;border:1px solid #555"></button>
     <button data-tb-color="#ff8c42" title="Оранжевый" class="tb-color" style="background:#ff8c42"></button>
@@ -1752,17 +1774,25 @@ function _setupEditToolbar(frame, doc) {
     <button data-tb-color="#ff6b6b" title="Красный" class="tb-color" style="background:#ff6b6b"></button>
     <button data-tb-color="#4ade80" title="Зелёный" class="tb-color" style="background:#4ade80"></button>
     <button data-tb-color="#60a5fa" title="Синий" class="tb-color" style="background:#60a5fa"></button>
-    <input data-tb-cmd="customColor" type="color" title="Свой цвет" class="tb-pick"/>
+    <input data-tb-cmd="customColor" type="color" title="Свой цвет текста" class="tb-pick"/>
     <span class="tb-sep"></span>
-    <button data-tb-cmd="clear" title="Убрать форматирование" class="tb-btn">⨯</button>
+    <span class="tb-lbl" title="Цвет фона">🎨</span>
+    <input data-tb-cmd="bgColor" type="color" title="Цвет фона выделенного текста" class="tb-pick"/>
+    <button data-tb-cmd="bg-clear" title="Убрать фон" class="tb-btn">∅</button>
+    <span class="tb-sep"></span>
+    <button data-tb-cmd="undo" title="Отменить (Ctrl+Z)" class="tb-btn">↶</button>
+    <button data-tb-cmd="redo" title="Вернуть (Ctrl+Y)" class="tb-btn">↷</button>
+    <button data-tb-cmd="clear" title="Убрать всё форматирование" class="tb-btn">⨯</button>
   `;
   // CSS кнопок
   const tbStyle = document.createElement('style');
   tbStyle.textContent = `
+    #editTextToolbar{flex-wrap:wrap;max-width:calc(100vw - 40px)}
     #editTextToolbar .tb-btn{background:#272018;border:1px solid rgba(74,63,47,0.5);color:#f0e6d8;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;min-width:26px}
     #editTextToolbar .tb-btn:hover{border-color:#ff8c42;color:#ff8c42}
     #editTextToolbar .tb-sel{background:#272018;border:1px solid rgba(74,63,47,0.5);color:#f0e6d8;border-radius:6px;padding:4px 6px;font-size:12px;cursor:pointer}
     #editTextToolbar .tb-sep{width:1px;height:18px;background:rgba(74,63,47,0.5)}
+    #editTextToolbar .tb-lbl{font-size:11px;color:#a89880;padding:0 2px;font-weight:600}
     #editTextToolbar .tb-color{width:22px;height:22px;border-radius:6px;cursor:pointer;border:1px solid rgba(255,255,255,0.15);padding:0}
     #editTextToolbar .tb-color:hover{transform:scale(1.1);border-color:#ff8c42}
     #editTextToolbar .tb-pick{width:24px;height:24px;border:1px solid rgba(74,63,47,0.5);border-radius:6px;background:transparent;cursor:pointer;padding:0}
@@ -1802,6 +1832,49 @@ function _setupEditToolbar(frame, doc) {
         exec('foreColor', '#000000'); // сброс цвета (часто не очищается removeFormat)
       } else if (cmd === 'bold' || cmd === 'italic' || cmd === 'underline') {
         exec(cmd);
+      } else if (cmd === 'strike') {
+        exec('strikeThrough');
+      } else if (cmd === 'align-left') {
+        exec('justifyLeft');
+      } else if (cmd === 'align-center') {
+        exec('justifyCenter');
+      } else if (cmd === 'align-right') {
+        exec('justifyRight');
+      } else if (cmd === 'ul') {
+        exec('insertUnorderedList');
+      } else if (cmd === 'ol') {
+        exec('insertOrderedList');
+      } else if (cmd === 'link') {
+        // Запрашиваем URL через минимальный prompt (в iframe — наш не работает,
+        // используем window.prompt parent'а — это OK для edit-режима).
+        const sel = doc.getSelection();
+        if (!sel || sel.isCollapsed) {
+          if (window.aiToast) window.aiToast('Сначала выдели текст, потом жми «🔗»', 'info');
+          else alert('Сначала выдели текст');
+          return;
+        }
+        const url = window.prompt('URL ссылки:', 'https://');
+        if (url && url.trim()) exec('createLink', url.trim());
+      } else if (cmd === 'undo') {
+        exec('undo');
+      } else if (cmd === 'redo') {
+        exec('redo');
+      } else if (cmd === 'bg-clear') {
+        // Убрать background цвет — execCommand backColor с transparent
+        exec('backColor', 'transparent');
+        // Дополнительно — пройдёмся по выделенным span'ам и удалим background
+        try {
+          const sel = doc.getSelection();
+          if (sel && sel.rangeCount) {
+            const range = sel.getRangeAt(0);
+            const frag = range.cloneContents();
+            frag.querySelectorAll('[style]').forEach(el => {
+              el.style.removeProperty('background-color');
+              el.style.removeProperty('background');
+              if (el.getAttribute('style') === '') el.removeAttribute('style');
+            });
+          }
+        } catch (_) {}
       }
     });
   });
@@ -1838,11 +1911,17 @@ function _setupEditToolbar(frame, doc) {
     btn.addEventListener('mousedown', e => e.preventDefault());
     btn.addEventListener('click', () => exec('foreColor', btn.dataset.tbColor));
   });
-  // Кастомный color picker
+  // Кастомный color picker (текст)
   const picker = tb.querySelector('[data-tb-cmd="customColor"]');
   if (picker) {
     picker.addEventListener('mousedown', e => e.stopPropagation());
     picker.addEventListener('input', () => exec('foreColor', picker.value));
+  }
+  // Color picker для ФОНА выделенного текста
+  const bgPicker = tb.querySelector('[data-tb-cmd="bgColor"]');
+  if (bgPicker) {
+    bgPicker.addEventListener('mousedown', e => e.stopPropagation());
+    bgPicker.addEventListener('input', () => exec('backColor', bgPicker.value));
   }
 
   // Selection tracking
@@ -2002,6 +2081,18 @@ function _hideEditDiagBanner(){
   if (banner) banner.remove();
 }
 function toggleEditMode(){
+  // Сохраняем scroll-position iframe до пересоздания — иначе при выходе из
+  // edit-режима iframe пересоздаётся (sandbox меняется), и юзер «улетает»
+  // на верх сайта. Сохраняем перед, восстановим после load.
+  let savedScroll = 0;
+  try {
+    const oldFrame = document.getElementById('previewFrame');
+    if (oldFrame && oldFrame.contentWindow) {
+      savedScroll = oldFrame.contentWindow.scrollY || oldFrame.contentDocument?.documentElement?.scrollTop || 0;
+    }
+  } catch (_) {}
+  window._sitesPendingScrollRestore = savedScroll;
+
   editMode = !editMode;
   document.getElementById('editModeLabel').textContent = editMode ? 'Готово' : 'Редактировать';
   document.getElementById('editHint').classList.toggle('hidden', !editMode);
