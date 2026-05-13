@@ -222,24 +222,42 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
 <div id="channelModal" class="modal-bg">
   <div class="card p-6" style="max-width:560px;width:100%">
     <div class="flex items-center justify-between mb-5">
-      <h3 class="text-xl font-bold">📨 Подключить Telegram-канал</h3>
+      <h3 class="text-xl font-bold" id="chModalTitle">Подключить канал</h3>
       <button class="btn-g" onclick="closeChannelModal()" aria-label="Закрыть">✕</button>
     </div>
-    <div class="text-xs text-on-dim space-y-2 mb-5 p-3 rounded-lg" style="background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.2)">
-      <div><b class="text-on-surface">Как подключить:</b></div>
-      <div>1. Создай бота через <code>@BotFather</code> в Telegram, получи <b>токен</b> (вида <code>1234:ABC…</code>)</div>
-      <div>2. Добавь бота в свой канал как <b>администратора</b> с правом «Публиковать сообщения»</div>
-      <div>3. Сюда вставь токен и <b>@username</b> канала (или ID вида <code>-100…</code>)</div>
-      <div>4. После сохранения мы пошлём <b>тестовое сообщение</b> чтобы проверить связь</div>
+
+    <div class="mb-5">
+      <label class="lbl">Платформа</label>
+      <div class="flex gap-2 flex-wrap">
+        <button class="chip chip-active" data-ch-platform="tg" type="button">📨 Telegram</button>
+        <button class="chip" data-ch-platform="vk" type="button">🔵 VK</button>
+      </div>
     </div>
+
+    <!-- TG инструкция -->
+    <div id="chHintTg" class="text-xs text-on-dim space-y-2 mb-5 p-3 rounded-lg" style="background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.2)">
+      <div><b class="text-on-surface">Как подключить Telegram:</b></div>
+      <div>1. Создай бота через <code>@BotFather</code>, получи <b>токен</b> (вида <code>1234:ABC…</code>)</div>
+      <div>2. Добавь бота в свой канал как <b>администратора</b> с правом «Публиковать сообщения»</div>
+      <div>3. Вставь токен и <b>@username</b> канала (или ID <code>-100…</code>)</div>
+    </div>
+
+    <!-- VK инструкция -->
+    <div id="chHintVk" class="text-xs text-on-dim space-y-2 mb-5 p-3 rounded-lg" style="background:rgba(77,171,247,.08);border:1px solid rgba(77,171,247,.2);display:none">
+      <div><b class="text-on-surface">Как подключить VK:</b></div>
+      <div>1. Зайди в своё сообщество → <b>Управление</b> → <b>Работа с API</b> → вкладка «Ключи доступа»</div>
+      <div>2. Создай <b>ключ сообщества</b> с правами: <code>wall</code>, <code>photos</code>, <code>manage</code></div>
+      <div>3. Скопируй ключ и вставь <b>ID сообщества</b> (число) или адрес <code>club123456</code></div>
+    </div>
+
     <div class="space-y-4">
       <div>
-        <label class="lbl">Bot Token (от @BotFather)</label>
-        <input id="ch_token" class="inp" placeholder="1234567890:ABCdefGhIJKlmNOpqRsTuVwXyZ" maxlength="2048"/>
+        <label class="lbl" id="ch_token_label">Bot Token</label>
+        <input id="ch_token" class="inp" placeholder="" maxlength="2048"/>
       </div>
       <div>
-        <label class="lbl">Канал (@username или -100…)</label>
-        <input id="ch_channel" class="inp" placeholder="@my_brand_channel" maxlength="200"/>
+        <label class="lbl" id="ch_channel_label">Канал</label>
+        <input id="ch_channel" class="inp" placeholder="" maxlength="200"/>
       </div>
     </div>
     <div class="flex items-center justify-end gap-3 mt-6">
@@ -675,12 +693,46 @@ document.addEventListener('click', async e =>{
   }
 });
 
+let _chPlatform = 'tg';
+
 function openChannelModal(){
   document.getElementById('ch_token').value = '';
   document.getElementById('ch_channel').value = '';
+  setChPlatform('tg');
   document.getElementById('channelModal').classList.add('show');
   setTimeout(() => document.getElementById('ch_token').focus(), 50);
 }
+
+function setChPlatform(p){
+  _chPlatform = p;
+  // Подсветка чипа
+  document.querySelectorAll('[data-ch-platform]').forEach(el =>{
+    el.classList.toggle('chip-active', el.dataset.chPlatform === p);
+  });
+  // Title + плейсхолдеры
+  if(p === 'tg'){
+    document.getElementById('chModalTitle').textContent = '📨 Подключить Telegram-канал';
+    document.getElementById('ch_token_label').textContent = 'Bot Token (от @BotFather)';
+    document.getElementById('ch_token').placeholder = '1234567890:ABCdefGhIJKlmNOpqRsTuVwXyZ';
+    document.getElementById('ch_channel_label').textContent = 'Канал (@username или -100…)';
+    document.getElementById('ch_channel').placeholder = '@my_brand_channel';
+    document.getElementById('chHintTg').style.display = '';
+    document.getElementById('chHintVk').style.display = 'none';
+  }else{
+    document.getElementById('chModalTitle').textContent = '🔵 Подключить VK-сообщество';
+    document.getElementById('ch_token_label').textContent = 'Ключ доступа сообщества';
+    document.getElementById('ch_token').placeholder = 'vk1.a.xxxxxxxxxxxx';
+    document.getElementById('ch_channel_label').textContent = 'ID сообщества (число или clubXXX)';
+    document.getElementById('ch_channel').placeholder = '123456 или club123456';
+    document.getElementById('chHintTg').style.display = 'none';
+    document.getElementById('chHintVk').style.display = '';
+  }
+}
+
+document.addEventListener('click', e =>{
+  const c = e.target.closest('[data-ch-platform]');
+  if(c){ setChPlatform(c.dataset.chPlatform); }
+});
 
 function closeChannelModal(){
   document.getElementById('channelModal').classList.remove('show');
@@ -698,7 +750,7 @@ async function saveChannel(){
     const r = await fetch(`/creators/brands/${b.id}/channels`, {
       method:'POST', credentials:'include',
       headers: {'Content-Type':'application/json', 'X-CSRF-Token': getCSRF()},
-      body: JSON.stringify({platform: 'tg', channel_id: channel, token}),
+      body: JSON.stringify({platform: _chPlatform, channel_id: channel, token}),
     });
     if(!r.ok){
       const e = await r.json().catch(() => ({}));
@@ -935,8 +987,8 @@ function openItemModal(item){
     prepBtn.style.display = 'inline-flex';
     prepBtn.textContent = item.status === 'ready' ? '↻ Перегенерировать' : '✨ Подготовить';
     prepBtn.disabled = false;
-    // Кнопка «Опубликовать» доступна только для ready + платформа, поддерживающая автопостинг (tg)
-    pubBtn.style.display = (item.status === 'ready' && item.platform === 'tg') ? 'inline-flex' : 'none';
+    // Кнопка «Опубликовать» доступна только для ready + платформа, поддерживающая автопостинг (tg/vk)
+    pubBtn.style.display = (item.status === 'ready' && (item.platform === 'tg' || item.platform === 'vk')) ? 'inline-flex' : 'none';
     pubBtn.disabled = false;
     pubBtn.textContent = '📤 Опубликовать';
   }

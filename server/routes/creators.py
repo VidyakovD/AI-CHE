@@ -522,7 +522,7 @@ def _channel_dict(c: CreatorChannelConnection) -> dict:
     }
 
 
-SUPPORTED_AUTO_PUBLISH = {"tg"}  # VK/YT/IG — позже
+SUPPORTED_AUTO_PUBLISH = {"tg", "vk"}  # YT/IG — позже
 
 
 @router.get("/brands/{brand_id}/channels")
@@ -546,7 +546,7 @@ async def add_channel(
     if not b:
         raise HTTPException(404, "Бренд не найден")
     if payload.platform not in SUPPORTED_AUTO_PUBLISH:
-        raise HTTPException(400, f"Автопостинг для платформы '{payload.platform}' пока недоступен. В MVP: только TG.")
+        raise HTTPException(400, f"Автопостинг для платформы '{payload.platform}' пока недоступен. В MVP: TG и VK.")
 
     # Уникальность (brand, platform, channel_id) ловится UniqueConstraint
     existing = db.query(CreatorChannelConnection).filter_by(
@@ -561,6 +561,12 @@ async def add_channel(
         v = await verify_tg_channel(payload.token, payload.channel_id)
         if not v.get("ok"):
             raise HTTPException(400, f"Не удалось подключиться: {v.get('description', 'неизвестная ошибка')}")
+        title = v.get("title") or title
+    elif payload.platform == "vk":
+        from server.creators_vk import verify_vk_community
+        v = await verify_vk_community(payload.token, payload.channel_id)
+        if not v.get("ok"):
+            raise HTTPException(400, f"VK: {v.get('description', 'неизвестная ошибка')}")
         title = v.get("title") or title
 
     c = CreatorChannelConnection(
@@ -609,23 +615,30 @@ def delete_channel(channel_id: int, user: User = Depends(current_user), db: Sess
 
 @router.post("/channels/{channel_id}/test")
 async def test_channel(channel_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """Отправить тестовое сообщение в канал."""
-    from server.messaging.senders import send_telegram
+    """Отправить тестовое сообщение в канал (TG или VK)."""
     c = db.query(CreatorChannelConnection).join(CreatorBrand).filter(
         CreatorChannelConnection.id == channel_id, CreatorBrand.user_id == user.id,
     ).first()
     if not c:
         raise HTTPException(404, "Канал не найден")
-    if c.platform != "tg":
-        raise HTTPException(400, "Тест доступен только для TG")
-    r = await send_telegram(c.token, c.channel_id,
-                             "✅ Тест из AI Студии Че: канал подключён успешно.",
-                             parse_mode=None)
+
+    test_text = "✅ Тест из AI Студии Че: канал подключён успешно."
+    if c.platform == "tg":
+        from server.messaging.senders import send_telegram
+        r = await send_telegram(c.token, c.channel_id, test_text, parse_mode=None)
+    elif c.platform == "vk":
+        from server.creators_vk import publish_to_vk_wall
+        r = await publish_to_vk_wall(c.token, c.channel_id, test_text)
+    else:
+        raise HTTPException(400, f"Тест для платформы {c.platform} не поддерживается")
+
     if not r.get("ok"):
         c.fail_count = (c.fail_count or 0) + 1
         c.last_error_at = datetime.utcnow()
         db.commit()
         raise HTTPException(400, r.get("description") or "Тест провалился")
+    c.fail_count = 0
+    db.commit()
     return {"ok": True}
 
 

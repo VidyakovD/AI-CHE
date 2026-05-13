@@ -56,7 +56,17 @@ async def publish_to_tg(conn: CreatorChannelConnection, item: ContentItem) -> di
 
 def _platform_supports_auto_publish(platform: str) -> bool:
     """Какие платформы умеют автопостинг в MVP."""
-    return platform in ("tg",)  # vk/yt/ig — позже
+    return platform in ("tg", "vk")  # yt/ig — позже
+
+
+async def publish_to_vk(conn: CreatorChannelConnection, item: ContentItem) -> dict:
+    """Публикация на стену VK-сообщества."""
+    from server.creators_vk import publish_to_vk_wall
+    if not conn.token or not conn.channel_id:
+        return {"ok": False, "description": "Не настроен token или community_id"}
+    text = (item.prepared_content_md or "").strip()
+    media = item.prepared_media_url
+    return await publish_to_vk_wall(conn.token, conn.channel_id, text, media)
 
 
 async def publish_item(db: Session, item: ContentItem) -> dict:
@@ -86,9 +96,14 @@ async def publish_item(db: Session, item: ContentItem) -> dict:
         return {"ok": False, "description": f"нет подключённого канала {item.platform}"}
 
     try:
-        result = await publish_to_tg(conn, item)
+        if item.platform == "tg":
+            result = await publish_to_tg(conn, item)
+        elif item.platform == "vk":
+            result = await publish_to_vk(conn, item)
+        else:
+            result = {"ok": False, "description": f"платформа {item.platform} не поддерживается"}
     except Exception as e:
-        log.exception("[creators.publish] tg send exception: %s", e)
+        log.exception("[creators.publish] %s send exception: %s", item.platform, e)
         result = {"ok": False, "description": str(e)}
 
     if result.get("ok"):
