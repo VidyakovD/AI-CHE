@@ -286,26 +286,32 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
           <input type="file" id="imageFileInput" accept="image/*" class="hidden" onchange="handleImageUpload(event)"/>
         </div>
       </div>
-      <!-- Выбор качества генерации: Sonnet (стандарт) / Opus (премиум) -->
-      <div class="mb-3 grid grid-cols-2 gap-2">
+      <!-- Выбор качества генерации: Sonnet (стандарт) / Opus (премиум).
+           role="radiogroup" + aria-labelledby + aria-describedby для screen
+           readers: NVDA/JAWS теперь произносят «Качество генерации, радио-
+           группа, 1 из 2 выбрано: Стандарт, 1500 ₽, Claude Sonnet…». -->
+      <span id="genQualityLabel" class="sr-only">Качество генерации сайта</span>
+      <div class="mb-3 grid grid-cols-2 gap-2" role="radiogroup" aria-labelledby="genQualityLabel">
         <label class="quality-option cursor-pointer">
-          <input type="radio" name="genQuality" value="standard" checked class="hidden peer" onchange="updateGenButton()"/>
+          <input type="radio" name="genQuality" value="standard" checked class="hidden peer"
+                 aria-describedby="genQualityStdDesc" onchange="updateGenButton()"/>
           <div class="rounded-xl border-2 border-outline/20 p-3 peer-checked:border-primary peer-checked:bg-primary/8 transition">
             <div class="flex items-center justify-between mb-1">
               <span class="text-sm font-bold">🟢 Стандарт</span>
               <span class="text-sm font-bold text-primary">1500 ₽</span>
             </div>
-            <p class="text-[10px] text-on-dim leading-tight">Claude Sonnet — отличное качество для лендингов и визиток. 1-3 минуты.</p>
+            <p id="genQualityStdDesc" class="text-[10px] text-on-dim leading-tight">Claude Sonnet — отличное качество для лендингов и визиток. 1-3 минуты.</p>
           </div>
         </label>
         <label class="quality-option cursor-pointer">
-          <input type="radio" name="genQuality" value="premium" class="hidden peer" onchange="updateGenButton()"/>
+          <input type="radio" name="genQuality" value="premium" class="hidden peer"
+                 aria-describedby="genQualityPremDesc" onchange="updateGenButton()"/>
           <div class="rounded-xl border-2 border-outline/20 p-3 peer-checked:border-primary peer-checked:bg-primary/8 transition">
             <div class="flex items-center justify-between mb-1">
               <span class="text-sm font-bold">🟣 Премиум</span>
               <span class="text-sm font-bold text-primary">1990 ₽</span>
             </div>
-            <p class="text-[10px] text-on-dim leading-tight">Claude Opus — лучшее качество кода и дизайна, длинные сайты до 96k токенов. 3-7 минут.</p>
+            <p id="genQualityPremDesc" class="text-[10px] text-on-dim leading-tight">Claude Opus — лучшее качество кода и дизайна, длинные сайты до 96k токенов. 3-7 минут.</p>
           </div>
         </label>
       </div>
@@ -337,7 +343,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
             Сохранить
           </button>
-          <button onclick="copyCode()" class="btn-g text-xs">Копировать</button>
+          <button onclick="copyCode(event)" class="btn-g text-xs">Копировать</button>
         </div>
       </div>
       <!-- Preview tab — минимальный padding, чтобы превью не было узким -->
@@ -401,6 +407,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <div class="text-center">
         <svg class="animate-spin h-8 w-8 text-primary mx-auto mb-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-dasharray="31.4 31.4" stroke-dashoffset="10"/></svg>
         <p id="loadingText" class="text-on-dim text-sm">Думаю...</p>
+        <p id="loadingEta" class="text-on-dim/60 text-xs mt-2 hidden">⏱ Обычно занимает 2-4 минуты — оставайтесь на странице или вернитесь позже, прогресс сохраняется.</p>
       </div>
     </div>
 
@@ -681,8 +688,18 @@ async function openProject(id){
     }
     await loadProjectImages();
   } else if(phase === 'done' || phase === 'generating_code'){
-    // Phase 3+: Code generated
-    showDonePhase();
+    // Phase 3+: Code generated.
+    // Если gen_status='running' и code_html ещё пустой — значит юзер
+    // перезагрузил вкладку посреди генерации. Раньше тут открывался пустой
+    // редактор с кнопкой Готово, и юзер думал что сайт сломался.
+    // Теперь: возобновляем polling — он сам покажет лоадер и подгрузит код.
+    if(proj.gen_status === 'running' && !proj.code_html){
+      showLoading('Генерация ещё идёт — подключаюсь к процессу…', true);
+      isGenerating = true;
+      pollGenerationStatus();
+    } else {
+      showDonePhase();
+    }
   } else {
     // Idle — start spec building chat
     document.getElementById('phaseChat').classList.remove('hidden');
@@ -987,7 +1004,7 @@ async function generateCode(){
   const quality = getSelectedQuality();
   const cost = quality === 'premium' ? 1990 : 1500;
   isGenerating = true;
-  showLoading(`Запускаю генерацию (${quality === 'premium' ? 'Премиум' : 'Стандарт'})…`);
+  showLoading(`Запускаю генерацию (${quality === 'premium' ? 'Премиум' : 'Стандарт'})…`, true);
 
   try{
     const r = await fetch(`${API}/sites/projects/${currentProjectId}/generate-code`,{
@@ -1071,7 +1088,7 @@ async function pollGenerationStatus(){
     const minutes = Math.floor(elapsed / 60);
     const secStr = (elapsed % 60).toString().padStart(2, '0');
     const timeStr = minutes ? `${minutes}:${secStr}` : `${elapsed}c`;
-    showLoading(`${data.progress || 'Работаю…'} (${timeStr})`);
+    showLoading(`${data.progress || 'Работаю…'} (${timeStr})`, true);
 
     if(data.status === 'done'){
       currentProject = await getProjectDetail();
@@ -1298,12 +1315,18 @@ window.addEventListener('beforeunload', e => {
   }
 });
 
-function copyCode(){
+function copyCode(ev){
+  // Глобальный `event` работал только в Chrome — в Firefox/Safari это
+  // ReferenceError → ловили мы тихо в каком-нибудь catch. Принимаем event
+  // явным аргументом (передаётся как onclick="copyCode(event)") + fallback
+  // на window.event для legacy-вызовов без аргумента.
   navigator.clipboard.writeText(document.getElementById('codeEditor').value);
-  const btn = event.target.closest('button');
+  const e = ev || window.event;
+  const btn = (e && e.target) ? e.target.closest('button') : null;
+  if(!btn) return;
   const orig = btn.textContent;
   btn.textContent = 'Скопировано!';
-  setTimeout(()=>btn.textContent=orig, 2000);
+  setTimeout(()=>{ btn.textContent = orig; }, 2000);
 }
 
 // ── Preview ───────────────────────────────────────────────────────────────
@@ -2491,8 +2514,10 @@ function switchDetailTab(tab, btn){
 }
 
 // ── Loading overlay ───────────────────────────────────────────────────────
-function showLoading(text='Думаю...'){
+function showLoading(text='Думаю...', long=false){
   document.getElementById('loadingText').textContent = text;
+  const eta = document.getElementById('loadingEta');
+  if (eta) eta.classList.toggle('hidden', !long);
   const ld = document.getElementById('phaseLoading');
   ld.classList.remove('hidden');
   ld.classList.add('flex');

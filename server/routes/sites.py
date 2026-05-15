@@ -660,11 +660,13 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
 
         # 3. Основная генерация Claude (Sonnet или Opus, timeout=600s в SDK)
         prompt, _full_urls = _build_site_prompt(enhanced, image_paths_json)
+        # default-args фиксируют значения closure'а ПО ЗНАЧЕНИЮ — защита от
+        # потенциального closure-bug если когда-нибудь окажемся внутри цикла.
         ans = await loop.run_in_executor(
             None,
-            lambda: generate_response(model_id,
-                                       [{"role": "user", "content": prompt}],
-                                       {"max_tokens": max_tokens}),
+            lambda mid=model_id, pr=prompt, mt=max_tokens:
+                generate_response(mid, [{"role": "user", "content": pr}],
+                                   {"max_tokens": mt}),
         )
         content = (ans.get("content", "") if isinstance(ans, dict) else "").strip()
 
@@ -711,7 +713,8 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
             ]
             cont = await loop.run_in_executor(
                 None,
-                lambda: generate_response(model_id, cont_messages, {"max_tokens": max_tokens}),
+                lambda mid=model_id, msgs=cont_messages, mt=max_tokens:
+                    generate_response(mid, msgs, {"max_tokens": mt}),
             )
             cont_text = (cont.get("content", "") if isinstance(cont, dict) else "")
             cont_text = _strip_markdown_code_fence(cont_text)
@@ -1185,13 +1188,8 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
         _refund_iter(f"исключение AI: {type(e).__name__}")
         raise HTTPException(503, f"AI временно недоступен ({type(e).__name__}). Деньги возвращены.")
     raw = (answer.get("content", "") if isinstance(answer, dict) else "").strip()
-    # Снимаем markdown-обёртку если есть
-    for marker in ["```json\n", "```\n", "```json", "```"]:
-        if raw.startswith(marker):
-            raw = raw[len(marker):]
-            raw = raw.rsplit("```", 1)[0] if "```" in raw else raw
-            break
-    raw = raw.strip()
+    # Снимаем markdown-обёртку (раньше был inline-копипаст — теперь общий helper)
+    raw = _strip_markdown_code_fence(raw)
 
     import json as _json
     patches = None
@@ -1356,13 +1354,8 @@ def site_project_edit_block(project_id: int, body: EditBlockBody,
         raise HTTPException(503, "AI временно недоступен")
 
     new_html = answer.get("content", "") if isinstance(answer, dict) else str(answer)
-    # Снимаем markdown-обёртки если AI ослушался
-    for marker in ["```html\n", "```\n", "```html", "```"]:
-        if new_html.startswith(marker):
-            new_html = new_html[len(marker):]
-            new_html = new_html.rsplit("```", 1)[0] if "```" in new_html else new_html
-            break
-    new_html = new_html.strip()
+    # Снимаем markdown-обёртки если AI ослушался (общий helper)
+    new_html = _strip_markdown_code_fence(new_html)
 
     # Sanity: блок должен начинаться с тега. Если AI вернул мусор — НЕ
     # списываем (ничего не сделали).
@@ -1589,17 +1582,6 @@ def site_project_zip(project_id: int, db: Session = Depends(get_db),
     )
 
 
-# ---------------------------------------------------------------------------
-# Utility
-# ---------------------------------------------------------------------------
-@router.post("/sites/code")
-def site_decode_code(body: dict, db: Session = Depends(get_db), user=Depends(optional_user)):
-    """Utility: return clean code without markdown. Used internally."""
-    content = body.get("content", "")
-    for marker in ["```html\n", "```\n", "```html", "```"]:
-        if content.startswith(marker):
-            content = content[len(marker):]
-            if "```" in content:
-                content = content.rsplit("```", 1)[0]
-            break
-    return {"clean": content.strip()}
+# Удалён endpoint POST /sites/code (site_decode_code) — нигде не вызывался
+# из фронта (grep по views/ дал 0 совпадений). Логика дублировала
+# _strip_markdown_code_fence — теперь используется он напрямую.
