@@ -66,25 +66,25 @@ _Последнее обновление: 2026-05-13._
 - **Каталог 40 пилотов в docs/** — генерировать `docs/solutions-catalog.md` из БД (нет SQL-доступа = не увидеть полный список)
 - ⏸ _Отложено (нужны юзеры):_ A/B формы vs textarea, пересчёт цен по статистике real_cost, видео-демки
 
-### [07-proposals](docs/modules/07-proposals.md)
-1. **`PROPOSAL_COST_KOP=5000` хардкод** ([server/routes/proposals.py:29](server/routes/proposals.py:29)) → читать `pricing.get("proposal.create", 5000)`
-2. **Email-валидация формальная** ([server/routes/proposals.py:920](server/routes/proposals.py:920)) — `"@" in to` → использовать `EMAIL_RE` из `server/security.py`
-3. **Кириллица в filename PDF** — `Content-Disposition` без `filename*=UTF-8''…`
-4. **Public proposal page как inline f-string** ([main.py:759-907](main.py:759)) — 150 строк → вынести в `views/proposal_public.html` + Jinja
-5. **`open_count` счётчик** — фиксировать каждый GET, не только первое открытие
-6. **`max_tokens=6000` хардкод** ([server/proposal_builder.py:1155](server/proposal_builder.py:1155)) → `6000 + len(price_text)//4`
-7. **Snapshot-version race** ([server/routes/proposals.py:496](server/routes/proposals.py:496)) — `id NOT IN (top-10)` вместо offset
-8. **WYSIWYG iframe `allow-scripts`** — батч-санитайз старых записей (скрипт `sanitize_legacy_proposal_html.py` создан, запустить если ещё нет на проде)
+### [07-proposals](docs/modules/07-proposals.md) — 7/8 ✅ закрыто `f5bef9f`
+1. ✅ `PROPOSAL_COST_KOP` через pricing_config — уже было (`_proposal_create_cost`/`_edit_cost`)
+2. ✅ Email через `EMAIL_RE.match()` (`f5bef9f`)
+3. ✅ Кириллица в PDF: `filename*=UTF-8''` (RFC 5987) в 3 точках
+4. **Public proposal page → Jinja-template** — отложено, большой рефакторинг ~150 строк inline-HTML
+5. ✅ `open_count` — новая колонка + atomic UPDATE при каждом open
+6. ✅ `max_tokens` адаптивный (`6000 + len(price_text)//4`, cap 16000)
+7. ✅ Snapshot-version race — subquery `id IN (top-10)` вместо offset
+8. ✅ Запущен `sanitize_legacy_proposal_html.py` на проде (2/2 проектов санитизированы)
 
-### [09-sites](docs/modules/09-sites.md)
-1. **`_strip_markdown_code_fence` дублируется** в `/iterate` и `/edit-block` → вызывать функцию
-2. **Closure-bug в lambda** ([server/routes/sites.py:619, :666](server/routes/sites.py)) — `prompt`/`model_id` захватываются по ссылке
-3. **`/sites/code` мёртвый endpoint** — `site_decode_code` не используется → удалить
-4. **Phase `generating_code` после reload** — `openProject` уходит в showDone с пустым codeEditor → перезапустить polling при `gen_status='running'`
-5. **`copyCode()` ломается без `event`** — глобальный `event.target` только Chrome
-6. **Нет ETA в loader-е генерации** — добавить «обычно 2-4 минуты»
-7. **a11y на radio quality-option** — `role="radiogroup"` + `aria-describedby`
-8. **Sequential `project.id` в физпути** — переехать на `public_token`
+### [09-sites](docs/modules/09-sites.md) — 7/8 ✅ закрыто `89cb3c5`
+1. ✅ `_strip_markdown_code_fence` dedupe в `/iterate` + `/edit-block`
+2. ✅ Closure-bug в lambda → default-args фиксируют значения
+3. ✅ Dead `/sites/code` endpoint удалён
+4. ✅ Phase `generating_code` после reload — re-polling вместо пустого showDone
+5. ✅ `copyCode(event)` явно через аргумент + Firefox/Safari fallback
+6. ✅ ETA-hint в loader («обычно 2-4 минуты, прогресс сохраняется»)
+7. ✅ a11y radiogroup + aria-labelledby + aria-describedby
+8. **Sequential `project.id` → `public_token`** — отложено, большая миграция файловых путей
 
 ### [13-public-api](docs/modules/13-public-api.md)
 - **Дубликат webhooks.py + crm.py dispatcher** (~150 строк копипасты) → уже частично вынесено в `_outbound.py`, доделать
