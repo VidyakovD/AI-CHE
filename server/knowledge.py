@@ -354,6 +354,15 @@ def add_file(*,
         content_text = extract_text(path, mime)
     text = (content_text or "").strip()
 
+    # Knowledge Hub категория (Агенты v2): один Haiku-вызов до индексации.
+    # При ошибке возвращает 'other' — не блокирует загрузку.
+    try:
+        from server.knowledge_classifier import classify as _classify_kb
+        category = _classify_kb(name, mime, text[:1500])
+    except Exception as e:
+        log.warning(f"[KB] classify skipped: {e}")
+        category = "other"
+
     db = SessionLocal()
     try:
         # Лимиты
@@ -372,6 +381,7 @@ def add_file(*,
             description=name[:200], tags=tags[:500],
             content_text=text[:50000],  # хвост для совместимости
             indexing_status="indexing",
+            category=category,
         )
         db.add(kf); db.commit(); db.refresh(kf)
         kf_id = kf.id
@@ -584,15 +594,35 @@ def build_context_block(results: List[Dict], max_chars: int = 8000) -> str:
 
 # ── Управление ───────────────────────────────────────────────────────────────
 
-def get_files(owner_type: str, owner_id: int) -> List[Dict]:
+def get_files(owner_type: str, owner_id: int,
+              categories: List[str] | None = None) -> List[Dict]:
+    """Список файлов владельца. categories — фильтр по Knowledge Hub категориям."""
     db = SessionLocal()
     try:
-        rows = (db.query(KnowledgeFile)
-                  .filter_by(owner_type=owner_type, owner_id=owner_id)
-                  .order_by(KnowledgeFile.created_at.desc()).all())
+        q = (db.query(KnowledgeFile)
+               .filter_by(owner_type=owner_type, owner_id=owner_id))
+        if categories:
+            q = q.filter(KnowledgeFile.category.in_(categories))
+        rows = q.order_by(KnowledgeFile.created_at.desc()).all()
     finally:
         db.close()
     return [_kf_dict(kf) for kf in rows]
+
+
+def set_category(owner_type: str, owner_id: int, file_id: int, category: str) -> bool:
+    """Ручной override авто-классифицированной категории. Caller валидирует значение."""
+    db = SessionLocal()
+    try:
+        kf = (db.query(KnowledgeFile)
+                .filter_by(id=file_id, owner_type=owner_type, owner_id=owner_id)
+                .first())
+        if not kf:
+            return False
+        kf.category = category
+        db.commit()
+        return True
+    finally:
+        db.close()
 
 
 def delete_file(owner_type: str, owner_id: int, file_id: int) -> bool:
@@ -648,6 +678,7 @@ def _kf_dict(kf: KnowledgeFile) -> Dict:
         "status": kf.indexing_status or "pending",
         "error": kf.indexing_error,
         "enabled": bool(enabled),
+        "category": kf.category or "other",
         "created_at": kf.created_at.isoformat() if kf.created_at else None,
     }
 

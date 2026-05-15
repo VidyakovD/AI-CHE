@@ -1011,6 +1011,10 @@ class KnowledgeFile(Base):
     indexing_status = Column(String, default="pending")        # pending | indexing | ready | failed
     indexing_error  = Column(Text, nullable=True)
     enabled      = Column(Boolean, default=True)               # участвует ли в retrieve
+    # Knowledge Hub categorization (Агенты v2). Авто-классифицируется при загрузке
+    # одним вызовом Haiku. Каждая роль агента запрашивает только нужные категории.
+    # Допустимые: pricing | legal | finance | brand | regulation | contacts | other
+    category     = Column(String, default="other", index=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
     # Storage-биллинг: scheduler.storage_billing_tick списывает плату за
     # KB-файлы аналогично StoredAsset (50 ₽/мес за 100 МБ).

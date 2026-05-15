@@ -206,6 +206,10 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("knowledge_files", "indexing_status", "VARCHAR DEFAULT 'pending'"),
     ("knowledge_files", "indexing_error", "TEXT"),
     ("knowledge_files", "enabled", "BOOLEAN DEFAULT 1"),
+    # Knowledge Hub (Агенты v2): авто-классификация файла на категории
+    # pricing | legal | finance | brand | regulation | contacts | other.
+    # Каждая роль агента запрашивает только релевантные категории.
+    ("knowledge_files", "category", "VARCHAR DEFAULT 'other'"),
     # КП: конструктор шапки (4 стиля)
     ("proposal_projects", "header_layout", "VARCHAR DEFAULT 'classic'"),
     # Refresh-token rotation single-use: список активных jti (JSON).

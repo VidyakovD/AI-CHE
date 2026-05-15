@@ -15,6 +15,19 @@
   const ALLOWED_EXT = ['.pdf', '.docx', '.xlsx', '.xlsm', '.csv', '.tsv',
                        '.txt', '.md', '.json', '.html', '.htm'];
 
+  // Knowledge Hub категории (ИИ Агенты v2). Метки и эмодзи для UI;
+  // ключи — должны совпадать с server.knowledge_classifier.CATEGORIES.
+  const CAT_META = {
+    pricing:    { label: 'Прайсы',     emoji: '💰', color: '#7bd968' },
+    legal:      { label: 'Юр-доки',    emoji: '⚖️', color: '#9b88ff' },
+    finance:    { label: 'Финансы',    emoji: '📊', color: '#ffb74d' },
+    brand:      { label: 'Бренд',      emoji: '🎨', color: '#ff8c42' },
+    regulation: { label: 'Регламенты', emoji: '📋', color: '#6ec1ff' },
+    contacts:   { label: 'Контакты',   emoji: '👤', color: '#f06292' },
+    other:      { label: 'Прочее',     emoji: '📁', color: '#888' },
+  };
+  const CAT_KEYS = Object.keys(CAT_META);
+
   function _injectStyles() {
     if (document.getElementById('ai-kb-styles')) return;
     const css = `
@@ -65,6 +78,19 @@
 .ai-kb-stats{font-size:11.5px;color:#888;margin-top:12px;text-align:right}
 .ai-kb-progress{margin-top:8px;font-size:12px;color:#aaa}
 .ai-kb-err-msg{color:#ff6b6b;font-size:12px;margin-top:6px}
+
+/* Knowledge Hub categories (Агенты v2) */
+.ai-kb-cat-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px;padding-bottom:6px}
+.ai-kb-cat-pill{padding:5px 11px;border-radius:14px;font-size:12px;font-weight:500;color:#aaa;background:#252525;border:1px solid rgba(255,255,255,.06);cursor:pointer;white-space:nowrap;transition:background .15s,color .15s,border-color .15s}
+.ai-kb-cat-pill:hover{color:#fff;background:#2a2a2a}
+.ai-kb-cat-pill.active{background:rgba(255,140,66,.15);color:#ff8c42;border-color:#ff8c42}
+.ai-kb-cat-pill .cnt{margin-left:5px;opacity:.65;font-size:11px}
+.ai-kb-item .cat-chip{position:relative;padding:3px 8px;border-radius:8px;font-size:11px;font-weight:600;flex-shrink:0;cursor:pointer;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)}
+.ai-kb-item .cat-chip:hover{background:rgba(255,255,255,.08)}
+.ai-kb-cat-menu{position:absolute;top:calc(100% + 4px);right:0;background:#1c1c1c;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:4px;display:flex;flex-direction:column;gap:1px;z-index:99997;min-width:140px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.ai-kb-cat-menu button{background:transparent;border:none;color:#ddd;text-align:left;padding:7px 10px;border-radius:7px;cursor:pointer;font-size:12px;font:inherit}
+.ai-kb-cat-menu button:hover{background:rgba(255,140,66,.15);color:#ff8c42}
+.ai-kb-cat-menu button.active{color:#ff8c42}
 `;
     const st = document.createElement('style');
     st.id = 'ai-kb-styles';
@@ -129,6 +155,7 @@
       </label>
       <input type="text" class="ai-kb-tags" id="ai-kb-tags-input" placeholder="Теги через запятую (опционально, например: прайс, услуги)" maxlength="200"/>
       <div class="ai-kb-progress" id="ai-kb-upload-progress"></div>
+      <div class="ai-kb-cat-row" id="ai-kb-cat-row"></div>
       <div class="ai-kb-list" id="ai-kb-list"></div>
       <div class="ai-kb-stats" id="ai-kb-stats"></div>
     </div>
@@ -213,27 +240,97 @@
     }
 
     // ── Список файлов ──
+    let _activeCat = '';  // '' = все категории
+
+    function _renderCatRow(counts) {
+      const row = $('#ai-kb-cat-row');
+      row.innerHTML = '';
+      const totalAll = Object.values(counts || {}).reduce((a, b) => a + b, 0);
+      const allBtn = document.createElement('button');
+      allBtn.className = 'ai-kb-cat-pill' + (_activeCat === '' ? ' active' : '');
+      allBtn.innerHTML = `Все <span class="cnt">${totalAll}</span>`;
+      allBtn.addEventListener('click', () => { _activeCat = ''; loadList(); });
+      row.appendChild(allBtn);
+      CAT_KEYS.forEach(k => {
+        const n = (counts && counts[k]) || 0;
+        if (n === 0 && _activeCat !== k) return;  // прячем пустые если не выбраны
+        const meta = CAT_META[k];
+        const btn = document.createElement('button');
+        btn.className = 'ai-kb-cat-pill' + (_activeCat === k ? ' active' : '');
+        btn.innerHTML = `${meta.emoji} ${_esc(meta.label)} <span class="cnt">${n}</span>`;
+        btn.addEventListener('click', () => { _activeCat = k; loadList(); });
+        row.appendChild(btn);
+      });
+    }
+
+    function _renderCatChip(file) {
+      const cat = file.category || 'other';
+      const meta = CAT_META[cat] || CAT_META.other;
+      const wrap = document.createElement('span');
+      wrap.className = 'cat-chip';
+      wrap.style.color = meta.color;
+      wrap.title = 'Knowledge Hub категория. Клик чтобы изменить.';
+      wrap.textContent = `${meta.emoji} ${meta.label}`;
+      wrap.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Закрыть существующее меню если есть
+        document.querySelectorAll('.ai-kb-cat-menu').forEach(m => m.remove());
+        const menu = document.createElement('div');
+        menu.className = 'ai-kb-cat-menu';
+        CAT_KEYS.forEach(k => {
+          const m = CAT_META[k];
+          const b = document.createElement('button');
+          if (cat === k) b.className = 'active';
+          b.textContent = `${m.emoji} ${m.label}`;
+          b.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            menu.remove();
+            try {
+              const r = await fetch(`/knowledge/${file.id}/category?owner_type=${encodeURIComponent(ownerType)}&owner_id=${ownerId}&category=${encodeURIComponent(k)}`, {
+                method: 'PATCH', credentials: 'same-origin',
+              });
+              if (r.ok) loadList();
+            } catch (_) {}
+          });
+          menu.appendChild(b);
+        });
+        wrap.appendChild(menu);
+        // Закрыть меню при клике вне
+        const closeOutside = (ev) => {
+          if (!menu.contains(ev.target) && ev.target !== wrap) {
+            menu.remove();
+            document.removeEventListener('click', closeOutside, true);
+          }
+        };
+        setTimeout(() => document.addEventListener('click', closeOutside, true), 0);
+      });
+      return wrap;
+    }
+
     async function loadList() {
       const list = $('#ai-kb-list');
       const stats = $('#ai-kb-stats');
       try {
-        const r = await fetch(`/knowledge?owner_type=${encodeURIComponent(ownerType)}&owner_id=${ownerId}`, {
-          credentials: 'same-origin',
-        });
+        const url = `/knowledge?owner_type=${encodeURIComponent(ownerType)}&owner_id=${ownerId}`
+                    + (_activeCat ? `&categories=${encodeURIComponent(_activeCat)}` : '');
+        const r = await fetch(url, { credentials: 'same-origin' });
         if (!r.ok) {
           list.innerHTML = `<div class="ai-kb-empty">Ошибка: ${r.status}</div>`;
           return;
         }
         const data = await r.json();
         const files = data.files || [];
+        const sum = data.summary || {};
+        _renderCatRow(sum.category_counts || {});
         if (!files.length) {
-          list.innerHTML = `<div class="ai-kb-empty">База пока пуста. Загрузите первый файл выше.</div>`;
+          list.innerHTML = `<div class="ai-kb-empty">${_activeCat ? 'В этой категории пока пусто.' : 'База пока пуста. Загрузите первый файл выше.'}</div>`;
         } else {
           list.innerHTML = '';
           files.forEach(f => {
             const enabled = f.enabled !== false;  // default true
             const item = document.createElement('div');
             item.className = 'ai-kb-item' + (enabled ? '' : ' disabled');
+            item.style.position = 'relative';  // для абсолютного меню категории
             let badge;
             if (!enabled) {
               badge = `<span class="badge off">выключен</span>`;
@@ -249,6 +346,7 @@
                 <div class="t"></div>
                 <div class="s"></div>
               </div>
+              <span class="cat-chip-slot"></span>
               ${badge}
               <button class="ai-kb-toggle ${enabled ? 'on' : ''}" title="${enabled ? 'Выключить (агент перестанет использовать файл)' : 'Включить (агент будет искать в этом файле)'}" data-id="${f.id}"></button>
               <button class="del" title="Удалить" data-id="${f.id}">🗑</button>
@@ -256,6 +354,9 @@
             // Безопасно через textContent
             item.querySelector('.t').textContent = f.name;
             item.querySelector('.s').textContent = `${_fmtSize(f.size)} · ${_fmtDate(f.created_at)}` + (f.tags ? ` · 🏷 ${f.tags}` : '');
+            // Категория-chip с overrride-меню
+            const chip = _renderCatChip(f);
+            item.querySelector('.cat-chip-slot').replaceWith(chip);
             // Toggle: переключаем enabled
             item.querySelector('.ai-kb-toggle').addEventListener('click', async (e) => {
               e.stopPropagation();
@@ -282,7 +383,6 @@
             list.appendChild(item);
           });
         }
-        const sum = data.summary || {};
         stats.textContent = `${sum.count || 0} файлов · ${_fmtSize(sum.total_bytes || 0)} · ${sum.total_chunks || 0} чанков · лимит ${sum.max_files} файлов / ${sum.max_file_mb} МБ на файл`;
       } catch (e) {
         list.innerHTML = `<div class="ai-kb-empty">Сеть недоступна</div>`;

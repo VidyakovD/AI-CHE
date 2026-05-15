@@ -23,9 +23,10 @@ from server.models import User, ChatBot, AgentConfig, KnowledgeFile
 from server.knowledge import (
     add_file as kb_add_file,
     get_files, delete_file, retrieve, build_context_block,
-    set_enabled,
+    set_enabled, set_category,
     MAX_FILE_BYTES, MAX_FILES_PER_OWNER, MAX_TOTAL_BYTES_PER_USER,
 )
+from server.knowledge_classifier import CATEGORIES as KB_CATEGORIES
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -155,10 +156,22 @@ async def kb_upload(
 
 @router.get("")
 def kb_list(owner_type: str, owner_id: int,
+            categories: str = "",
             db: Session = Depends(get_db),
             user: User = Depends(current_user)):
+    """Список файлов. categories=pricing,legal — фильтр через запятую (Knowledge Hub)."""
     _check_owner(db, user, owner_type, owner_id)
-    files = get_files(owner_type, owner_id)
+    cat_filter: list[str] | None = None
+    if categories:
+        cats = [c.strip() for c in categories.split(",") if c.strip() in KB_CATEGORIES]
+        cat_filter = cats or None
+    files = get_files(owner_type, owner_id, categories=cat_filter)
+    # Распределение по категориям — для UI dropdown без второго запроса
+    all_files = get_files(owner_type, owner_id) if cat_filter else files
+    cat_counts: dict[str, int] = {}
+    for f in all_files:
+        c = f.get("category") or "other"
+        cat_counts[c] = cat_counts.get(c, 0) + 1
     total_size = sum(f.get("size", 0) for f in files)
     total_chunks = sum(f.get("chunk_count", 0) for f in files)
     return {
@@ -169,8 +182,23 @@ def kb_list(owner_type: str, owner_id: int,
             "total_chunks": total_chunks,
             "max_files": MAX_FILES_PER_OWNER,
             "max_file_mb": MAX_FILE_BYTES // 1024 // 1024,
+            "categories": list(KB_CATEGORIES),
+            "category_counts": cat_counts,
         },
     }
+
+
+@router.patch("/{file_id}/category")
+def kb_set_category(file_id: int, owner_type: str, owner_id: int, category: str,
+                    db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    """Ручной override Knowledge Hub категории (если AI ошибся)."""
+    _check_owner(db, user, owner_type, owner_id)
+    if category not in KB_CATEGORIES:
+        raise HTTPException(400, f"Категория должна быть одной из: {', '.join(KB_CATEGORIES)}")
+    if not set_category(owner_type, owner_id, file_id, category):
+        raise HTTPException(404, "Файл не найден")
+    return {"id": file_id, "category": category}
 
 
 @router.patch("/{file_id}/toggle")
