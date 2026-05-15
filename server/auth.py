@@ -224,20 +224,48 @@ def is_refresh_jti_active(user, jti: str | None) -> bool:
         return True
     return jti in _load_jtis(user)
 
+def _jwt_strict_aud_iss() -> bool:
+    """Должны ли мы STRICT-валидировать aud/iss в JWT?
+
+    Раньше: `verify_aud=False, verify_iss=False` + опц. ручная проверка.
+    Логика перехода:
+      — С 2026-05-12 (коммит dd05348) все новые токены содержат aud+iss
+      — Refresh-токены живут 30 дней → 2026-05-12 + 30d = 2026-06-10
+      — После этой даты все живые токены имеют aud+iss → можно strict
+
+    Принудительное переключение:
+      JWT_STRICT_AUD_ISS=true   — включить досрочно
+      JWT_STRICT_AUD_ISS=false  — оставить выключенным (rollback после bug)
+      (пусто)                   — автомат: дата >= 2026-06-10
+    """
+    env = os.getenv("JWT_STRICT_AUD_ISS", "").strip().lower()
+    if env in ("1", "true", "yes", "on"):
+        return True
+    if env in ("0", "false", "no", "off"):
+        return False
+    # Авто-активация после 2026-06-10 UTC
+    return datetime.utcnow() >= datetime(2026, 6, 10)
+
+
 def decode_token(token: str, require_type: str = None) -> dict | None:
     """Verify JWT. Пробует все доступные ключи (текущий + legacy), чтобы
     не разлогинивать юзеров при смене источника JWT_SECRET (env vs файл)."""
+    strict = _jwt_strict_aud_iss()
+    decode_opts = {"verify_aud": strict, "verify_iss": strict}
+    # При strict-mode для jwt.decode нужно явно передать audience/issuer
+    decode_kwargs = {
+        "algorithms": [ALGORITHM],
+        "options": decode_opts,
+    }
+    if strict:
+        decode_kwargs["audience"] = JWT_AUD
+        decode_kwargs["issuer"] = JWT_ISS
+
     payload = None
     last_exc: Exception | None = None
     for secret in _all_jwt_secrets():
         try:
-            # TODO 2026-06-10: после истечения 30-дневного TTL refresh-токенов
-            # с момента 2026-05-11 переключить на `verify_aud=True, verify_iss=True`.
-            # См. TODO_NEXT.md → «JWT aud/iss strict verify».
-            payload = jwt.decode(
-                token, secret, algorithms=[ALGORITHM],
-                options={"verify_aud": False, "verify_iss": False},
-            )
+            payload = jwt.decode(token, secret, **decode_kwargs)
             break  # Успех — выходим из цикла
         except JWTError as e:
             last_exc = e
@@ -245,11 +273,15 @@ def decode_token(token: str, require_type: str = None) -> dict | None:
     if payload is None:
         return None
     try:
-        # Токены выданные после фикса всегда имеют aud+iss — проверяем
-        if payload.get("aud") is not None and payload["aud"] != JWT_AUD:
-            return None
-        if payload.get("iss") is not None and payload["iss"] != JWT_ISS:
-            return None
+        # Не-strict mode: ручная проверка для токенов с aud/iss (а у токенов
+        # без — пропускаем, это legacy). После 2026-06-10 это уже не нужно
+        # (jwt.decode сам validate'ит), но fallback на случай если env-var
+        # принудительно выключает strict.
+        if not strict:
+            if payload.get("aud") is not None and payload["aud"] != JWT_AUD:
+                return None
+            if payload.get("iss") is not None and payload["iss"] != JWT_ISS:
+                return None
         if require_type and payload.get("type") != require_type:
             return None
         return payload
