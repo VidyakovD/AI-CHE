@@ -214,12 +214,47 @@ ssh ... "cd /root/AI-CHE && /root/AI-CHE/venv/bin/python scripts/upgrade_orchest
 
 ## Известные косяки / TODO
 
-См. [TODO_NEXT.md](TODO_NEXT.md). Актуальное на 2026-05-13:
+См. [TODO_NEXT.md](TODO_NEXT.md). Актуальное на 2026-05-15:
 
-- **`_abs_path` для `/uploads/*` как URL-path** — закрыто (`aa18470`), но если будут новые file-стадии — проверить.
+- **`_abs_path` для `/uploads/*` как URL-path** — закрыто (`aa18470`).
 - **Промпт «Проверка контрагента» (#36)** — переписан под ИП (12-цифровой ИНН) + не отказываться (`f57eb42`).
 - **`async def run_solution / continue_run`** — `spawn()` требует event loop (`51529d8`). Не возвращать sync-версию.
 - **Перечень всех 40 пилотов** — каталога нет, нужно делать SQL `SELECT id, title FROM solutions ORDER BY id`. _Идея: автогенерируемый `docs/solutions-catalog.md` из БД._
+
+## 🔥 Аудит 2026-05-15: вскрыты ДВА продакшен-бага
+
+Полный самопрогон всех 40 пилотов через `scripts/audit_solutions.py` обнаружил, что **большая часть orchestra-пилотов на проде работала неправильно**. Подробный отчёт — [SOLUTIONS_AUDIT_2026-05-15.md](../SOLUTIONS_AUDIT_2026-05-15.md).
+
+### Баг #1: `Модель не найдена: claude-sonnet-4-6` (`8f35bff`)
+
+`MODEL_REGISTRY` в [server/ai.py](server/ai.py) имел alias `claude-sonnet`, но stages вызывали `generate_response("claude-sonnet-4-6")` по точному real_model-имени → `resolve_model()` возвращал None → все llm-stages возвращали строку «Модель не найдена» вместо контента.
+
+**Фикс:** добавлены self-reference ключи для `claude-sonnet-4-6`, `claude-haiku-4`, `claude-haiku-4-5-20251001`, `claude-opus-4-1`, `claude-opus-4-1-20250805`.
+
+### Баг #2: placeholder-resolution не работал (`e1c6ab7`)
+
+`_PLACEHOLDER_RE` в [solutions_orchestra.py](server/solutions_orchestra.py) был `\{\{...\}\}` (double-brace, Jinja-style), но ВСЕ seed-данные (`scripts/seed_v2_solutions.py` и др.) и документация используют `\{...\}` (single-brace, как `{field.company}`).
+
+В результате Sonnet получал в промпте буквальный текст `Компания: {field.company}, ниша {field.industry}` и в финале писал «*Шаблонные переменные не были заполнены реальными данными. Ниже представлен демо-пример…*». Юзер платил 50-200 ₽ и получал шаблонный отчёт про несуществующие NovaMed/AlphaCo.
+
+**Фикс:** regex `\{\s*([a-zA-Z_][a-zA-Z0-9_.\[\]]*)\s*\}`. Тесты `test_template_render_basic` / `_combined` переписаны под single-brace + добавлены кейсы `{field.NAME}` и голого `{NAME}`.
+
+### Результаты после фиксов
+
+- **36 из 37** запущенных пилотов выдают полный контент 4-8к символов с реальной подстановкой данных
+- 1 timeout (#31 Аудит лендинга) — упирается в parallel_browse/vision на `example.com`. Тестовый URL слишком пустой, ограничение синтетики; на реальном лендинге работает.
+- 3 пропущены (#32/33/34 — требуют file upload)
+- Pilots #36 (Проверка контрагента) и #37 (Брифинг) корректно отказываются работать без реальных данных компании — это правильное поведение, не баг.
+
+### Как повторить аудит
+
+```bash
+ssh ... "cd /root/AI-CHE && rm -f audit_results/* && \
+   nohup venv/bin/python scripts/audit_solutions.py > audit_results/audit.log 2>&1 &"
+# ~80 минут. Когда завершится — SUMMARY.md в audit_results/
+```
+
+Если у админа 2FA включён — `ADMIN_TOTP_CODE=NNNNNN` в env. Скрипт сам пополнит баланс админа до 50 000 ₽ если меньше 1 000 ₽.
 
 ---
 
