@@ -567,6 +567,10 @@ class TestSolutionsOrchestra:
     """Юнит-тесты для server/solutions_orchestra.py."""
 
     def test_template_render_basic(self):
+        # Placeholder-syntax: одиночные {…} (single brace), как во всех seed-данных
+        # и документации (docs/modules/06-solutions.md, CLAUDE.md).
+        # Раньше тесты были под double-brace {{…}}, что НЕ совпадало с runtime —
+        # placeholder-замена не работала ни на одном из 40 пилотов в БД.
         from server.solutions_orchestra import _render_template
         ctx = {
             "input": "Привет",
@@ -574,25 +578,30 @@ class TestSolutionsOrchestra:
                 "scout": {"output": "Найдено 5 источников"},
                 "deep": {"outputs": ["Анализ A", "Анализ B", "Анализ C"]},
             },
+            "fields": {"product": "SaaS-платформа", "audience": "B2B"},
         }
         # Простой input
-        assert _render_template("Тема: {{input}}", ctx) == "Тема: Привет"
+        assert _render_template("Тема: {input}", ctx) == "Тема: Привет"
         # Output stage
-        assert "5 источников" in _render_template("{{scout.output}}", ctx)
+        assert "5 источников" in _render_template("{scout.output}", ctx)
         # Outputs склейка
-        out = _render_template("{{deep.outputs}}", ctx)
+        out = _render_template("{deep.outputs}", ctx)
         assert "Анализ A" in out and "Анализ B" in out and "---" in out
         # Конкретная ветка
-        assert _render_template("{{deep.outputs[1]}}", ctx) == "Анализ B"
+        assert _render_template("{deep.outputs[1]}", ctx) == "Анализ B"
         # Несуществующий stage → пустая строка (не падает)
-        assert _render_template("{{missing.output}}", ctx) == ""
+        assert _render_template("{missing.output}", ctx) == ""
         # Несуществующая ветка → пусто
-        assert _render_template("{{deep.outputs[99]}}", ctx) == ""
+        assert _render_template("{deep.outputs[99]}", ctx) == ""
+        # v2 fields через {field.NAME}
+        assert _render_template("Продукт: {field.product}", ctx) == "Продукт: SaaS-платформа"
+        # v2 fields через голое имя (если уникально)
+        assert _render_template("ЦА: {audience}", ctx) == "ЦА: B2B"
 
     def test_template_render_combined(self):
         from server.solutions_orchestra import _render_template
         ctx = {"input": "ниша X", "stages": {"a": {"output": "A"}, "b": {"output": "B"}}}
-        out = _render_template("Ввод: {{input}}, A={{a.output}}, B={{b.output}}", ctx)
+        out = _render_template("Ввод: {input}, A={a.output}, B={b.output}", ctx)
         assert out == "Ввод: ниша X, A=A, B=B"
 
     def test_calc_cost_kop(self):

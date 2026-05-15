@@ -45,7 +45,18 @@ log = logging.getLogger("orchestra")
 
 # ── Шаблонизация ────────────────────────────────────────────────────────────
 
-_PLACEHOLDER_RE = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
+# Placeholder-syntax: ОДИНОЧНЫЕ фигурные скобки `{field.name}`, `{stage.output}`,
+# `{stage.outputs[i]}`, `{input}`, `{name}`. Так в seed-файлах (seed_v2_solutions.py
+# и др.) и так задокументировано в docs/modules/06-solutions.md + CLAUDE.md.
+#
+# Раньше regex был `{{...}}` (double-brace) — placeholder-замена НИКОГДА не
+# работала: модель видела буквальное `{field.company}` и импровизировала
+# демо-пример. Аудит 2026-05-15 вскрыл и баг с MODEL_REGISTRY, и этот.
+#
+# Внутри допустимы только буквы/цифры/`_`/`.`/`[`/`]` — поэтому совпадения с
+# JSON-объектами в тексте промпта (`{"key":"value"}`) исключены.
+# Опциональные пробелы `{ field.x }` — поддержаны.
+_PLACEHOLDER_RE = re.compile(r"\{\s*([a-zA-Z_][a-zA-Z0-9_.\[\]]*)\s*\}")
 
 
 def _resolve_placeholder(expr: str, ctx: dict) -> str:
