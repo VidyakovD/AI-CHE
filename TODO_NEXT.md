@@ -88,21 +88,23 @@ _Последнее обновление: 2026-05-13._
 
 ### [13-public-api](docs/modules/13-public-api.md)
 - **Дубликат webhooks.py + crm.py dispatcher** (~150 строк копипасты) → уже частично вынесено в `_outbound.py`, доделать
-- **Webhook flaky test** `TestApiWebhook::test_create_returns_secret_once` — починить через uuid в URL
+- ✅ **Webhook flaky test** — уже исправлен в прошлом спринте (uuid в email/URL делает каждый прогон уникальным)
 
 ### [20-infra-deploy](docs/modules/20-infra-deploy.md)
-- **scheduler.py 1221 строк** — кандидат на split в `server/cron/<name>.py`
+- ✅ **scheduler.py 1379→349** разбит на `server/cron/{creators,data_retention,orchestrations,storage_billing,db_backup,maintenance}.py` (`ad5fdeb`)
 - **Tailwind CDN → build-step**: инфра готова (`02e0e42`), убрать CDN после 1 недели визуального тестирования (target ~2026-05-18)
-- **starlette upgrade** (CVE-2024-47874 / CVE-2025-54121) — нужен staging для проверки breaking changes
+- ⚠ **starlette upgrade** (CVE-2024-47874 / CVE-2025-54121) — требует FastAPI ≥0.115 (breaking change). Делать со staging-тестированием отдельным спринтом
 
 ### [01-core-auth](docs/modules/01-core-auth.md)
-- **JWT aud/iss strict verify** — план:
-  - T=2026-05-11: все НОВЫЕ токены содержат `aud=aiche.ru`, `iss=aiche.ru`
-  - **T=2026-06-10**: refresh-token TTL=30 дней → legacy токены истекут → безопасно включить `verify_aud=True, verify_iss=True` в `server/auth.py:236`
-  - Откат: `verify_aud=False` обратно, юзеры релогинятся
+- ✅ **JWT aud/iss strict verify** — авто-активация на 2026-06-10 (env-var `JWT_STRICT_AUD_ISS=true/false` для override), коммит `044d03e`
+
+### [07-proposals](docs/modules/07-proposals.md)
+- ✅ **Public proposal page → Jinja-template** — вынесено в `views/proposal_public.html`, ~200 строк inline-HTML удалено из main.py (`6d87fc9`)
 
 ### Общее (cross-module)
 - **A11y на остальных страницах** (proposals/sites/chatbots/agents/admin/api/marketplace) — сделано только index.html
+- ⏸ **chatbot_engine._execute_node split** (~1100 строк в runtime ботов) — высокий риск без полного покрытия unit-тестами
+- ⏸ **views/icons.js 2700 строк split** — не критично, отложено
 
 ---
 
