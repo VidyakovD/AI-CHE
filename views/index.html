@@ -398,13 +398,19 @@ body.welcome #inputArea{display:none!important}
           </div>
         </div>
       </div>
-      <!-- Формат картинки (виден только для image-моделей; display управляется
-           через style чтобы не конфликтовать с Tailwind .hidden vs .flex). -->
+      <!-- Формат и качество для image-моделей. display через style — иначе
+           Tailwind .hidden vs .flex конфликтуют. -->
       <div id="imageSizeBar" style="display:none" class="items-center justify-center gap-2 mt-2 px-1 flex-wrap">
         <span class="text-[11px] text-on-surface-dim/70 mr-1 font-semibold">📐 Формат:</span>
         <button data-size="1024x1024" onclick="setImageSize('1024x1024')" class="img-size-btn active px-3 py-1.5 rounded-lg text-[12px] border-2 border-outline/30 text-on-surface-dim hover:border-primary/60 hover:text-primary transition inline-flex items-center gap-1.5 font-medium"><span style="width:14px;height:14px;display:inline-block;border:1.5px solid currentColor;border-radius:2px"></span>Квадрат</button>
         <button data-size="1024x1792" onclick="setImageSize('1024x1792')" class="img-size-btn px-3 py-1.5 rounded-lg text-[12px] border-2 border-outline/30 text-on-surface-dim hover:border-primary/60 hover:text-primary transition inline-flex items-center gap-1.5 font-medium"><span style="width:9px;height:14px;display:inline-block;border:1.5px solid currentColor;border-radius:2px"></span>Вертикаль</button>
         <button data-size="1792x1024" onclick="setImageSize('1792x1024')" class="img-size-btn px-3 py-1.5 rounded-lg text-[12px] border-2 border-outline/30 text-on-surface-dim hover:border-primary/60 hover:text-primary transition inline-flex items-center gap-1.5 font-medium"><span style="width:18px;height:11px;display:inline-block;border:1.5px solid currentColor;border-radius:2px"></span>Горизонталь</button>
+      </div>
+      <div id="imageQualityBar" style="display:none" class="items-center justify-center gap-2 mt-2 px-1 flex-wrap">
+        <span class="text-[11px] text-on-surface-dim/70 mr-1 font-semibold">✨ Качество:</span>
+        <button data-quality="high" onclick="setImageQuality('high')" class="img-q-btn px-3 py-1.5 rounded-lg text-[12px] border-2 border-outline/30 text-on-surface-dim hover:border-primary/60 hover:text-primary transition inline-flex items-center gap-1.5 font-medium" title="HD-чёткость, максимум деталей (дороже)">⭐ High</button>
+        <button data-quality="medium" onclick="setImageQuality('medium')" class="img-q-btn px-3 py-1.5 rounded-lg text-[12px] border-2 border-outline/30 text-on-surface-dim hover:border-primary/60 hover:text-primary transition inline-flex items-center gap-1.5 font-medium" title="Сбалансированно">Medium</button>
+        <button data-quality="low" onclick="setImageQuality('low')" class="img-q-btn px-3 py-1.5 rounded-lg text-[12px] border-2 border-outline/30 text-on-surface-dim hover:border-primary/60 hover:text-primary transition inline-flex items-center gap-1.5 font-medium" title="Быстро и дешевле">Low</button>
       </div>
       <div class="flex items-center justify-between gap-2 mt-2 px-1">
         <p id="modelCostHint" class="text-[10px] text-on-surface-dim/50 truncate flex-1"></p>
@@ -974,6 +980,7 @@ window.chToRub = window.fmtRub;
 window.formatCH = window.fmtRub;
 let currentChat=null,currentChatInit=false,currentChatTitle="",currentModel="gpt";
 let currentImageSize="1024x1024";  // выбранный формат для image-моделей
+let currentImageQuality="high";    // gpt-image-1: high (дефолт), medium, low
 let pendingAttachment=null;
 let authToken=localStorage.getItem("obs_token")||null;
 let currentUser=null,cabinetData=null;
@@ -1008,10 +1015,10 @@ const MODELS=[
   {id:"perplexity",      label:"Perplexity",       group:"Perplexity", tab:"Perplexity", icon:"travel_explore"},
   {id:"perplexity-large",label:"Perplexity Large", group:"Perplexity", tab:null,         icon:"travel_explore"},
   {id:"grok",            label:"Grok 3",           group:"Grok",       tab:"Grok",       icon:"bolt"},
-  // Картинки от OpenAI: gpt-image-1 (поддерживает редактирование по референсу).
-  {id:"gpt-image",       label:"Картинки (GPT)",   group:"Картинки",   tab:"Картинки",   icon:"image"},
-  // Nano Banana = Google Imagen 4. Отдельная вкладка для удобства.
-  {id:"nano",            label:"Nano Banana",      group:"Nano",       tab:"Nano",       icon:"image"},
+  // Картинки от OpenAI: gpt-image-1 (флагман — high-quality + edit с референсом).
+  {id:"gpt-image",       label:"GPT-image (high)",  group:"Картинки",   tab:"Картинки",   icon:"image"},
+  // Google Imagen 4 Ultra — флагман Google для text→image (был fast, поднят до ultra).
+  {id:"nano",            label:"Imagen 4 Ultra",    group:"Imagen",     tab:"Imagen",     icon:"image"},
   // Видео-генерация через Google Veo 3 — отдельная вкладка «Видео».
   {id:"veo",             label:"Видео (Veo 3)",    group:"Видео",      tab:"Видео",      icon:"videocam"},
 ];
@@ -1088,10 +1095,10 @@ const VIDEO_PARAMS={
     {id:"enhance_prompt",   label:"Улучшить промпт через AI", type:"toggle", default:true},
   ],
   nano:[
-    {id:"model_variant",    label:"Качество",            type:"select",   default:"imagen-4-fast", options:[
-      ["imagen-4-fast","Imagen 4 fast — быстрая (10 ₽)"],
+    {id:"model_variant",    label:"Качество",            type:"select",   default:"imagen-4-ultra", options:[
+      ["imagen-4-ultra","Imagen 4 Ultra — флагман Google (25 ₽) ⭐"],
       ["imagen-4","Imagen 4 standard (15 ₽)"],
-      ["imagen-4-ultra","Imagen 4 Ultra — лучшее качество (25 ₽)"],
+      ["imagen-4-fast","Imagen 4 fast — быстрая (10 ₽)"],
     ]},
     {id:"aspect_ratio",     label:"Соотношение сторон",  type:"select",   default:"1:1",  options:["1:1","16:9","9:16","4:3","3:4"]},
     {id:"sample_count",     label:"Количество вариантов",type:"select",   default:"1",    options:["1","2","3","4"]},
@@ -1357,11 +1364,31 @@ function setModel(id){
 // и побеждает тот что добавлен позже (юзер видел всегда невидимый bar).
 function toggleImageSizeBar(modelId){
   const bar = document.getElementById('imageSizeBar');
-  if (!bar) return;
+  const qbar = document.getElementById('imageQualityBar');
   const isImg = modelId === 'gpt-image' || modelId === 'dalle';
-  bar.style.display = isImg ? 'flex' : 'none';
-  // При показе подсвечиваем активный размер чтобы юзер сразу видел выбор
+  if (bar) bar.style.display = isImg ? 'flex' : 'none';
+  // Качество — только для gpt-image-1 (DALL-E фиксированно HD, ему не нужен селектор).
+  const showQuality = modelId === 'gpt-image';
+  if (qbar) qbar.style.display = showQuality ? 'flex' : 'none';
+  // При показе подсвечиваем активный размер и качество
   if (isImg) setImageSize(currentImageSize || '1024x1024');
+  if (showQuality) setImageQuality(currentImageQuality || 'high');
+}
+
+function setImageQuality(q){
+  currentImageQuality = q;
+  document.querySelectorAll('.img-q-btn').forEach(b=>{
+    const active = b.dataset.quality === q;
+    if (active) {
+      b.style.borderColor = '#ff8c42';
+      b.style.color = '#ff8c42';
+      b.style.background = 'rgba(255,140,66,0.08)';
+    } else {
+      b.style.borderColor = '';
+      b.style.color = '';
+      b.style.background = '';
+    }
+  });
 }
 
 function setImageSize(size){
@@ -3312,7 +3339,11 @@ async function sendMessage(){
     }
     if(currentModel==="nano")body.extra=collectImageParams(att);
     else if(VIDEO_MODELS.includes(currentModel))body.extra=collectVideoParams();
-    else if(currentModel==="gpt-image"||currentModel==="dalle")body.extra={size:currentImageSize};
+    else if(currentModel==="gpt-image"||currentModel==="dalle"){
+      body.extra={size:currentImageSize};
+      // quality применим только к gpt-image-1; DALL-E фиксированно HD на бэкенде
+      if(currentModel==="gpt-image") body.extra.quality = currentImageQuality;
+    }
     // Запоминаем промпт для возможной регенерации при клике на картинку
     window._lastImagePrompt = (text||"") + (att?.url ? " (по этой картинке)" : "");
     const hdrs={"Content-Type":"application/json"};

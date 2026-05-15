@@ -249,7 +249,8 @@ TOKEN_COST = {
     "dall-e-3":                3000,   # 30 ₽ — HD себест $0.08 ≈ 7.2 ₽ (margin ≈4×)
     "gpt-image-1":             6000,   # 60 ₽ — high себест $0.19 ≈ 17 ₽ (margin ≈3.5×)
     # Imagen 4: себест $0.02-$0.06 → продаём с маржой 4-5×.
-    "nano-v1":                 1000,                                  # legacy alias = imagen-4-fast
+    # nano-v1 теперь алиас = imagen-4-ultra (был fast). Поднята цена с 10→25 ₽.
+    "nano-v1":                 2500,                                  # alias = imagen-4-ultra
     "imagen-4.0-fast-generate-001":   1000,   # 10 ₽ (себест $0.02 ≈ 1.8₽)
     "imagen-4.0-generate-001":        1500,   # 15 ₽ (себест $0.04 ≈ 3.6₽)
     "imagen-4.0-ultra-generate-001":  2500,   # 25 ₽ (себест $0.06 ≈ 5.4₽)
@@ -795,8 +796,13 @@ def _save_image_b64(b64: str, mime: str = "image/png") -> str:
 # Таблица: ID модели в нашем UI → реальное имя в Google API.
 # Imagen 3 устарел — есть только Imagen 4. Ранжирование по качеству:
 # fast (быстрее, дешевле) → standard → ultra (медленнее, лучше).
+#
+# Дефолт `nano-v1` поднят с fast → ultra (юзер пожаловался что генерит на
+# слабой модели; ultra — флагман Google для текст→изображение). Себест выше
+# (~5.4 ₽ vs 1.8 ₽), но картинки реально чёткие. Юзер может перейти на fast
+# через UI-селектор extra.model_variant='imagen-4-fast'.
 _IMAGEN_MODELS = {
-    "nano-v1":           "imagen-4.0-fast-generate-001",  # дефолт — быстрый
+    "nano-v1":           "imagen-4.0-ultra-generate-001",  # дефолт — Ultra (топ)
     "imagen-4-fast":     "imagen-4.0-fast-generate-001",
     "imagen-4":          "imagen-4.0-generate-001",
     "imagen-4-ultra":    "imagen-4.0-ultra-generate-001",
