@@ -22,6 +22,9 @@ import os
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import update as sa_update, case, or_ as sa_or_
+from sqlalchemy.orm import Session
+
 from server.ai import generate_response
 from server.models import CreatorBrand, ContentItem
 
@@ -280,12 +283,50 @@ def freemium_status(brand: CreatorBrand) -> dict:
     }
 
 
-def consume_freemium(brand: CreatorBrand) -> None:
-    """Списать 1 freemium-credit. Caller делает db.commit()."""
+def consume_freemium(db: Session, brand_id: int) -> bool:
+    """Атомарно списать 1 freemium-credit. Возвращает True если списали,
+    False если месячный лимит уже исчерпан конкурентным запросом.
+
+    Один SQL UPDATE с CASE для rollover на новый месяц + увеличение счётчика;
+    WHERE гарантирует что rowcount=0 если лимит исчерпан → защита от race
+    на multi-worker (две параллельные prepare-запроса не выдадут 2 free поверх лимита).
+
+    Caller делает db.commit().
+    """
     now = datetime.utcnow()
     cur_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    if not brand.free_posts_reset_at or brand.free_posts_reset_at < cur_month_start:
-        brand.free_posts_used_this_month = 1
-        brand.free_posts_reset_at = cur_month_start
-    else:
-        brand.free_posts_used_this_month = (brand.free_posts_used_this_month or 0) + 1
+    new_month = sa_or_(
+        CreatorBrand.free_posts_reset_at.is_(None),
+        CreatorBrand.free_posts_reset_at < cur_month_start,
+    )
+    res = db.execute(
+        sa_update(CreatorBrand)
+        .where(
+            CreatorBrand.id == brand_id,
+            sa_or_(new_month, CreatorBrand.free_posts_used_this_month < FREE_POSTS_PER_MONTH),
+        )
+        .values(
+            free_posts_used_this_month=case(
+                (new_month, 1),
+                else_=CreatorBrand.free_posts_used_this_month + 1,
+            ),
+            free_posts_reset_at=case(
+                (new_month, cur_month_start),
+                else_=CreatorBrand.free_posts_reset_at,
+            ),
+        )
+    )
+    return (res.rowcount or 0) > 0
+
+
+def refund_freemium(db: Session, brand_id: int) -> None:
+    """Откатить 1 freemium-credit при ошибке pipeline. Только если used > 0.
+    Атомарный UPDATE — без RMW. Caller делает db.commit()."""
+    db.execute(
+        sa_update(CreatorBrand)
+        .where(
+            CreatorBrand.id == brand_id,
+            CreatorBrand.free_posts_used_this_month > 0,
+        )
+        .values(free_posts_used_this_month=CreatorBrand.free_posts_used_this_month - 1)
+    )

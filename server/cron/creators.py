@@ -33,7 +33,7 @@ async def _creators_prepare_tick():
     from server.billing import deduct_strict, credit_atomic
     from server.creators_prepare import (
         prepare_item as _prepare_item_pipeline,
-        compute_cost_kop, freemium_status, consume_freemium,
+        compute_cost_kop, freemium_status, consume_freemium, refund_freemium,
     )
     from server.audit_log import log_action
 
@@ -61,6 +61,8 @@ async def _creators_prepare_tick():
                 use_free = fs["remaining"] > 0
                 charged_kop = 0
 
+                if use_free:
+                    use_free = consume_freemium(db, brand.id)
                 if not use_free:
                     if not deduct_strict(db, user_id, cost_kop):
                         log.info(f"[creators.prep_auto] item={item.id}: insufficient balance, skip")
@@ -71,8 +73,6 @@ async def _creators_prepare_tick():
                         description=f"Creators · auto-prep #{item.id} (бренд {brand.id})",
                         model="claude-sonnet-4-6" + (" + sonar-pro" if item.is_news else ""),
                     ))
-                else:
-                    consume_freemium(brand)
 
                 item.status = "preparing"
                 db.commit()
@@ -87,8 +87,8 @@ async def _creators_prepare_tick():
                             user_id=user_id, type="refund", tokens_delta=charged_kop,
                             description=f"Creators refund · auto-prep #{item.id}",
                         ))
-                    if use_free and brand.free_posts_used_this_month and brand.free_posts_used_this_month > 0:
-                        brand.free_posts_used_this_month -= 1
+                    if use_free:
+                        refund_freemium(db, brand.id)
                     item.status = "planned"
                     item.error = str(e)[:500]
                     db.commit()

@@ -29,6 +29,7 @@ from server.creators_prepare import (
     compute_cost_kop,
     freemium_status,
     consume_freemium,
+    refund_freemium,
 )
 
 log = logging.getLogger(__name__)
@@ -396,6 +397,10 @@ def prepare_item_endpoint(
     use_free = bool(payload.use_free) and fs["remaining"] > 0
 
     charged_kop = 0
+    if use_free:
+        # Атомарное списание freemium — может вернуть False если конкурентный
+        # запрос только что съел последний кредит. В этом случае fallback на платно.
+        use_free = consume_freemium(db, brand.id)
     if not use_free:
         if not deduct_strict(db, user.id, cost_kop):
             raise HTTPException(402, f"Недостаточно средств. Нужно {cost_kop / 100:.2f} ₽")
@@ -405,9 +410,6 @@ def prepare_item_endpoint(
             description=f"Creators · подготовка поста (бренд {brand.id})",
             model="claude-sonnet-4-6" + (" + sonar-pro" if item.is_news else ""),
         ))
-    else:
-        # Списать 1 freemium-credit
-        consume_freemium(brand)
 
     # Помечаем как preparing
     item.status = "preparing"
@@ -426,8 +428,8 @@ def prepare_item_endpoint(
                 user_id=user.id, type="refund", tokens_delta=charged_kop,
                 description=f"Creators refund · подготовка #{item_id}",
             ))
-        if use_free and brand.free_posts_used_this_month and brand.free_posts_used_this_month > 0:
-            brand.free_posts_used_this_month -= 1
+        if use_free:
+            refund_freemium(db, brand.id)
         item.status = "planned"
         item.error = str(e)[:500]
         db.commit()

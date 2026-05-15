@@ -24,6 +24,15 @@ _Последнее обновление: 2026-05-13._
 
 ---
 
+## 🔴 До коммерческого запуска (security)
+
+- **PrivacyGuard wiring (152-ФЗ)** — модуль `server/privacy_guard.py` полностью реализован, но НЕ ИСПОЛЬЗУЕТСЯ нигде в продакшен-коде. Юзер пишет «составь КП Иванову, тел +7..., ИНН ...» → улетает в Anthropic/OpenAI/Google **сырьём**. После регистрации оператора ПДн в РКН — реальный риск штрафа.
+  - **Где обернуть:** `server/ai.py::generate_response()` (центральный entry point), либо точечно в `server/chatbot_engine.py`, `server/agent_runner.py`, `server/creators_prepare.py`, `server/proposals.py`.
+  - **Паттерн:** `guard = PrivacyGuard(); safe = guard.mask(user_input); response = generate_response(...); final = guard.unmask_response(response["content"])`
+  - **Pre-launch:** не блокер (юзеров нет), но MUST-FIX перед публичным запуском.
+
+---
+
 ## ✅ Модуль «Креаторы» — MVP отгружен (2026-05-13)
 
 6 итераций, в проде. См. [docs/modules/21-creators-roadmap.md](docs/modules/21-creators-roadmap.md).

@@ -7,7 +7,7 @@ import json
 import asyncio
 import logging
 
-from server.routes.deps import get_db, optional_user
+from server.routes.deps import get_db, optional_user, current_user
 from server.models import User, Transaction, UserApiKey
 from server.billing import deduct_strict
 from server.agent_runner import (
@@ -36,40 +36,37 @@ class AgentRunRequest(BaseModel):
 @router.post("/run")
 async def agent_run(
     req: AgentRunRequest,
-    user=Depends(optional_user),
+    user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
     """Запустить AI-агента.
     api_mode=service → 50 CH (сервисный ключ).
     api_mode=own     →  5 CH (платформенный сбор, ключ пользователя).
     """
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+
     user_api_key = None
     cost = AGENT_SERVICE_COST
 
     if req.api_mode == "own":
-        if not user:
-            raise HTTPException(401, "Нужна авторизация для использования своего ключа")
         own = db.query(UserApiKey).filter_by(user_id=user.id, provider=req.provider).first()
         if not own:
             raise HTTPException(400, f"Ключ {req.provider} не найден. Добавьте в настройках.")
         user_api_key = own.api_key
         cost = AGENT_OWN_KEY_COST
 
-    if user:
-        if not user.is_verified:
-            raise HTTPException(403, "Подтвердите email")
-        if not deduct_strict(db, user.id, cost):
-            raise HTTPException(402, f"Недостаточно токенов (нужно {cost} CH)")
-        mode_label = "свой ключ" if req.api_mode == "own" else "сервис"
-        db.add(Transaction(
-            user_id=user.id, type="usage", tokens_delta=-cost,
-            description=f"ИИ Агент [{mode_label}]: {req.goal[:50]}", model="agent",
-        ))
-        db.commit()
+    if not deduct_strict(db, user.id, cost):
+        raise HTTPException(402, f"Недостаточно токенов (нужно {cost} CH)")
+    mode_label = "свой ключ" if req.api_mode == "own" else "сервис"
+    db.add(Transaction(
+        user_id=user.id, type="usage", tokens_delta=-cost,
+        description=f"ИИ Агент [{mode_label}]: {req.goal[:50]}", model="agent",
+    ))
+    db.commit()
 
     ctx = req.context or {}
-    if user:
-        ctx["user_id"] = user.id
+    ctx["user_id"] = user.id
 
     # Load block configs from saved AgentConfig if agent_config_id provided
     if req.agent_config_id:
@@ -91,7 +88,7 @@ async def agent_run(
         ctx["user_api_key"] = user_api_key
         ctx["api_provider"] = req.provider
 
-    task_id = create_task(user_id=user.id if user else None, goal=req.goal, context=ctx)
+    task_id = create_task(user_id=user.id, goal=req.goal, context=ctx)
     await submit_task(task_id, req.goal, ctx)
     return {"task_id": task_id, "status": "queued", "cost": cost, "api_mode": req.api_mode}
 
