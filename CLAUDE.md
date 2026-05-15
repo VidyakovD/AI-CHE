@@ -6,9 +6,18 @@
 
 ---
 
-## ✅ Свежий спринт — Креаторы MVP (2026-05-13)
+## 🔴 ГЛАВНАЯ ЗАДАЧА — ИИ Агенты v2
 
-**Полный модуль «Креаторы» отгружен на прод за 6 итераций.** Профиль бренда → AI-план в календарном виде → подготовка постов (freemium 3/мес) → автопостинг TG/VK → анализ соцсетей (свой 150 ₽ / конкурент 200 ₽). Детали — [docs/modules/21-creators-roadmap.md](docs/modules/21-creators-roadmap.md).
+**Переработка ИИ Агентов**: сложный workflow-конструктор → простой каталог 6 готовых ролей (Поисковик / Парсер / Юрист / Бухгалтер / Креатор / Автоответчик), Knowledge Hub (общая база компании, AI auto-classify), скилы поверх ролей. Креаторы переезжают как одна из ролей. Полное ТЗ + 6 итераций — [docs/modules/22-agents-v2-roadmap.md](docs/modules/22-agents-v2-roadmap.md).
+
+**В новом чате СНАЧАЛА** уточни 6 вопросов из секции «Открытые вопросы» (тариф, лимиты Knowledge Hub, что делать с автоответчиком vs текущими ботами), потом стартуй с Итерации 1 — Knowledge Hub.
+
+---
+
+## ✅ Закрытые спринты
+
+- **2026-05-15** — Аудит 40 пилотов Solutions + 2 продакшен-бага (MODEL_REGISTRY / placeholder regex), 14 техдолгов КП/Сайтов закрыто, scheduler.py 1379→349 (split на server/cron/), JWT-strict с авто-активацией 2026-06-10, КП-Jinja public page.
+- **2026-05-13** — Креаторы MVP за 6 итераций. Профиль бренда → AI-план в календарном виде → подготовка постов (freemium 3/мес) → автопостинг TG/VK → анализ соцсетей. [docs/modules/21-creators-roadmap.md](docs/modules/21-creators-roadmap.md).
 
 Следующие крупные направления — см. [TODO_NEXT.md](TODO_NEXT.md).
 
@@ -54,6 +63,7 @@
 | 19 | [admin](docs/modules/19-admin.md) | /admin/*, 2FA, reencrypt-secrets, ai-stats |
 | 20 | [infra-deploy](docs/modules/20-infra-deploy.md) | db.py, alembic, scheduler, миграция |
 | 21 | [creators](docs/modules/21-creators-roadmap.md) | Креаторы: бренд / план / подготовка / автопостинг TG·VK / анализ |
+| 22 | [agents-v2-roadmap](docs/modules/22-agents-v2-roadmap.md) | 🔴 **Roadmap** — переработка ИИ Агентов (готовые роли + Knowledge Hub + скилы) |
 
 ---
 
