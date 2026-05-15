@@ -155,13 +155,30 @@ def build_input(sol: Solution) -> tuple[str, dict]:
 
 
 def login(client: httpx.Client) -> bool:
-    """Логин админа через /auth/login. Cookie сохраняется в client.cookies."""
-    r = client.post("/auth/login", json={
-        "email": ADMIN_EMAIL, "password": ADMIN_PASSWORD,
-    })
+    """Логин админа через /auth/login.
+    Авторизация через Bearer-токен в headers (надёжнее чем cookies для CLI).
+    Если 2FA включена — нужно env-var ADMIN_TOTP_CODE.
+    """
+    payload = {"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+    totp = os.environ.get("ADMIN_TOTP_CODE")
+    if totp: payload["totp_code"] = totp
+    r = client.post("/auth/login", json=payload)
     if r.status_code != 200:
-        print(f"[FATAL] login failed: {r.status_code} {r.text[:200]}")
+        print(f"[FATAL] login HTTP {r.status_code}: {r.text[:200]}")
         return False
+    data = r.json()
+    if data.get("status") == "totp_required":
+        print("[FATAL] требуется 2FA. Установи env ADMIN_TOTP_CODE=NNNNNN")
+        return False
+    if data.get("status") == "pending_verification":
+        print("[FATAL] админ не подтвердил email")
+        return False
+    token = data.get("token")
+    if not token:
+        print(f"[FATAL] нет token в ответе login: {data}")
+        return False
+    client.headers["Authorization"] = "Bearer " + token
+    # CSRF для cookie-based флоу не нужен с Bearer
     return True
 
 
