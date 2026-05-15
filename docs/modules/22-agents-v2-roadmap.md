@@ -131,12 +131,21 @@ Backend (упрощённо):
 
 ## План итераций (черновой, 6 спринтов)
 
-### Итерация 1 — Knowledge Hub (фундамент)
-- `KnowledgeFile.category` колонка + миграция
-- `knowledge_classifier.py` — classify-on-upload через Haiku
-- UI добавления файла категории (auto-suggest + ручной override)
-- Endpoint фильтрации `/knowledge?categories=legal,contacts`
-- Backfill-скрипт классификации existing файлов
+### ✅ Итерация 1 — Knowledge Hub (фундамент) — выкачена 2026-05-15
+- ✅ `KnowledgeFile.category` колонка через LIGHTWEIGHT_MIGRATIONS (default `'other'`)
+- ✅ `server/knowledge_classifier.py` — Haiku-вызов на upload, ~$0.001/файл, fallback `'other'` при любой ошибке. Поддерживает русские синонимы.
+- ✅ `knowledge.add_file()` классифицирует ДО индексации
+- ✅ `GET /knowledge?categories=pricing,legal` — фильтр через запятую + `category_counts` в summary для UI
+- ✅ `PATCH /knowledge/{file_id}/category` — ручной override
+- ✅ UI: pill-фильтр над списком, цветной chip на каждом файле с popup-меню override (7 категорий с эмодзи)
+- ✅ `scripts/backfill_knowledge_categories.py` — `--dry-run / --limit / --force`. Запустить один раз после деплоя.
+- ✅ 22 unit-теста на `_normalize` + `_build_user_prompt`. Полный suite 321 passed.
+
+**Что НЕ сделано (опц., не блокирует Итерацию 2):**
+- Не заведена `pricing_config` запись `knowledge.classify` — пока не биллим юзера за классификацию (это копейки, а добавление в storage-биллинг можно в Итерации 5).
+- Backfill на проде НЕ запущен (база пустая — нечего бэкфилить, но скрипт готов).
+
+### Итерация 2 — Каталог ролей + UI (без скилов)
 
 ### Итерация 2 — Каталог ролей + UI (без скилов)
 - Модели `AgentRole` + `AgentRun`
