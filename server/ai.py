@@ -894,7 +894,16 @@ MODEL_REGISTRY = {
     "gpt-4o":          {"provider": "openai",      "real_model": "gpt-4o"},
     "claude":          {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
     "claude-sonnet":   {"provider": "anthropic",   "real_model": "claude-sonnet-4-6"},
-    "claude-haiku":    {"provider": "anthropic",   "real_model": "claude-haiku-4-5-20251001"},
+    # Алиасы по полному real_model имени — нужно потому что orchestra_json
+    # пилотов и creators/proposals/sites вызывают generate_response("claude-sonnet-4-6").
+    # Без них resolve_model() возвращает None → «Модель не найдена».
+    "claude-sonnet-4-6":         {"provider": "anthropic", "real_model": "claude-sonnet-4-6"},
+    "claude-haiku":              {"provider": "anthropic", "real_model": "claude-haiku-4-5-20251001"},
+    "claude-haiku-4":            {"provider": "anthropic", "real_model": "claude-haiku-4-5-20251001"},
+    "claude-haiku-4-5":          {"provider": "anthropic", "real_model": "claude-haiku-4-5-20251001"},
+    "claude-haiku-4-5-20251001": {"provider": "anthropic", "real_model": "claude-haiku-4-5-20251001"},
+    "claude-opus-4-1":           {"provider": "anthropic", "real_model": "claude-opus-4-1-20250805"},
+    "claude-opus-4-1-20250805":  {"provider": "anthropic", "real_model": "claude-opus-4-1-20250805"},
     # Премиум-tier для генерации сайтов: лучшее качество кода, дороже в 5×
     # (~$0.30-$0.50 себест за сайт), используется в /sites/...?quality=premium.
     "claude-opus":     {"provider": "anthropic",   "real_model": "claude-opus-4-1-20250805"},
