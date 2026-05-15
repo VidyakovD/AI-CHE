@@ -540,10 +540,12 @@ function closeBrandModal(){
 async function saveBrand(){
   const _err = (msg) => {
     console.error('[saveBrand]', msg);
-    // Двойной канал — toast (быстро) + alert (надёжно). aiToast info-типа
-    // исчезает за 2.8с и юзер легко его пропускает; alert блокирующий.
     if(window.aiToast) window.aiToast(msg, 'error');
     else alert(msg);
+  };
+  const _ok = (msg) => {
+    console.log('[saveBrand] OK:', msg);
+    if(window.aiToast) window.aiToast(msg, 'success', {duration: 4500});
   };
 
   const name = document.getElementById('bf_name').value.trim();
@@ -565,6 +567,14 @@ async function saveBrand(){
   btn.disabled = true;
   const origLabel = btn.textContent;
   btn.textContent = 'Сохраняю…';
+
+  // Закрытие модалки и обновление UI — каждый шаг в отдельном try, чтобы
+  // если один упал — остальные продолжили. Юзер видел «модалка не закрывается
+  // и в списке пусто» — потому что один неловкий exception (например в
+  // loadCalendar внутри renderBrands) опрокидывал весь дальнейший flow.
+  const safeClose = () => { try { closeBrandModal(); } catch(e){ console.error('[saveBrand] closeBrandModal', e); } };
+  const safeLoad = async () => { try { await loadBrands(); } catch(e){ console.error('[saveBrand] loadBrands', e); } };
+
   try{
     const url = _editingId ? `/creators/brands/${_editingId}` : '/creators/brands';
     const method = _editingId ? 'PUT' : 'POST';
@@ -575,32 +585,50 @@ async function saveBrand(){
       headers: {'Content-Type':'application/json', 'X-CSRF-Token': csrf},
       body: JSON.stringify(payload),
     });
+    console.log('[saveBrand] status =', r.status);
+
     if(!r.ok){
       const e = await r.json().catch(() => ({}));
       const detail = e.detail || ('HTTP ' + r.status);
-      // FastAPI Pydantic возвращает list[dict] при 422 — раскрываем по-человечески
       const msg = (Array.isArray(detail))
         ? detail.map(d => `${(d.loc||[]).join('.')}: ${d.msg}`).join('; ')
         : String(detail);
-      if(r.status === 401){
-        _err('Сессия истекла, перелогиньтесь');
-      } else if(r.status === 403){
-        _err('CSRF-токен не принят — перезагрузите страницу (F5) и попробуйте снова');
-      } else {
-        _err(`Не удалось сохранить: ${msg}`);
-      }
+      if(r.status === 401){ _err('Сессия истекла, перелогиньтесь'); }
+      else if(r.status === 403){ _err('CSRF-токен не принят — F5 и попробуй снова'); }
+      else { _err(`Не удалось сохранить: ${msg}`); }
       return;
     }
-    closeBrandModal();
-    await loadBrands();
-    // Выбрать только что созданный/изменённый
-    if(!_editingId && _brands.length){
-      const sel = document.getElementById('brandSelect');
-      sel.value = _brands[0].id;
-      updateSummary();
-      loadCalendar();  // подтянуть состояние под новый бренд
+
+    // ── УСПЕХ ──
+    const savedBrand = await r.json().catch(() => null);
+    console.log('[saveBrand] response =', savedBrand);
+
+    // 1. Закрываем модалку — гарантированно (try внутри)
+    safeClose();
+
+    // 2. Optimistic update: добавляем/обновляем бренд в _brands НЕ дожидаясь
+    //    повторного GET. Это покроет случай если loadBrands упадёт.
+    if(savedBrand && savedBrand.id){
+      if(_editingId){
+        const idx = _brands.findIndex(b => b.id === _editingId);
+        if(idx >= 0) _brands[idx] = savedBrand;
+      } else {
+        // новый бренд — добавляем в начало (как делает loadBrands с order_by id DESC)
+        _brands = [savedBrand, ...(_brands || [])];
+      }
+      try { renderBrands(); } catch(e){ console.error('[saveBrand] renderBrands', e); }
+      try {
+        const sel = document.getElementById('brandSelect');
+        if(sel) sel.value = savedBrand.id;
+        updateSummary();
+      } catch(e){ console.error('[saveBrand] select+summary', e); }
     }
-    if(window.aiToast) window.aiToast('Сохранено', 'success');
+
+    // 3. Тихий refresh с бэка (на случай если что-то рассинхронилось)
+    await safeLoad();
+
+    _ok(_editingId ? 'Бренд обновлён ✓' : 'Бренд создан ✓');
+    _editingId = null;
   }catch(e){
     console.error('[saveBrand] exception', e);
     _err('Ошибка сети: ' + (e.message || e));
