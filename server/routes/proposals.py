@@ -262,6 +262,7 @@ def _project_to_dict(p: ProposalProject, full: bool = False, db=None) -> dict:
         "crm_stage": p.crm_stage or "new",
         "sent_at": p.sent_at.isoformat() if p.sent_at else None,
         "opened_at": p.opened_at.isoformat() if p.opened_at else None,
+        "open_count": int(getattr(p, "open_count", 0) or 0),
         "replied_at": p.replied_at.isoformat() if p.replied_at else None,
         "won_at": p.won_at.isoformat() if p.won_at else None,
         "lost_at": p.lost_at.isoformat() if p.lost_at else None,
@@ -504,14 +505,19 @@ def _snapshot_version(db, p: ProposalProject, note: str, cost_kop: int = 0) -> N
         note=note[:200] if note else None, cost_kop=cost_kop or 0,
     )
     db.add(v); db.flush()
-    # Cleanup: оставляем только последние _MAX_VERSIONS
-    old = (db.query(ProposalVersion)
-             .filter_by(proposal_id=p.id)
-             .order_by(ProposalVersion.created_at.desc())
-             .offset(_MAX_VERSIONS_PER_PROPOSAL)
-             .all())
-    for o in old:
-        db.delete(o)
+    # Cleanup: оставляем только последние _MAX_VERSIONS_PER_PROPOSAL.
+    # Старый подход через offset() ломался при гонке (2 регенерации одновременно
+    # → каждая считала offset до своего INSERT → оставалось >10 версий).
+    # Новый: получаем id топ-10 в подзапросе → удаляем всё что НЕ в этом списке.
+    keep_ids = (db.query(ProposalVersion.id)
+                  .filter_by(proposal_id=p.id)
+                  .order_by(ProposalVersion.created_at.desc())
+                  .limit(_MAX_VERSIONS_PER_PROPOSAL)
+                  .subquery())
+    (db.query(ProposalVersion)
+       .filter(ProposalVersion.proposal_id == p.id,
+               ~ProposalVersion.id.in_(keep_ids))
+       .delete(synchronize_session=False))
 
 
 def _validate_proposal_for_generation(p: ProposalProject) -> None:
@@ -619,11 +625,16 @@ def download_pdf(project_id: int, db: Session = Depends(get_db),
     abs_path = os.path.join(base, p.generated_pdf.lstrip("/"))
     if not os.path.exists(abs_path):
         raise HTTPException(404, "PDF файл удалён или перемещён — пересоздайте КП")
-    safe_name = re.sub(r"[^\w\-]", "_", p.name or "proposal")[:40]
-    return FileResponse(
-        abs_path, media_type="application/pdf",
-        filename=f"{safe_name}.pdf",
-    )
+    # RFC 5987: filename для legacy-браузеров (ASCII), filename* для UTF-8
+    # (кириллица в имени КП показывается клиенту нормально).
+    import urllib.parse as _urlparse
+    raw_name = (p.name or "proposal")
+    ascii_name = (re.sub(r"[^\w\-.]", "_", raw_name)[:40] or "proposal") + ".pdf"
+    utf8_name = _urlparse.quote((raw_name + ".pdf").encode("utf-8"))
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
+    }
+    return FileResponse(abs_path, media_type="application/pdf", headers=headers)
 
 
 # ── Публичная ссылка (для отправки клиенту) ────────────────────────────────
@@ -930,8 +941,11 @@ def send_proposal_email(project_id: int, body: SendEmailBody,
     if not p.generated_pdf:
         raise HTTPException(400, "Сначала сгенерируйте КП — кнопка «Сгенерировать»")
     to = (body.to or p.client_email or "").strip()
-    if not to or "@" not in to:
+    if not to:
         raise HTTPException(400, "Не указан email получателя (заполните «Email клиента» или укажите явно)")
+    from server.security import EMAIL_RE
+    if not EMAIL_RE.match(to):
+        raise HTTPException(400, f"Невалидный email: {to!r}. Формат: name@domain.tld")
 
     # Считываем PDF
     base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

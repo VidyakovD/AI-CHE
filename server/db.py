@@ -151,6 +151,9 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # КП: CRM lifecycle (этап B.6 спринта проектов КП)
     ("proposal_projects", "crm_stage", "VARCHAR DEFAULT 'new'"),
     ("proposal_projects", "opened_at", "DATETIME"),
+    # Счётчик повторных открытий публичной ссылки (юзеру полезно видеть
+    # «клиент смотрел 5 раз» — больше интереса = больше шанс закрыть сделку).
+    ("proposal_projects", "open_count", "INTEGER DEFAULT 0"),
     ("proposal_projects", "replied_at", "DATETIME"),
     ("proposal_projects", "won_at", "DATETIME"),
     ("proposal_projects", "lost_at", "DATETIME"),

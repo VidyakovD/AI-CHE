@@ -688,13 +688,18 @@ def serve_public_proposal(public_token: str):
         p = _db.query(ProposalProject).filter_by(public_token=public_token).first()
         if not p or not p.generated_pdf:
             return JSONResponse({"detail": "КП не найдено или удалено"}, status_code=404)
-        # Tracking первого открытия
+        # Tracking открытия: opened_at — момент первого открытия (для CRM-stage),
+        # open_count — каждый раз +1 (юзер видит «клиент смотрел N раз»).
         first_open = (p.opened_at is None)
         if first_open:
             p.opened_at = _dt.utcnow()
             if (p.crm_stage or "new") in ("new", "sent"):
                 p.crm_stage = "opened"
-            _db.commit()
+        # Атомарный инкремент open_count — multi-worker safe.
+        from sqlalchemy import update as _sa_update
+        _db.execute(_sa_update(ProposalProject).where(ProposalProject.id == p.id)
+                    .values(open_count=ProposalProject.open_count + 1))
+        _db.commit()
         # Audit-лог только при первом открытии (не спамить)
         if first_open:
             try:
@@ -958,10 +963,15 @@ def serve_public_proposal_pdf(public_token: str):
             pdf_path = _verify_proposal_pdf_path(p)
         except (ValueError, OSError, FileNotFoundError):
             return JSONResponse({"detail": "PDF файл недоступен"}, status_code=404)
-        import re as _re
-        safe = _re.sub(r"[^\w\-]", "_", p.name or "proposal")[:40]
-        return FileResponse(str(pdf_path), media_type="application/pdf",
-                             filename=f"{safe}.pdf")
+        import re as _re, urllib.parse as _up
+        raw = (p.name or "proposal")
+        ascii_n = (_re.sub(r"[^\w\-.]", "_", raw)[:40] or "proposal") + ".pdf"
+        utf8_n = _up.quote((raw + ".pdf").encode("utf-8"))
+        return FileResponse(
+            str(pdf_path), media_type="application/pdf",
+            headers={"Content-Disposition":
+                     f"attachment; filename=\"{ascii_n}\"; filename*=UTF-8''{utf8_n}"},
+        )
 
 
 @app.post("/p/{public_token}/sign", include_in_schema=False)
@@ -1159,10 +1169,14 @@ def serve_public_solution(public_token: str):
             pdf_abs = _P(base, pdf_path_rel.lstrip("/")).resolve()
             pdf_abs.relative_to(uploads_root)
             if pdf_abs.exists() and pdf_abs.is_file():
-                import re as _re
-                safe = _re.sub(r"[^\w\-]", "_", title)[:40]
-                return FileResponse(str(pdf_abs), media_type="application/pdf",
-                                     filename=f"{safe}.pdf")
+                import re as _re, urllib.parse as _up
+                ascii_n = (_re.sub(r"[^\w\-.]", "_", title)[:40] or "result") + ".pdf"
+                utf8_n = _up.quote((title + ".pdf").encode("utf-8"))
+                return FileResponse(
+                    str(pdf_abs), media_type="application/pdf",
+                    headers={"Content-Disposition":
+                             f"attachment; filename=\"{ascii_n}\"; filename*=UTF-8''{utf8_n}"},
+                )
         except (ValueError, OSError):
             pass
     # Fallback: markdown как plain text

@@ -1472,6 +1472,7 @@ class ProposalProject(Base):
     # «new» (создан) | «sent» (отправлен) | «opened» (клиент открыл PDF/публичную ссылку)
     # | «replied» (есть ответ от клиента) | «won» (закрыта сделка) | «lost» (отказ)
     opened_at       = Column(DateTime, nullable=True)        # когда клиент впервые открыл публичную ссылку
+    open_count      = Column(Integer, default=0)             # сколько раз клиент открывал публичную ссылку
     replied_at      = Column(DateTime, nullable=True)
     won_at          = Column(DateTime, nullable=True)
     lost_at         = Column(DateTime, nullable=True)

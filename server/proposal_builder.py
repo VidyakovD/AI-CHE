@@ -1151,9 +1151,15 @@ def generate_proposal(db, project: ProposalProject, user_api_key: str | None = N
     # в HTML по нашему шаблону (стабильное оформление). Fallback на
     # legacy HTML-генерацию если JSON не сработал.
     json_prompt = _claude_prompt_json(brand_css, project, price_text, site_ctx)
-    log.info(f"[proposal] generating (JSON-first) for project={project.id} prompt_len={len(json_prompt)}")
+    # max_tokens адаптивно: базовые 6000 + по 0.25 токена на каждый символ
+    # прайса (длинные прайсы >50 позиций обрезались на старом фикс-лимите).
+    # Cap 16000 — Sonnet max_tokens, выше не имеет смысла.
+    price_extra_tokens = (len(price_text or "") // 4) if price_text else 0
+    max_tokens = min(16000, 6000 + price_extra_tokens)
+    log.info(f"[proposal] generating (JSON-first) project={project.id} "
+             f"prompt_len={len(json_prompt)} max_tokens={max_tokens}")
     ans = generate_response("claude", [{"role": "user", "content": json_prompt}],
-                             extra={"max_tokens": 6000}, user_api_key=user_api_key)
+                             extra={"max_tokens": max_tokens}, user_api_key=user_api_key)
     if not isinstance(ans, dict) or not ans.get("content"):
         raise ValueError("AI вернул пустой ответ")
 
