@@ -193,11 +193,19 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{
 .ai-img-btn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);color:#ffb347;border-radius:8px;border:1px solid rgba(255,179,71,0.25);cursor:pointer;transition:all .15s}
 .ai-img-btn:hover{background:rgba(255,140,66,0.85);color:#1e1a14;border-color:rgba(255,140,66,0.9);transform:scale(1.08)}
 /* Lightbox */
-#imgLightbox{position:fixed;inset:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(8px);z-index:9999;display:none;align-items:center;justify-content:center;padding:32px;cursor:zoom-out}
+/* Lightbox должен перекрывать ВСЁ, включая balance-pill (z:99996)
+   и колокольчик-уведомления (z:99997). Иначе крестик «попадает» на
+   колокольчик и юзер не может закрыть просмотр картинки. */
+#imgLightbox{position:fixed;inset:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(8px);z-index:99999;display:none;align-items:center;justify-content:center;padding:32px;cursor:zoom-out}
 #imgLightbox.show{display:flex}
-#imgLightbox img{max-width:96vw;max-height:90vh;object-fit:contain;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,0.7)}
-#imgLightbox .lb-close{position:absolute;top:18px;right:18px;width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s}
-#imgLightbox .lb-close:hover{background:rgba(255,140,66,0.85);color:#1e1a14}
+#imgLightbox img{max-width:96vw;max-height:86vh;object-fit:contain;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,0.7)}
+/* Toolbar в верхней панели — кнопки идут СЛЕВА от лого, чтобы не
+   конфликтовать с balance-pill и колокольчиком справа. */
+#imgLightbox .lb-toolbar{position:absolute;top:14px;left:14px;display:flex;gap:8px;align-items:center;z-index:1}
+#imgLightbox .lb-btn{width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;text-decoration:none}
+#imgLightbox .lb-btn:hover{background:rgba(255,140,66,0.85);color:#1e1a14;border-color:rgba(255,140,66,0.95)}
+#imgLightbox .lb-btn svg{width:18px;height:18px}
+#imgLightbox .lb-close{font-size:22px}
 .img-size-btn.active{background:rgba(255,140,66,0.12);color:#ff8c42;border-color:rgba(255,140,66,0.45)}
 .tab-btn{display:inline-block}
 #modelTabs{scrollbar-width:none}
@@ -232,10 +240,10 @@ body.welcome #inputArea{display:none!important}
 
 <!-- ══ SIDEBAR ══════════════════════════════════════════════════════════════ -->
 <aside id="appSidebar" class="fixed left-0 top-0 z-40 p-4 h-screen w-68 flex-col hidden lg:flex bg-surface border-r border-outline/20 shadow-2xl overflow-hidden" style="width:272px">
-  <!-- Logo -->
+  <!-- Logo (фирменный верблюд) -->
   <div class="flex items-center gap-3 px-2 mb-6">
-    <div class="w-10 h-10 rounded-xl sig flex items-center justify-center shadow-[0_0_24px_rgba(255,140,66,0.35)]">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block;vertical-align:middle;flex-shrink:0;width:22px;height:22px;color:#1e1a14"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z"/></svg>
+    <div class="w-10 h-10 rounded-xl overflow-hidden shadow-[0_0_24px_rgba(255,140,66,0.35)] ring-1 ring-primary/30 flex-shrink-0">
+      <img src="/logo.jpg" alt="AI Студия Че" width="40" height="40" style="width:40px;height:40px;display:block;object-fit:cover"/>
     </div>
     <div>
       <h1 class="text-lg font-extrabold tracking-tight text-on-surface font-headline leading-none">AI Студия Че</h1>
@@ -390,12 +398,13 @@ body.welcome #inputArea{display:none!important}
           </div>
         </div>
       </div>
-      <!-- Формат картинки (виден только если выбрана image-модель) -->
-      <div id="imageSizeBar" class="hidden flex items-center justify-center gap-2 mt-2 px-1">
-        <span class="text-[10px] text-on-surface-dim/50 mr-1">Формат:</span>
-        <button data-size="1024x1024" onclick="setImageSize('1024x1024')" class="img-size-btn active px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition inline-flex items-center gap-1.5"><span class="w-3 h-3 border border-current rounded-sm inline-block"></span>Квадрат</button>
-        <button data-size="1024x1792" onclick="setImageSize('1024x1792')" class="img-size-btn px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition inline-flex items-center gap-1.5"><span data-i="mobile"></span>Вертикаль</button>
-        <button data-size="1792x1024" onclick="setImageSize('1792x1024')" class="img-size-btn px-3 py-1 rounded-lg text-[11px] border border-outline/20 text-on-surface-dim hover:border-primary/40 hover:text-primary transition inline-flex items-center gap-1.5"><span data-i="desktop"></span>Горизонталь</button>
+      <!-- Формат картинки (виден только для image-моделей; display управляется
+           через style чтобы не конфликтовать с Tailwind .hidden vs .flex). -->
+      <div id="imageSizeBar" style="display:none" class="items-center justify-center gap-2 mt-2 px-1 flex-wrap">
+        <span class="text-[11px] text-on-surface-dim/70 mr-1 font-semibold">📐 Формат:</span>
+        <button data-size="1024x1024" onclick="setImageSize('1024x1024')" class="img-size-btn active px-3 py-1.5 rounded-lg text-[12px] border-2 border-outline/30 text-on-surface-dim hover:border-primary/60 hover:text-primary transition inline-flex items-center gap-1.5 font-medium"><span style="width:14px;height:14px;display:inline-block;border:1.5px solid currentColor;border-radius:2px"></span>Квадрат</button>
+        <button data-size="1024x1792" onclick="setImageSize('1024x1792')" class="img-size-btn px-3 py-1.5 rounded-lg text-[12px] border-2 border-outline/30 text-on-surface-dim hover:border-primary/60 hover:text-primary transition inline-flex items-center gap-1.5 font-medium"><span style="width:9px;height:14px;display:inline-block;border:1.5px solid currentColor;border-radius:2px"></span>Вертикаль</button>
+        <button data-size="1792x1024" onclick="setImageSize('1792x1024')" class="img-size-btn px-3 py-1.5 rounded-lg text-[12px] border-2 border-outline/30 text-on-surface-dim hover:border-primary/60 hover:text-primary transition inline-flex items-center gap-1.5 font-medium"><span style="width:18px;height:11px;display:inline-block;border:1.5px solid currentColor;border-radius:2px"></span>Горизонталь</button>
       </div>
       <div class="flex items-center justify-between gap-2 mt-2 px-1">
         <p id="modelCostHint" class="text-[10px] text-on-surface-dim/50 truncate flex-1"></p>
@@ -774,7 +783,12 @@ body.welcome #inputArea{display:none!important}
 
 <!-- Image Lightbox -->
 <div id="imgLightbox" onclick="closeImageLightbox()">
-  <button class="lb-close" onclick="closeImageLightbox(event)" title="Закрыть (Esc)">✕</button>
+  <div class="lb-toolbar" onclick="event.stopPropagation()">
+    <button class="lb-btn lb-close" onclick="closeImageLightbox(event)" title="Закрыть (Esc)" aria-label="Закрыть">✕</button>
+    <button class="lb-btn" onclick="lightboxDownload(event)" title="Скачать изображение" aria-label="Скачать">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+    </button>
+  </div>
   <img id="imgLightboxImg" src="" alt=""/>
 </div>
 
@@ -1338,25 +1352,34 @@ function setModel(id){
   toggleImageSizeBar(id);
 }
 
-// Показываем выбор формата только для image-моделей
+// Показываем выбор формата только для image-моделей.
+// Управляем через style.display — иначе Tailwind .hidden и .flex конфликтуют
+// и побеждает тот что добавлен позже (юзер видел всегда невидимый bar).
 function toggleImageSizeBar(modelId){
   const bar = document.getElementById('imageSizeBar');
   if (!bar) return;
   const isImg = modelId === 'gpt-image' || modelId === 'dalle';
-  bar.classList.toggle('hidden', !isImg);
-  bar.classList.toggle('flex', isImg);
+  bar.style.display = isImg ? 'flex' : 'none';
+  // При показе подсвечиваем активный размер чтобы юзер сразу видел выбор
+  if (isImg) setImageSize(currentImageSize || '1024x1024');
 }
 
 function setImageSize(size){
   currentImageSize = size;
+  // Inline-style для active-состояния — надёжнее чем Tailwind opacity-классы
+  // через classList (там много вариантов конфликтов с peer-checked).
   document.querySelectorAll('.img-size-btn').forEach(b=>{
     const active = b.dataset.size === size;
+    if (active) {
+      b.style.borderColor = '#ff8c42';
+      b.style.color = '#ff8c42';
+      b.style.background = 'rgba(255,140,66,0.08)';
+    } else {
+      b.style.borderColor = '';
+      b.style.color = '';
+      b.style.background = '';
+    }
     b.classList.toggle('active', active);
-    b.classList.toggle('border-primary/40', active);
-    b.classList.toggle('text-primary', active);
-    b.classList.toggle('bg-primary/8', active);
-    b.classList.toggle('border-outline/20', !active);
-    b.classList.toggle('text-on-surface-dim', !active);
   });
 }
 
@@ -5273,6 +5296,27 @@ function closeImageLightbox(e){
   const lb = document.getElementById('imgLightbox');
   if (lb) lb.classList.remove('show');
   document.body.style.overflow = '';
+}
+async function lightboxDownload(e){
+  if (e) e.stopPropagation();
+  const img = document.getElementById('imgLightboxImg');
+  const src = img && img.src;
+  if (!src) return;
+  try{
+    const r = await fetch(src, {credentials:'include'});
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // Имя по URL pathname или fallback по timestamp
+    const m = src.match(/\/([^/?#]+\.(png|jpg|jpeg|webp|gif))(?:[?#]|$)/i);
+    a.download = m ? m[1] : `aiche-image-${Date.now()}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }catch(err){
+    // Fallback: открыть в новой вкладке
+    window.open(src, '_blank');
+  }
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeImageLightbox(); });
 

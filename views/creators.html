@@ -538,10 +538,18 @@ function closeBrandModal(){
 }
 
 async function saveBrand(){
+  const _err = (msg) => {
+    console.error('[saveBrand]', msg);
+    // Двойной канал — toast (быстро) + alert (надёжно). aiToast info-типа
+    // исчезает за 2.8с и юзер легко его пропускает; alert блокирующий.
+    if(window.aiToast) window.aiToast(msg, 'error');
+    else alert(msg);
+  };
+
   const name = document.getElementById('bf_name').value.trim();
-  if(!name){ (window.aiToast || alert)('Введи название'); return; }
+  if(!name){ _err('Введи название бренда'); return; }
   const topics = document.getElementById('bf_topics').value.split(',').map(s => s.trim()).filter(Boolean);
-  if(topics.length > 8){ (window.aiToast || alert)('Максимум 8 тем'); return; }
+  if(topics.length > 8){ _err('Максимум 8 тем'); return; }
 
   const payload = {
     name,
@@ -555,17 +563,33 @@ async function saveBrand(){
 
   const btn = document.getElementById('brandSaveBtn');
   btn.disabled = true;
+  const origLabel = btn.textContent;
+  btn.textContent = 'Сохраняю…';
   try{
     const url = _editingId ? `/creators/brands/${_editingId}` : '/creators/brands';
     const method = _editingId ? 'PUT' : 'POST';
+    console.log('[saveBrand]', method, url, payload);
+    const csrf = (window.getCSRF && window.getCSRF()) || '';
     const r = await fetch(url, {
       method, credentials:'include',
-      headers: {'Content-Type':'application/json', 'X-CSRF-Token': (window.getCSRF && getCSRF()) || ''},
+      headers: {'Content-Type':'application/json', 'X-CSRF-Token': csrf},
       body: JSON.stringify(payload),
     });
     if(!r.ok){
       const e = await r.json().catch(() => ({}));
-      throw new Error(e.detail || 'Ошибка ' + r.status);
+      const detail = e.detail || ('HTTP ' + r.status);
+      // FastAPI Pydantic возвращает list[dict] при 422 — раскрываем по-человечески
+      const msg = (Array.isArray(detail))
+        ? detail.map(d => `${(d.loc||[]).join('.')}: ${d.msg}`).join('; ')
+        : String(detail);
+      if(r.status === 401){
+        _err('Сессия истекла, перелогиньтесь');
+      } else if(r.status === 403){
+        _err('CSRF-токен не принят — перезагрузите страницу (F5) и попробуйте снова');
+      } else {
+        _err(`Не удалось сохранить: ${msg}`);
+      }
+      return;
     }
     closeBrandModal();
     await loadBrands();
@@ -574,12 +598,15 @@ async function saveBrand(){
       const sel = document.getElementById('brandSelect');
       sel.value = _brands[0].id;
       updateSummary();
+      loadCalendar();  // подтянуть состояние под новый бренд
     }
-    (window.aiToast || (() => {}))('Сохранено');
+    if(window.aiToast) window.aiToast('Сохранено', 'success');
   }catch(e){
-    (window.aiToast || alert)(e.message);
+    console.error('[saveBrand] exception', e);
+    _err('Ошибка сети: ' + (e.message || e));
   }finally{
     btn.disabled = false;
+    btn.textContent = origLabel;
   }
 }
 

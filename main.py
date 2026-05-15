@@ -569,6 +569,16 @@ def serve_logo(variant: str):
     )
 
 
+@app.get("/logo.jpg", include_in_schema=False)
+def serve_logo_jpg():
+    """Фирменный «полный» логотип-верблюд на чёрном фоне (для sidebar/cabinet)."""
+    return FileResponse(
+        os.path.join(_BASE, "logo.jpg"),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 def serve_favicon():
     """Браузер запрашивает favicon.ico по умолчанию. Отдаём 32×32 PNG —
