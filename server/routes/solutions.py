@@ -220,6 +220,9 @@ def get_categories(db: Session = Depends(get_db)):
 @router.get("/solutions")
 def get_solutions(category: str | None = None, db: Session = Depends(get_db)):
     q = db.query(Solution).filter_by(is_active=True)
+    # Исключаем shadow-Solutions, привязанные к ИИ Агентам v2 (они показываются
+    # на отдельной странице /agents-v2.html, не в каталоге пилотов).
+    q = q.filter((Solution.subcategory != "_agent_role") | (Solution.subcategory.is_(None)))
     if category:
         cat = db.query(SolutionCategory).filter_by(slug=category).first()
         if not cat:
@@ -641,6 +644,8 @@ def list_my_runs(limit: int = 50, offset: int = 0, status: str = "",
         db.query(SolutionRun, Solution.title, Solution.subcategory)
         .outerjoin(Solution, SolutionRun.solution_id == Solution.id)
         .filter(SolutionRun.user_id == user.id)
+        # Прячем shadow-runs от ИИ Агентов v2 — у них своя история на /agents-v2.html
+        .filter((Solution.subcategory != "_agent_role") | (Solution.subcategory.is_(None)))
     )
     if status and status in ("running", "done", "failed", "queued", "waiting_input"):
         q = q.filter(SolutionRun.status == status)

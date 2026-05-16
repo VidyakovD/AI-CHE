@@ -1612,3 +1612,70 @@ class CreatorAnalysisRun(Base):
     created_at      = Column(DateTime, default=datetime.utcnow, index=True)
 
     brand = relationship("CreatorBrand", backref="analysis_runs")
+
+
+# ─── ИИ Агенты v2 (Knowledge Hub + готовые роли) ──────────────────────────
+# См. docs/modules/22-agents-v2-roadmap.md.
+# Каталог из 6 предобученных ролей (Поисковик/Парсер/Юрист/Бухгалтер/
+# Креатор/Автоответчик). Каждая роль — pipeline (orchestra) + system_prompt
+# + список default-категорий Knowledge Hub.
+#
+# Runtime реюзаем через shadow Solution: при сидинге AgentRole создаётся
+# парный Solution (subcategory='_agent_role', скрыт из /solutions каталога),
+# который хранит реальный orchestra_json. Запуск роли = создание SolutionRun
+# для shadow-Solution + обёртка в AgentRun. Это даёт нам бесплатно SSE,
+# биллинг, share-token, attachments — всё что уже работает у Solutions.
+
+class AgentRole(Base):
+    """Готовая роль ИИ-агента (Поисковик/Юрист/Бухгалтер/...).
+
+    pipeline_json — полная orchestra (как в Solution.orchestra_json).
+    Сидится через scripts/seed_agent_roles.py, обновляется PR'ом в git.
+    """
+    __tablename__ = "agent_roles"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    slug            = Column(String, unique=True, nullable=False, index=True)
+    title           = Column(String, nullable=False)
+    icon            = Column(String, nullable=True)            # эмодзи для карточки
+    description     = Column(Text, nullable=True)              # 2-3 предложения для UI
+    short_summary   = Column(String, nullable=True)            # одна строка под названием
+    base_price_kop  = Column(Integer, default=0)               # фикс-цена за запуск (pay-per-run)
+    default_model   = Column(String, default="claude-sonnet")
+    system_prompt   = Column(Text, nullable=True)              # ядро поведения роли
+    pipeline_json   = Column(Text, nullable=True)              # JSON orchestra (как у Solution)
+    # Какие категории Knowledge Hub роль подмешивает по умолчанию (CSV).
+    # Например 'legal,contacts' для Юриста. Пусто = вся база.
+    default_kb_categories = Column(String, nullable=True)
+    # FK на shadow-Solution который реально хранит orchestra и используется
+    # solutions_orchestra.run_orchestra. Заполняется сидером.
+    shadow_solution_id = Column(Integer, ForeignKey("solutions.id", ondelete="SET NULL"),
+                                nullable=True)
+    is_active       = Column(Boolean, default=True)
+    sort_order      = Column(Integer, default=0)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+
+class AgentRun(Base):
+    """Запуск роли пользователем. Тонкая обёртка вокруг SolutionRun.
+
+    Реальные стадии/прогресс/SSE/биллинг крутятся в SolutionRun, мы только
+    линкуем и фильтруем «мои запуски агентов» отдельно от пилотов Solutions.
+    """
+    __tablename__ = "agent_runs"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    user_id           = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                                nullable=False, index=True)
+    role_id           = Column(Integer, ForeignKey("agent_roles.id", ondelete="CASCADE"),
+                                nullable=False, index=True)
+    # FK на SolutionRun где реально крутится orchestra. nullable на старте
+    # (создаём AgentRun чуть раньше SolutionRun атомарно — но в одном запросе).
+    solution_run_id   = Column(Integer, ForeignKey("solution_runs.id", ondelete="CASCADE"),
+                                nullable=True, index=True)
+    skills_json       = Column(Text, nullable=True)            # выбранные скилы (Иitre 4)
+    # Снапшот input — храним для UI «мои запуски» без JOIN на solution_run
+    input_preview     = Column(String, nullable=True)
+    created_at        = Column(DateTime, default=datetime.utcnow, index=True)
+
+    role = relationship("AgentRole")

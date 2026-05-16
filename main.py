@@ -20,6 +20,7 @@ from server.routes.chat import router as chat_router
 from server.routes.user import router as user_router
 from server.routes.admin import router as admin_router, _load_all_apikeys_from_db
 from server.routes.solutions import router as solutions_router
+from server.routes.agents_v2 import router as agents_v2_router
 from server.routes.sites import router as sites_router
 from server.routes.presentations import router as presentations_router
 from server.routes.agent import router as agent_router, init_agent_queue
@@ -400,6 +401,7 @@ app.include_router(chat_router)
 app.include_router(user_router)
 app.include_router(admin_router)
 app.include_router(solutions_router)
+app.include_router(agents_v2_router)
 app.include_router(sites_router)
 app.include_router(presentations_router)
 app.include_router(agent_router)
@@ -672,6 +674,10 @@ def serve_api_docs():
 @app.get("/creators.html", include_in_schema=False)
 def serve_creators():
     return _html("creators.html")
+
+@app.get("/agents-v2.html", include_in_schema=False)
+def serve_agents_v2():
+    return _html("agents-v2.html")
 
 
 def _verify_proposal_pdf_path(p):

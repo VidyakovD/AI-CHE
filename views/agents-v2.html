@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<script>
+(function(){try{
+  var V='aiche-v6-2026-05-15-agentsv2';
+  var stored=localStorage.getItem('aiche_client_version');
+  if(stored===V) return;
+  if(!('serviceWorker' in navigator)){localStorage.setItem('aiche_client_version',V);return;}
+  var loopGuard=sessionStorage.getItem('aiche_bootstrap_inflight');
+  if(loopGuard){localStorage.setItem('aiche_client_version',V);sessionStorage.removeItem('aiche_bootstrap_inflight');return;}
+  sessionStorage.setItem('aiche_bootstrap_inflight','1');
+  navigator.serviceWorker.getRegistrations().then(function(regs){
+    return Promise.all(regs.map(function(r){return r.unregister();}));
+  }).then(function(){
+    if(!self.caches)return null;
+    return caches.keys().then(function(keys){
+      return Promise.all(keys.map(function(k){return caches.delete(k);}));
+    });
+  }).then(function(){
+    localStorage.setItem('aiche_client_version',V);
+    location.reload();
+  }).catch(function(){localStorage.setItem('aiche_client_version',V);sessionStorage.removeItem('aiche_bootstrap_inflight');});
+}catch(e){}})();
+</script>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — ИИ Агенты</title>
+<link rel="stylesheet" href="/fonts.css"/>
+<link rel="stylesheet" href="/styles.css"/>
+<script src="https://cdn.tailwindcss.com/3.4.0"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<style>
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
+*::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;min-height:100vh}
+.sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;font-family:inherit;transition:border-color .2s}
+.inp:focus{border-color:#ff8c42}.inp::placeholder{color:#a89880}
+textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.45}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
+.empty{padding:48px 24px;text-align:center;color:#a89880}
+.lbl{display:block;font-size:12px;color:#a89880;margin-bottom:5px;font-weight:500}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
+.modal-bg.show{display:flex}
+
+/* Catalog */
+.role-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.role-card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.3);border-radius:16px;padding:20px;cursor:pointer;transition:transform .15s, border-color .15s, box-shadow .15s;display:flex;flex-direction:column;gap:10px;min-height:200px}
+.role-card:hover{border-color:#ff8c42;transform:translateY(-2px);box-shadow:0 8px 24px rgba(255,140,66,.08)}
+.role-card .ic{font-size:36px;line-height:1}
+.role-card .ttl{font-size:18px;font-weight:700;color:#f0e6d8}
+.role-card .sum{font-size:13px;color:#a89880;flex:1;line-height:1.5}
+.role-card .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto}
+.role-card .price{font-weight:700;color:#ffb347;font-size:14px}
+
+/* Run modal */
+.run-modal{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.45);border-radius:18px;width:100%;max-width:760px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden}
+.run-modal-hdr{padding:18px 22px;background:#161210;border-bottom:1px solid rgba(74,63,47,0.35);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.run-modal-hdr h3{margin:0;font-size:18px;font-weight:700}
+.run-modal-hdr .sub{font-size:12px;color:#a89880;margin-top:2px}
+.run-modal-body{padding:18px 22px;overflow-y:auto;flex:1}
+.run-modal-close{background:transparent;border:none;color:#a89880;cursor:pointer;font-size:22px;padding:4px 8px}
+.run-modal-close:hover{color:#ff6b6b}
+
+/* Stages live progress */
+.stage-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#272018;border-radius:10px;margin-bottom:7px;font-size:13px}
+.stage-row .ic{flex-shrink:0;width:22px;text-align:center;font-size:16px}
+.stage-row .lbl{flex:1;color:#f0e6d8;margin:0}
+.stage-row .meta{font-size:11px;color:#a89880}
+.stage-row.done .ic{color:#7bd968}
+.stage-row.running .ic{animation:spin 1.4s linear infinite}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.stage-row.error{background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.25)}
+.stage-row.error .ic{color:#ff6b6b}
+
+/* Result markdown */
+.md-result{padding:14px 18px;background:#161210;border-radius:12px;font-size:14px;line-height:1.6;color:#f0e6d8;white-space:pre-wrap;word-wrap:break-word;max-height:60vh;overflow-y:auto;border:1px solid rgba(74,63,47,0.3)}
+.md-result h1{font-size:22px;font-weight:700;margin:16px 0 10px;color:#ffb347}
+.md-result h2{font-size:18px;font-weight:700;margin:14px 0 8px;color:#ff8c42}
+.md-result h3{font-size:15px;font-weight:600;margin:10px 0 6px;color:#f0e6d8}
+.md-result p{margin:8px 0}
+.md-result ul,.md-result ol{margin:8px 0;padding-left:24px}
+.md-result li{margin:4px 0}
+.md-result code{background:#272018;padding:2px 6px;border-radius:4px;font-family:ui-monospace,monospace;font-size:13px}
+.md-result a{color:#ff8c42;text-decoration:underline}
+.md-result a:hover{color:#ffb347}
+.md-result table{border-collapse:collapse;width:100%;margin:10px 0}
+.md-result th,.md-result td{border:1px solid rgba(74,63,47,0.4);padding:6px 10px;text-align:left}
+.md-result th{background:#272018;font-weight:600}
+
+/* My runs */
+.my-runs{display:flex;flex-direction:column;gap:8px}
+.run-item{padding:14px 16px;background:#1e1a14;border:1px solid rgba(74,63,47,0.3);border-radius:12px;cursor:pointer;transition:border-color .15s}
+.run-item:hover{border-color:#ff8c42}
+.run-item .row1{display:flex;align-items:center;gap:10px}
+.run-item .ic{font-size:18px}
+.run-item .ttl{font-weight:600;flex:1}
+.run-item .st{font-size:11px;padding:3px 8px;border-radius:8px}
+.run-item .st.done{background:rgba(123,217,104,.15);color:#7bd968}
+.run-item .st.running{background:rgba(255,140,66,.15);color:#ff8c42}
+.run-item .st.error{background:rgba(255,107,107,.15);color:#ff6b6b}
+.run-item .preview{font-size:12px;color:#a89880;margin-top:6px}
+.run-item .meta{font-size:11px;color:#a89880;margin-top:4px}
+</style>
+<script src="/shared.js" defer></script>
+<script src="/icons.js" defer></script>
+</head>
+<body class="dark" data-assistant-section="agents-v2" data-assistant-label="ИИ Агенты v2">
+
+<div class="max-w-6xl mx-auto px-4 py-6">
+
+  <header class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-3">
+      <a href="/" class="btn-g" title="На главную">← На главную</a>
+      <div>
+        <h1 class="text-2xl font-bold sig-text">🤖 ИИ Агенты</h1>
+        <p class="text-xs text-on-dim">Готовые роли вместо конструктора. Каждая берёт нужное из вашей базы знаний.</p>
+      </div>
+    </div>
+    <div id="balancePill" class="text-sm text-on-dim"></div>
+  </header>
+
+  <!-- Каталог ролей -->
+  <section class="mb-8">
+    <h2 class="text-lg font-semibold mb-3">Каталог ролей</h2>
+    <div id="roleGrid" class="role-grid">
+      <div class="empty">⏳ Загрузка ролей...</div>
+    </div>
+  </section>
+
+  <!-- История запусков -->
+  <section>
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-lg font-semibold">🕘 Мои запуски</h2>
+      <button class="btn-g" onclick="loadMyRuns()">Обновить</button>
+    </div>
+    <div id="myRuns" class="my-runs">
+      <div class="empty" style="padding:24px">⏳ Загрузка истории...</div>
+    </div>
+  </section>
+
+</div>
+
+<!-- Run modal -->
+<div id="runModal" class="modal-bg">
+  <div class="run-modal" onclick="event.stopPropagation()">
+    <div class="run-modal-hdr">
+      <div>
+        <h3 id="runModalTitle">Запуск роли</h3>
+        <div class="sub" id="runModalSub"></div>
+      </div>
+      <button class="run-modal-close" onclick="closeRunModal()">×</button>
+    </div>
+    <div class="run-modal-body" id="runModalBody"></div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let _currentRole = null;
+let _currentSSE = null;
+
+async function loadBalance() {
+  try {
+    const r = await fetch(`${API}/auth/me`, { credentials: 'same-origin' });
+    if (!r.ok) {
+      document.getElementById('balancePill').innerHTML = '<a href="/" class="btn-g">Войти</a>';
+      return;
+    }
+    const me = await r.json();
+    const bal = (me.tokens_balance || 0);
+    document.getElementById('balancePill').textContent = `Баланс: ${(window.fmtRub ? window.fmtRub(bal) : (bal/100).toFixed(2)+' ₽')}`;
+  } catch (e) {
+    console.error('balance failed', e);
+  }
+}
+
+async function loadRoles() {
+  const grid = document.getElementById('roleGrid');
+  try {
+    const r = await fetch(`${API}/agents/roles`, { credentials: 'same-origin' });
+    if (r.status === 401) { location.href = '/'; return; }
+    if (!r.ok) {
+      grid.innerHTML = `<div class="empty">Ошибка: ${r.status}</div>`;
+      return;
+    }
+    const data = await r.json();
+    const roles = data.roles || [];
+    if (!roles.length) {
+      grid.innerHTML = `<div class="empty">Каталог пока пуст. Запустите <code>scripts/seed_agent_roles.py</code> на сервере.</div>`;
+      return;
+    }
+    grid.innerHTML = '';
+    roles.forEach(role => {
+      const card = document.createElement('div');
+      card.className = 'role-card';
+      card.innerHTML = `
+        <div class="ic"></div>
+        <div class="ttl"></div>
+        <div class="sum"></div>
+        <div class="row">
+          <span class="price"></span>
+          <button class="btn-p" style="padding:7px 14px;font-size:13px">Запустить →</button>
+        </div>
+      `;
+      card.querySelector('.ic').textContent = role.icon || '🤖';
+      card.querySelector('.ttl').textContent = role.title;
+      card.querySelector('.sum').textContent = role.short_summary || role.description;
+      card.querySelector('.price').textContent =
+        role.base_price_kop > 0
+          ? `от ${(role.base_price_kop / 100).toFixed(0)} ₽`
+          : 'Бесплатно';
+      card.addEventListener('click', () => openRunModal(role.slug));
+      grid.appendChild(card);
+    });
+  } catch (e) {
+    grid.innerHTML = `<div class="empty">Сеть недоступна: ${e.message}</div>`;
+  }
+}
+
+async function openRunModal(slug) {
+  const modal = document.getElementById('runModal');
+  const body = document.getElementById('runModalBody');
+  document.getElementById('runModalTitle').textContent = 'Загрузка...';
+  document.getElementById('runModalSub').textContent = '';
+  body.innerHTML = '<div class="empty">⏳</div>';
+  modal.classList.add('show');
+
+  try {
+    const r = await fetch(`${API}/agents/roles/${encodeURIComponent(slug)}`, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const role = await r.json();
+    _currentRole = role;
+    document.getElementById('runModalTitle').textContent = `${role.icon || '🤖'}  ${role.title}`;
+    document.getElementById('runModalSub').textContent = role.input_hint || role.short_summary || '';
+    renderRunForm(role);
+  } catch (e) {
+    body.innerHTML = `<div class="empty">Не удалось загрузить роль: ${e.message}</div>`;
+  }
+}
+
+function closeRunModal() {
+  document.getElementById('runModal').classList.remove('show');
+  if (_currentSSE) { try { _currentSSE.close(); } catch (_) {} _currentSSE = null; }
+  _currentRole = null;
+}
+
+function _esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+function renderRunForm(role) {
+  const body = document.getElementById('runModalBody');
+  const schema = role.input_schema || [];
+  let formHtml = '<div style="font-size:13px;color:#a89880;margin-bottom:14px">' + _esc(role.description) + '</div>';
+  if (schema.length === 0) {
+    formHtml += `
+      <label class="lbl">Задача</label>
+      <textarea class="inp" id="runInput" rows="6" placeholder="Опишите задачу..."></textarea>
+    `;
+  } else {
+    schema.forEach(f => {
+      formHtml += `<div style="margin-bottom:12px">`;
+      formHtml += `<label class="lbl">${_esc(f.label)}${f.required ? ' <span style="color:#ff6b6b">*</span>' : ''}</label>`;
+      const ph = _esc(f.placeholder || '');
+      const hint = f.hint ? `<div style="font-size:11px;color:#a89880;margin-top:4px">${_esc(f.hint)}</div>` : '';
+      if (f.type === 'textarea') {
+        formHtml += `<textarea class="inp" data-field="${_esc(f.name)}" rows="${f.rows || 3}" placeholder="${ph}"></textarea>${hint}`;
+      } else if (f.type === 'select') {
+        formHtml += `<select class="inp" data-field="${_esc(f.name)}">`;
+        if (!f.required) formHtml += `<option value="">— не выбрано —</option>`;
+        (f.options || []).forEach(o => {
+          formHtml += `<option value="${_esc(o.value)}">${_esc(o.label)}</option>`;
+        });
+        formHtml += `</select>${hint}`;
+      } else {
+        formHtml += `<input class="inp" type="text" data-field="${_esc(f.name)}" placeholder="${ph}"/>${hint}`;
+      }
+      formHtml += `</div>`;
+    });
+  }
+  formHtml += `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;gap:12px">
+      <span style="font-size:12px;color:#a89880">Цена: от ${(role.base_price_kop / 100).toFixed(0)} ₽</span>
+      <button class="btn-p" id="runSubmitBtn">Запустить ${role.icon || '🤖'}</button>
+    </div>
+    <div id="runError" style="color:#ff6b6b;font-size:12px;margin-top:8px"></div>
+  `;
+  body.innerHTML = formHtml;
+  document.getElementById('runSubmitBtn').addEventListener('click', () => submitRun(role));
+}
+
+function _collectFormPayload(role) {
+  const schema = role.input_schema || [];
+  if (schema.length === 0) {
+    const v = (document.getElementById('runInput').value || '').trim();
+    return v;
+  }
+  const out = {};
+  for (const f of schema) {
+    const el = document.querySelector(`[data-field="${CSS.escape(f.name)}"]`);
+    const val = ((el && el.value) || '').trim();
+    if (f.required && !val) {
+      throw new Error(`Заполните «${f.label}»`);
+    }
+    out[f.name] = val;
+  }
+  return out;
+}
+
+async function submitRun(role) {
+  const errEl = document.getElementById('runError');
+  const btn = document.getElementById('runSubmitBtn');
+  errEl.textContent = '';
+  let payload;
+  try {
+    payload = _collectFormPayload(role);
+  } catch (e) {
+    errEl.textContent = e.message;
+    return;
+  }
+  btn.disabled = true; btn.textContent = '⏳ Запускаю...';
+  try {
+    const r = await fetch(`${API}/agents/roles/${encodeURIComponent(role.slug)}/run`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: payload }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.detail || `HTTP ${r.status}`);
+    }
+    const data = await r.json();
+    streamRun(data.agent_run_id, role);
+  } catch (e) {
+    errEl.textContent = `Не удалось запустить: ${e.message}`;
+    btn.disabled = false;
+    btn.textContent = `Запустить ${role.icon || '🤖'}`;
+  }
+}
+
+function streamRun(agentRunId, role) {
+  const body = document.getElementById('runModalBody');
+  body.innerHTML = `
+    <div style="margin-bottom:12px;font-size:12px;color:#a89880">
+      Запуск #${agentRunId}. Стримим прогресс — окно можно закрыть, результат сохранится в «Мои запуски».
+    </div>
+    <div id="stagesPanel"></div>
+    <div id="finalResult" style="margin-top:14px;display:none">
+      <h4 style="margin:14px 0 8px;font-weight:600">📄 Итоговый отчёт</h4>
+      <div class="md-result" id="finalResultBody"></div>
+    </div>
+  `;
+
+  const stagesPanel = document.getElementById('stagesPanel');
+  const finalBox = document.getElementById('finalResult');
+  const finalBody = document.getElementById('finalResultBody');
+
+  if (_currentSSE) { try { _currentSSE.close(); } catch (_) {} }
+  _currentSSE = new EventSource(`${API}/agents/runs/${agentRunId}/stream`, { withCredentials: true });
+
+  _currentSSE.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (_) { return; }
+    if (msg.stages) renderStages(msg.stages, stagesPanel);
+    if (msg.final_output) {
+      finalBox.style.display = '';
+      finalBody.innerHTML = renderMarkdown(msg.final_output);
+    }
+    if (msg.status === 'done' || msg.status === 'error') {
+      _currentSSE.close(); _currentSSE = null;
+      loadMyRuns();
+      loadBalance();
+    }
+  };
+  _currentSSE.onerror = () => {
+    // Network/timeout — не страшно, фронт может перезагрузить через "Мои запуски"
+  };
+}
+
+function renderStages(stages, panel) {
+  const items = Object.entries(stages || {});
+  panel.innerHTML = '';
+  for (const [sid, st] of items) {
+    const row = document.createElement('div');
+    const status = st.status || 'pending';
+    row.className = 'stage-row ' + status;
+    let ic = '⏸';
+    if (status === 'running') ic = '⟳';
+    else if (status === 'done') ic = '✓';
+    else if (status === 'error') ic = '⚠';
+    row.innerHTML = `
+      <div class="ic">${ic}</div>
+      <div class="lbl"></div>
+      <div class="meta"></div>
+    `;
+    row.querySelector('.lbl').textContent = st.label || sid;
+    let meta = '';
+    if (st.cost_kop) meta = `${(st.cost_kop / 100).toFixed(2)} ₽`;
+    if (st.error) meta = st.error.slice(0, 50);
+    row.querySelector('.meta').textContent = meta;
+    panel.appendChild(row);
+  }
+}
+
+// Минимальный markdown→HTML без зависимостей. Поддержка: # H1-3, ** **,
+// списки, абзацы, ссылки, code, таблицы базовые. Для богатого рендера —
+// можно подключить marked.js, но MVP без внешних либ.
+function renderMarkdown(md) {
+  if (!md) return '';
+  let html = _esc(md);
+  // Заголовки
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Жирный/курсив
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Ссылки
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Списки буллетов и нумерованные — простой паттерн на блок строк
+  html = html.replace(/(^|\n)((?:- .+\n?)+)/g, (m, pre, block) => {
+    const items = block.trim().split(/\n/).map(l => l.replace(/^- /, '')).map(t => `<li>${t}</li>`).join('');
+    return `${pre}<ul>${items}</ul>`;
+  });
+  html = html.replace(/(^|\n)((?:\d+\. .+\n?)+)/g, (m, pre, block) => {
+    const items = block.trim().split(/\n/).map(l => l.replace(/^\d+\. /, '')).map(t => `<li>${t}</li>`).join('');
+    return `${pre}<ol>${items}</ol>`;
+  });
+  // Параграфы — двойной перевод строки
+  html = html.split(/\n\n+/).map(p => {
+    if (/^<(h\d|ul|ol|table|pre)/.test(p.trim())) return p;
+    return `<p>${p.replace(/\n/g, '<br/>')}</p>`;
+  }).join('');
+  return html;
+}
+
+async function loadMyRuns() {
+  const box = document.getElementById('myRuns');
+  try {
+    const r = await fetch(`${API}/agents/runs/my?limit=20`, { credentials: 'same-origin' });
+    if (r.status === 401) { location.href = '/'; return; }
+    if (!r.ok) { box.innerHTML = `<div class="empty">Ошибка: ${r.status}</div>`; return; }
+    const data = await r.json();
+    const items = data.items || [];
+    if (!items.length) {
+      box.innerHTML = `<div class="empty" style="padding:24px">Запусков ещё нет — выберите роль выше.</div>`;
+      return;
+    }
+    box.innerHTML = '';
+    items.forEach(it => {
+      const div = document.createElement('div');
+      div.className = 'run-item';
+      const stCls = it.status === 'done' ? 'done' : (it.status === 'error' ? 'error' : 'running');
+      const stLabel = it.status === 'done' ? '✓ Готово'
+        : it.status === 'error' ? '⚠ Ошибка'
+        : (it.status === 'running' ? '⏳ В работе' : it.status);
+      div.innerHTML = `
+        <div class="row1">
+          <span class="ic"></span>
+          <span class="ttl"></span>
+          <span class="st ${stCls}"></span>
+        </div>
+        <div class="preview"></div>
+        <div class="meta"></div>
+      `;
+      div.querySelector('.ic').textContent = it.role_icon || '🤖';
+      div.querySelector('.ttl').textContent = it.role_title;
+      div.querySelector('.st').textContent = stLabel;
+      div.querySelector('.preview').textContent = it.preview || it.input_preview || '';
+      const dt = it.created_at ? new Date(it.created_at).toLocaleString('ru-RU') : '';
+      const cost = it.total_cost_kop ? ` · ${(it.total_cost_kop / 100).toFixed(2)} ₽` : '';
+      div.querySelector('.meta').textContent = `#${it.id} · ${dt}${cost}`;
+      div.addEventListener('click', () => viewRun(it.id, it.role_slug, it.role_title, it.role_icon));
+      box.appendChild(div);
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="empty">Сеть недоступна: ${e.message}</div>`;
+  }
+}
+
+async function viewRun(runId, slug, title, icon) {
+  const modal = document.getElementById('runModal');
+  document.getElementById('runModalTitle').textContent = `${icon || '🤖'}  ${title} · #${runId}`;
+  document.getElementById('runModalSub').textContent = '';
+  const body = document.getElementById('runModalBody');
+  body.innerHTML = '<div class="empty">⏳ Загрузка...</div>';
+  modal.classList.add('show');
+  try {
+    const r = await fetch(`${API}/agents/runs/${runId}`, { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const run = await r.json();
+    if (run.status === 'running') {
+      streamRun(runId, { slug, title, icon });
+      return;
+    }
+    body.innerHTML = `
+      <div style="margin-bottom:12px;font-size:12px;color:#a89880">
+        Статус: ${run.status} · Запрос: ${_esc(run.input_preview || '')}
+      </div>
+      <div id="stagesPanel"></div>
+      <div style="margin-top:14px">
+        <h4 style="margin:14px 0 8px;font-weight:600">📄 Итоговый отчёт</h4>
+        <div class="md-result"></div>
+      </div>
+    `;
+    if (run.stages_state && run.stages_state.stages) {
+      renderStages(run.stages_state.stages, document.getElementById('stagesPanel'));
+    }
+    body.querySelector('.md-result').innerHTML = renderMarkdown(run.final_output || '_нет результата_');
+  } catch (e) {
+    body.innerHTML = `<div class="empty">Не удалось загрузить запуск: ${e.message}</div>`;
+  }
+}
+
+document.getElementById('runModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('runModal')) closeRunModal();
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeRunModal();
+});
+
+// Boot
+document.addEventListener('DOMContentLoaded', () => {
+  loadBalance();
+  loadRoles();
+  loadMyRuns();
+});
+</script>
+
+</body>
+</html>
