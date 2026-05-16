@@ -24,11 +24,35 @@ _Последнее обновление: 2026-05-13._
 - Автоответчик: **отдельная роль**, существующие чат-боты живут параллельно
 
 **Прогресс старой v2 (приостановлено):**
-- ✅ Иitre 1 (Knowledge Hub) — `c45ecb8` + `448c330`. Категории, auto-classify, UI, backfill. **Переиспользуется в Project Loom.**
-- ✅ Иitre 2 (Поисковик + agents-v2.html) — `c436eae`. **Замораживается** до решения по Loom UX.
+- ✅ Иitre 1 (Knowledge Hub) — `c45ecb8` + `448c330`. Категории, auto-classify, UI, backfill. **Переиспользуется.**
+- ✅ Иitre 2 (Поисковик + agents-v2.html) — `c436eae`. **Заморожено**, страница оставлена.
 - ⏸ Иitre 3 (5 ролей) — отменена, концепция изменена.
 
-**Project Loom получено 2026-05-16:** ТЗ v0.2 (Project Loom) от юзера. 50-60% инфры уже есть, надстройка поверх AI Студия Че. См. roadmap.
+**Project Loom получено 2026-05-16:** ТЗ v0.2 от юзера → новый модуль 23 (singleton-агент). См. roadmap.
+
+**Прогресс модуля 23 «ИИ Агенты (модульные)» — 2026-05-16, одна сессия:**
+
+✅ **Фаза 0** — полностью закрыта (10+ коммитов):
+- Agent + AgentMessage модели + миграции
+- CRUD endpoints `/api/agents/*`
+- Agent Builder (диалоговый конструктор → personal agent режим)
+- LLM Router (4 провайдера, матрица task×complexity, fallback chain)
+- Семантический кэш (hash-based, TTL, daily cleanup)
+- PWA (Service Worker network-first + install banner)
+- Адаптивная вёрстка моб (sidebar→drawer)
+
+✅ **Фаза 1 (частично)** — после уточнения архитектуры юзером:
+- Архитектурная правка: singleton-агент + AgentModule
+- Memory Hub (Agent.profile_json) + Personality Layer (Agent.personality_json)
+- Module Runtime (invoke_module) с подмешиванием Memory Hub + module_memory
+- Прокачка модулей L0→L3 (по interaction_count + [LEARNED:] заметкам)
+- Onboarding flow с приветствием при первом входе
+- Quick-replies в опросах (chips-кнопки под сообщениями)
+- Dicebear bottts SVG-аватары (16 preset в стиле сервиса)
+- Раскрытие агента в sidebar → память + редактирование знаний inline
+- «Модули» → «Агенты» переименование в UI (с русским склонением)
+- Босс-режим reply (Че не дублирует работу модулей)
+- Sidebar: Креаторы как подпункт ИИ Агентов
 - 🔜 **Итерация 4** — Скилы (чекбоксы, price_delta)
 - 🔜 **Итерация 5** — История + share/export
 - 🔜 **Итерация 6** — Спрятать старый конструктор
