@@ -42,7 +42,9 @@ router = APIRouter(prefix="/api/agents", tags=["agents-modular"])
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 DEFAULT_AGENT_NAME = "Че"
-DEFAULT_AGENT_ICON = "🤖"
+# Иконка-аватар: префикс seed: → dicebear bottts SVG; иначе обычный эмодзи.
+# Default — seed:nova (одна из 16 preset-аватаров в стиле сервиса).
+DEFAULT_AGENT_ICON = "seed:nova"
 
 # Дефолтное приветствие при первом онбординге — без LLM-вызова чтобы UI не ждал.
 ONBOARDING_GREETING = (
@@ -190,7 +192,8 @@ def patch_my_agent(payload: PatchAgentPayload,
     if payload.name is not None:
         a.name = payload.name.strip()[:80] or a.name
     if payload.icon is not None:
-        a.icon = payload.icon.strip()[:4] or a.icon
+        # До 64 символов — поддержка "seed:nova" формата + любых эмодзи.
+        a.icon = payload.icon.strip()[:64] or a.icon
     if payload.profile is not None and isinstance(payload.profile, dict):
         a.profile_json = json.dumps(payload.profile, ensure_ascii=False)
     if payload.personality is not None and isinstance(payload.personality, dict):
