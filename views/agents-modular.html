@@ -462,6 +462,23 @@ async function sendMessage(){
     }else{
       const data = await r.json();
       if(data.assistant_message) feed.appendChild(_msgEl(data.assistant_message));
+      // Builder обновил spec — перерисуем sidebar и обновим статус в шапке
+      if(data.agent){
+        _currentAgent = data.agent;
+        renderSpec(_currentAgent);
+        const st = _currentAgent.status;
+        const stCls = st==='active'?'active':(st==='paused'?'paused':'draft');
+        const stLbl = {active:'🟢 Активен', paused:'⏸ Пауза', draft:'📝 Черновик'}[stCls];
+        const stEl = document.getElementById('detailStatus');
+        stEl.textContent = stLbl;
+        stEl.className = `st ${stCls}`;
+        // Если активирован — system-сообщение с поздравлением
+        const applied = (data.assistant_message?.meta?.applied)||[];
+        if(data.assistant_message?.meta?.activated){
+          const sys = _msgEl({role:'system', content:'🎉 Агент активирован и готов к работе!'});
+          feed.appendChild(sys);
+        }
+      }
     }
     feed.scrollTop = feed.scrollHeight;
   }catch(e){

@@ -264,9 +264,9 @@ def send_message(agent_id: int, payload: SendMessagePayload,
                  user: User = Depends(current_user)):
     """Отправить сообщение агенту.
 
-    В этом коммите — заглушка: сохраняем user-msg + возвращаем placeholder-ответ
-    от ассистента. В следующем коммите подключим Agent Builder (для draft)
-    и Spec-mode классификатор (для active).
+    Для draft-агентов → Agent Builder (LLM подбирает модули/расписание/триггеры,
+    применяет к spec, ведёт диалог до готовности).
+    Для active-агентов → пока stub команд (Runtime подключим в следующем шаге).
     """
     a = _get_owned_agent(agent_id, user, db)
     text = (payload.content or "").strip()
@@ -283,31 +283,76 @@ def send_message(agent_id: int, payload: SendMessagePayload,
         meta_json=json.dumps({"mode": mode}, ensure_ascii=False),
     )
     db.add(user_msg)
+    db.flush()  # чтобы user_msg.id появился
 
-    # 2. Stub-ответ ассистента (заменим на реальный Agent Builder в след. коммите)
+    asst_meta: dict = {"mode": mode}
+
     if mode == "build":
-        reply = (
-            "✅ Принял. Полноценный диалог-конструктор подключу в следующем "
-            "обновлении — пока сохраняю что ты пишешь, чтобы вернуться к этому. "
-            "Если уже хочешь — открой ⚙ Настройки и собери агента вручную."
-        )
+        # ── Agent Builder ──
+        # Готовим историю (без только что добавленного user_msg — Builder его добавит)
+        history = (db.query(AgentMessage)
+                     .filter(AgentMessage.agent_id == a.id,
+                             AgentMessage.id < user_msg.id,
+                             AgentMessage.role.in_(("user", "assistant")))
+                     .order_by(AgentMessage.id.asc())
+                     .all())
+        history_dicts = [{"role": m.role, "content": m.content or ""} for m in history]
+        spec = _safe_spec(a.spec_json)
+        control_mode = spec.get("control_mode", "chat")
+
+        try:
+            from server.agent_builder import build_reply
+            result = build_reply(
+                agent_name=a.name,
+                control_mode=control_mode,
+                spec=spec,            # мутируется in-place
+                history=history_dicts,
+                user_input=text,
+            )
+        except Exception as e:
+            log.exception(f"[agent.builder] failed for agent {a.id}: {e}")
+            result = {
+                "reply": "Что-то пошло не так при обработке 😔 Попробуй ещё раз.",
+                "applied": [], "errors": [str(e)[:200]], "ready_to_activate": False, "raw": "",
+            }
+
+        reply = result["reply"]
+        # Сохраняем обновлённый spec
+        a.spec_json = json.dumps(spec, ensure_ascii=False)
+
+        # Активация по запросу Builder'а (модель сама поняла что готово)
+        if result.get("ready_to_activate"):
+            # Минимальная проверка: должна быть хоть какая-то цель ИЛИ модули
+            if (spec.get("goals") or "").strip() or spec.get("modules"):
+                a.status = "active"
+                asst_meta["activated"] = True
+
+        asst_meta["applied"] = result.get("applied", [])
+        if result.get("errors"):
+            asst_meta["errors"] = result["errors"]
     else:
+        # ── Active-агент: пока stub команд ──
         reply = (
-            "✅ Принял команду. Активный режим выполнения подключу в следующем "
-            "обновлении. Пока твоё сообщение записано в историю."
+            "✅ Команда принята. Реальное выполнение задач (расписания, "
+            "триггеры, запуск модулей) подключу в следующем обновлении. "
+            "Пока сообщение записано в историю."
         )
+        asst_meta["stub"] = True
+
     asst_msg = AgentMessage(
         agent_id=a.id, role="assistant", content=reply,
-        meta_json=json.dumps({"mode": mode, "stub": True}, ensure_ascii=False),
+        meta_json=json.dumps(asst_meta, ensure_ascii=False),
     )
     db.add(asst_msg)
 
     a.last_activity_at = datetime.utcnow()
     a.updated_at = datetime.utcnow()
     db.commit()
-    db.refresh(user_msg); db.refresh(asst_msg)
+    db.refresh(user_msg); db.refresh(asst_msg); db.refresh(a)
 
     return {
         "user_message": _msg_dict(user_msg),
         "assistant_message": _msg_dict(asst_msg),
+        # Возвращаем актуальный snapshot агента — UI обновит sidebar/статус без re-fetch
+        "agent": _agent_dict(a, include_spec=True),
     }
