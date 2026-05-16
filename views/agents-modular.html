@@ -277,12 +277,16 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
               placeholder="Например: Подготовь пост на тему стройки на сегодня"></textarea>
     <p class="text-xs text-on-dim mt-1 mb-3">Без задачи расписание не сработает — модулю нужно понять что делать.</p>
 
-    <div class="flex justify-between items-center">
+    <div class="flex justify-between items-center" style="margin-bottom:8px">
       <button class="btn-d" id="schedClearBtn">Очистить расписание</button>
       <div class="flex gap-2">
         <button class="btn-g" onclick="closeScheduleModal()">Отмена</button>
         <button class="btn-p" id="schedSaveBtn">Сохранить</button>
       </div>
+    </div>
+    <div style="border-top:1px solid rgba(74,63,47,0.4);padding-top:10px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div class="text-xs text-on-dim">Протестировать прямо сейчас — запустит модуль с задачей выше (с биллингом 1 ₽).</div>
+      <button class="btn-g" id="schedRunNowBtn" style="white-space:nowrap">▶ Запустить сейчас</button>
     </div>
   </div>
 </div>
@@ -995,6 +999,41 @@ document.getElementById('schedSaveBtn').addEventListener('click', async () => {
   }catch(e){
     if(window.aiAlert) await window.aiAlert('Не удалось сохранить: '+e.message, 'error');
     else alert('Не удалось сохранить: '+e.message);
+  }
+});
+
+document.getElementById('schedRunNowBtn').addEventListener('click', async () => {
+  if(!_schedSlug) return;
+  const btn = document.getElementById('schedRunNowBtn');
+  const task = document.getElementById('schedTask').value.trim();
+  if(!task){
+    if(window.aiAlert) await window.aiAlert('Задай задачу — нечего запускать.', 'warn');
+    return;
+  }
+  btn.disabled = true; btn.textContent = '⏳ запускаю...';
+  try{
+    const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(_schedSlug)}/invoke`, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({task}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'HTTP '+r.status);
+    }
+    const data = await r.json();
+    closeScheduleModal();
+    await loadModules();
+    // Подтянуть свежее сообщение в чат
+    await loadMessages();
+    if(window.aiAlert) await window.aiAlert(data.ok
+      ? '✓ Модуль отработал — ответ в чате.'
+      : '⚠ Модуль не справился — подробности в чате.',
+      data.ok ? 'success' : 'warn');
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Не удалось запустить: '+e.message, 'error');
+  }finally{
+    btn.disabled = false; btn.textContent = '▶ Запустить сейчас';
   }
 });
 

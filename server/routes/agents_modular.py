@@ -690,6 +690,133 @@ def patch_module(slug: str, payload: PatchModulePayload,
     return _module_dict(m, with_meta=True)
 
 
+class InvokeModulePayload(BaseModel):
+    task: str | None = None  # если None — используем custom_settings.cron_task
+
+
+@router.post("/me/modules/{slug}/invoke")
+def invoke_module_now(slug: str,
+                       payload: InvokeModulePayload,
+                       db: Session = Depends(get_db),
+                       user: User = Depends(current_user)):
+    """Запустить модуль вручную «сейчас» с заданной задачей.
+
+    Использует ту же логику что cron-runtime (биллинг, прокачка, сообщение
+    в чат role=tool). Юзер видит эту кнопку рядом с настройкой расписания —
+    «протестировать прямо сейчас» / «запустить разово».
+    """
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    allowed, reason = _rate_limit_check(user.id)
+    if not allowed:
+        raise HTTPException(429, reason)
+
+    a = get_or_create_agent(user, db)
+    m = db.query(AgentModule).filter_by(agent_id=a.id, slug=slug).first()
+    if not m or not m.is_enabled:
+        raise HTTPException(404, "Модуль не подключён или отключён")
+
+    settings = _safe_json(m.custom_settings_json, {})
+    task = (payload.task or settings.get("cron_task") or "").strip()
+    if not task:
+        raise HTTPException(400, "Не задана задача — передай task в body или "
+                                  "сохрани cron_task в настройках модуля")
+    task = task[:8000]
+
+    from server.pricing import get_price
+    from server.billing import deduct_atomic
+    from server.models import Transaction
+    from server.agent_builder import (
+        invoke_module, apply_module_memory_updates, compute_module_level,
+    )
+
+    module_cost = get_price("agents.module_invoke", default=100)
+    if module_cost > 0 and int(user.tokens_balance or 0) < module_cost:
+        raise HTTPException(402, f"Недостаточно средств. Нужно {module_cost/100:.2f} ₽")
+
+    profile = _safe_json(a.profile_json, {"facts": []})
+    mod_memory = _safe_json(m.module_memory_json, {})
+
+    try:
+        inv = invoke_module(
+            slug=slug, task=task,
+            profile=profile,
+            module_memory=mod_memory,
+            custom_settings=settings,
+            user_id=user.id,
+        )
+    except Exception as e:
+        log.exception(f"[agents.invoke_now] module {slug} failed: {e}")
+        raise HTTPException(500, f"Модуль упал: {e!s:.140}")
+
+    charged_kop = 0
+    level_up = False
+    if inv.get("ok"):
+        if module_cost > 0:
+            charged_kop = deduct_atomic(db, user.id, module_cost)
+            if charged_kop > 0:
+                db.add(Transaction(
+                    user_id=user.id, type="usage",
+                    tokens_delta=-charged_kop,
+                    description=f"Модуль {slug} (запуск): {charged_kop/100:.2f} ₽",
+                    model=f"agents.module:{slug}",
+                ))
+        if inv.get("memory_updates"):
+            apply_module_memory_updates(mod_memory, inv["memory_updates"])
+            m.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
+        m.interaction_count = (m.interaction_count or 0) + 1
+        m.last_used_at = datetime.utcnow()
+        learned_count = len(mod_memory.get("learned") or [])
+        new_lvl = compute_module_level(
+            current_level=m.level or 0,
+            interaction_count=m.interaction_count,
+            agent_status=a.status,
+            learned_count=learned_count,
+        )
+        level_up = new_lvl > (m.level or 0)
+        if level_up:
+            m.level = new_lvl
+        content = inv["output"]
+    else:
+        content = f"⚠ Модуль не справился: {inv.get('error', 'неизвестная ошибка')}"
+
+    msg = AgentMessage(
+        agent_id=a.id, role="tool", content=content,
+        meta_json=_dump_meta({
+            "mode": "manual_invoke",
+            "slug": slug,
+            "model_used": inv.get("model_used", ""),
+            "level": m.level,
+            "level_up": level_up,
+            "interactions": m.interaction_count,
+            "ok": bool(inv.get("ok")),
+            "cost_kop": charged_kop,
+        }),
+    )
+    db.add(msg)
+    a.last_activity_at = datetime.utcnow()
+    db.commit()
+    db.refresh(msg)
+
+    try:
+        from server.audit_log import log_action
+        log_action(
+            "agent.manual_invoke", user_id=user.id,
+            target_type="agent_module", target_id=m.id,
+            details={"slug": slug, "ok": bool(inv.get("ok")),
+                      "cost_kop": charged_kop, "level": m.level},
+        )
+    except Exception:
+        pass
+
+    return {
+        "ok": bool(inv.get("ok")),
+        "message": _msg_dict(msg),
+        "module": _module_dict(m, with_meta=True),
+        "level_up": level_up,
+    }
+
+
 @router.delete("/me/modules/{slug}")
 def disconnect_module(slug: str,
                       db: Session = Depends(get_db),

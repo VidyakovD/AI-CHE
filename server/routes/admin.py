@@ -506,6 +506,88 @@ def admin_usage_stats(days: int = 30, user: User = Depends(current_user),
     }
 
 
+@router.get("/agents-stats")
+def admin_agents_stats(days: int = 30,
+                       user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Статистика модульных ИИ Агентов (раздел 23).
+
+    Возвращает:
+      - Сколько агентов в каждом статусе (onboarding/active/paused)
+      - TOP модулей по подключениям + распределение по уровням L0-L4
+      - Транзакции по типу agents.* за `days` дней (сообщения / вызовы модулей)
+      - cron-runtime активность (модули с включённым расписанием)
+    """
+    require_admin(user)
+    from datetime import datetime, timedelta
+    from server.models import Agent, AgentModule, Transaction
+    since = datetime.utcnow() - timedelta(days=days)
+
+    # Распределение агентов по статусам
+    agents_by_status = dict(
+        db.query(Agent.status, func.count(Agent.id))
+          .group_by(Agent.status).all()
+    )
+
+    # Модули по slug + уровню
+    modules_rows = (db.query(
+        AgentModule.slug,
+        func.count(AgentModule.id).label("installs"),
+        func.sum(AgentModule.interaction_count).label("total_interactions"),
+        func.avg(AgentModule.level).label("avg_level"),
+    ).filter(AgentModule.is_enabled.is_(True))
+     .group_by(AgentModule.slug)
+     .order_by(func.count(AgentModule.id).desc()).all())
+
+    levels_dist = dict(
+        db.query(AgentModule.level, func.count(AgentModule.id))
+          .filter(AgentModule.is_enabled.is_(True))
+          .group_by(AgentModule.level).all()
+    )
+
+    # Активный cron (включённые модули с schedule_cron)
+    cron_active = (db.query(func.count(AgentModule.id))
+                     .filter(AgentModule.is_enabled.is_(True),
+                             AgentModule.schedule_cron.isnot(None))
+                     .scalar()) or 0
+
+    # Транзакции с model LIKE agents.%
+    tx_rows = (db.query(
+        Transaction.model,
+        func.count(Transaction.id).label("count"),
+        func.sum(Transaction.tokens_delta).label("delta_sum"),
+    ).filter(Transaction.created_at >= since,
+              Transaction.model.like("agents.%"))
+     .group_by(Transaction.model)
+     .order_by(func.count(Transaction.id).desc()).all())
+
+    total_revenue_kop = -sum(r.delta_sum or 0 for r in tx_rows)  # списания — отрицательные
+
+    return {
+        "days": days,
+        "agents_by_status": agents_by_status,
+        "modules_top": [
+            {
+                "slug": r.slug,
+                "installs": int(r.installs or 0),
+                "total_interactions": int(r.total_interactions or 0),
+                "avg_level": round(float(r.avg_level or 0), 2),
+            } for r in modules_rows
+        ],
+        "levels_distribution": {str(k): int(v) for k, v in levels_dist.items()},
+        "cron_active_modules": int(cron_active),
+        "transactions": [
+            {
+                "model": r.model,
+                "count": int(r.count or 0),
+                "revenue_kop": int(-(r.delta_sum or 0)),
+            } for r in tx_rows
+        ],
+        "total_revenue_kop": int(total_revenue_kop),
+        "total_revenue_rub": round(total_revenue_kop / 100, 2),
+    }
+
+
 # ── Admin: Solutions CRUD ─────────────────────────────────────────────────────
 
 @router.post("/categories")
