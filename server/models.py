@@ -1689,35 +1689,89 @@ class AgentRun(Base):
 # canvas-конструктор (те остаются как legacy для разработчиков).
 
 class Agent(Base):
-    """Модульный агент юзера (новая система ИИ Агентов, см. модуль 23).
+    """Личный агент юзера. ОДИН на юзера (UNIQUE user_id) — это «твой ИИ»,
+    которого ты знакомишь с собой и наращиваешь модулями.
 
-    spec_json — полная спецификация:
-      {
-        "modules":   ["smm","copywriter","vk_poster"],
-        "schedule":  "0 9 * * *",            # cron, либо null
-        "triggers":  [{"type":"new_email","filter":"..."}],
-        "goals":     "ежедневный пост в ВК на тему стройки",
-        "channels":  ["web","tg"],
-        "system_prompt_addon": "Тон деловой, без воды",
-        "module_configs": {"smm": {...}, "vk_poster": {...}}
-      }
+    Архитектурно (после правки 2026-05-16):
+      User (1) ←→ (1) Agent
+                       ↓ messages — история общения
+                       ↓ profile_json — Memory Hub (что агент знает о тебе)
+                       ↓ personality_json — стиль / тон / имя агента
+                       ↓ (1)─(N) AgentModule — подключённые навыки
+
+    Раньше задумывалось «много агентов на юзера» — переделано на singleton
+    после правки видения. Старые поля name/icon/spec_json/status оставлены
+    для backward-compat, но используются по-новому:
+      name/icon — кастомизация персонажа агента (по умолчанию «Че», 🤖)
+      spec_json — global config (предпочтения, расписания cross-module)
+      status — onboarding|active|paused (draft превратился в onboarding)
     """
     __tablename__ = "agents"
 
     id              = Column(Integer, primary_key=True, index=True)
+    # Singleton enforcing в Python (get-or-create в роутах), НЕ через UNIQUE
+    # constraint — иначе на existing-БД с старыми дублями миграция упадёт.
+    # Если у юзера случайно несколько Agent — берём min(id) и архивируем остальные.
     user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
                               nullable=False, index=True)
-    name            = Column(String, nullable=False)
-    icon            = Column(String, nullable=True)            # эмодзи для карточки
-    spec_json       = Column(Text, nullable=True)              # полная спецификация
-    # draft — только создаётся через Builder, ещё не активен
+    name            = Column(String, nullable=False, default="Че")
+    icon            = Column(String, nullable=True, default="🤖")
+    spec_json       = Column(Text, nullable=True)              # global config
+    # Memory Hub: что агент узнал о юзере (имя, сфера, тон, цели).
+    # Структура JSON: {"name":"...","industry":"...","tone":"...","goals":"...",
+    #                  "facts":[{"key":"...","value":"...","learned_at":"..."}, ...]}
+    profile_json    = Column(Text, nullable=True)
+    # Personality: персонификация агента (одно лицо поверх N моделей).
+    # {"display_name":"Че", "icon":"🤖", "voice":"friendly", "addon_prompt":"..."}
+    personality_json = Column(Text, nullable=True)
+    # onboarding — агент знакомится с юзером (первые 5-10 сообщений)
     # active — работает (по расписанию/триггерам/командам)
-    # paused — пользователь поставил на паузу
-    # archived — удалён soft
-    status          = Column(String, default="draft", index=True)
+    # paused — на паузе по запросу юзера
+    # archived — soft-deleted (для тестов; обычно не удаляем)
+    status          = Column(String, default="onboarding", index=True)
     created_at      = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_activity_at = Column(DateTime, nullable=True)
+
+    modules = relationship("AgentModule", back_populates="agent", cascade="all, delete-orphan")
+
+
+class AgentModule(Base):
+    """Подключённый к агенту навык (модуль). Каждый — со своим уровнем
+    прокачки и персональной памятью.
+
+    Прокачка L0-L4 (из ТЗ раздел 5.2):
+      L0 — базовый (по умолчанию)
+      L1 — знает базовые факты о юзере (5-10 взаимодействий)
+      L2 — подстраивается под стиль (≥30 взаимодействий + подключён источник)
+      L3 — действует проактивно (4+ недели + накопленная база)
+      L4 — автономия (явное разрешение юзера + история без ошибок)
+
+    module_memory_json — что модуль выучил под этого юзера (paraprompts).
+    custom_settings_json — пользовательские настройки модуля (расписания,
+    фильтры, токены каналов).
+    """
+    __tablename__ = "agent_modules"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    agent_id        = Column(Integer, ForeignKey("agents.id", ondelete="CASCADE"),
+                              nullable=False, index=True)
+    slug            = Column(String, nullable=False, index=True)   # из AGENT_REGISTRY
+    level           = Column(Integer, default=0)                    # 0..4
+    interaction_count = Column(Integer, default=0)                  # для прокачки L→L+1
+    module_memory_json   = Column(Text, nullable=True)              # выученные правила
+    custom_settings_json = Column(Text, nullable=True)              # параметры юзера
+    # cron-расписание этого модуля (опц.) — если задано, scheduler-cron его запустит
+    schedule_cron   = Column(String, nullable=True)
+    is_enabled      = Column(Boolean, default=True)
+    connected_at    = Column(DateTime, default=datetime.utcnow)
+    last_used_at    = Column(DateTime, nullable=True)
+
+    agent = relationship("Agent", back_populates="modules")
+
+    __table_args__ = (
+        UniqueConstraint("agent_id", "slug", name="uix_agent_module"),
+    )
 
 
 class AgentMessage(Base):

@@ -3,7 +3,7 @@
 <head>
 <script>
 (function(){try{
-  var V='aiche-v6-2026-05-16-agentsmod';
+  var V='aiche-v6-2026-05-16-personal';
   var stored=localStorage.getItem('aiche_client_version');
   if(stored===V) return;
   if(!('serviceWorker' in navigator)){localStorage.setItem('aiche_client_version',V);return;}
@@ -25,7 +25,7 @@
 </script>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>AI Студия Че — ИИ Агенты</title>
+<title>AI Студия Че — Мой агент</title>
 <link rel="stylesheet" href="/fonts.css"/>
 <link rel="stylesheet" href="/styles.css"/>
 <script src="https://cdn.tailwindcss.com/3.4.0"></script>
@@ -33,398 +33,358 @@
 <style>
 *{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
 *::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
-body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;min-height:100vh}
+body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;min-height:100vh;overflow:hidden}
 .sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:9px 16px;cursor:pointer;font-size:13px;border:none;display:inline-flex;align-items:center;gap:6px;transition:opacity .15s}
 .btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
-.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;transition:all .15s}
 .btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
-.btn-d{background:rgba(255,107,107,0.1);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-d{background:rgba(255,107,107,0.1);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer}
 .btn-d:hover{background:rgba(255,107,107,0.2)}
-.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;font-family:inherit;transition:border-color .2s}
+.inp{width:100%;padding:10px 14px;border-radius:10px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:14px;font-family:inherit;transition:border-color .2s}
 .inp:focus{border-color:#ff8c42}.inp::placeholder{color:#a89880}
-textarea.inp{resize:vertical;min-height:48px;line-height:1.45}
-.card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
-.lbl{display:block;font-size:12px;color:#a89880;margin-bottom:5px;font-weight:500}
+textarea.inp{resize:none;line-height:1.45;max-height:160px}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
 .modal-bg.show{display:flex}
 
-/* Agent cards grid */
-.ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
-.ag-card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.3);border-radius:16px;padding:16px;cursor:pointer;transition:transform .15s, border-color .15s, box-shadow .15s;display:flex;flex-direction:column;gap:10px;min-height:170px;position:relative}
-.ag-card:hover{border-color:#ff8c42;transform:translateY(-2px);box-shadow:0 8px 24px rgba(255,140,66,.08)}
-.ag-card .row1{display:flex;align-items:center;gap:10px}
-.ag-card .ic{font-size:30px;line-height:1}
-.ag-card .nm{flex:1;font-weight:700;font-size:16px;color:#f0e6d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ag-card .st{font-size:10px;padding:3px 8px;border-radius:8px;font-weight:600}
-.ag-card .st.draft{background:rgba(160,160,160,.15);color:#a89880}
-.ag-card .st.active{background:rgba(123,217,104,.15);color:#7bd968}
-.ag-card .st.paused{background:rgba(255,179,71,.15);color:#ffb347}
-.ag-card .goals{font-size:13px;color:#a89880;line-height:1.45;flex:1;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.ag-card .meta{display:flex;gap:8px;font-size:11px;color:#a89880;flex-wrap:wrap}
-.ag-card .meta span{padding:2px 7px;background:#272018;border-radius:6px}
+/* Layout: top header + main 3-zone (sidebar profile | chat | modules) */
+.app{display:grid;grid-template-rows:auto 1fr;height:100vh;width:100vw}
+.hdr{padding:10px 18px;background:#0d0a07;border-bottom:1px solid rgba(74,63,47,0.4);display:flex;align-items:center;justify-content:space-between;gap:14px;flex-shrink:0}
+.hdr .left{display:flex;align-items:center;gap:12px;min-width:0}
+.hdr .ic{font-size:26px;flex-shrink:0}
+.hdr .nm{font-weight:700;font-size:15px;color:#f0e6d8;line-height:1.2}
+.hdr .st{font-size:11px;color:#a89880;margin-top:2px}
+.hdr .st .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.hdr .st .dot.active{background:#7bd968}
+.hdr .st .dot.onboarding{background:#ffb347}
+.hdr .st .dot.paused{background:#a89880}
 
-/* Empty state */
-.empty-hero{padding:48px 24px;text-align:center;max-width:520px;margin:40px auto}
-.empty-hero .h{font-size:24px;font-weight:700;color:#f0e6d8;margin-bottom:8px}
-.empty-hero .d{font-size:14px;color:#a89880;margin-bottom:24px;line-height:1.55}
-.tpl-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:18px}
-.tpl-card{background:#272018;border:1px solid rgba(74,63,47,0.3);border-radius:12px;padding:12px;cursor:pointer;text-align:left;transition:all .15s}
-.tpl-card:hover{border-color:#ff8c42;background:#322a1e}
-.tpl-card .ic{font-size:22px;margin-bottom:6px}
-.tpl-card .nm{font-weight:600;font-size:13px;color:#f0e6d8;margin-bottom:3px}
-.tpl-card .d{font-size:11px;color:#a89880;line-height:1.4}
+.main{display:grid;grid-template-columns:1fr 320px;height:100%;min-height:0}
+@media(max-width: 980px){.main{grid-template-columns:1fr}.aside{display:none}}
 
-/* Create-modal */
-.mode-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:14px}
-.mode-card{background:#272018;border:1.5px solid rgba(74,63,47,0.4);border-radius:10px;padding:11px;cursor:pointer;text-align:left;transition:all .15s}
-.mode-card:hover{border-color:#ff8c42}
-.mode-card.active{border-color:#ff8c42;background:rgba(255,140,66,.08)}
-.mode-card .ic{font-size:20px;margin-bottom:4px}
-.mode-card .nm{font-weight:600;font-size:13px;color:#f0e6d8;margin-bottom:2px}
-.mode-card .d{font-size:11px;color:#a89880;line-height:1.35}
-
-/* Detail view (chat with agent) */
-.detail-wrap{display:grid;grid-template-columns:1fr 280px;gap:14px;margin-top:14px}
-@media(max-width: 880px){.detail-wrap{grid-template-columns:1fr}}
-.chat-card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px;display:flex;flex-direction:column;height:calc(100vh - 220px);min-height:480px;overflow:hidden}
-.chat-hdr{padding:12px 16px;border-bottom:1px solid rgba(74,63,47,0.25);display:flex;align-items:center;gap:10px}
-.chat-hdr .ic{font-size:22px}
-.chat-hdr .nm{font-weight:700;flex:1}
-.chat-feed{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
-.msg{max-width:75%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.5;word-wrap:break-word;white-space:pre-wrap}
+.chat-wrap{display:flex;flex-direction:column;min-height:0;background:#1C1C1C}
+.chat-feed{flex:1;overflow-y:auto;padding:24px 18px;display:flex;flex-direction:column;gap:12px;max-width:820px;width:100%;margin:0 auto}
+.msg{max-width:78%;padding:11px 16px;border-radius:14px;font-size:14.5px;line-height:1.55;word-wrap:break-word;white-space:pre-wrap}
 .msg.user{align-self:flex-end;background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;border-bottom-right-radius:4px}
 .msg.assistant{align-self:flex-start;background:#272018;color:#f0e6d8;border-bottom-left-radius:4px;border:1px solid rgba(74,63,47,0.35)}
-.msg.system{align-self:center;background:transparent;color:#a89880;font-size:12px;font-style:italic;max-width:100%}
-.msg.tool{align-self:flex-start;background:#161210;color:#a89880;font-size:12px;border-left:2px solid #ff8c42;border-radius:4px}
-.chat-input{padding:12px;border-top:1px solid rgba(74,63,47,0.25);display:flex;gap:8px;align-items:flex-end}
-.chat-input textarea{flex:1;max-height:120px}
-.sidebar-card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px;padding:16px;height:fit-content}
-.sidebar-card h4{font-weight:700;font-size:14px;margin-bottom:10px;color:#f0e6d8}
-.spec-row{margin-bottom:12px;font-size:12px}
-.spec-row .k{color:#a89880;margin-bottom:4px;display:block}
-.spec-row .v{color:#f0e6d8}
-.chip{display:inline-block;padding:3px 8px;background:#272018;border:1px solid rgba(74,63,47,0.4);border-radius:6px;font-size:11px;margin-right:4px;margin-bottom:4px}
+.msg.system{align-self:center;background:transparent;color:#a89880;font-size:12px;font-style:italic;max-width:100%;padding:4px 8px}
+.suggest-row{align-self:flex-start;display:flex;gap:6px;flex-wrap:wrap;margin-top:-4px}
+.suggest-chip{padding:5px 11px;background:#322a1e;border:1px solid rgba(255,140,66,.4);border-radius:14px;font-size:12px;color:#ffb347;cursor:pointer;transition:all .15s}
+.suggest-chip:hover{background:rgba(255,140,66,.15);color:#fff}
+
+.chat-input-row{padding:14px 18px;border-top:1px solid rgba(74,63,47,0.3);background:#1C1C1C;display:flex;gap:10px;align-items:flex-end;max-width:820px;width:100%;margin:0 auto;box-sizing:border-box}
+.chat-input-row textarea{flex:1}
+.chat-input-row .btn-p{padding:11px 18px;font-size:15px}
+
+/* Right sidebar: modules + profile */
+.aside{background:#161210;border-left:1px solid rgba(74,63,47,0.4);overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:16px}
+.aside-block h4{font-size:13px;font-weight:700;color:#ffb347;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+.profile-fact{font-size:12px;color:#f0e6d8;background:#1e1a14;border:1px solid rgba(74,63,47,0.3);border-radius:8px;padding:8px 11px;margin-bottom:5px;line-height:1.45}
+.profile-fact .k{color:#a89880;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px}
+.profile-empty{font-size:12px;color:#a89880;font-style:italic;padding:8px 0}
+
+.mod-card{display:flex;align-items:center;gap:8px;background:#1e1a14;border:1px solid rgba(74,63,47,0.3);border-radius:9px;padding:10px 12px;margin-bottom:6px;transition:border-color .15s}
+.mod-card:hover{border-color:rgba(255,140,66,.4)}
+.mod-card.off{opacity:.55}
+.mod-card .nm{flex:1;font-size:13px;font-weight:600;color:#f0e6d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mod-card .lvl{font-size:10px;color:#a89880;font-weight:600;padding:2px 6px;background:#272018;border-radius:5px}
+.mod-card .lvl.L1{color:#7bd968}.mod-card .lvl.L2{color:#7bd968}
+.mod-card .lvl.L3{color:#ffb347}.mod-card .lvl.L4{color:#ff8c42}
+.mod-card .x{background:transparent;border:none;color:#666;cursor:pointer;font-size:14px;padding:2px 4px}
+.mod-card .x:hover{color:#ff6b6b}
+.mod-empty{font-size:12px;color:#a89880;text-align:center;padding:18px 0;border:1px dashed rgba(74,63,47,0.4);border-radius:9px}
+
+.add-btn{width:100%;background:rgba(255,140,66,.08);border:1px dashed rgba(255,140,66,.4);color:#ffb347;border-radius:9px;padding:9px;font-size:12.5px;cursor:pointer;font-weight:600;transition:all .15s}
+.add-btn:hover{background:rgba(255,140,66,.15);border-color:#ff8c42;color:#fff}
+
+/* Catalog modal */
+.cat-search{margin-bottom:12px}
+.cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;max-height:60vh;overflow-y:auto;padding-right:6px}
+.cat-item{background:#272018;border:1px solid rgba(74,63,47,0.4);border-radius:10px;padding:11px;cursor:pointer;transition:all .15s}
+.cat-item:hover{border-color:#ff8c42}
+.cat-item.connected{opacity:.5;cursor:not-allowed}
+.cat-item .nm{font-weight:600;font-size:13px;color:#f0e6d8;margin-bottom:3px}
+.cat-item .d{font-size:11px;color:#a89880;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cat-item .badge{display:inline-block;font-size:10px;background:rgba(123,217,104,.15);color:#7bd968;padding:2px 6px;border-radius:5px;margin-top:5px}
 </style>
 <script src="/shared.js" defer></script>
 <script src="/icons.js" defer></script>
 </head>
 <body class="dark" data-assistant-section="agents-modular" data-assistant-label="ИИ Агенты">
 
-<div class="max-w-6xl mx-auto px-4 py-6">
-
-  <header class="flex items-center justify-between mb-6">
-    <div class="flex items-center gap-3">
-      <a href="/" class="btn-g" title="На главную">← На главную</a>
-      <div>
-        <h1 class="text-2xl font-bold sig-text">🤖 ИИ Агенты</h1>
-        <p class="text-xs text-on-dim">Создавайте агентов через диалог — никаких форм. Они подключают модули сами.</p>
+<div class="app">
+  <header class="hdr">
+    <div class="left">
+      <a href="/" class="btn-g" title="На главную" style="font-size:13px">←</a>
+      <span class="ic" id="agentIcon">🤖</span>
+      <div style="min-width:0">
+        <div class="nm" id="agentName">Загрузка...</div>
+        <div class="st"><span class="dot" id="statusDot"></span><span id="statusLabel">—</span></div>
       </div>
     </div>
-    <div id="balancePill" class="text-sm text-on-dim"></div>
+    <div class="flex items-center gap-2">
+      <span id="balancePill" class="text-xs text-on-dim hidden md:inline"></span>
+      <button class="btn-g" onclick="openProfileEdit()" title="Настройки агента">⚙</button>
+    </div>
   </header>
 
-  <!-- Список агентов / пустое состояние -->
-  <section id="listView">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold">Мои агенты <span id="agentsCount" class="text-on-dim text-sm font-normal"></span></h2>
-      <button class="btn-p" onclick="openCreate()">+ Создать агента</button>
+  <div class="main">
+    <!-- Chat -->
+    <div class="chat-wrap">
+      <div class="chat-feed" id="chatFeed">
+        <div class="msg system">⏳ Загрузка истории...</div>
+      </div>
+      <div class="chat-input-row">
+        <textarea class="inp" id="chatInput" rows="1" placeholder="Напиши сообщение агенту..."></textarea>
+        <button class="btn-p" id="sendBtn" onclick="sendMessage()">Отправить</button>
+      </div>
     </div>
-    <div id="agentsList"></div>
-  </section>
 
-  <!-- Детальный вид агента (чат + панель настроек) -->
-  <section id="detailView" style="display:none">
-    <div class="flex items-center gap-3 mb-4">
-      <button class="btn-g" onclick="backToList()">← Назад</button>
-      <h2 id="detailTitle" class="text-lg font-semibold flex-1"></h2>
-      <button class="btn-d" id="archiveBtn" onclick="archiveAgent()">Удалить</button>
-    </div>
-    <div class="detail-wrap">
-      <div class="chat-card">
-        <div class="chat-hdr">
-          <div class="ic" id="detailIcon">🤖</div>
-          <div class="nm" id="detailName"></div>
-          <div class="st" id="detailStatus" style="font-size:11px;padding:3px 8px;border-radius:8px"></div>
-        </div>
-        <div class="chat-feed" id="chatFeed"></div>
-        <div class="chat-input">
-          <textarea class="inp" id="chatInput" rows="2" placeholder="Опиши что должен делать агент..."></textarea>
-          <button class="btn-p" id="sendBtn" onclick="sendMessage()">↑</button>
-        </div>
+    <!-- Right sidebar: profile + modules -->
+    <aside class="aside">
+      <div class="aside-block">
+        <h4>📋 Что я знаю о тебе</h4>
+        <div id="profileBlock"></div>
       </div>
-      <div class="sidebar-card">
-        <h4>📋 Спецификация</h4>
-        <div id="specBlock"></div>
+      <div class="aside-block" style="flex:1">
+        <h4>🧩 Подключённые модули</h4>
+        <div id="modulesBlock"></div>
+        <button class="add-btn" onclick="openCatalog()" style="margin-top:6px">+ Подключить модуль</button>
       </div>
-    </div>
-  </section>
+    </aside>
+  </div>
 </div>
 
-<!-- Create-agent modal -->
-<div id="createModal" class="modal-bg">
-  <div class="card p-5" style="max-width:520px;width:100%" onclick="event.stopPropagation()">
-    <h3 class="text-lg font-bold mb-4">Новый агент</h3>
-    <label class="lbl">Имя агента</label>
-    <input class="inp" id="newName" placeholder="Например: SMM-агент Instagram" maxlength="80"/>
-
-    <label class="lbl mt-4">Способ управления</label>
-    <div class="mode-grid" id="modeGrid">
-      <div class="mode-card active" data-mode="chat">
-        <div class="ic">💬</div>
-        <div class="nm">Чат</div>
-        <div class="d">Общаюсь сам, говорю что делать</div>
-      </div>
-      <div class="mode-card" data-mode="schedule">
-        <div class="ic">⏰</div>
-        <div class="nm">Расписание</div>
-        <div class="d">По cron — «каждый день в 9:00»</div>
-      </div>
-      <div class="mode-card" data-mode="triggers">
-        <div class="ic">📨</div>
-        <div class="nm">Триггеры</div>
-        <div class="d">На события: новое письмо, лид, упоминание</div>
-      </div>
-      <div class="mode-card" data-mode="hybrid">
-        <div class="ic">🔄</div>
-        <div class="nm">Гибрид</div>
-        <div class="d">Сразу несколько способов</div>
-      </div>
+<!-- Catalog modal -->
+<div id="catalogModal" class="modal-bg">
+  <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:20px;max-width:720px;width:100%" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-lg font-bold">🧩 Каталог модулей</h3>
+      <button class="btn-g" onclick="closeCatalog()">✕</button>
     </div>
-
-    <label class="lbl mt-3">Что должен делать (опционально, можно опустить — спросит сам)</label>
-    <textarea class="inp" id="newGoals" rows="2" placeholder="Например: писать пост в 9 утра каждый день на тему стройки"></textarea>
-
-    <div class="flex justify-end gap-2 mt-5">
-      <button class="btn-g" onclick="closeCreate()">Отмена</button>
-      <button class="btn-p" id="createBtn" onclick="submitCreate()">Создать и открыть чат</button>
+    <input class="inp cat-search" id="catSearch" placeholder="Поиск по названию или ключевым словам..."/>
+    <div id="catalogGrid" class="cat-grid">
+      <div class="profile-empty">⏳ Загрузка...</div>
     </div>
-    <div id="createErr" style="color:#ff6b6b;font-size:12px;margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- Profile edit modal -->
+<div id="profileModal" class="modal-bg">
+  <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:20px;max-width:440px;width:100%" onclick="event.stopPropagation()">
+    <h3 class="text-lg font-bold mb-3">⚙ Настройки агента</h3>
+    <label class="block text-xs text-on-dim mb-1">Имя агента</label>
+    <input class="inp mb-3" id="editName" maxlength="80"/>
+    <label class="block text-xs text-on-dim mb-1">Иконка (эмодзи)</label>
+    <input class="inp mb-3" id="editIcon" maxlength="4" style="max-width:80px;text-align:center;font-size:18px"/>
+    <label class="block text-xs text-on-dim mb-1">Статус</label>
+    <select class="inp mb-4" id="editStatus">
+      <option value="onboarding">📝 Онбординг (агент знакомится)</option>
+      <option value="active">🟢 Активен</option>
+      <option value="paused">⏸ Пауза</option>
+    </select>
+    <div class="flex justify-end gap-2">
+      <button class="btn-g" onclick="closeProfileEdit()">Отмена</button>
+      <button class="btn-p" onclick="saveProfileEdit()">Сохранить</button>
+    </div>
   </div>
 </div>
 
 <script>
 const API = '';
-let _agents = [];
-let _currentAgent = null;
-let _selectedMode = 'chat';
+let _agent = null;
+let _modules = [];
+let _catalog = [];
 
 function _esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 async function loadBalance(){
   try{
     const r = await fetch(`${API}/auth/me`,{credentials:'same-origin'});
-    if(!r.ok){document.getElementById('balancePill').innerHTML='<a href="/" class="btn-g">Войти</a>';return;}
+    if(!r.ok)return;
     const me = await r.json();
     const bal = me.tokens_balance||0;
     document.getElementById('balancePill').textContent = `Баланс: ${(window.fmtRub?window.fmtRub(bal):(bal/100).toFixed(2)+' ₽')}`;
   }catch(e){}
 }
 
-// ── Список агентов ────────────────────────────────────────────────────────
-async function loadList(){
-  const box = document.getElementById('agentsList');
-  box.innerHTML = '<div class="empty-hero" style="margin:24px auto"><div class="d">⏳ Загрузка...</div></div>';
+// ── Agent ────────────────────────────────────────────────────────────────
+async function loadAgent(){
   try{
-    const r = await fetch(`${API}/api/agents`,{credentials:'same-origin'});
-    if(r.status===401){
-      // Не редиректим silent на главную — это выглядит как «страница пустая».
-      // Показываем явное сообщение с кнопкой возврата.
-      box.innerHTML = `<div class="empty-hero">
-        <div class="h">🔒 Требуется вход</div>
-        <div class="d">Сессия закончилась или вы не авторизованы. Войдите в аккаунт и вернитесь сюда.</div>
-        <a href="/" class="btn-p" style="display:inline-block;text-decoration:none">На главную → войти</a>
-      </div>`;
-      return;
-    }
-    if(!r.ok){box.innerHTML=`<div class="empty-hero"><div class="d">Ошибка: ${r.status}</div></div>`;return;}
-    const data = await r.json();
-    _agents = data.agents||[];
-    document.getElementById('agentsCount').textContent = _agents.length ? `· ${_agents.length}` : '';
-    if(!_agents.length){renderEmpty(box);return;}
-    box.innerHTML = `<div class="ag-grid">${_agents.map(_cardHtml).join('')}</div>`;
-    box.querySelectorAll('.ag-card').forEach(c=>{
-      c.addEventListener('click', e=>{
-        if(e.target.closest('button'))return;
-        openAgent(parseInt(c.dataset.id,10));
-      });
-    });
+    const r = await fetch(`${API}/api/agents/me`,{credentials:'same-origin'});
+    if(r.status===401){renderNotAuth();return false;}
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    _agent = await r.json();
+    renderHeader();
+    renderProfile();
+    return true;
   }catch(e){
-    box.innerHTML = `<div class="empty-hero"><div class="d">Сеть недоступна: ${_esc(e.message)}</div></div>`;
+    document.getElementById('chatFeed').innerHTML = `<div class="msg system">Не удалось загрузить агента: ${_esc(e.message)}</div>`;
+    return false;
   }
 }
 
-function renderEmpty(box){
-  const tpls = [
-    {name:'SMM-агент', ic:'📱', goals:'Пишу контент-план и публикую посты в соцсетях', mode:'schedule'},
-    {name:'Помощник по почте', ic:'📧', goals:'Сортирую входящие, готовлю черновики ответов', mode:'triggers'},
-    {name:'Автоответчик клиентам', ic:'💬', goals:'Отвечаю клиентам в TG/VK по моей базе знаний', mode:'triggers'},
-    {name:'Личный аналитик', ic:'📊', goals:'Слежу за финансами, считаю траты, отчёты раз в неделю', mode:'schedule'},
-  ];
-  box.innerHTML = `
-    <div class="empty-hero">
-      <div class="h">🤖 У тебя пока нет агентов</div>
-      <div class="d">Создай первого — расскажи в чате что должен делать, агент-конструктор сам подберёт модули и расписание.</div>
-      <button class="btn-p" onclick="openCreate()">+ Создать первого агента</button>
-      <div class="d" style="margin-top:30px;font-weight:600;color:#ffb347">или начни с шаблона:</div>
-      <div class="tpl-row">
-        ${tpls.map(t=>`
-          <div class="tpl-card" onclick="openCreateFromTemplate('${_esc(t.name)}','${_esc(t.ic)}','${_esc(t.mode)}','${_esc(t.goals)}')">
-            <div class="ic">${t.ic}</div>
-            <div class="nm">${_esc(t.name)}</div>
-            <div class="d">${_esc(t.goals)}</div>
-          </div>`).join('')}
-      </div>
+function renderNotAuth(){
+  document.getElementById('agentName').textContent = '🔒 Требуется вход';
+  document.getElementById('chatFeed').innerHTML = `
+    <div style="text-align:center;padding:60px 20px;color:#a89880">
+      <div style="font-size:48px;margin-bottom:14px">🔒</div>
+      <div style="font-size:16px;margin-bottom:14px">Чтобы общаться с агентом — нужно войти</div>
+      <a href="/" class="btn-p" style="display:inline-block;text-decoration:none">На главную → войти</a>
     </div>`;
+  document.querySelector('.aside').innerHTML = '';
+  document.querySelector('.chat-input-row').style.display = 'none';
 }
 
-function _cardHtml(a){
-  const st = a.status==='active'?'active':(a.status==='paused'?'paused':'draft');
-  const stLabel = {active:'🟢 Активен', paused:'⏸ Пауза', draft:'📝 Черновик'}[st];
-  const modBadges = (a.modules||[]).slice(0,3).map(m=>`<span>${_esc(m)}</span>`).join('');
-  const more = (a.modules||[]).length>3 ? `<span>+${a.modules.length-3}</span>` : '';
-  const sched = a.schedule ? `<span>⏰ ${_esc(a.schedule)}</span>` : '';
-  const trig = (a.triggers||[]).length ? `<span>📨 ${a.triggers.length}</span>` : '';
-  return `
-    <div class="ag-card" data-id="${a.id}">
-      <div class="row1">
-        <div class="ic">${_esc(a.icon||'🤖')}</div>
-        <div class="nm">${_esc(a.name)}</div>
-        <div class="st ${st}">${stLabel}</div>
-      </div>
-      <div class="goals">${_esc(a.goals||'_цель не задана — открой чат и опиши_')}</div>
-      <div class="meta">${modBadges}${more}${sched}${trig}</div>
-    </div>`;
+function renderHeader(){
+  document.getElementById('agentIcon').textContent = _agent.icon || '🤖';
+  document.getElementById('agentName').textContent = _agent.name || 'Че';
+  const st = _agent.status || 'onboarding';
+  const dot = document.getElementById('statusDot');
+  dot.className = 'dot '+st;
+  const lbl = {onboarding:'Знакомимся', active:'Активен', paused:'На паузе'}[st] || st;
+  document.getElementById('statusLabel').textContent = lbl + ' · ' + (_agent.modules_count||0) + ' модулей';
 }
 
-// ── Create modal ──────────────────────────────────────────────────────────
-function openCreate(){
-  document.getElementById('newName').value = '';
-  document.getElementById('newGoals').value = '';
-  document.getElementById('createErr').textContent = '';
-  _selectedMode = 'chat';
-  document.querySelectorAll('.mode-card').forEach(c=>{
-    c.classList.toggle('active', c.dataset.mode==='chat');
-  });
-  document.getElementById('createModal').classList.add('show');
-}
-function closeCreate(){document.getElementById('createModal').classList.remove('show');}
-
-function openCreateFromTemplate(name, icon, mode, goals){
-  openCreate();
-  document.getElementById('newName').value = name;
-  document.getElementById('newGoals').value = goals;
-  _selectedMode = mode;
-  document.querySelectorAll('.mode-card').forEach(c=>{
-    c.classList.toggle('active', c.dataset.mode===mode);
-  });
+function renderProfile(){
+  const box = document.getElementById('profileBlock');
+  const p = _agent.profile || {};
+  const facts = p.facts || [];
+  const lines = [];
+  for(const k of ['name','industry','tone','goals']){
+    if(p[k]){
+      const lbl = {name:'Имя', industry:'Сфера', tone:'Стиль', goals:'Цели'}[k];
+      lines.push(`<div class="profile-fact"><span class="k">${lbl}</span>${_esc(p[k])}</div>`);
+    }
+  }
+  for(const f of (facts||[]).slice(-8).reverse()){
+    if(f && f.value){
+      lines.push(`<div class="profile-fact"><span class="k">${_esc(f.key||'факт')}</span>${_esc(f.value)}</div>`);
+    }
+  }
+  box.innerHTML = lines.length ? lines.join('') : '<div class="profile-empty">Агент ещё ничего о тебе не знает. Поговорите — он запомнит.</div>';
 }
 
-document.getElementById('modeGrid').addEventListener('click', e=>{
-  const card = e.target.closest('.mode-card');
-  if(!card)return;
-  _selectedMode = card.dataset.mode;
-  document.querySelectorAll('.mode-card').forEach(c=>c.classList.toggle('active', c===card));
-});
-
-document.getElementById('createModal').addEventListener('click', e=>{
-  if(e.target===document.getElementById('createModal'))closeCreate();
-});
-
-async function submitCreate(){
-  const errEl = document.getElementById('createErr');
-  const btn = document.getElementById('createBtn');
-  errEl.textContent = '';
-  const name = (document.getElementById('newName').value||'').trim();
-  const goals = (document.getElementById('newGoals').value||'').trim();
-  if(!name){errEl.textContent='Введите имя агента';return;}
-  btn.disabled = true; btn.textContent = '⏳ Создаю...';
+// ── Modules ──────────────────────────────────────────────────────────────
+async function loadModules(){
   try{
-    const r = await fetch(`${API}/api/agents`,{
+    const r = await fetch(`${API}/api/agents/me/modules`,{credentials:'same-origin'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const data = await r.json();
+    _modules = data.modules||[];
+    renderModules();
+  }catch(e){
+    document.getElementById('modulesBlock').innerHTML = `<div class="profile-empty">Ошибка: ${_esc(e.message)}</div>`;
+  }
+}
+
+function renderModules(){
+  const box = document.getElementById('modulesBlock');
+  if(!_modules.length){
+    box.innerHTML = '<div class="mod-empty">Пока без модулей.<br/>Подключи навыки агенту ниже.</div>';
+    return;
+  }
+  box.innerHTML = _modules.map(m => `
+    <div class="mod-card ${m.is_enabled?'':'off'}">
+      <div class="nm" title="${_esc(m.description||m.slug)}">${_esc(m.name||m.slug)}</div>
+      <div class="lvl L${m.level}">L${m.level}</div>
+      <button class="x" onclick="disconnectModule('${_esc(m.slug)}')" title="Отключить">✕</button>
+    </div>`).join('');
+}
+
+async function disconnectModule(slug){
+  if(!confirm(`Отключить модуль «${slug}»? Память модуля удалится.`))return;
+  try{
+    const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(slug)}`,{
+      method:'DELETE', credentials:'same-origin',
+    });
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    await loadModules();
+    await loadAgent();
+    await loadMessages();  // подхватим system-message
+  }catch(e){
+    alert('Не удалось отключить: '+e.message);
+  }
+}
+
+// ── Catalog ──────────────────────────────────────────────────────────────
+function openCatalog(){
+  document.getElementById('catalogModal').classList.add('show');
+  loadCatalog();
+}
+function closeCatalog(){document.getElementById('catalogModal').classList.remove('show');}
+
+document.getElementById('catalogModal').addEventListener('click', e=>{
+  if(e.target===document.getElementById('catalogModal'))closeCatalog();
+});
+
+async function loadCatalog(){
+  const grid = document.getElementById('catalogGrid');
+  try{
+    const r = await fetch(`${API}/api/agents/catalog`,{credentials:'same-origin'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const data = await r.json();
+    _catalog = data.modules||[];
+    renderCatalog('');
+  }catch(e){
+    grid.innerHTML = `<div class="profile-empty">Ошибка: ${_esc(e.message)}</div>`;
+  }
+}
+
+function renderCatalog(q){
+  const grid = document.getElementById('catalogGrid');
+  q = (q||'').toLowerCase().trim();
+  let items = _catalog;
+  if(q){
+    items = _catalog.filter(m =>
+      (m.name||'').toLowerCase().includes(q) ||
+      (m.slug||'').toLowerCase().includes(q) ||
+      (m.description||'').toLowerCase().includes(q) ||
+      (m.keywords||[]).some(k => k.toLowerCase().includes(q))
+    );
+  }
+  if(!items.length){
+    grid.innerHTML = `<div class="profile-empty">Ничего не найдено по «${_esc(q)}»</div>`;
+    return;
+  }
+  grid.innerHTML = items.map(m => `
+    <div class="cat-item ${m.is_connected?'connected':''}" data-slug="${_esc(m.slug)}">
+      <div class="nm">${_esc(m.name||m.slug)}</div>
+      <div class="d">${_esc(m.description||'')}</div>
+      ${m.is_connected ? '<span class="badge">✓ Подключён</span>' : ''}
+    </div>`).join('');
+  grid.querySelectorAll('.cat-item:not(.connected)').forEach(el => {
+    el.addEventListener('click', () => connectModule(el.dataset.slug));
+  });
+}
+
+document.getElementById('catSearch').addEventListener('input', e => renderCatalog(e.target.value));
+
+async function connectModule(slug){
+  try{
+    const r = await fetch(`${API}/api/agents/me/modules`,{
       method:'POST', credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name, control_mode:_selectedMode, goals: goals||null}),
+      body: JSON.stringify({slug}),
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail || `HTTP ${r.status}`);
+      throw new Error(d.detail||'HTTP '+r.status);
     }
-    const a = await r.json();
-    closeCreate();
-    await loadList();
-    openAgent(a.id);
-  }catch(e){
-    errEl.textContent = `Не удалось создать: ${e.message}`;
-    btn.disabled = false; btn.textContent='Создать и открыть чат';
-  }
-}
-
-// ── Detail view + chat ────────────────────────────────────────────────────
-async function openAgent(id){
-  try{
-    const r = await fetch(`${API}/api/agents/${id}`,{credentials:'same-origin'});
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    _currentAgent = await r.json();
-    document.getElementById('listView').style.display='none';
-    document.getElementById('detailView').style.display='';
-    document.getElementById('detailTitle').textContent = _currentAgent.name;
-    document.getElementById('detailIcon').textContent = _currentAgent.icon||'🤖';
-    document.getElementById('detailName').textContent = _currentAgent.name;
-    const st = _currentAgent.status;
-    const stCls = st==='active'?'active':(st==='paused'?'paused':'draft');
-    const stLbl = {active:'🟢 Активен', paused:'⏸ Пауза', draft:'📝 Черновик'}[stCls];
-    const stEl = document.getElementById('detailStatus');
-    stEl.textContent = stLbl;
-    stEl.className = `st ${stCls}`;
-    renderSpec(_currentAgent);
+    closeCatalog();
+    await loadModules();
+    await loadAgent();
     await loadMessages();
   }catch(e){
-    alert('Не удалось открыть агента: '+e.message);
+    alert('Не удалось подключить: '+e.message);
   }
 }
 
-function backToList(){
-  _currentAgent = null;
-  document.getElementById('detailView').style.display='none';
-  document.getElementById('listView').style.display='';
-  loadList();
-}
-
-function renderSpec(a){
-  const sp = a.spec||{};
-  const mods = sp.modules||[];
-  const trigs = sp.triggers||[];
-  const chans = sp.channels||[];
-  document.getElementById('specBlock').innerHTML = `
-    <div class="spec-row">
-      <span class="k">Модули (${mods.length})</span>
-      <div class="v">${mods.length ? mods.map(m=>`<span class="chip">${_esc(m)}</span>`).join('') : '<i style="color:#a89880">пока ничего — настрой в чате</i>'}</div>
-    </div>
-    <div class="spec-row">
-      <span class="k">Расписание</span>
-      <div class="v">${sp.schedule ? `<code style="color:#ffb347">${_esc(sp.schedule)}</code>` : '<i style="color:#a89880">нет</i>'}</div>
-    </div>
-    <div class="spec-row">
-      <span class="k">Триггеры (${trigs.length})</span>
-      <div class="v">${trigs.length ? trigs.map(t=>`<span class="chip">${_esc(t.type||'?')}</span>`).join('') : '<i style="color:#a89880">нет</i>'}</div>
-    </div>
-    <div class="spec-row">
-      <span class="k">Каналы</span>
-      <div class="v">${chans.length ? chans.map(c=>`<span class="chip">${_esc(c)}</span>`).join('') : '<span class="chip">web</span>'}</div>
-    </div>
-    <div class="spec-row">
-      <span class="k">Цель</span>
-      <div class="v" style="line-height:1.4">${_esc(sp.goals||'')||'<i style="color:#a89880">не задана</i>'}</div>
-    </div>
-  `;
-}
-
+// ── Messages ─────────────────────────────────────────────────────────────
 async function loadMessages(){
-  if(!_currentAgent)return;
   const feed = document.getElementById('chatFeed');
-  feed.innerHTML = '<div class="msg system">⏳ Загрузка истории...</div>';
   try{
-    const r = await fetch(`${API}/api/agents/${_currentAgent.id}/messages`,{credentials:'same-origin'});
+    const r = await fetch(`${API}/api/agents/me/messages`,{credentials:'same-origin'});
     if(!r.ok)throw new Error('HTTP '+r.status);
     const data = await r.json();
     feed.innerHTML = '';
@@ -442,24 +402,41 @@ function _msgEl(m){
   return div;
 }
 
+function _suggestRow(suggestSlugs){
+  if(!suggestSlugs || !suggestSlugs.length) return null;
+  const row = document.createElement('div');
+  row.className = 'suggest-row';
+  const label = document.createElement('span');
+  label.style = 'font-size:11px;color:#a89880;align-self:center;margin-right:4px';
+  label.textContent = '⚡ Подключить:';
+  row.appendChild(label);
+  suggestSlugs.forEach(slug => {
+    const chip = document.createElement('button');
+    chip.className = 'suggest-chip';
+    chip.textContent = slug;
+    chip.addEventListener('click', () => connectModule(slug));
+    row.appendChild(chip);
+  });
+  return row;
+}
+
 async function sendMessage(){
   const ta = document.getElementById('chatInput');
   const btn = document.getElementById('sendBtn');
   const text = (ta.value||'').trim();
-  if(!text||!_currentAgent)return;
-  ta.value=''; btn.disabled=true;
+  if(!text || !_agent)return;
+  ta.value=''; ta.style.height='auto';
+  btn.disabled=true;
   const feed = document.getElementById('chatFeed');
-  // Optimistic user msg
   feed.appendChild(_msgEl({role:'user', content:text}));
   feed.scrollTop = feed.scrollHeight;
-  // Typing indicator
   const typing = document.createElement('div');
   typing.className='msg assistant';
   typing.textContent='⌛ агент думает...';
   feed.appendChild(typing);
   feed.scrollTop = feed.scrollHeight;
   try{
-    const r = await fetch(`${API}/api/agents/${_currentAgent.id}/messages`,{
+    const r = await fetch(`${API}/api/agents/me/messages`,{
       method:'POST', credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({content: text}),
@@ -471,21 +448,16 @@ async function sendMessage(){
     }else{
       const data = await r.json();
       if(data.assistant_message) feed.appendChild(_msgEl(data.assistant_message));
-      // Builder обновил spec — перерисуем sidebar и обновим статус в шапке
+      // Если assistant подсказал модули — рисуем suggest-chips
+      const meta = data.assistant_message?.meta||{};
+      // suggest_modules не в meta (мы их в applied/profile_changed не клали);
+      // пока пропускаем — добавим в meta позже если будет полезно
       if(data.agent){
-        _currentAgent = data.agent;
-        renderSpec(_currentAgent);
-        const st = _currentAgent.status;
-        const stCls = st==='active'?'active':(st==='paused'?'paused':'draft');
-        const stLbl = {active:'🟢 Активен', paused:'⏸ Пауза', draft:'📝 Черновик'}[stCls];
-        const stEl = document.getElementById('detailStatus');
-        stEl.textContent = stLbl;
-        stEl.className = `st ${stCls}`;
-        // Если активирован — system-сообщение с поздравлением
-        const applied = (data.assistant_message?.meta?.applied)||[];
+        _agent = data.agent;
+        renderHeader();
+        renderProfile();
         if(data.assistant_message?.meta?.activated){
-          const sys = _msgEl({role:'system', content:'🎉 Агент активирован и готов к работе!'});
-          feed.appendChild(sys);
+          feed.appendChild(_msgEl({role:'system', content:'🎉 Онбординг закончен — я перешёл в рабочий режим. Готов наращивать модули.'}));
         }
       }
     }
@@ -498,28 +470,55 @@ async function sendMessage(){
   }
 }
 
-document.getElementById('chatInput').addEventListener('keydown', e=>{
+// Auto-grow textarea
+const chatTa = document.getElementById('chatInput');
+chatTa.addEventListener('input', () => {
+  chatTa.style.height = 'auto';
+  chatTa.style.height = Math.min(chatTa.scrollHeight, 160) + 'px';
+});
+chatTa.addEventListener('keydown', e => {
   if(e.key==='Enter' && !e.shiftKey){e.preventDefault();sendMessage();}
 });
 
-async function archiveAgent(){
-  if(!_currentAgent)return;
-  if(!confirm(`Удалить агента «${_currentAgent.name}»? История диалога сохранится, но запустить агента снова будет нельзя.`))return;
+// ── Profile edit ─────────────────────────────────────────────────────────
+function openProfileEdit(){
+  if(!_agent) return;
+  document.getElementById('editName').value = _agent.name||'';
+  document.getElementById('editIcon').value = _agent.icon||'🤖';
+  document.getElementById('editStatus').value = _agent.status||'onboarding';
+  document.getElementById('profileModal').classList.add('show');
+}
+function closeProfileEdit(){document.getElementById('profileModal').classList.remove('show');}
+document.getElementById('profileModal').addEventListener('click', e=>{
+  if(e.target===document.getElementById('profileModal'))closeProfileEdit();
+});
+async function saveProfileEdit(){
+  const name = document.getElementById('editName').value.trim();
+  const icon = document.getElementById('editIcon').value.trim();
+  const status = document.getElementById('editStatus').value;
   try{
-    const r = await fetch(`${API}/api/agents/${_currentAgent.id}`,{
-      method:'DELETE', credentials:'same-origin',
+    const r = await fetch(`${API}/api/agents/me`,{
+      method:'PATCH', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, icon, status}),
     });
     if(!r.ok)throw new Error('HTTP '+r.status);
-    backToList();
+    _agent = await r.json();
+    renderHeader();
+    closeProfileEdit();
   }catch(e){
-    alert('Не удалось удалить: '+e.message);
+    alert('Не удалось сохранить: '+e.message);
   }
 }
 
 // Boot
-document.addEventListener('DOMContentLoaded', ()=>{
+document.addEventListener('DOMContentLoaded', async ()=>{
   loadBalance();
-  loadList();
+  const ok = await loadAgent();
+  if(ok){
+    await loadModules();
+    await loadMessages();
+  }
 });
 </script>
 

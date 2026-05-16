@@ -210,6 +210,12 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # pricing | legal | finance | brand | regulation | contacts | other.
     # Каждая роль агента запрашивает только релевантные категории.
     ("knowledge_files", "category", "VARCHAR DEFAULT 'other'"),
+    # ИИ Агенты модульные (раздел 23) — personal-agent поля:
+    # profile_json = Memory Hub (что агент знает о юзере),
+    # personality_json = персонификация (имя/стиль).
+    # Существующие записи в `agents` уже есть на проде, нужно lightweight-добавление.
+    ("agents", "profile_json", "TEXT"),
+    ("agents", "personality_json", "TEXT"),
     # КП: конструктор шапки (4 стиля)
     ("proposal_projects", "header_layout", "VARCHAR DEFAULT 'classic'"),
     # Refresh-token rotation single-use: список активных jti (JSON).

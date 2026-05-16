@@ -343,3 +343,214 @@ def build_reply(*, agent_name: str, control_mode: str, spec: dict,
         "ready_to_activate": ready,
         "raw": raw,
     }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Personal Agent — для архитектуры «один агент на юзера + модули»
+# Архитектурная правка 2026-05-16: главный режим работы для модуля 23.
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _personal_system_prompt(*, agent_name: str, mode: str, profile: dict,
+                            personality: dict, modules: list[dict]) -> str:
+    """System prompt для personal-agent режима (onboarding | active)."""
+    profile_summary = "пусто (ещё ничего не знаю про юзера)"
+    facts = profile.get("facts") or []
+    if facts or any(profile.get(k) for k in ("name", "industry", "tone", "goals")):
+        lines = []
+        for k in ("name", "industry", "tone", "goals"):
+            if profile.get(k):
+                lines.append(f"  {k}: {profile[k]}")
+        for f in facts[:30]:
+            if isinstance(f, dict) and f.get("value"):
+                lines.append(f"  • {f.get('key', '')}: {f['value']}")
+        profile_summary = "\n".join(lines) or "пусто"
+
+    modules_summary = "ничего ещё не подключено"
+    if modules:
+        modules_summary = "\n".join(
+            f"  • {m.get('slug')} (уровень L{m.get('level', 0)})" for m in modules
+        )
+
+    voice = personality.get("voice", "friendly")
+    addon = personality.get("addon_prompt", "")
+    catalog = _modules_catalog_md()
+
+    if mode == "onboarding":
+        mode_block = """
+Ты сейчас в режиме ЗНАКОМСТВА. Твоя задача — узнать юзера: имя, сферу деятельности,
+стиль общения, цели/боли. НЕ предлагай сразу подключать модули — сначала узнай человека.
+Задавай по 1-2 вопроса за раз, реагируй на его ответы тепло и по делу.
+Если уже узнал главное (имя, сферу, стиль) — установи `ready_for_active: true` и
+напиши что-то типа «Окей, я узнал главное. Теперь могу помогать и наращиваться модулями.
+Что сейчас актуальнее — настроить рабочие задачи или поговорить про планы?»
+"""
+    else:
+        mode_block = """
+Ты в РАБОЧЕМ режиме. Юзер задаёт задачи или общается. Ты:
+- Отвечаешь по сути, используя то что знаешь о юзере (профиль выше)
+- Если задача попадает в спектр уже подключённого модуля — упоминаешь его в reply
+- Если задача нужна НОВЫЙ модуль которого нет — предлагай подключить (suggest_modules)
+- Если юзер сам просит что-то выучить / запомнить про него — добавляй в add_facts
+- Если юзер хочет сменить стиль/тон/имя — обновляй personality
+"""
+
+    return f"""Ты — {agent_name}, личный ИИ-агент юзера на платформе AI Студия Че.
+ТЫ ОДИН. Не «один из агентов», а единственный персональный ассистент этого юзера.
+Юзер тебя знакомит с собой → ты обрастаешь модулями (подключаемыми навыками) →
+каждый модуль учится под этого юзера.
+
+{mode_block}
+
+ПРОФИЛЬ ЮЗЕРА (Memory Hub — что ты уже знаешь):
+{profile_summary}
+
+ПОДКЛЮЧЁННЫЕ МОДУЛИ:
+{modules_summary}
+
+ДОСТУПНЫЕ МОДУЛИ ИЗ КАТАЛОГА (можешь предлагать подключать через suggest_modules):
+{catalog}
+
+СТИЛЬ ОБЩЕНИЯ: {voice}
+{addon}
+
+ФОРМАТ ОТВЕТА — СТРОГО JSON (никакого текста до или после):
+```json
+{{
+  "reply": "Текст для юзера (markdown, основной вывод)",
+  "profile_updates": {{
+    // опц. — обновления топ-полей профиля юзера
+    "name": "...", "industry": "...", "tone": "...", "goals": "..."
+  }},
+  "add_facts": [
+    // опц. — новые факты которые надо запомнить про юзера
+    {{"key": "...", "value": "..."}}
+  ],
+  "suggest_modules": [
+    // опц. — slug'и модулей которые стоит подключить (юзер увидит чипы)
+    "smm", "lawyer"
+  ],
+  "ready_for_active": false  // true = онбординг считается законченным
+}}
+```
+
+ПРАВИЛА:
+1. Reply — обязательно. Остальные поля — опционально.
+2. Не предлагай модулей которых НЕТ в каталоге выше.
+3. Не выдумывай факты — только то что юзер реально сказал.
+4. Если юзер просит активировать / готов работать — ready_for_active=true.
+5. Возвращай ТОЛЬКО валидный JSON. Никаких ```json``` обёрток."""
+
+
+def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
+                         personality: dict, modules: list[dict],
+                         history: list[dict], user_input: str) -> dict:
+    """Personal-agent шаг диалога (singleton-агент модуля 23).
+
+    Args:
+      agent_name: имя агента (для контекста)
+      mode: onboarding | active
+      profile: Memory Hub юзера (мутируется in-place при add_facts/profile_updates)
+      personality: стиль агента (тон, voice, addon_prompt)
+      modules: [{slug, level}] подключённые
+      history: предыдущие сообщения (без нового user_input)
+      user_input: новое сообщение юзера
+
+    Returns: {
+      "reply": str,
+      "applied": list[str],
+      "errors": list[str],
+      "profile_changed": bool,
+      "ready_for_active": bool,
+      "raw": str,
+    }
+    """
+    system = _personal_system_prompt(
+        agent_name=agent_name, mode=mode, profile=profile,
+        personality=personality, modules=modules,
+    )
+    messages = [{"role": "system", "content": system}]
+    for m in (history or [])[-20:]:
+        if m.get("role") in ("user", "assistant"):
+            messages.append({"role": m["role"], "content": m.get("content") or ""})
+    messages.append({"role": "user", "content": user_input})
+
+    try:
+        from server.llm_router import ask as router_ask
+        # Mode «agent_tools» — Claude (лидер MCP-Atlas) с structured JSON output
+        route = router_ask(
+            messages,
+            task="agent_tools",
+            complexity="medium",
+            extra={"max_tokens": 2000, "temperature": 0.4, "_purpose": "personal_agent"},
+        )
+        raw = route.content
+    except Exception as e:
+        log.exception(f"[personal-agent] LLM call failed: {e}")
+        return {
+            "reply": "Что-то у меня внутри сломалось 😔 Попробуй ещё раз через минуту.",
+            "applied": [], "errors": [f"LLM error: {e!s:.120}"],
+            "profile_changed": False, "ready_for_active": False, "raw": "",
+        }
+
+    parsed = _extract_json(raw)
+    if not parsed:
+        log.warning(f"[personal-agent] couldn't parse JSON, raw={raw[:200]!r}")
+        return {
+            "reply": raw.strip()[:2000] or "Не смог сформировать ответ — попробуй переформулировать.",
+            "applied": [], "errors": ["JSON parse failed"],
+            "profile_changed": False, "ready_for_active": False, "raw": raw,
+        }
+
+    reply = str(parsed.get("reply", "")).strip()[:4000]
+    applied: list[str] = []
+    errors: list[str] = []
+    profile_changed = False
+
+    # profile_updates — обновляем топ-поля
+    updates = parsed.get("profile_updates") or {}
+    if isinstance(updates, dict):
+        for k in ("name", "industry", "tone", "goals"):
+            if updates.get(k):
+                val = str(updates[k]).strip()[:500]
+                if val and val != profile.get(k):
+                    profile[k] = val
+                    applied.append(f"профиль: {k} = «{val[:60]}»")
+                    profile_changed = True
+
+    # add_facts — добавляем в profile.facts
+    new_facts = parsed.get("add_facts") or []
+    if isinstance(new_facts, list):
+        facts = profile.setdefault("facts", [])
+        for f in new_facts[:10]:
+            if not isinstance(f, dict): continue
+            k = str(f.get("key", "")).strip()[:80]
+            v = str(f.get("value", "")).strip()[:500]
+            if not k or not v: continue
+            # Не дублируем (по ключу)
+            if any(isinstance(x, dict) and x.get("key") == k for x in facts):
+                continue
+            facts.append({"key": k, "value": v,
+                          "learned_at": datetime.utcnow().isoformat()})
+            applied.append(f"запомнил: {k} = «{v[:60]}»")
+            profile_changed = True
+
+    suggest_modules = parsed.get("suggest_modules") or []
+    if not isinstance(suggest_modules, list):
+        suggest_modules = []
+
+    ready = bool(parsed.get("ready_for_active"))
+
+    return {
+        "reply": reply or "Принял.",
+        "applied": applied,
+        "errors": errors,
+        "profile_changed": profile_changed,
+        "suggest_modules": [str(s)[:40] for s in suggest_modules[:5]],
+        "ready_for_active": ready,
+        "raw": raw,
+    }
+
+
+# datetime для timestamps в add_facts
+from datetime import datetime  # noqa: E402

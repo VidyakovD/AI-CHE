@@ -1,19 +1,25 @@
-"""Модульные ИИ Агенты (раздел 23) — CRUD + диалоговый интерфейс.
+"""Модульные ИИ Агенты (раздел 23) — singleton-агент на юзера + модули.
 
 См. docs/modules/23-agents-modular-roadmap.md.
 
-Endpoints:
-  GET    /api/agents                       — список агентов юзера
-  POST   /api/agents                       — создать draft (имя + способ управления)
-  GET    /api/agents/{id}                  — детали + spec
-  PATCH  /api/agents/{id}                  — обновить (name/spec/status)
-  DELETE /api/agents/{id}                  — soft-delete (status=archived)
-  GET    /api/agents/{id}/messages         — история диалога
-  POST   /api/agents/{id}/messages         — отправить сообщение → ответ агента
-                                             (в этом коммите — stub; реальный
-                                             Agent Builder/Runtime — следующий шаг)
+Архитектура (правка 2026-05-16):
+  User (1) ←→ (1) Agent ←→ (N) AgentModule
+                  ↓ messages (история диалога)
+                  ↓ profile_json (Memory Hub)
+                  ↓ personality_json (имя/иконка/стиль)
 
-UI: views/agents-modular.html (отдельная страница).
+Endpoints:
+  GET    /api/agents/me                       — мой агент (get-or-create singleton)
+  PATCH  /api/agents/me                       — обновить имя/иконку/profile/personality/status
+  GET    /api/agents/me/messages              — история диалога
+  POST   /api/agents/me/messages              — отправить сообщение → ответ агента
+  GET    /api/agents/me/modules               — подключённые модули
+  POST   /api/agents/me/modules               — подключить модуль из каталога
+  PATCH  /api/agents/me/modules/{slug}        — обновить настройки/уровень/enabled
+  DELETE /api/agents/me/modules/{slug}        — отключить (удалить) модуль
+  GET    /api/agents/catalog                  — каталог доступных модулей (из AGENT_REGISTRY)
+
+UI: views/agents-modular.html (chat-first главный экран + sidebar модулей).
 """
 from __future__ import annotations
 
@@ -27,7 +33,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db, current_user
-from server.models import User, Agent, AgentMessage
+from server.models import User, Agent, AgentMessage, AgentModule
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agents", tags=["agents-modular"])
@@ -35,216 +41,174 @@ router = APIRouter(prefix="/api/agents", tags=["agents-modular"])
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _safe_spec(spec_json: str | None) -> dict:
-    if not spec_json:
-        return {}
+DEFAULT_AGENT_NAME = "Че"
+DEFAULT_AGENT_ICON = "🤖"
+
+# Дефолтное приветствие при первом онбординге — без LLM-вызова чтобы UI не ждал.
+ONBOARDING_GREETING = (
+    "Привет! Я твой ИИ-агент. Меня зовут Че. Давай знакомиться 🤝\n\n"
+    "Чтобы я был максимально полезным, расскажи о себе:\n"
+    "• Как тебя зовут?\n"
+    "• Чем занимаешься (бизнес, фриланс, хобби)?\n"
+    "• Какой стиль общения предпочитаешь — деловой / дружеский / лаконичный?\n\n"
+    "Можешь рассказать кратко или подробно — я запомню и буду использовать это в работе."
+)
+
+
+def _safe_json(s: str | None, default: Any = None) -> Any:
+    if not s:
+        return default if default is not None else {}
     try:
-        return json.loads(spec_json)
+        return json.loads(s)
     except Exception:
-        return {}
+        return default if default is not None else {}
 
 
-def _agent_dict(a: Agent, *, include_spec: bool = False,
-                msg_count: int | None = None) -> dict:
-    """Карточка агента для списка / детального GET."""
-    spec = _safe_spec(a.spec_json)
+def get_or_create_agent(user: User, db: Session) -> Agent:
+    """Singleton: один Agent на юзера. Если есть несколько (старые дубли) —
+    берём min(id), остальные архивируем (status=archived)."""
+    agents = (db.query(Agent)
+                .filter(Agent.user_id == user.id, Agent.status != "archived")
+                .order_by(Agent.id.asc())
+                .all())
+    if agents:
+        primary = agents[0]
+        # Архивируем дубли (если есть) — silent cleanup
+        for dup in agents[1:]:
+            dup.status = "archived"
+            log.info(f"[agents] archived duplicate Agent id={dup.id} for user={user.id}")
+        if len(agents) > 1:
+            db.commit()
+        return primary
+
+    # Создаём первого — статус onboarding (агент будет знакомиться)
+    a = Agent(
+        user_id=user.id,
+        name=DEFAULT_AGENT_NAME,
+        icon=DEFAULT_AGENT_ICON,
+        spec_json=json.dumps({"version": 1}, ensure_ascii=False),
+        profile_json=json.dumps({"facts": []}, ensure_ascii=False),
+        personality_json=json.dumps({
+            "display_name": DEFAULT_AGENT_NAME,
+            "icon": DEFAULT_AGENT_ICON,
+            "voice": "friendly",
+        }, ensure_ascii=False),
+        status="onboarding",
+    )
+    db.add(a)
+    db.commit()
+    db.refresh(a)
+    # Первое сообщение от агента — приветствие
+    db.add(AgentMessage(
+        agent_id=a.id, role="assistant", content=ONBOARDING_GREETING,
+        meta_json=json.dumps({"mode": "onboarding", "step": "greeting"}, ensure_ascii=False),
+    ))
+    db.commit()
+    log.info(f"[agents] created personal agent for user={user.id} (onboarding)")
+    return a
+
+
+def _agent_dict(a: Agent, *, with_modules_count: bool = False, db: Session | None = None) -> dict:
+    profile = _safe_json(a.profile_json, {"facts": []})
+    personality = _safe_json(a.personality_json, {})
     out = {
         "id": a.id,
-        "name": a.name,
-        "icon": a.icon or "🤖",
-        "status": a.status or "draft",
-        "modules": spec.get("modules", []) if isinstance(spec, dict) else [],
-        "schedule": spec.get("schedule") if isinstance(spec, dict) else None,
-        "triggers": spec.get("triggers", []) if isinstance(spec, dict) else [],
-        "goals": spec.get("goals", "") if isinstance(spec, dict) else "",
-        "channels": spec.get("channels", []) if isinstance(spec, dict) else [],
+        "name": a.name or DEFAULT_AGENT_NAME,
+        "icon": a.icon or DEFAULT_AGENT_ICON,
+        "status": a.status or "onboarding",
+        "profile": profile,
+        "personality": personality,
         "created_at": a.created_at.isoformat() if a.created_at else None,
-        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
         "last_activity_at": a.last_activity_at.isoformat() if a.last_activity_at else None,
     }
-    if include_spec:
-        out["spec"] = spec
-    if msg_count is not None:
-        out["message_count"] = msg_count
+    if with_modules_count and db is not None:
+        out["modules_count"] = (db.query(AgentModule)
+                                  .filter_by(agent_id=a.id, is_enabled=True)
+                                  .count())
+    return out
+
+
+def _module_dict(m: AgentModule, *, with_meta: bool = False) -> dict:
+    """Карточка модуля. with_meta=True — добавляет описание из AGENT_REGISTRY."""
+    out = {
+        "id": m.id,
+        "slug": m.slug,
+        "level": int(m.level or 0),
+        "interaction_count": int(m.interaction_count or 0),
+        "schedule_cron": m.schedule_cron,
+        "is_enabled": bool(m.is_enabled),
+        "settings": _safe_json(m.custom_settings_json, {}),
+        "memory": _safe_json(m.module_memory_json, {}),
+        "connected_at": m.connected_at.isoformat() if m.connected_at else None,
+        "last_used_at": m.last_used_at.isoformat() if m.last_used_at else None,
+    }
+    if with_meta:
+        try:
+            from server.agent_runner import AGENT_REGISTRY
+            meta = AGENT_REGISTRY.get(m.slug, {})
+            out["name"] = meta.get("name", m.slug)
+            out["description"] = meta.get("description", "")
+        except Exception:
+            out["name"] = m.slug
+            out["description"] = ""
     return out
 
 
 def _msg_dict(m: AgentMessage) -> dict:
-    meta = {}
-    if m.meta_json:
-        try:
-            meta = json.loads(m.meta_json)
-        except Exception:
-            meta = {}
     return {
         "id": m.id,
         "role": m.role,
         "content": m.content or "",
-        "meta": meta,
+        "meta": _safe_json(m.meta_json, {}),
         "created_at": m.created_at.isoformat() if m.created_at else None,
     }
 
 
-def _get_owned_agent(agent_id: int, user: User, db: Session) -> Agent:
-    a = db.query(Agent).filter_by(id=agent_id, user_id=user.id).first()
-    if not a:
-        raise HTTPException(404, "Агент не найден")
-    if a.status == "archived":
-        raise HTTPException(410, "Агент удалён")
-    return a
+# ── singleton agent ──────────────────────────────────────────────────────────
 
-
-# ── CRUD ──────────────────────────────────────────────────────────────────────
-
-VALID_CONTROL_MODES = {"chat", "schedule", "triggers", "hybrid"}
-
-
-class CreateAgentPayload(BaseModel):
-    """Минимум для создания draft-агента: имя + способ управления.
-    Дальше всё спецификация набирается через диалог с Builder."""
-    name: str = "Новый агент"
-    icon: str | None = None
-    control_mode: str = "chat"     # chat|schedule|triggers|hybrid
-    goals: str | None = None        # опц. первичная цель если юзер сразу указал
-
-
-@router.get("")
-def list_agents(db: Session = Depends(get_db),
-                user: User = Depends(current_user)):
-    """Список агентов юзера (без archived). Со счётчиком сообщений для UI."""
-    agents = (db.query(Agent)
-                .filter(Agent.user_id == user.id, Agent.status != "archived")
-                .order_by(Agent.updated_at.desc())
-                .all())
-    if not agents:
-        return {"agents": []}
-    # Один запрос для счётчиков (избегаем N+1)
-    from sqlalchemy import func
-    counts = dict(
-        db.query(AgentMessage.agent_id, func.count(AgentMessage.id))
-          .filter(AgentMessage.agent_id.in_([a.id for a in agents]))
-          .group_by(AgentMessage.agent_id)
-          .all()
-    )
-    return {"agents": [_agent_dict(a, msg_count=counts.get(a.id, 0)) for a in agents]}
-
-
-@router.post("")
-def create_agent(payload: CreateAgentPayload,
-                 db: Session = Depends(get_db),
+@router.get("/me")
+def get_my_agent(db: Session = Depends(get_db),
                  user: User = Depends(current_user)):
-    """Создать draft-агента. Spec пустая — заполняется через Agent Builder."""
-    if not user.is_verified:
-        raise HTTPException(403, "Подтвердите email")
-    name = (payload.name or "Новый агент").strip()[:80]
-    icon = (payload.icon or "🤖").strip()[:4]
-    control_mode = payload.control_mode if payload.control_mode in VALID_CONTROL_MODES else "chat"
-
-    spec = {
-        "modules": [],
-        "schedule": None,
-        "triggers": [],
-        "goals": (payload.goals or "").strip()[:1000],
-        "channels": ["web"],
-        "control_mode": control_mode,
-        "system_prompt_addon": "",
-        "module_configs": {},
-    }
-    a = Agent(
-        user_id=user.id,
-        name=name,
-        icon=icon,
-        spec_json=json.dumps(spec, ensure_ascii=False),
-        status="draft",
-    )
-    db.add(a); db.commit(); db.refresh(a)
-
-    # Засеять первое системное сообщение от Builder — приветствие
-    greeting = (
-        "Привет! Я помогу настроить нового агента. "
-        "Что хочешь чтобы он делал? Опиши простыми словами — например "
-        "«отвечать клиентам в Telegram», «писать пост в ВК каждый день в 9 утра», "
-        "«анализировать мою почту и отвечать на типовые письма»."
-    )
-    if (payload.goals or "").strip():
-        greeting = (
-            f"Понял задачу: «{payload.goals.strip()[:200]}». "
-            "Сейчас уточню пару деталей чтобы правильно подобрать модули и расписание."
-        )
-    db.add(AgentMessage(
-        agent_id=a.id, role="assistant", content=greeting,
-        meta_json=json.dumps({"mode": "build"}, ensure_ascii=False),
-    ))
-    db.commit()
-
-    try:
-        from server.audit_log import log_action
-        log_action("agent.create", user_id=user.id, target_type="agent",
-                   target_id=a.id, details={"name": name, "mode": control_mode})
-    except Exception:
-        pass
-
-    return _agent_dict(a, include_spec=True, msg_count=1)
-
-
-@router.get("/{agent_id}")
-def get_agent(agent_id: int, db: Session = Depends(get_db),
-              user: User = Depends(current_user)):
-    a = _get_owned_agent(agent_id, user, db)
-    from sqlalchemy import func
-    count = (db.query(func.count(AgentMessage.id))
-               .filter_by(agent_id=a.id).scalar() or 0)
-    return _agent_dict(a, include_spec=True, msg_count=int(count))
+    """Получить (или создать при первом обращении) моего агента."""
+    a = get_or_create_agent(user, db)
+    return _agent_dict(a, with_modules_count=True, db=db)
 
 
 class PatchAgentPayload(BaseModel):
     name: str | None = None
     icon: str | None = None
-    spec: dict | None = None       # полный override spec (для UI редактора)
-    status: str | None = None      # draft|active|paused
+    profile: dict | None = None        # Memory Hub (полный override)
+    personality: dict | None = None    # имя/стиль/voice
+    status: str | None = None          # onboarding|active|paused
 
 
-@router.patch("/{agent_id}")
-def patch_agent(agent_id: int, payload: PatchAgentPayload,
-                db: Session = Depends(get_db),
-                user: User = Depends(current_user)):
-    a = _get_owned_agent(agent_id, user, db)
+@router.patch("/me")
+def patch_my_agent(payload: PatchAgentPayload,
+                   db: Session = Depends(get_db),
+                   user: User = Depends(current_user)):
+    a = get_or_create_agent(user, db)
     if payload.name is not None:
         a.name = payload.name.strip()[:80] or a.name
     if payload.icon is not None:
         a.icon = payload.icon.strip()[:4] or a.icon
-    if payload.spec is not None and isinstance(payload.spec, dict):
-        a.spec_json = json.dumps(payload.spec, ensure_ascii=False)
-    if payload.status in ("draft", "active", "paused"):
+    if payload.profile is not None and isinstance(payload.profile, dict):
+        a.profile_json = json.dumps(payload.profile, ensure_ascii=False)
+    if payload.personality is not None and isinstance(payload.personality, dict):
+        a.personality_json = json.dumps(payload.personality, ensure_ascii=False)
+    if payload.status in ("onboarding", "active", "paused"):
         a.status = payload.status
     a.updated_at = datetime.utcnow()
     db.commit(); db.refresh(a)
-    return _agent_dict(a, include_spec=True)
-
-
-@router.delete("/{agent_id}")
-def delete_agent(agent_id: int, db: Session = Depends(get_db),
-                 user: User = Depends(current_user)):
-    """Soft-delete: status=archived. История диалога сохраняется."""
-    a = _get_owned_agent(agent_id, user, db)
-    a.status = "archived"
-    a.updated_at = datetime.utcnow()
-    db.commit()
-    try:
-        from server.audit_log import log_action
-        log_action("agent.archive", user_id=user.id, target_type="agent", target_id=a.id)
-    except Exception:
-        pass
-    return {"status": "archived"}
+    return _agent_dict(a, with_modules_count=True, db=db)
 
 
 # ── messages ──────────────────────────────────────────────────────────────────
 
-@router.get("/{agent_id}/messages")
-def list_messages(agent_id: int, limit: int = 200,
+@router.get("/me/messages")
+def list_messages(limit: int = 200,
                   db: Session = Depends(get_db),
                   user: User = Depends(current_user)):
-    a = _get_owned_agent(agent_id, user, db)
+    a = get_or_create_agent(user, db)
     limit = max(1, min(int(limit or 200), 1000))
     msgs = (db.query(AgentMessage)
               .filter_by(agent_id=a.id)
@@ -258,24 +222,25 @@ class SendMessagePayload(BaseModel):
     content: str
 
 
-@router.post("/{agent_id}/messages")
-def send_message(agent_id: int, payload: SendMessagePayload,
+@router.post("/me/messages")
+def send_message(payload: SendMessagePayload,
                  db: Session = Depends(get_db),
                  user: User = Depends(current_user)):
-    """Отправить сообщение агенту.
+    """Отправить сообщение моему агенту.
 
-    Для draft-агентов → Agent Builder (LLM подбирает модули/расписание/триггеры,
-    применяет к spec, ведёт диалог до готовности).
-    Для active-агентов → пока stub команд (Runtime подключим в следующем шаге).
+    Режимы:
+      onboarding — агент задаёт вопросы для Memory Hub, после 5+ сообщений
+                   автоматически переходит в active
+      active     — обычный режим: команды, изменения настроек, общение
     """
-    a = _get_owned_agent(agent_id, user, db)
+    a = get_or_create_agent(user, db)
     text = (payload.content or "").strip()
     if not text:
         raise HTTPException(400, "Пустое сообщение")
     if len(text) > 10000:
         raise HTTPException(413, "Слишком длинное сообщение (макс 10 КБ)")
 
-    mode = "build" if a.status == "draft" else "command"
+    mode = "onboarding" if a.status == "onboarding" else "active"
 
     # 1. Сохраняем сообщение юзера
     user_msg = AgentMessage(
@@ -283,61 +248,56 @@ def send_message(agent_id: int, payload: SendMessagePayload,
         meta_json=json.dumps({"mode": mode}, ensure_ascii=False),
     )
     db.add(user_msg)
-    db.flush()  # чтобы user_msg.id появился
+    db.flush()
+
+    # 2. Готовим контекст для агента (история + профиль + подключённые модули)
+    history = (db.query(AgentMessage)
+                 .filter(AgentMessage.agent_id == a.id,
+                         AgentMessage.id < user_msg.id,
+                         AgentMessage.role.in_(("user", "assistant")))
+                 .order_by(AgentMessage.id.asc())
+                 .all())
+    history_dicts = [{"role": m.role, "content": m.content or ""} for m in history]
+
+    modules = (db.query(AgentModule)
+                 .filter_by(agent_id=a.id, is_enabled=True)
+                 .all())
+    modules_summary = [{"slug": m.slug, "level": m.level} for m in modules]
+
+    profile = _safe_json(a.profile_json, {"facts": []})
+    personality = _safe_json(a.personality_json, {})
 
     asst_meta: dict = {"mode": mode}
+    reply = ""
+    profile_updated = False
 
-    if mode == "build":
-        # ── Agent Builder ──
-        # Готовим историю (без только что добавленного user_msg — Builder его добавит)
-        history = (db.query(AgentMessage)
-                     .filter(AgentMessage.agent_id == a.id,
-                             AgentMessage.id < user_msg.id,
-                             AgentMessage.role.in_(("user", "assistant")))
-                     .order_by(AgentMessage.id.asc())
-                     .all())
-        history_dicts = [{"role": m.role, "content": m.content or ""} for m in history]
-        spec = _safe_spec(a.spec_json)
-        control_mode = spec.get("control_mode", "chat")
-
-        try:
-            from server.agent_builder import build_reply
-            result = build_reply(
-                agent_name=a.name,
-                control_mode=control_mode,
-                spec=spec,            # мутируется in-place
-                history=history_dicts,
-                user_input=text,
-            )
-        except Exception as e:
-            log.exception(f"[agent.builder] failed for agent {a.id}: {e}")
-            result = {
-                "reply": "Что-то пошло не так при обработке 😔 Попробуй ещё раз.",
-                "applied": [], "errors": [str(e)[:200]], "ready_to_activate": False, "raw": "",
-            }
-
+    try:
+        from server.agent_builder import build_reply_personal
+        result = build_reply_personal(
+            agent_name=a.name or DEFAULT_AGENT_NAME,
+            mode=mode,
+            profile=profile,
+            personality=personality,
+            modules=modules_summary,
+            history=history_dicts,
+            user_input=text,
+        )
         reply = result["reply"]
-        # Сохраняем обновлённый spec
-        a.spec_json = json.dumps(spec, ensure_ascii=False)
-
-        # Активация по запросу Builder'а (модель сама поняла что готово)
-        if result.get("ready_to_activate"):
-            # Минимальная проверка: должна быть хоть какая-то цель ИЛИ модули
-            if (spec.get("goals") or "").strip() or spec.get("modules"):
-                a.status = "active"
-                asst_meta["activated"] = True
-
         asst_meta["applied"] = result.get("applied", [])
         if result.get("errors"):
             asst_meta["errors"] = result["errors"]
-    else:
-        # ── Active-агент: пока stub команд ──
-        reply = (
-            "✅ Команда принята. Реальное выполнение задач (расписания, "
-            "триггеры, запуск модулей) подключу в следующем обновлении. "
-            "Пока сообщение записано в историю."
-        )
-        asst_meta["stub"] = True
+        # Сохраняем обновлённый profile (Memory Hub после изменений)
+        if result.get("profile_changed"):
+            a.profile_json = json.dumps(profile, ensure_ascii=False)
+            profile_updated = True
+        # Авто-активация после онбординга если агент решил что готов
+        if result.get("ready_for_active") and a.status == "onboarding":
+            a.status = "active"
+            asst_meta["activated"] = True
+    except Exception as e:
+        log.exception(f"[agents.send] failed: {e}")
+        reply = "Что-то пошло не так при обработке 😔 Попробуй ещё раз."
+        asst_meta["errors"] = [str(e)[:200]]
 
     asst_msg = AgentMessage(
         agent_id=a.id, role="assistant", content=reply,
@@ -353,6 +313,161 @@ def send_message(agent_id: int, payload: SendMessagePayload,
     return {
         "user_message": _msg_dict(user_msg),
         "assistant_message": _msg_dict(asst_msg),
-        # Возвращаем актуальный snapshot агента — UI обновит sidebar/статус без re-fetch
-        "agent": _agent_dict(a, include_spec=True),
+        "agent": _agent_dict(a, with_modules_count=True, db=db),
     }
+
+
+# ── modules ──────────────────────────────────────────────────────────────────
+
+@router.get("/me/modules")
+def list_my_modules(db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    a = get_or_create_agent(user, db)
+    mods = (db.query(AgentModule)
+              .filter_by(agent_id=a.id)
+              .order_by(AgentModule.is_enabled.desc(), AgentModule.connected_at.asc())
+              .all())
+    return {"modules": [_module_dict(m, with_meta=True) for m in mods]}
+
+
+class ConnectModulePayload(BaseModel):
+    slug: str
+    schedule_cron: str | None = None
+    settings: dict | None = None
+
+
+@router.post("/me/modules")
+def connect_module(payload: ConnectModulePayload,
+                   db: Session = Depends(get_db),
+                   user: User = Depends(current_user)):
+    """Подключить модуль из каталога AGENT_REGISTRY к моему агенту."""
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    a = get_or_create_agent(user, db)
+    slug = (payload.slug or "").strip()
+    if not slug:
+        raise HTTPException(400, "Не указан slug модуля")
+
+    from server.agent_runner import AGENT_REGISTRY
+    if slug not in AGENT_REGISTRY:
+        raise HTTPException(404, f"Модуль {slug!r} не найден в каталоге")
+
+    existing = (db.query(AgentModule)
+                  .filter_by(agent_id=a.id, slug=slug)
+                  .first())
+    if existing:
+        # Если был отключён — включаем обратно
+        if not existing.is_enabled:
+            existing.is_enabled = True
+        if payload.schedule_cron is not None:
+            existing.schedule_cron = payload.schedule_cron or None
+        if payload.settings is not None:
+            existing.custom_settings_json = json.dumps(payload.settings, ensure_ascii=False)
+        db.commit(); db.refresh(existing)
+        return _module_dict(existing, with_meta=True)
+
+    m = AgentModule(
+        agent_id=a.id,
+        slug=slug,
+        level=0,
+        is_enabled=True,
+        schedule_cron=payload.schedule_cron,
+        custom_settings_json=(json.dumps(payload.settings, ensure_ascii=False)
+                              if payload.settings else None),
+    )
+    db.add(m); db.commit(); db.refresh(m)
+
+    # Системное сообщение в чат — «подключён модуль X»
+    meta = AGENT_REGISTRY[slug]
+    db.add(AgentMessage(
+        agent_id=a.id, role="system",
+        content=f"✓ Подключён модуль: {meta['name']} ({slug})",
+        meta_json=json.dumps({"mode": "module_connected", "slug": slug}, ensure_ascii=False),
+    ))
+    a.last_activity_at = datetime.utcnow()
+    db.commit()
+
+    try:
+        from server.audit_log import log_action
+        log_action("agent.module_connect", user_id=user.id, target_type="agent_module",
+                   target_id=m.id, details={"slug": slug})
+    except Exception:
+        pass
+
+    return _module_dict(m, with_meta=True)
+
+
+class PatchModulePayload(BaseModel):
+    is_enabled: bool | None = None
+    schedule_cron: str | None = None
+    settings: dict | None = None
+    level: int | None = None
+
+
+@router.patch("/me/modules/{slug}")
+def patch_module(slug: str, payload: PatchModulePayload,
+                 db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
+    a = get_or_create_agent(user, db)
+    m = db.query(AgentModule).filter_by(agent_id=a.id, slug=slug).first()
+    if not m:
+        raise HTTPException(404, "Модуль не подключён")
+    if payload.is_enabled is not None:
+        m.is_enabled = bool(payload.is_enabled)
+    if payload.schedule_cron is not None:
+        m.schedule_cron = payload.schedule_cron or None
+    if payload.settings is not None:
+        m.custom_settings_json = json.dumps(payload.settings, ensure_ascii=False)
+    if payload.level is not None:
+        m.level = max(0, min(4, int(payload.level)))
+    db.commit(); db.refresh(m)
+    return _module_dict(m, with_meta=True)
+
+
+@router.delete("/me/modules/{slug}")
+def disconnect_module(slug: str,
+                      db: Session = Depends(get_db),
+                      user: User = Depends(current_user)):
+    """Отключить модуль (удалить). Память модуля стирается."""
+    a = get_or_create_agent(user, db)
+    m = db.query(AgentModule).filter_by(agent_id=a.id, slug=slug).first()
+    if not m:
+        raise HTTPException(404, "Модуль не подключён")
+    db.delete(m)
+    # Системное сообщение в чат
+    try:
+        from server.agent_runner import AGENT_REGISTRY
+        meta = AGENT_REGISTRY.get(slug, {})
+        name = meta.get("name", slug)
+    except Exception:
+        name = slug
+    db.add(AgentMessage(
+        agent_id=a.id, role="system",
+        content=f"✗ Отключён модуль: {name}",
+        meta_json=json.dumps({"mode": "module_disconnected", "slug": slug}, ensure_ascii=False),
+    ))
+    db.commit()
+    return {"status": "disconnected", "slug": slug}
+
+
+# ── catalog (доступные модули) ───────────────────────────────────────────────
+
+@router.get("/catalog")
+def get_catalog(db: Session = Depends(get_db),
+                user: User = Depends(current_user)):
+    """Каталог доступных модулей из AGENT_REGISTRY (48 ролей).
+    Помечает уже подключённые — UI не даст подключить дважды."""
+    a = get_or_create_agent(user, db)
+    connected = {m.slug for m in db.query(AgentModule).filter_by(agent_id=a.id).all()}
+
+    from server.agent_runner import AGENT_REGISTRY
+    items = []
+    for slug, meta in sorted(AGENT_REGISTRY.items()):
+        items.append({
+            "slug": slug,
+            "name": meta.get("name", slug),
+            "description": meta.get("description", ""),
+            "keywords": meta.get("keywords", []),
+            "is_connected": slug in connected,
+        })
+    return {"modules": items, "total": len(items)}
