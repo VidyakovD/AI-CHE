@@ -93,6 +93,19 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 .suggest-chip{padding:5px 11px;background:#322a1e;border:1px solid rgba(255,140,66,.4);border-radius:14px;font-size:12px;color:#ffb347;cursor:pointer;transition:all .15s}
 .suggest-chip:hover{background:rgba(255,140,66,.15);color:#fff}
 
+/* Icon picker — сетка preset-иконок для агента */
+.icon-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
+.icon-cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:#272018;border:1.5px solid rgba(74,63,47,0.4);border-radius:10px;font-size:22px;cursor:pointer;transition:all .15s;user-select:none}
+.icon-cell:hover{border-color:#ff8c42;background:#322a1e;transform:translateY(-1px)}
+.icon-cell.selected{border-color:#ff8c42;background:linear-gradient(135deg,rgba(255,140,66,.2),rgba(255,179,71,.2));box-shadow:0 0 0 1px #ff8c42}
+@media(max-width: 520px){.icon-grid{grid-template-columns:repeat(6,1fr)}}
+
+/* Clickable agent identity в header */
+.hdr .left .clickable{cursor:pointer;border-radius:8px;padding:4px 8px;margin:-4px -8px;transition:background .15s;display:flex;align-items:center;gap:10px}
+.hdr .left .clickable:hover{background:rgba(255,140,66,.08)}
+.hdr .nm-edit{font-size:11px;color:#a89880;opacity:0;transition:opacity .15s;margin-left:4px}
+.hdr .left .clickable:hover .nm-edit{opacity:1}
+
 /* Quick replies — варианты ответа кнопками под сообщением (онбординг, опросы) */
 .qr-row{align-self:flex-start;display:flex;gap:8px;flex-wrap:wrap;margin-top:-2px;margin-left:8px;max-width:78%}
 .qr-chip{padding:9px 16px;background:#272018;border:1.5px solid rgba(255,140,66,.5);border-radius:18px;font-size:13.5px;color:#ffb347;cursor:pointer;transition:all .15s;font-weight:600;font-family:inherit}
@@ -144,10 +157,15 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
   <header class="hdr">
     <div class="left">
       <a href="/" class="btn-g" title="На главную" style="font-size:13px">←</a>
-      <span class="ic" id="agentIcon">🤖</span>
-      <div style="min-width:0">
-        <div class="nm" id="agentName">Загрузка...</div>
-        <div class="st"><span class="dot" id="statusDot"></span><span id="statusLabel">—</span></div>
+      <div class="clickable" onclick="openProfileEdit()" title="Изменить имя и иконку">
+        <span class="ic" id="agentIcon">🤖</span>
+        <div style="min-width:0">
+          <div class="nm">
+            <span id="agentName">Загрузка...</span>
+            <span class="nm-edit">✏ изменить</span>
+          </div>
+          <div class="st"><span class="dot" id="statusDot"></span><span id="statusLabel">—</span></div>
+        </div>
       </div>
     </div>
     <div class="flex items-center gap-2">
@@ -201,12 +219,20 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 
 <!-- Profile edit modal -->
 <div id="profileModal" class="modal-bg">
-  <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:20px;max-width:440px;width:100%" onclick="event.stopPropagation()">
-    <h3 class="text-lg font-bold mb-3">⚙ Настройки агента</h3>
-    <label class="block text-xs text-on-dim mb-1">Имя агента</label>
-    <input class="inp mb-3" id="editName" maxlength="80"/>
-    <label class="block text-xs text-on-dim mb-1">Иконка (эмодзи)</label>
-    <input class="inp mb-3" id="editIcon" maxlength="4" style="max-width:80px;text-align:center;font-size:18px"/>
+  <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:22px;max-width:480px;width:100%" onclick="event.stopPropagation()">
+    <h3 class="text-lg font-bold mb-4">⚙ Настройки агента</h3>
+    <label class="block text-xs text-on-dim mb-1">Имя</label>
+    <input class="inp mb-4" id="editName" maxlength="80" placeholder="Че"/>
+
+    <label class="block text-xs text-on-dim mb-2">Иконка — выбери или введи свою</label>
+    <div class="icon-grid" id="iconGrid"></div>
+    <div class="flex items-center gap-2 mb-4 mt-2">
+      <input class="inp" id="editIcon" maxlength="4"
+             style="max-width:90px;text-align:center;font-size:22px"
+             placeholder="🤖"/>
+      <span class="text-xs text-on-dim">или вставь любой эмодзи</span>
+    </div>
+
     <label class="block text-xs text-on-dim mb-1">Статус</label>
     <select class="inp mb-4" id="editStatus">
       <option value="onboarding">📝 Онбординг (агент знакомится)</option>
@@ -598,12 +624,41 @@ chatTa.addEventListener('keydown', e => {
 });
 
 // ── Profile edit ─────────────────────────────────────────────────────────
+// Preset-иконки для агента — «головы роботов» в стиле сервиса (оранжево-чёрная
+// палитра). Юзер может выбрать из сетки ИЛИ ввести любой свой эмодзи.
+const ICON_PRESETS = [
+  '🤖','🦾','🧠','👽','👾','🛸','🦿','⚙️',
+  '🎩','🦸‍♂️','🥷','👨‍🚀','👩‍🚀','🧙‍♂️','🐉','🦊',
+];
+
+function renderIconGrid(currentIcon){
+  const grid = document.getElementById('iconGrid');
+  if(!grid) return;
+  grid.innerHTML = '';
+  ICON_PRESETS.forEach(emoji => {
+    const cell = document.createElement('div');
+    cell.className = 'icon-cell' + (emoji === currentIcon ? ' selected' : '');
+    cell.textContent = emoji;
+    cell.title = emoji;
+    cell.addEventListener('click', () => {
+      // Подсвечиваем выбранную + кладём в input
+      grid.querySelectorAll('.icon-cell').forEach(c => c.classList.remove('selected'));
+      cell.classList.add('selected');
+      document.getElementById('editIcon').value = emoji;
+    });
+    grid.appendChild(cell);
+  });
+}
+
 function openProfileEdit(){
   if(!_agent) return;
   document.getElementById('editName').value = _agent.name||'';
   document.getElementById('editIcon').value = _agent.icon||'🤖';
   document.getElementById('editStatus').value = _agent.status||'onboarding';
+  renderIconGrid(_agent.icon||'🤖');
   document.getElementById('profileModal').classList.add('show');
+  // Автофокус на имя для быстрого переименования
+  setTimeout(() => document.getElementById('editName').focus(), 50);
 }
 function closeProfileEdit(){document.getElementById('profileModal').classList.remove('show');}
 document.getElementById('profileModal').addEventListener('click', e=>{
