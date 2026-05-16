@@ -147,11 +147,29 @@ Backend (упрощённо):
 
 ### Итерация 2 — Каталог ролей + UI (без скилов)
 
-### Итерация 2 — Каталог ролей + UI (без скилов)
-- Модели `AgentRole` + `AgentRun`
-- 1 первая роль (например **Поисковик**) — sed-скрипт с pipeline и промптом
-- Страница `/agents-v2.html` — каталог карточек + модалка запуска (форма + результат)
-- Endpoint `/agents/roles/{slug}/run` (использует существующий run_orchestra)
+### ✅ Итерация 2 — Каталог ролей + UI (без скилов) — выкачена 2026-05-16
+- ✅ Модели `AgentRole` + `AgentRun` (server/models.py). Через shadow-Solution
+  (subcategory='_agent_role') реюзаем весь solutions_orchestra без копипасты.
+- ✅ Первая роль 🔍 **Поисковик** — 2-stage Perplexity (sonar-reasoning-pro
+  broad + sonar-pro focused) → claude-sonnet-4-6 синтез. Цена 200 ₽/запуск.
+  Input-schema: тема / фокус / глубина.
+- ✅ Страница [views/agents-v2.html](../../views/agents-v2.html) — каталог
+  карточек + модалка запуска с динамическим input_schema (text/textarea/select)
+  + live SSE-стрим стадий + minimal markdown-renderer для итога. Раздел
+  «🕘 Мои запуски» с возможностью открыть прошлый результат.
+- ✅ Endpoints `/agents/roles`, `/agents/roles/{slug}`, `POST /agents/roles/{slug}/run`,
+  `/agents/runs/my`, `/agents/runs/{id}`, `/agents/runs/{id}/stream` (SSE прокси
+  на solutions runtime).
+- ✅ Sidebar: «🤖 ИИ Агенты» теперь ведёт на /agents-v2.html (с NEW-бейджем).
+  Старый workflow-конструктор переименован в «🛠 Конструктор (advanced)».
+- ✅ Shadow-Solutions скрыты из `/solutions` каталога и `/solutions/runs/my`
+  через фильтр `subcategory != '_agent_role'`.
+- ✅ Засеяно на проде: `role.id=1 shadow.id=42 (Поисковик)`.
+
+**Что НЕ сделано (для Иitre 3):**
+- 5 остальных ролей (Парсер / Юрист / Бухгалтер / Креатор / Автоответчик).
+- Wiring Knowledge Hub категорий в стадии (default_kb_categories пока не
+  подмешивается в context — это Иitre 3 + Иitre 4 для скилов).
 
 ### Итерация 3 — 5 остальных ролей
 - Парсер · Юрист · Бухгалтер · Креатор · Автоответчик
