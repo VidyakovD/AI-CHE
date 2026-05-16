@@ -144,4 +144,19 @@
       }
     };
   }
+
+  // ── PWA: регистрация Service Worker на любой странице ─────────────────────
+  // Делаем здесь чтобы не дублировать в каждой view-страничке. SW даёт
+  // offline-fallback + stale-while-revalidate для статики. Install-banner
+  // живёт только на index.html (там есть кнопка), на под-страницах не нужен.
+  if ("serviceWorker" in navigator && !window.__aichePwaRegistered) {
+    window.__aichePwaRegistered = true;
+    window.addEventListener("load", function () {
+      navigator.serviceWorker
+        .register("/sw.js", { scope: "/" })
+        .catch(function (err) {
+          console.warn("[PWA] SW registration failed:", err);
+        });
+    });
+  }
 })();
