@@ -227,7 +227,16 @@ async function loadList(){
   box.innerHTML = '<div class="empty-hero" style="margin:24px auto"><div class="d">⏳ Загрузка...</div></div>';
   try{
     const r = await fetch(`${API}/api/agents`,{credentials:'same-origin'});
-    if(r.status===401){location.href='/';return;}
+    if(r.status===401){
+      // Не редиректим silent на главную — это выглядит как «страница пустая».
+      // Показываем явное сообщение с кнопкой возврата.
+      box.innerHTML = `<div class="empty-hero">
+        <div class="h">🔒 Требуется вход</div>
+        <div class="d">Сессия закончилась или вы не авторизованы. Войдите в аккаунт и вернитесь сюда.</div>
+        <a href="/" class="btn-p" style="display:inline-block;text-decoration:none">На главную → войти</a>
+      </div>`;
+      return;
+    }
     if(!r.ok){box.innerHTML=`<div class="empty-hero"><div class="d">Ошибка: ${r.status}</div></div>`;return;}
     const data = await r.json();
     _agents = data.agents||[];
