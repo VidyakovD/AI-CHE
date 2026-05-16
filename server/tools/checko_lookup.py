@@ -79,11 +79,12 @@ def _fetch(endpoint: str, inn: str) -> dict:
     except Exception as e:
         raise CheckoError(f"Checko вернул не-JSON: {e}") from e
     data = payload.get("data")
-    if data is None:
-        meta = payload.get("meta", {})
-        if meta.get("status") == 404:
-            raise CheckoError(f"Контрагент по ИНН {inn} не найден в реестрах.")
-        raise CheckoError(f"Checko: пустой ответ — {payload}")
+    if data is None or not data:
+        raise CheckoError(f"Контрагент по ИНН {inn} не найден в реестрах ФНС.")
+    # Checko иногда возвращает 200 с data={} вместо 404. Проверяем что
+    # есть хоть один из базовых маркеров — иначе считаем что не найден.
+    if not any(data.get(k) for k in ("ОГРН", "ОГРНИП", "НаимПолн", "НаимСокр", "ФИО")):
+        raise CheckoError(f"Контрагент по ИНН {inn} не найден (пустая карточка от Checko).")
     return data
 
 
@@ -131,12 +132,59 @@ def _fmt_okved(data: dict) -> str:
 
 
 def _fmt_director(data: dict) -> str:
-    rk = data.get("Руководитель") or data.get("Управление") or {}
+    # Checko возвращает поле как 'Руковод' (без -итель), плюс легаси алиасы
+    rk = data.get("Руковод") or data.get("Руководитель") or data.get("УпрОрг") or data.get("Управление") or {}
     if isinstance(rk, dict):
         fio = rk.get("ФИО") or rk.get("Наим") or "—"
-        post = rk.get("НаимДолжн") or rk.get("Должность") or ""
+        post = rk.get("НаимДолжн") or rk.get("Должн") or rk.get("Должность") or ""
         return f"{fio}" + (f" ({post})" if post else "")
+    if isinstance(rk, list) and rk:
+        # Иногда список лиц — берём первого
+        first = rk[0] if isinstance(rk[0], dict) else {}
+        fio = first.get("ФИО") or first.get("Наим") or "—"
+        post = first.get("НаимДолжн") or first.get("Должн") or ""
+        more = f" (+ ещё {len(rk)-1})" if len(rk) > 1 else ""
+        return f"{fio}" + (f" — {post}" if post else "") + more
     return "—"
+
+
+def _fmt_risk_flags(data: dict) -> str:
+    """Красные флаги для риск-отчёта: санкции, недобросовестность, дисквал."""
+    flags = []
+    sanc = data.get("Санкции")
+    if isinstance(sanc, dict) and (sanc.get("ВсегоЗап") or sanc.get("Всего")):
+        flags.append(f"🚨 Санкции: {sanc.get('ВсегоЗап') or sanc.get('Всего')} записей")
+    sanc_u = data.get("СанкцУчр")
+    if isinstance(sanc_u, dict) and (sanc_u.get("ВсегоЗап") or sanc_u.get("Всего")):
+        flags.append(f"🚨 Санкции учредителей: {sanc_u.get('ВсегоЗап') or sanc_u.get('Всего')}")
+    nedob = data.get("НедобПост")
+    if isinstance(nedob, dict) and nedob.get("Есть"):
+        flags.append("⚠ В реестре недобросовестных поставщиков (44-ФЗ)")
+    diskv = data.get("ДисквЛица")
+    if isinstance(diskv, dict) and (diskv.get("ВсегоЗап") or diskv.get("Всего")):
+        flags.append(f"⚠ Дисквалифицированные лица: {diskv.get('ВсегоЗап') or diskv.get('Всего')}")
+    mass_r = data.get("МассРуковод")
+    if isinstance(mass_r, dict) and mass_r.get("Есть"):
+        flags.append("⚠ Массовый руководитель (подставное лицо?)")
+    mass_u = data.get("МассУчред")
+    if isinstance(mass_u, dict) and mass_u.get("Есть"):
+        flags.append("⚠ Массовый учредитель")
+    nelegal = data.get("НелегалФин")
+    if isinstance(nelegal, dict) and nelegal.get("Есть"):
+        flags.append("🚨 Подозрение в нелегальных фин-операциях (ЦБ РФ)")
+    return "\n".join(f"- {f}" for f in flags) if flags else "_красных флагов не обнаружено_"
+
+
+def _fmt_okved_extra(data: dict) -> str:
+    extra = data.get("ОКВЭДДоп")
+    if not isinstance(extra, list) or not extra:
+        return ""
+    items = []
+    for o in extra[:6]:
+        if isinstance(o, dict):
+            items.append(f"{o.get('Код', '')} — {o.get('Наим', '')}".strip(" —"))
+    more = f" (+ ещё {len(extra)-6})" if len(extra) > 6 else ""
+    return "**Доп. ОКВЭД:** " + "; ".join(items) + more if items else ""
 
 
 def _fmt_finances(data: dict) -> str:
@@ -189,10 +237,17 @@ def format_md(data: dict, inn: str) -> str:
         f"- **Адрес:** {_fmt_address(data)}",
         f"- **Основной ОКВЭД:** {_fmt_okved(data)}",
         f"- **Руководитель:** {_fmt_director(data)}",
-        "",
-        "### Финансовая отчётность",
-        _fmt_finances(data),
     ]
+    okved_extra = _fmt_okved_extra(data)
+    if okved_extra:
+        lines.append("")
+        lines.append(okved_extra)
+    lines.append("")
+    lines.append("### 🚦 Красные флаги")
+    lines.append(_fmt_risk_flags(data))
+    lines.append("")
+    lines.append("### Финансовая отчётность")
+    lines.append(_fmt_finances(data))
     cc = _fmt_court_cases(data)
     if cc:
         lines.append(cc)
