@@ -232,6 +232,27 @@ async def _run_browse_url(stage: dict, ctx: dict) -> str:
     return text or ""
 
 
+async def _run_inn_lookup(stage: dict, ctx: dict) -> str:
+    """ЕГРЮЛ/ЕГРИП lookup через Checko.ru — для роли «Юрист» в Иitre 3.
+
+    Параметры stage:
+      inn_field — имя поля из input_schema (default 'inn')
+      inn       — прямая строка-шаблон (например '{field.inn}') если задана,
+                  имеет приоритет над inn_field
+    """
+    from server.tools.checko_lookup import lookup_inn_md
+    inn_tpl = stage.get("inn") or "{field." + stage.get("inn_field", "inn") + "}"
+    inn = _render_template(inn_tpl, ctx).strip()
+    if not inn:
+        return ("### Карточка контрагента\n\n"
+                "⚠ ИНН не передан — пропускаем lookup, идём только по ресёрчу.")
+    # httpx.get синхронный — оборачиваем в run_in_executor чтобы не блокировать
+    # event loop оркестры.
+    import asyncio as _asyncio
+    loop = _asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lookup_inn_md, inn)
+
+
 # Курс USD→RUB для перевода Perplexity cost (USD) в копейки. Берём
 # консервативный курс — лучше чуть переплатить юзера, чем уйти в минус
 # при колебаниях. Поднимать руками если ЦБ резко улетит.
@@ -1076,6 +1097,13 @@ async def run_orchestra(run_id: int) -> dict:
                 text, actual_kop = await _run_perplexity_research(stage, ctx)
                 st["output"] = text
                 st["actual_cost_kop"] = actual_kop
+                cost = 0
+            elif stype == "inn_lookup":
+                # ИИ Агенты v2 / роль Юрист: проверка контрагента через Checko.ru.
+                # Берём ИНН из field.{inn_field} (по умолчанию 'inn'), форматируем
+                # markdown-карточку. Цена для юзера = накладная в Solution.price_tokens.
+                text = await _run_inn_lookup(stage, ctx)
+                st["output"] = text
                 cost = 0
             else:
                 raise ValueError(f"Unknown stage type: {stype}")
