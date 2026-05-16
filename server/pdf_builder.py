@@ -32,7 +32,11 @@ _BRAND_CSS = """
     }
 }
 body {
-    font-family: 'DejaVu Sans', 'Helvetica', sans-serif;
+    /* Имя без пробела — точно как в pdfmetrics.registerFont() / registerFontFamily()
+       и в @font-face injected from _inject_dejavu_font_face(). С пробелом
+       'DejaVu Sans' xhtml2pdf не находит зарегистрированное семейство
+       и падает на built-in Helvetica → кириллица квадратиками. */
+    font-family: 'DejaVuSans', 'LiberationSans', sans-serif;
     color: #1a1a1a;
     font-size: 11pt;
     line-height: 1.55;
@@ -379,6 +383,10 @@ def markdown_to_pdf(md_text: str, title: str = "Бизнес-отчёт",
         log.warning(f"PDF недоступен: {e}. Установите xhtml2pdf+markdown.")
         return None
 
+    # ВАЖНО: без этого xhtml2pdf падает на built-in Helvetica → кириллица
+    # рендерится квадратиками в PDF-вьюверах.
+    _ensure_cyrillic_font_registered()
+
     md_html = _md.markdown(
         md_text,
         extensions=["fenced_code", "tables", "nl2br", "sane_lists"],
@@ -409,6 +417,10 @@ def markdown_to_pdf(md_text: str, title: str = "Бизнес-отчёт",
   <p class="footer-note">Документ сгенерирован AI Студия Че · aiche.ru</p>
 </body>
 </html>"""
+
+    # @font-face декларации для всех доступных шрифтов — чтобы xhtml2pdf
+    # подхватил TTF-файлы по `font-family: 'DejaVuSans'` в CSS.
+    full_html = _inject_dejavu_font_face(full_html)
 
     try:
         if out_path is None:
