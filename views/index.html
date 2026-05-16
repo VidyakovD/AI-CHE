@@ -3886,7 +3886,10 @@ async function loadSolutionsArchive(){
   wrap.innerHTML = '<div class="text-center text-on-surface-dim/40 py-8 text-sm">Загрузка…</div>';
   const status = document.getElementById('solsArchiveFilter')?.value || '';
   try{
-    const url = `${API}/solutions/runs/my?limit=100${status ? '&status=' + encodeURIComponent(status) : ''}`;
+    // api() сам добавляет API-префикс — передаём относительный путь.
+    // Раньше тут было `${API}/solutions/runs/my` → fetch получал
+    // "https://aiche.runhttps://aiche.ru/solutions/runs/my" → DNS падал.
+    const url = `/solutions/runs/my?limit=100${status ? '&status=' + encodeURIComponent(status) : ''}`;
     const r = await api(url);
     const items = r.items || [];
     if(!items.length){
@@ -5484,16 +5487,21 @@ async function qrLoginPoll(token){
 }
 
 function acceptTerms(){document.getElementById('rg_agree').checked=true;closeM('termsModal');}
-// credentials:'include' — обязательно: иначе при cookie-auth (без Bearer
-// токена в JS) сервер отвечает 401 и юзер видит "Failed to fetch" если
-// SW/network перехватили запрос. На same-origin браузер всё равно шлёт
-// cookies по умолчанию, но явное include защищает от старых SW и edge cases.
-// catch TypeError ("Failed to fetch" от fetch при network-fail) — даём
-// человеко-понятное сообщение вместо сырой ошибки браузера.
+// _toFullUrl: если path уже абсолютный (http://, https://) — оставляем,
+// иначе префиксим API. Защищает от случайных вызовов api(`${API}/foo`) —
+// без этого получался бы "aiche.runhttps://aiche.ru/foo" и DNS падал
+// с ERR_NAME_NOT_RESOLVED (баг loadSolutionsArchive 2026-05-16).
+//
+// credentials:'include' — обязательно: иначе при cookie-auth сервер
+// отвечает 401, а fetch иногда падает TypeError при SW/network edge.
+// catch TypeError → даём человеко-понятное сообщение вместо "Failed to fetch".
+function _toFullUrl(path){
+  return /^https?:\/\//i.test(path) ? path : (API + path);
+}
 async function api(path){
   const h={};if(authToken)h["Authorization"]="Bearer "+authToken;
   let r;
-  try{r=await fetch(API+path,{headers:h,credentials:'include'});}
+  try{r=await fetch(_toFullUrl(path),{headers:h,credentials:'include'});}
   catch(e){throw new Error("Нет связи с сервером — проверьте интернет и обновите страницу");}
   if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText||"Ошибка "+r.status);}
   return r.json();
@@ -5501,7 +5509,7 @@ async function api(path){
 async function apiPost(path,body){
   const h={"Content-Type":"application/json"};if(authToken)h["Authorization"]="Bearer "+authToken;
   let r;
-  try{r=await fetch(API+path,{method:"POST",headers:h,credentials:'include',body:JSON.stringify(body)});}
+  try{r=await fetch(_toFullUrl(path),{method:"POST",headers:h,credentials:'include',body:JSON.stringify(body)});}
   catch(e){throw new Error("Нет связи с сервером — проверьте интернет и обновите страницу");}
   if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText||"Ошибка "+r.status);}
   return r.json();
@@ -5509,7 +5517,7 @@ async function apiPost(path,body){
 async function apiPut(path,body){
   const h={"Content-Type":"application/json"};if(authToken)h["Authorization"]="Bearer "+authToken;
   let r;
-  try{r=await fetch(API+path,{method:"PUT",headers:h,credentials:'include',body:JSON.stringify(body)});}
+  try{r=await fetch(_toFullUrl(path),{method:"PUT",headers:h,credentials:'include',body:JSON.stringify(body)});}
   catch(e){throw new Error("Нет связи с сервером — проверьте интернет и обновите страницу");}
   if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText||"Ошибка "+r.status);}
   return r.json();
