@@ -341,6 +341,13 @@ LIGHTWEIGHT_INDEXES: list[tuple[str, str]] = [
      "CREATE INDEX IF NOT EXISTS ix_stored_assets_user_id ON stored_assets(user_id)"),
     ("ix_idempotency_records_user_id",
      "CREATE INDEX IF NOT EXISTS ix_idempotency_records_user_id ON idempotency_records(user_id)"),
+    # ── Singleton ИИ Агент (модуль 23) — один активный Agent на юзера ─────────
+    # Без этого UNIQUE параллельные GET /me на 4 workers могли создать дубли.
+    # Архивирование (status='archived') разрешает несколько (для soft-delete).
+    # Partial UNIQUE index работает в Postgres И SQLite ≥3.8.
+    ("uq_agent_active_per_user",
+     "CREATE UNIQUE INDEX IF NOT EXISTS uq_agent_active_per_user "
+     "ON agents(user_id) WHERE status != 'archived'"),
 ]
 
 

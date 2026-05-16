@@ -84,7 +84,8 @@ function isCacheableStatic(url) {
   return p.endsWith('.css') || p.endsWith('.js') || p.endsWith('.woff2')
       || p.endsWith('.woff') || p.endsWith('.ttf') || p.endsWith('.svg')
       || p.endsWith('.png') || p.endsWith('.jpg') || p.endsWith('.jpeg')
-      || p.endsWith('.webp') || p.endsWith('.ico') || p.endsWith('.json');
+      || p.endsWith('.webp') || p.endsWith('.ico') || p.endsWith('.json')
+      || p.startsWith('/avatars/');  // bottts SVG — кэшируем агрессивно
 }
 
 // ── install ───────────────────────────────────────────────────────────────

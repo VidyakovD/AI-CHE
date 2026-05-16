@@ -92,6 +92,13 @@ def _modules_catalog_md() -> str:
 
 
 # ── System prompt для Builder ────────────────────────────────────────────────
+# DEPRECATED (2026-05-16): нижняя секция _build_system_prompt / apply_action /
+# build_reply относится к старой архитектуре «много агентов на юзера»
+# (status=draft → Builder диалог → activate). В singleton-варианте (раздел 23)
+# routes/agents_modular.py использует ТОЛЬКО build_reply_personal и invoke_module
+# ниже. Эти функции оставлены до полной миграции / тестов, чтобы не сломать
+# импорты. Не вызываются из production-кода.
+
 
 def _build_system_prompt(spec: dict, agent_name: str, control_mode: str) -> str:
     modules_md = _modules_catalog_md()
@@ -239,7 +246,14 @@ def apply_action(spec: dict, action: dict) -> tuple[bool, str]:
 # ── Парсинг JSON-ответа модели (с recovery от обёрток) ──────────────────────
 
 def _extract_json(raw: str) -> dict | None:
-    """Достаём JSON из ответа модели даже если она добавила ```json``` или текст."""
+    """Достаём JSON из ответа модели даже если она добавила ```json``` или текст.
+
+    Алгоритм:
+      1. Снимаем ```json``` обёртку если есть.
+      2. Пробуем json.loads сразу.
+      3. Если не вышло — балансируем фигурные скобки с учётом строк/escape
+         от первой { и берём первый сбалансированный объект.
+    """
     if not raw:
         return None
     s = raw.strip()
@@ -247,13 +261,43 @@ def _extract_json(raw: str) -> dict | None:
     if s.startswith("```"):
         s = re.sub(r"^```(?:json)?\s*", "", s)
         s = re.sub(r"\s*```$", "", s)
-    # Берём содержимое от первой { до последней }
+    # Быстрый путь: модель вернула чистый JSON
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+    # Балансируем скобки от первой `{`
     start = s.find("{")
-    end = s.rfind("}")
-    if start < 0 or end <= start:
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    escape = False
+    end_idx = -1
+    for i in range(start, len(s)):
+        ch = s[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end_idx = i
+                break
+    if end_idx < 0:
         return None
     try:
-        return json.loads(s[start:end+1])
+        return json.loads(s[start:end_idx + 1])
     except Exception as e:
         log.warning(f"[builder] JSON parse failed: {e!s:.120}")
         return None
@@ -486,7 +530,8 @@ def _personal_system_prompt(*, agent_name: str, mode: str, profile: dict,
 
 def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
                          personality: dict, modules: list[dict],
-                         history: list[dict], user_input: str) -> dict:
+                         history: list[dict], user_input: str,
+                         user_id: int | None = None) -> dict:
     """Personal-agent шаг диалога (singleton-агент модуля 23).
 
     Args:
@@ -507,26 +552,63 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
       "raw": str,
     }
     """
+    # ── PrivacyGuard: маскируем PII во ВСЕХ сообщениях которые улетят в LLM ──
+    # Профиль может содержать имя/тел/email/ИНН — система-промпт это всё включает.
+    # Один guard на весь вызов — токены консистентны, потом unmask reply.
+    try:
+        from server.privacy_guard import PrivacyGuard
+        guard = PrivacyGuard()
+    except Exception:
+        guard = None  # privacy_guard модуль недоступен — деградируем gracefully
+
+    def _mask(t: str) -> str:
+        if not guard or not t:
+            return t
+        try:
+            return guard.mask(t)
+        except Exception:
+            return t
+
     system = _personal_system_prompt(
         agent_name=agent_name, mode=mode, profile=profile,
         personality=personality, modules=modules,
     )
-    messages = [{"role": "system", "content": system}]
+    # ВАЖНО: маскируем последовательно одним guard — иначе таблицы токенов не совпадут.
+    if guard:
+        # Сначала system (профиль), затем история, затем user_input
+        system = guard.mask(system)
+    masked_history = []
     for m in (history or [])[-20:]:
         if m.get("role") in ("user", "assistant"):
-            messages.append({"role": m["role"], "content": m.get("content") or ""})
-    messages.append({"role": "user", "content": user_input})
+            masked_history.append({
+                "role": m["role"],
+                "content": _mask(m.get("content") or "")
+            })
+    masked_user_input = _mask(user_input)
+    messages = [{"role": "system", "content": system}]
+    messages.extend(masked_history)
+    messages.append({"role": "user", "content": masked_user_input})
 
     try:
         from server.llm_router import ask as router_ask
         # Mode «agent_tools» — Claude (лидер MCP-Atlas) с structured JSON output
+        extra_kw = {"max_tokens": 2000, "temperature": 0.4,
+                    "_purpose": "personal_agent"}
+        if user_id is not None:
+            extra_kw["_user_id"] = int(user_id)
         route = router_ask(
             messages,
             task="agent_tools",
             complexity="medium",
-            extra={"max_tokens": 2000, "temperature": 0.4, "_purpose": "personal_agent"},
+            extra=extra_kw,
         )
         raw = route.content
+        # Unmask токены обратно в оригинальные PII в reply модели
+        if guard and raw:
+            try:
+                raw = guard.unmask_response(raw)
+            except Exception:
+                pass
     except Exception as e:
         log.exception(f"[personal-agent] LLM call failed: {e}")
         return {
@@ -633,7 +715,8 @@ from datetime import datetime  # noqa: E402
 
 
 def invoke_module(*, slug: str, task: str, profile: dict,
-                  module_memory: dict, custom_settings: dict) -> dict:
+                  module_memory: dict, custom_settings: dict,
+                  user_id: int | None = None) -> dict:
     """Запустить модуль на задачу. Использует system_prompt из AGENT_REGISTRY +
     подмешивает Memory Hub юзера + персональную память модуля + настройки.
 
@@ -704,9 +787,19 @@ def invoke_module(*, slug: str, task: str, profile: dict,
   Это будет сохранено в твою память для следующих вызовов.
 - Если задача требует данных извне (web, API) которых у тебя нет — напрямую скажи юзеру что нужно подключить (через owner-агента)."""
 
+    # PrivacyGuard для модуля: профиль/память юзера в system + сама задача
+    # могут содержать PII. Маскируем перед LLM, unmask reply.
+    try:
+        from server.privacy_guard import PrivacyGuard
+        guard = PrivacyGuard()
+        system = guard.mask(system)
+        task_masked = guard.mask(task[:8000])
+    except Exception:
+        guard = None
+        task_masked = task[:8000]
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": task[:8000]},
+        {"role": "user", "content": task_masked},
     ]
 
     try:
@@ -723,14 +816,22 @@ def invoke_module(*, slug: str, task: str, profile: dict,
             "developer": "code", "seo": "creative_writing",
         }
         task_kind = task_type_map.get(slug, "default")
+        extra_kw = {"max_tokens": 3000, "temperature": 0.5,
+                    "_purpose": f"module:{slug}"}
+        if user_id is not None:
+            extra_kw["_user_id"] = int(user_id)
         route = router_ask(
             messages,
             task=task_kind,
             complexity="medium",
-            extra={"max_tokens": 3000, "temperature": 0.5,
-                   "_purpose": f"module:{slug}"},
+            extra=extra_kw,
         )
         output = route.content or ""
+        if guard and output:
+            try:
+                output = guard.unmask_response(output)
+            except Exception:
+                pass
     except Exception as e:
         log.exception(f"[module:{slug}] LLM call failed: {e}")
         return {"ok": False, "output": "",

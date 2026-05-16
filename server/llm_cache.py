@@ -36,20 +36,39 @@ _EXTRA_NON_CONTENT_KEYS = {
     "_router_task", "_router_complexity",
 }
 
+# _purpose'ы для которых cache ОБЯЗАТЕЛЬНО per-user. Личный агент в onboarding
+# с пустым профилем даёт идентичный system-prompt для двух новых юзеров →
+# ответ одного «протечёт» другому. Хешируем user_id в ключ.
+_PER_USER_PURPOSES = {
+    "personal_agent",
+    "agent_builder",
+    "module",  # match for "module:smm" / "module:lawyer" / ...
+}
+
 DEFAULT_TTL_SEC = 3600  # 1 час
 
 
 def _make_cache_key(model: str, messages: list, extra: dict | None) -> str:
-    """SHA256 от model + canonical-JSON(messages) + JSON(filtered extra)."""
+    """SHA256 от model + canonical-JSON(messages) + JSON(filtered extra).
+    Для _purpose из _PER_USER_PURPOSES — подмешиваем _user_id в namespace."""
     extra_filtered = {}
+    namespace = ""
     if extra:
         # Только content-keys (max_tokens, temperature, etc.)
         extra_filtered = {k: v for k, v in extra.items()
                           if k not in _EXTRA_NON_CONTENT_KEYS}
+        purpose = str(extra.get("_purpose", ""))
+        # purpose может содержать "module:smm" — берём корневую часть
+        purpose_root = purpose.split(":", 1)[0]
+        if purpose_root in _PER_USER_PURPOSES or purpose in _PER_USER_PURPOSES:
+            uid = extra.get("_user_id")
+            if uid is not None:
+                namespace = f"u{uid}"
     payload = {
         "m": model,
         "msg": messages or [],
         "x": extra_filtered,
+        "ns": namespace,
     }
     # sort_keys для стабильности
     s = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)

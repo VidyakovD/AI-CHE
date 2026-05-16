@@ -25,11 +25,15 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
+from collections import defaultdict, deque
 from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db, current_user
@@ -37,6 +41,37 @@ from server.models import User, Agent, AgentMessage, AgentModule
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agents", tags=["agents-modular"])
+
+
+# ── Rate limiting ───────────────────────────────────────────────────────────
+# Простой in-memory sliding window per user. На multi-worker (4 процесса)
+# лимит размывается × workers — достаточно как первая защита.
+# Redis-backed лимиты — отдельный спринт когда нагрузка появится.
+
+_RL_LOCK = threading.Lock()
+_RL_BUCKETS: dict[int, deque[float]] = defaultdict(deque)
+
+# Лимиты для /me/messages: 20 сообщений / 60 сек, 200 / час
+_RL_MSG_PER_MIN = 20
+_RL_MSG_PER_HOUR = 200
+
+
+def _rate_limit_check(user_id: int) -> tuple[bool, str]:
+    """Sliding window: возвращает (allowed, reason)."""
+    now = time.time()
+    with _RL_LOCK:
+        bucket = _RL_BUCKETS[user_id]
+        # Чистим устаревшие (>1 час)
+        while bucket and now - bucket[0] > 3600:
+            bucket.popleft()
+        # Считаем за последнюю минуту
+        per_min = sum(1 for t in bucket if now - t <= 60)
+        if per_min >= _RL_MSG_PER_MIN:
+            return False, f"Слишком часто: {_RL_MSG_PER_MIN} сообщ./мин"
+        if len(bucket) >= _RL_MSG_PER_HOUR:
+            return False, f"Лимит {_RL_MSG_PER_HOUR} сообщ./час исчерпан"
+        bucket.append(now)
+    return True, ""
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -66,13 +101,53 @@ def _safe_json(s: str | None, default: Any = None) -> Any:
         return default if default is not None else {}
 
 
+# Максимальный размер сериализованного meta_json в AgentMessage.
+# Защита от раздувания при больших applied/suggest/quick_replies.
+_META_MAX_BYTES = 8000
+
+
+def _dump_meta(meta: dict) -> str:
+    """Сериализовать meta для AgentMessage.meta_json с лимитом размера.
+    При превышении — отрезаем «дешёвые» поля (applied/errors/raw)."""
+    try:
+        s = json.dumps(meta, ensure_ascii=False)
+    except Exception:
+        return "{}"
+    if len(s.encode("utf-8")) <= _META_MAX_BYTES:
+        return s
+    # Сокращаем по убыванию приоритета
+    trimmed = dict(meta)
+    for k in ("raw", "applied", "errors"):
+        trimmed.pop(k, None)
+    try:
+        s2 = json.dumps(trimmed, ensure_ascii=False)
+    except Exception:
+        return "{}"
+    if len(s2.encode("utf-8")) > _META_MAX_BYTES:
+        # Совсем минимальный набор
+        keep = {k: trimmed.get(k) for k in ("mode", "slug", "level", "level_up",
+                                             "activated", "ok")
+                if k in trimmed}
+        return json.dumps(keep, ensure_ascii=False)
+    return s2
+
+
+def _select_active_agents(user_id: int, db: Session) -> list[Agent]:
+    return (db.query(Agent)
+              .filter(Agent.user_id == user_id, Agent.status != "archived")
+              .order_by(Agent.id.asc())
+              .all())
+
+
 def get_or_create_agent(user: User, db: Session) -> Agent:
-    """Singleton: один Agent на юзера. Если есть несколько (старые дубли) —
-    берём min(id), остальные архивируем (status=archived)."""
-    agents = (db.query(Agent)
-                .filter(Agent.user_id == user.id, Agent.status != "archived")
-                .order_by(Agent.id.asc())
-                .all())
+    """Singleton: один Agent на юзера, race-safe.
+
+    Защита от параллельных создателей на multi-worker:
+      1. SELECT существующих — если есть → primary = min(id), архивируем дубли.
+      2. INSERT под защитой partial UNIQUE (см. db.py LIGHTWEIGHT_INDEXES
+         uq_agent_active_per_user) → IntegrityError при гонке → re-SELECT.
+    """
+    agents = _select_active_agents(user.id, db)
     if agents:
         primary = agents[0]
         # Архивируем дубли (если есть) — silent cleanup
@@ -98,14 +173,30 @@ def get_or_create_agent(user: User, db: Session) -> Agent:
         status="onboarding",
     )
     db.add(a)
-    db.commit()
-    db.refresh(a)
-    # Первое сообщение от агента — приветствие
-    db.add(AgentMessage(
-        agent_id=a.id, role="assistant", content=ONBOARDING_GREETING,
-        meta_json=json.dumps({"mode": "onboarding", "step": "greeting"}, ensure_ascii=False),
-    ))
-    db.commit()
+    try:
+        db.commit()
+        db.refresh(a)
+    except IntegrityError:
+        # Параллельный worker уже создал — забираем его
+        db.rollback()
+        agents = _select_active_agents(user.id, db)
+        if agents:
+            return agents[0]
+        # Невероятный fallback — наверное UNIQUE упал по другой причине
+        log.exception(f"[agents] IntegrityError without existing agent for user={user.id}")
+        raise HTTPException(500, "Не удалось создать агента, попробуйте ещё раз")
+    # Первое сообщение от агента — приветствие.
+    # Защита от двойного greeting (если как-то прошло мимо UNIQUE): проверяем
+    # что AgentMessage для этого agent_id ещё нет.
+    has_msg = (db.query(AgentMessage.id)
+                 .filter_by(agent_id=a.id)
+                 .first())
+    if not has_msg:
+        db.add(AgentMessage(
+            agent_id=a.id, role="assistant", content=ONBOARDING_GREETING,
+            meta_json=json.dumps({"mode": "onboarding", "step": "greeting"}, ensure_ascii=False),
+        ))
+        db.commit()
     log.info(f"[agents] created personal agent for user={user.id} (onboarding)")
     return a
 
@@ -176,6 +267,32 @@ def get_my_agent(db: Session = Depends(get_db),
     return _agent_dict(a, with_modules_count=True, db=db)
 
 
+@router.get("/me/full")
+def get_my_agent_full(messages_limit: int = 200,
+                      db: Session = Depends(get_db),
+                      user: User = Depends(current_user)):
+    """Bootstrap endpoint: возвращает agent + modules + messages одним запросом.
+
+    Экономит 3 RTT + 3 раза вызов get_or_create_agent при первой загрузке UI.
+    """
+    a = get_or_create_agent(user, db)
+    messages_limit = max(1, min(int(messages_limit or 200), 1000))
+    msgs = (db.query(AgentMessage)
+              .filter_by(agent_id=a.id)
+              .order_by(AgentMessage.id.asc())
+              .limit(messages_limit)
+              .all())
+    mods = (db.query(AgentModule)
+              .filter_by(agent_id=a.id)
+              .order_by(AgentModule.is_enabled.desc(), AgentModule.connected_at.asc())
+              .all())
+    return {
+        "agent": _agent_dict(a, with_modules_count=True, db=db),
+        "modules": [_module_dict(m, with_meta=True) for m in mods],
+        "messages": [_msg_dict(m) for m in msgs],
+    }
+
+
 class PatchAgentPayload(BaseModel):
     name: str | None = None
     icon: str | None = None
@@ -233,9 +350,16 @@ def send_message(payload: SendMessagePayload,
 
     Режимы:
       onboarding — агент задаёт вопросы для Memory Hub, после 5+ сообщений
-                   автоматически переходит в active
-      active     — обычный режим: команды, изменения настроек, общение
+                   автоматически переходит в active. Первые N сообщений
+                   бесплатно (agents.onboarding_free_messages, дефолт 5).
+      active     — обычный режим: списываем agents.message за каждое
+                   сообщение + agents.module_invoke если агент дёрнул модуль.
     """
+    # Rate limit (защита от спама / выгорания провайдер-ключей)
+    allowed, reason = _rate_limit_check(user.id)
+    if not allowed:
+        raise HTTPException(429, reason)
+
     a = get_or_create_agent(user, db)
     text = (payload.content or "").strip()
     if not text:
@@ -244,6 +368,24 @@ def send_message(payload: SendMessagePayload,
         raise HTTPException(413, "Слишком длинное сообщение (макс 10 КБ)")
 
     mode = "onboarding" if a.status == "onboarding" else "active"
+
+    # ── Биллинг pre-check ────────────────────────────────────────────────
+    # Считаем сколько user-сообщений было до этого. Onboarding-первые N бесплатно.
+    from server.pricing import get_price
+    from server.billing import deduct_atomic
+    from server.models import Transaction
+
+    prior_user_msgs = (db.query(AgentMessage.id)
+                         .filter(AgentMessage.agent_id == a.id,
+                                 AgentMessage.role == "user")
+                         .count())
+    free_onboarding = get_price("agents.onboarding_free_messages", default=5)
+    is_free_onboarding = (mode == "onboarding"
+                          and prior_user_msgs < free_onboarding)
+    msg_cost = 0 if is_free_onboarding else get_price("agents.message", default=50)
+    # Pre-check баланса: если не хватает на сообщение — отказываем
+    if msg_cost > 0 and int(user.tokens_balance or 0) < msg_cost:
+        raise HTTPException(402, f"Недостаточно средств. Нужно {msg_cost/100:.2f} ₽")
 
     # 1. Сохраняем сообщение юзера
     user_msg = AgentMessage(
@@ -285,6 +427,7 @@ def send_message(payload: SendMessagePayload,
             modules=modules_summary,
             history=history_dicts,
             user_input=text,
+            user_id=user.id,
         )
         reply = result["reply"]
         asst_meta["applied"] = result.get("applied", [])
@@ -312,9 +455,25 @@ def send_message(payload: SendMessagePayload,
         reply = "Что-то пошло не так при обработке 😔 Попробуй ещё раз."
         asst_meta["errors"] = [str(e)[:200]]
 
+    # ── Биллинг: списываем за сообщение, ТОЛЬКО если был полезный ответ ──
+    # Если упали с ошибкой (нет content) — не списываем (refund-friendly UX).
+    charged_kop = 0
+    if msg_cost > 0 and reply and not asst_meta.get("errors"):
+        charged_kop = deduct_atomic(db, user.id, msg_cost)
+        if charged_kop > 0:
+            db.add(Transaction(
+                user_id=user.id, type="usage",
+                tokens_delta=-charged_kop,
+                description=f"ИИ-агент: сообщение ({charged_kop/100:.2f} ₽)",
+                model="agents.message",
+            ))
+            asst_meta["cost_kop"] = charged_kop
+    elif is_free_onboarding:
+        asst_meta["free_onboarding"] = True
+
     asst_msg = AgentMessage(
         agent_id=a.id, role="assistant", content=reply,
-        meta_json=json.dumps(asst_meta, ensure_ascii=False),
+        meta_json=_dump_meta(asst_meta),
     )
     db.add(asst_msg)
     db.flush()
@@ -326,6 +485,14 @@ def send_message(payload: SendMessagePayload,
         slug = invoke_request.get("slug")
         task = invoke_request.get("task", "")
         target_mod = next((m for m in modules if m.slug == slug), None)
+        # Pre-check баланса для invoke_module — если недостаточно, не делегируем
+        module_cost = get_price("agents.module_invoke", default=100)
+        if target_mod and target_mod.is_enabled and module_cost > 0 \
+                and int(user.tokens_balance or 0) < module_cost:
+            # Молча скипаем invoke — Че уже ответил коротким ack, скажем юзеру
+            log.info(f"[agents.invoke] skipped {slug} for user={user.id}: low balance")
+            target_mod = None
+            asst_meta["module_skipped_reason"] = "low_balance"
         if target_mod and target_mod.is_enabled:
             try:
                 from server.agent_builder import (
@@ -338,39 +505,57 @@ def send_message(payload: SendMessagePayload,
                     profile=profile,
                     module_memory=mod_memory,
                     custom_settings=mod_settings,
+                    user_id=user.id,
                 )
                 # Создаём отдельное сообщение от модуля
+                level_up = False
                 if inv.get("ok"):
                     mod_content = inv["output"]
                     # Применяем выученное модулем к его памяти
                     if inv.get("memory_updates"):
                         apply_module_memory_updates(mod_memory, inv["memory_updates"])
                         target_mod.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
+                    # Прокачка считается только за успешные вызовы.
+                    # Фейлы (LLM-error / refusal) не должны прокачивать модуль.
+                    target_mod.interaction_count = (target_mod.interaction_count or 0) + 1
+                    target_mod.last_used_at = datetime.utcnow()
+                    learned_count = len((mod_memory.get("learned") or []))
+                    new_lvl = compute_module_level(
+                        current_level=target_mod.level or 0,
+                        interaction_count=target_mod.interaction_count,
+                        agent_status=a.status,
+                        learned_count=learned_count,
+                    )
+                    level_up = new_lvl > (target_mod.level or 0)
+                    if level_up:
+                        target_mod.level = new_lvl
                 else:
                     mod_content = f"⚠ Модуль не справился: {inv.get('error', 'неизвестная ошибка')}"
-                # Increment interaction_count + level recalc
-                target_mod.interaction_count = (target_mod.interaction_count or 0) + 1
-                target_mod.last_used_at = datetime.utcnow()
-                learned_count = len((mod_memory.get("learned") or []))
-                new_lvl = compute_module_level(
-                    current_level=target_mod.level or 0,
-                    interaction_count=target_mod.interaction_count,
-                    agent_status=a.status,
-                    learned_count=learned_count,
-                )
-                level_up = new_lvl > (target_mod.level or 0)
-                if level_up:
-                    target_mod.level = new_lvl
+                    # last_used_at обновляем даже при ошибке (попытка была)
+                    target_mod.last_used_at = datetime.utcnow()
+                # Биллинг за вызов модуля — только если он реально отработал.
+                module_charged_kop = 0
+                if inv.get("ok") and module_cost > 0:
+                    module_charged_kop = deduct_atomic(db, user.id, module_cost)
+                    if module_charged_kop > 0:
+                        db.add(Transaction(
+                            user_id=user.id, type="usage",
+                            tokens_delta=-module_charged_kop,
+                            description=f"Модуль {slug}: {module_charged_kop/100:.2f} ₽",
+                            model=f"agents.module:{slug}",
+                        ))
                 module_msg = AgentMessage(
                     agent_id=a.id, role="tool", content=mod_content,
-                    meta_json=json.dumps({
+                    meta_json=_dump_meta({
                         "mode": "module_invoke",
                         "slug": slug,
                         "model_used": inv.get("model_used", ""),
                         "level": target_mod.level,
                         "level_up": level_up,
                         "interactions": target_mod.interaction_count,
-                    }, ensure_ascii=False),
+                        "ok": bool(inv.get("ok")),
+                        "cost_kop": module_charged_kop,
+                    }),
                 )
                 db.add(module_msg)
             except Exception as e:
@@ -482,7 +667,9 @@ class PatchModulePayload(BaseModel):
     is_enabled: bool | None = None
     schedule_cron: str | None = None
     settings: dict | None = None
-    level: int | None = None
+    # ВАЖНО: level НЕ принимаем от клиента — прокачка только через
+    # compute_module_level (взаимодействия + заученное). L4-автономия —
+    # отдельный явный endpoint (TODO когда понадобится).
 
 
 @router.patch("/me/modules/{slug}")
@@ -499,8 +686,6 @@ def patch_module(slug: str, payload: PatchModulePayload,
         m.schedule_cron = payload.schedule_cron or None
     if payload.settings is not None:
         m.custom_settings_json = json.dumps(payload.settings, ensure_ascii=False)
-    if payload.level is not None:
-        m.level = max(0, min(4, int(payload.level)))
     db.commit(); db.refresh(m)
     return _module_dict(m, with_meta=True)
 
@@ -575,22 +760,71 @@ def patch_module_memory(slug: str, payload: PatchMemoryItemPayload,
 
 # ── catalog (доступные модули) ───────────────────────────────────────────────
 
+# Категории каталога — определяются по slug (мапа надстраивается поверх
+# AGENT_REGISTRY без изменения регистра). UI рисует фильтр-чипы по category.
+_CATEGORY_MAP = {
+    # Контент / SMM
+    "smm": "content", "copywriter": "content", "scriptwriter": "content",
+    "seo": "content", "designer": "content", "video": "content",
+    # Маркетинг
+    "marketer": "marketing", "email_marketer": "marketing", "media_buyer": "marketing",
+    "brand": "marketing",
+    # Документы / юридическое
+    "lawyer": "docs", "accountant": "docs", "hr_docs": "docs", "kp": "docs",
+    "contract": "docs",
+    # Аналитика
+    "analyst": "analytics", "fin_analyst": "analytics", "data_analyst": "analytics",
+    "researcher": "analytics", "comp_intel": "analytics",
+    # Тендеры
+    "tender_parser": "tenders", "tender_analyst": "tenders", "tender_writer": "tenders",
+    # Автоматизация
+    "bot_tg": "automation", "bot_site": "automation", "bot_vk": "automation",
+    # Разработка
+    "developer": "dev",
+}
+_CATEGORY_LABELS = {
+    "content": "Контент",
+    "marketing": "Маркетинг",
+    "docs": "Документы",
+    "analytics": "Аналитика",
+    "tenders": "Тендеры",
+    "automation": "Автоматизация",
+    "dev": "Разработка",
+    "other": "Прочее",
+}
+
+
+def _slug_category(slug: str) -> str:
+    return _CATEGORY_MAP.get(slug, "other")
+
+
 @router.get("/catalog")
 def get_catalog(db: Session = Depends(get_db),
                 user: User = Depends(current_user)):
     """Каталог доступных модулей из AGENT_REGISTRY (48 ролей).
-    Помечает уже подключённые — UI не даст подключить дважды."""
+    Помечает уже подключённые — UI не даст подключить дважды.
+    Добавляет category для фильтра-чипов в UI."""
     a = get_or_create_agent(user, db)
     connected = {m.slug for m in db.query(AgentModule).filter_by(agent_id=a.id).all()}
 
     from server.agent_runner import AGENT_REGISTRY
     items = []
+    cat_counts: dict[str, int] = {}
     for slug, meta in sorted(AGENT_REGISTRY.items()):
+        cat = _slug_category(slug)
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
         items.append({
             "slug": slug,
             "name": meta.get("name", slug),
             "description": meta.get("description", ""),
             "keywords": meta.get("keywords", []),
+            "category": cat,
             "is_connected": slug in connected,
         })
-    return {"modules": items, "total": len(items)}
+    categories = [
+        {"key": k, "label": _CATEGORY_LABELS.get(k, k), "count": cat_counts.get(k, 0)}
+        for k in ["content", "marketing", "docs", "analytics", "tenders",
+                  "automation", "dev", "other"]
+        if cat_counts.get(k, 0) > 0
+    ]
+    return {"modules": items, "total": len(items), "categories": categories}

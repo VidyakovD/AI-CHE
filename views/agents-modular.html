@@ -237,6 +237,7 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
       <button class="btn-g" onclick="closeCatalog()">✕</button>
     </div>
     <input class="inp cat-search" id="catSearch" placeholder="Поиск по названию или ключевым словам..."/>
+    <div id="catCatChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
     <div id="catalogGrid" class="cat-grid">
       <div class="profile-empty">⏳ Загрузка...</div>
     </div>
@@ -425,6 +426,14 @@ function _memoryBlock(m){
       </div>`;
     }).join('');
   }
+  // Расписание (пока без runtime — предупреждаем юзера)
+  if(m.schedule_cron){
+    html += `<div class="mem-stats" style="color:#ffb347">
+      ⏰ Расписание: <code>${_esc(m.schedule_cron)}</code><br>
+      <span style="opacity:.75">⚠ Автозапуск по расписанию пока в разработке —
+      агент пока работает только по твоим командам.</span>
+    </div>`;
+  }
   html += `<div class="mem-stats">Использован ${interactions} раз${_pluralRu(interactions, '', 'а', 'раз')}</div>`;
   div.innerHTML = html;
 
@@ -448,16 +457,15 @@ function _pluralRu(n, one, few, many){
 }
 
 async function editMemoryItem(slug, idx, currentNote){
-  const newNote = prompt(
-    'Отредактируй знание (пустое значение — удалить):',
-    currentNote
-  );
-  if(newNote === null) return;  // юзер нажал Cancel
+  const newNote = await (window.aiPrompt
+    ? window.aiPrompt('Отредактируй знание (пустое значение — удалить):', currentNote, {title:'Память агента'})
+    : Promise.resolve(prompt('Отредактируй знание (пустое значение — удалить):', currentNote)));
+  if(newNote === null || newNote === undefined) return;  // юзер нажал Cancel
   try{
     const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(slug)}/memory`, {
       method:'PATCH', credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({index: idx, note: newNote.trim()}),
+      body: JSON.stringify({index: idx, note: String(newNote).trim()}),
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
@@ -465,12 +473,16 @@ async function editMemoryItem(slug, idx, currentNote){
     }
     await loadModules();
   }catch(e){
-    alert('Не удалось сохранить: '+e.message);
+    if(window.aiAlert) await window.aiAlert('Не удалось сохранить: '+e.message, 'error');
+    else alert('Не удалось сохранить: '+e.message);
   }
 }
 
 async function disconnectModule(slug){
-  if(!confirm(`Отключить агента «${slug}»? Его персональная память удалится.`))return;
+  const ok = await (window.aiConfirm
+    ? window.aiConfirm(`Отключить агента «${slug}»? Его персональная память удалится.`, {danger:true, okLabel:'Отключить'})
+    : Promise.resolve(confirm(`Отключить агента «${slug}»? Его персональная память удалится.`)));
+  if(!ok) return;
   try{
     const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(slug)}`,{
       method:'DELETE', credentials:'same-origin',
@@ -480,7 +492,8 @@ async function disconnectModule(slug){
     await loadAgent();
     await loadMessages();  // подхватим system-message
   }catch(e){
-    alert('Не удалось отключить: '+e.message);
+    if(window.aiAlert) await window.aiAlert('Не удалось отключить: '+e.message, 'error');
+    else alert('Не удалось отключить: '+e.message);
   }
 }
 
@@ -495,6 +508,9 @@ document.getElementById('catalogModal').addEventListener('click', e=>{
   if(e.target===document.getElementById('catalogModal'))closeCatalog();
 });
 
+let _catCategories = [];
+let _catActiveCategory = '';   // '' = все
+
 async function loadCatalog(){
   const grid = document.getElementById('catalogGrid');
   try{
@@ -502,18 +518,44 @@ async function loadCatalog(){
     if(!r.ok)throw new Error('HTTP '+r.status);
     const data = await r.json();
     _catalog = data.modules||[];
+    _catCategories = data.categories || [];
+    _catActiveCategory = '';
+    renderCatCategoryChips();
     renderCatalog('');
   }catch(e){
     grid.innerHTML = `<div class="profile-empty">Ошибка: ${_esc(e.message)}</div>`;
   }
 }
 
+function renderCatCategoryChips(){
+  const box = document.getElementById('catCatChips');
+  if(!box) return;
+  const total = _catalog.length;
+  const chips = [{key:'', label:'Все', count: total}, ..._catCategories];
+  box.innerHTML = chips.map(c => `
+    <button class="qr-chip" data-cat="${_esc(c.key)}"
+      style="padding:5px 11px;font-size:12px;${_catActiveCategory===c.key?'background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;border-color:transparent':''}">
+      ${_esc(c.label)} <span style="opacity:.65">${c.count}</span>
+    </button>
+  `).join('');
+  box.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _catActiveCategory = btn.dataset.cat || '';
+      renderCatCategoryChips();
+      renderCatalog(document.getElementById('catSearch').value || '');
+    });
+  });
+}
+
 function renderCatalog(q){
   const grid = document.getElementById('catalogGrid');
   q = (q||'').toLowerCase().trim();
   let items = _catalog;
+  if(_catActiveCategory){
+    items = items.filter(m => m.category === _catActiveCategory);
+  }
   if(q){
-    items = _catalog.filter(m =>
+    items = items.filter(m =>
       (m.name||'').toLowerCase().includes(q) ||
       (m.slug||'').toLowerCase().includes(q) ||
       (m.description||'').toLowerCase().includes(q) ||
@@ -521,7 +563,7 @@ function renderCatalog(q){
     );
   }
   if(!items.length){
-    grid.innerHTML = `<div class="profile-empty">Ничего не найдено по «${_esc(q)}»</div>`;
+    grid.innerHTML = `<div class="profile-empty">Ничего не найдено${q?' по «'+_esc(q)+'»':''}</div>`;
     return;
   }
   grid.innerHTML = items.map(m => `
@@ -553,7 +595,8 @@ async function connectModule(slug){
     await loadAgent();
     await loadMessages();
   }catch(e){
-    alert('Не удалось подключить: '+e.message);
+    if(window.aiAlert) await window.aiAlert('Не удалось подключить: '+e.message, 'error');
+    else alert('Не удалось подключить: '+e.message);
   }
 }
 
@@ -750,11 +793,11 @@ const AVATAR_SEEDS = [
   'nova','atlas','orion','luna','tesla','echo','apollo','pixel',
   'titan','quasar','sigma','phoenix','cosmos','spark','neon','saber',
 ];
-const DICEBEAR_BASE = 'https://api.dicebear.com/9.x/bottts/svg';
-const AVATAR_BG = 'ff8c42,ffb347';   // gradient оранжевых (наша палитра)
-
+// Локальные SVG (предварительно скачаны из dicebear bottts, см. /avatars/bottts/).
+// Снимает зависимость от внешнего CDN — privacy + offline + speed.
 function _avatarUrl(seed){
-  return `${DICEBEAR_BASE}?seed=${encodeURIComponent(seed)}&backgroundColor=${AVATAR_BG}&backgroundType=gradientLinear`;
+  const safe = String(seed||'nova').replace(/[^a-z]/g,'').slice(0,24) || 'nova';
+  return `${API}/avatars/bottts/${safe}.svg`;
 }
 
 // Рендер любой иконки агента — seed-аватар через img / либо обычный эмодзи
@@ -762,7 +805,8 @@ function _iconHtml(icon){
   icon = (icon || '🤖').trim();
   if(icon.startsWith('seed:')){
     const seed = icon.slice(5) || 'nova';
-    return `<img src="${_esc(_avatarUrl(seed))}" alt="${_esc(seed)}"/>`;
+    // onerror fallback на эмодзи 🤖 если SVG не найден
+    return `<img src="${_esc(_avatarUrl(seed))}" alt="${_esc(seed)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'emoji',textContent:'🤖'}))"/>`;
   }
   return `<span class="emoji">${_esc(icon)}</span>`;
 }
@@ -815,13 +859,48 @@ async function saveProfileEdit(){
     renderHeader();
     closeProfileEdit();
   }catch(e){
-    alert('Не удалось сохранить: '+e.message);
+    if(window.aiAlert) await window.aiAlert('Не удалось сохранить: '+e.message, 'error');
+    else alert('Не удалось сохранить: '+e.message);
   }
 }
 
-// Boot
+// Boot — пытаемся одним запросом /me/full (agent + modules + messages),
+// fallback на старую цепочку из 3 запросов если /full не доступен.
+async function bootFull(){
+  try{
+    const r = await fetch(`${API}/api/agents/me/full`,{credentials:'same-origin'});
+    if(r.status===401){renderNotAuth();return false;}
+    if(!r.ok) return null;  // → fallback
+    const data = await r.json();
+    _agent = data.agent;
+    _modules = data.modules || [];
+    renderHeader();
+    renderProfile();
+    renderModules();
+    // Сообщения
+    const feed = document.getElementById('chatFeed');
+    feed.innerHTML = '';
+    const msgs = data.messages || [];
+    msgs.forEach(m => feed.appendChild(_msgEl(m)));
+    const last = msgs[msgs.length-1];
+    if(last && last.role === 'assistant'){
+      const qrs = last.meta?.quick_replies;
+      const row = _qrRow(qrs);
+      if(row) feed.appendChild(row);
+    }
+    feed.scrollTop = feed.scrollHeight;
+    return true;
+  }catch(e){
+    return null;
+  }
+}
+
 document.addEventListener('DOMContentLoaded', async ()=>{
   loadBalance();
+  const fast = await bootFull();
+  if(fast === false) return;        // 401 — уже отрендерили NotAuth
+  if(fast === true) return;          // успех — всё загружено за один запрос
+  // Fallback (старый путь — 3 запроса)
   const ok = await loadAgent();
   if(ok){
     await loadModules();

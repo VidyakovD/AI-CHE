@@ -488,6 +488,27 @@ def serve_shared_js():
     )
 
 
+@app.get("/avatars/bottts/{seed}.svg", include_in_schema=False)
+def serve_avatar_bottts(seed: str):
+    """Локальные SVG-аватары bottts (заменили dicebear CDN).
+
+    Принимаем только [a-z]{1,24} чтобы не дать прочитать произвольный файл.
+    Файлы лежат в views/avatars/bottts/*.svg (cм. download script).
+    """
+    import re as _re
+    from fastapi.responses import Response
+    if not _re.fullmatch(r"[a-z]{1,24}", seed):
+        return Response(status_code=400)
+    path = os.path.join(_BASE, "avatars", "bottts", f"{seed}.svg")
+    if not os.path.exists(path):
+        return Response(status_code=404)
+    return FileResponse(
+        path,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
+
+
 @app.get("/styles.css", include_in_schema=False)
 def serve_styles_css():
     """Скомпилированный Tailwind. Генерируется через `npm run build:css`.
