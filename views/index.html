@@ -753,7 +753,9 @@ body.welcome #inputArea{display:none!important}
 
 <!-- Run Modal -->
 <div id="runModal" class="fixed inset-0 overlay flex items-center justify-center z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="runTitle">
-  <div class="bg-surface rounded-2xl w-full max-w-lg mx-4 border border-outline/25 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+  <!-- max-w-4xl (896px) — для таблиц с 6+ колонками комфортно, на десктопе
+       не растягивается во весь экран. max-h-[92vh] оставляет дыхание сверху/снизу. -->
+  <div class="bg-surface rounded-2xl w-full max-w-4xl mx-4 border border-outline/25 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
     <div class="px-5 pt-4 pb-3 border-b border-outline/15 flex items-start justify-between gap-3 flex-shrink-0">
       <div class="flex-1 min-w-0">
         <h3 class="font-bold font-headline text-on-surface text-base leading-snug" id="runTitle">Запуск решения</h3>
