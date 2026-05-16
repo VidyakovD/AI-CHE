@@ -6,13 +6,13 @@
 
 ---
 
-## 🔴 ГЛАВНАЯ ЗАДАЧА — Project Loom
+## 🔴 ГЛАВНАЯ ЗАДАЧА — ИИ Агенты (модульные)
 
-**Project Loom** = новая платформа поверх AI Студия Че: дружелюбный оркестратор + магазин подключаемых модулей с прокачкой L0→L4 + LLM Router (Claude/GPT/Grok/Perplexity по силе) + персонализация через RAG/Adaptive Prompts + мобильное приложение. Юзер прислал ТЗ v0.2 (Project Loom) 2026-05-16.
+Переработка раздела «ИИ Агенты» внутри AI Студии Че: дружелюбный оркестратор + каталог подключаемых модулей с прокачкой L0→L4 + LLM Router (Claude/GPT/Grok/Perplexity по силе под задачу) + персонализация через RAG/Adaptive Prompts. **Один продукт** (бренд AI Студия Че остаётся), мобильное — **только PWA** (save-to-home), без native. Юзер прислал ТЗ v0.2 (внутреннее кодовое имя «Project Loom») 2026-05-16, все 10 вопросов закрыты.
 
-Полная дорожная карта (mapping ТЗ на код, фазы, 10 открытых вопросов, источники API для X/YouTube/IG/RU-альтернатив) — [docs/modules/23-project-loom-roadmap.md](docs/modules/23-project-loom-roadmap.md). **Замещает** [22-agents-v2-roadmap.md](docs/modules/22-agents-v2-roadmap.md).
+Полная дорожная карта — [docs/modules/23-agents-modular-roadmap.md](docs/modules/23-agents-modular-roadmap.md). **Замещает** [22-agents-v2-roadmap.md](docs/modules/22-agents-v2-roadmap.md).
 
-**В новом чате СНАЧАЛА** прочитай 23-project-loom-roadmap.md целиком, проверь закрыты ли 10 открытых вопросов из секции 7. Без ответов на них — НЕ стартовать код. Старые AgentRole/agents-v2.html остаются технически, но не развиваются.
+**В новом чате СНАЧАЛА** прочитай 23 целиком — там фазы, согласованные модули (Почта/Копирайтер/Финансы), и закрытые ответы. Старые AgentRole/agents-v2.html остаются технически, но не развиваются.
 
 ---
 
@@ -66,7 +66,7 @@
 | 20 | [infra-deploy](docs/modules/20-infra-deploy.md) | db.py, alembic, scheduler, миграция |
 | 21 | [creators](docs/modules/21-creators-roadmap.md) | Креаторы: бренд / план / подготовка / автопостинг TG·VK / анализ |
 | 22 | [agents-v2-roadmap](docs/modules/22-agents-v2-roadmap.md) | ⏸ Приостановлено (замещено 23). Иitre 1-2 в проде |
-| 23 | [project-loom-roadmap](docs/modules/23-project-loom-roadmap.md) | 🔴 **ГЛАВНАЯ ROADMAP** — Project Loom: оркестратор + модули + LLM Router + моб |
+| 23 | [agents-modular-roadmap](docs/modules/23-agents-modular-roadmap.md) | 🔴 **ГЛАВНАЯ ROADMAP** — модульные ИИ Агенты: оркестратор + модули + LLM Router + PWA |
 
 ---
 
