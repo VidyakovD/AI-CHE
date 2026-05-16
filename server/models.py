@@ -1679,3 +1679,66 @@ class AgentRun(Base):
     created_at        = Column(DateTime, default=datetime.utcnow, index=True)
 
     role = relationship("AgentRole")
+
+
+# ─── ИИ Агенты модульные (новый раздел 23) ─────────────────────────────────
+# См. docs/modules/23-agents-modular-roadmap.md.
+# Новая архитектура: юзер создаёт агента через диалог с Agent Builder, агент
+# имеет spec (modules + schedule + triggers + goals), работает по расписанию
+# или по запросу, общается с юзером в чате. Заменяет старый AgentConfig +
+# canvas-конструктор (те остаются как legacy для разработчиков).
+
+class Agent(Base):
+    """Модульный агент юзера (новая система ИИ Агентов, см. модуль 23).
+
+    spec_json — полная спецификация:
+      {
+        "modules":   ["smm","copywriter","vk_poster"],
+        "schedule":  "0 9 * * *",            # cron, либо null
+        "triggers":  [{"type":"new_email","filter":"..."}],
+        "goals":     "ежедневный пост в ВК на тему стройки",
+        "channels":  ["web","tg"],
+        "system_prompt_addon": "Тон деловой, без воды",
+        "module_configs": {"smm": {...}, "vk_poster": {...}}
+      }
+    """
+    __tablename__ = "agents"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                              nullable=False, index=True)
+    name            = Column(String, nullable=False)
+    icon            = Column(String, nullable=True)            # эмодзи для карточки
+    spec_json       = Column(Text, nullable=True)              # полная спецификация
+    # draft — только создаётся через Builder, ещё не активен
+    # active — работает (по расписанию/триггерам/командам)
+    # paused — пользователь поставил на паузу
+    # archived — удалён soft
+    status          = Column(String, default="draft", index=True)
+    created_at      = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_activity_at = Column(DateTime, nullable=True)
+
+
+class AgentMessage(Base):
+    """Сообщение в чате с агентом — двусторонний поток между юзером и агентом.
+
+    role:
+      user      — сообщение юзера
+      assistant — ответ агента (LLM-output)
+      system    — служебное (например «расписание изменено»)
+      tool      — результат tool-call'а (виден в трейсе, но не в основном UI)
+
+    Используется и для Agent Builder диалога (status=draft), и для последующего
+    общения с активным агентом (команды / изменение настроек).
+    """
+    __tablename__ = "agent_messages"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    agent_id        = Column(Integer, ForeignKey("agents.id", ondelete="CASCADE"),
+                              nullable=False, index=True)
+    role            = Column(String, nullable=False)            # user|assistant|system|tool
+    content         = Column(Text, nullable=True)
+    # tool_calls / attachments / mode (build|command|settings) / cost_kop
+    meta_json       = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow, index=True)
