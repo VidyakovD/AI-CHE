@@ -133,16 +133,33 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 .profile-fact .k{color:#a89880;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px}
 .profile-empty{font-size:12px;color:#a89880;font-style:italic;padding:8px 0}
 
-.mod-card{display:flex;align-items:center;gap:8px;background:#1e1a14;border:1px solid rgba(74,63,47,0.3);border-radius:9px;padding:10px 12px;margin-bottom:6px;transition:border-color .15s}
-.mod-card:hover{border-color:rgba(255,140,66,.4)}
+/* Module card — кликабельный заголовок + раскрывающийся блок памяти */
+.mod-wrap{margin-bottom:6px}
+.mod-card{display:flex;align-items:center;gap:8px;background:#1e1a14;border:1px solid rgba(74,63,47,0.3);border-radius:9px;padding:10px 12px;transition:border-color .15s,background .15s;cursor:pointer}
+.mod-card:hover{border-color:rgba(255,140,66,.4);background:#231e16}
+.mod-card.expanded{border-color:#ff8c42;border-bottom-left-radius:0;border-bottom-right-radius:0}
 .mod-card.off{opacity:.55}
+.mod-card .chev{color:#a89880;font-size:10px;transition:transform .2s;flex-shrink:0;width:12px;text-align:center}
+.mod-card.expanded .chev{transform:rotate(90deg);color:#ff8c42}
 .mod-card .nm{flex:1;font-size:13px;font-weight:600;color:#f0e6d8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mod-card .lvl{font-size:10px;color:#a89880;font-weight:600;padding:2px 6px;background:#272018;border-radius:5px}
+.mod-card .lvl{font-size:10px;color:#a89880;font-weight:600;padding:2px 6px;background:#272018;border-radius:5px;flex-shrink:0}
 .mod-card .lvl.L1{color:#7bd968}.mod-card .lvl.L2{color:#7bd968}
 .mod-card .lvl.L3{color:#ffb347}.mod-card .lvl.L4{color:#ff8c42}
-.mod-card .x{background:transparent;border:none;color:#666;cursor:pointer;font-size:14px;padding:2px 4px}
+.mod-card .x{background:transparent;border:none;color:#666;cursor:pointer;font-size:14px;padding:2px 4px;flex-shrink:0}
 .mod-card .x:hover{color:#ff6b6b}
 .mod-empty{font-size:12px;color:#a89880;text-align:center;padding:18px 0;border:1px dashed rgba(74,63,47,0.4);border-radius:9px}
+
+/* Memory expansion — что агент-модуль выучил */
+.mod-mem{background:#161210;border:1px solid #ff8c42;border-top:none;border-bottom-left-radius:9px;border-bottom-right-radius:9px;padding:10px 12px;display:none}
+.mod-mem.show{display:block}
+.mod-mem .mem-title{font-size:10.5px;color:#a89880;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;font-weight:600}
+.mod-mem-empty{font-size:11.5px;color:#a89880;font-style:italic;padding:4px 0}
+.mod-mem-item{font-size:12px;color:#f0e6d8;background:#1e1a14;border:1px solid rgba(74,63,47,0.3);border-radius:7px;padding:7px 10px;margin-bottom:4px;cursor:pointer;transition:all .15s;display:flex;align-items:flex-start;gap:6px;line-height:1.4}
+.mod-mem-item:hover{border-color:#ff8c42;background:#231e16}
+.mod-mem-item:hover .mem-edit{opacity:1}
+.mod-mem-item .mem-text{flex:1;word-wrap:break-word;min-width:0}
+.mod-mem-item .mem-edit{color:#a89880;font-size:10px;opacity:0;transition:opacity .15s;flex-shrink:0}
+.mod-mem .mem-stats{font-size:10.5px;color:#a89880;margin-top:8px;padding-top:7px;border-top:1px solid rgba(74,63,47,0.3)}
 
 .add-btn{width:100%;background:rgba(255,140,66,.08);border:1px dashed rgba(255,140,66,.4);color:#ffb347;border-radius:9px;padding:9px;font-size:12.5px;cursor:pointer;font-weight:600;transition:all .15s}
 .add-btn:hover{background:rgba(255,140,66,.15);border-color:#ff8c42;color:#fff}
@@ -349,18 +366,107 @@ async function loadModules(){
   }
 }
 
+// Какие slug'и сейчас expanded в sidebar (запоминаем при reload)
+const _expandedMods = new Set();
+
 function renderModules(){
   const box = document.getElementById('modulesBlock');
   if(!_modules.length){
     box.innerHTML = '<div class="mod-empty">Пока без агентов.<br/>Подключи помощников ниже.</div>';
     return;
   }
-  box.innerHTML = _modules.map(m => `
-    <div class="mod-card ${m.is_enabled?'':'off'}">
-      <div class="nm" title="${_esc(m.description||m.slug)}">${_esc(m.name||m.slug)}</div>
+  box.innerHTML = '';
+  _modules.forEach(m => {
+    const wrap = document.createElement('div');
+    wrap.className = 'mod-wrap';
+    const expanded = _expandedMods.has(m.slug);
+    const card = document.createElement('div');
+    card.className = 'mod-card' + (m.is_enabled?'':' off') + (expanded?' expanded':'');
+    card.title = m.description || m.slug;
+    card.innerHTML = `
+      <span class="chev">›</span>
+      <div class="nm">${_esc(m.name||m.slug)}</div>
       <div class="lvl L${m.level}">L${m.level}</div>
-      <button class="x" onclick="disconnectModule('${_esc(m.slug)}')" title="Отключить">✕</button>
-    </div>`).join('');
+      <button class="x" title="Отключить">✕</button>
+    `;
+    card.querySelector('.x').addEventListener('click', (e) => {
+      e.stopPropagation();
+      disconnectModule(m.slug);
+    });
+    card.addEventListener('click', () => {
+      if(_expandedMods.has(m.slug)) _expandedMods.delete(m.slug);
+      else _expandedMods.add(m.slug);
+      renderModules();
+    });
+    wrap.appendChild(card);
+    if(expanded){
+      wrap.appendChild(_memoryBlock(m));
+    }
+    box.appendChild(wrap);
+  });
+}
+
+function _memoryBlock(m){
+  const div = document.createElement('div');
+  div.className = 'mod-mem show';
+  const memory = m.memory || {};
+  const learned = memory.learned || [];
+  const interactions = m.interaction_count || 0;
+
+  let html = '<div class="mem-title">📚 Что выучил про тебя</div>';
+  if(!learned.length){
+    html += '<div class="mod-mem-empty">Пока ничего. Поработай с агентом — он начнёт запоминать.</div>';
+  } else {
+    html += learned.map((item, idx) => {
+      const note = (item && item.note) || '';
+      return `<div class="mod-mem-item" data-idx="${idx}">
+        <span class="mem-text"></span>
+        <span class="mem-edit">✏</span>
+      </div>`;
+    }).join('');
+  }
+  html += `<div class="mem-stats">Использован ${interactions} раз${_pluralRu(interactions, '', 'а', 'раз')}</div>`;
+  div.innerHTML = html;
+
+  // Безопасно через textContent (xss-safe)
+  div.querySelectorAll('.mod-mem-item').forEach(el => {
+    const idx = parseInt(el.dataset.idx, 10);
+    const note = (learned[idx] && learned[idx].note) || '';
+    el.querySelector('.mem-text').textContent = note;
+    el.addEventListener('click', () => editMemoryItem(m.slug, idx, note));
+  });
+  return div;
+}
+
+function _pluralRu(n, one, few, many){
+  n = Math.abs(n) % 100;
+  const n1 = n % 10;
+  if(n > 10 && n < 20) return many;
+  if(n1 > 1 && n1 < 5) return few;
+  if(n1 === 1) return one;
+  return many;
+}
+
+async function editMemoryItem(slug, idx, currentNote){
+  const newNote = prompt(
+    'Отредактируй знание (пустое значение — удалить):',
+    currentNote
+  );
+  if(newNote === null) return;  // юзер нажал Cancel
+  try{
+    const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(slug)}/memory`, {
+      method:'PATCH', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({index: idx, note: newNote.trim()}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'HTTP '+r.status);
+    }
+    await loadModules();
+  }catch(e){
+    alert('Не удалось сохранить: '+e.message);
+  }
 }
 
 async function disconnectModule(slug){

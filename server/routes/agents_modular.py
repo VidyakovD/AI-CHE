@@ -531,6 +531,48 @@ def disconnect_module(slug: str,
     return {"status": "disconnected", "slug": slug}
 
 
+# ── module memory edit (раскрытие карточки агента в sidebar) ────────────────
+
+class PatchMemoryItemPayload(BaseModel):
+    index: int                          # индекс заметки в module_memory.learned
+    note: str | None = None             # новый текст (None → delete)
+
+
+@router.patch("/me/modules/{slug}/memory")
+def patch_module_memory(slug: str, payload: PatchMemoryItemPayload,
+                        db: Session = Depends(get_db),
+                        user: User = Depends(current_user)):
+    """Редактирование/удаление одной заметки из памяти агента-модуля.
+
+    Юзер кликает по «знанию» в раскрытой карточке агента в sidebar →
+    откроется prompt с текущим текстом → редактирует или очищает (delete).
+    """
+    a = get_or_create_agent(user, db)
+    m = db.query(AgentModule).filter_by(agent_id=a.id, slug=slug).first()
+    if not m:
+        raise HTTPException(404, "Агент не подключён")
+    memory = _safe_json(m.module_memory_json, {})
+    learned = memory.get("learned") or []
+    if not (0 <= payload.index < len(learned)):
+        raise HTTPException(400, "Неверный индекс заметки")
+    note = (payload.note or "").strip()
+    if not note:
+        # Удалить
+        learned.pop(payload.index)
+    else:
+        # Заменить (мутируем dict внутри, чтобы сохранить ts/прочее)
+        item = learned[payload.index]
+        if not isinstance(item, dict):
+            item = {}
+        item["note"] = note[:300]
+        item["edited_at"] = datetime.utcnow().isoformat()
+        learned[payload.index] = item
+    memory["learned"] = learned
+    m.module_memory_json = json.dumps(memory, ensure_ascii=False)
+    db.commit(); db.refresh(m)
+    return _module_dict(m, with_meta=True)
+
+
 # ── catalog (доступные модули) ───────────────────────────────────────────────
 
 @router.get("/catalog")
