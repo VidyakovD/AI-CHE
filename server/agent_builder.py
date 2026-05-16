@@ -430,6 +430,13 @@ def _personal_system_prompt(*, agent_name: str, mode: str, profile: dict,
     // опц. — slug'и модулей которые стоит подключить (юзер увидит чипы)
     "smm", "lawyer"
   ],
+  "invoke_module": {{
+    // опц. — если задача КОНКРЕТНО требует выполнения работы подключённым
+    // модулем, делегируй ему. Юзер увидит твой reply + отдельное сообщение
+    // от модуля. Работает ТОЛЬКО для уже подключённых модулей (см. выше).
+    "slug": "smm",
+    "task": "Конкретная задача для модуля, развёрнуто"
+  }},
   "ready_for_active": false  // true = онбординг считается законченным
 }}
 ```
@@ -437,9 +444,10 @@ def _personal_system_prompt(*, agent_name: str, mode: str, profile: dict,
 ПРАВИЛА:
 1. Reply — обязательно. Остальные поля — опционально.
 2. Не предлагай модулей которых НЕТ в каталоге выше.
-3. Не выдумывай факты — только то что юзер реально сказал.
-4. Если юзер просит активировать / готов работать — ready_for_active=true.
-5. Возвращай ТОЛЬКО валидный JSON. Никаких ```json``` обёрток."""
+3. invoke_module — только для подключённых (см. список выше). Для НЕподключённых — suggest_modules.
+4. Не выдумывай факты — только то что юзер реально сказал.
+5. Если юзер просит активировать / готов работать — ready_for_active=true.
+6. Возвращай ТОЛЬКО валидный JSON. Никаких ```json``` обёрток."""
 
 
 def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
@@ -539,6 +547,16 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
     if not isinstance(suggest_modules, list):
         suggest_modules = []
 
+    # invoke_module — делегирование подключённому модулю
+    invoke = parsed.get("invoke_module")
+    invoke_request = None
+    if isinstance(invoke, dict):
+        slug = str(invoke.get("slug", "")).strip()
+        task = str(invoke.get("task", "")).strip()[:8000]
+        # Проверяем что модуль подключён
+        if slug and task and any(m.get("slug") == slug for m in modules):
+            invoke_request = {"slug": slug, "task": task}
+
     ready = bool(parsed.get("ready_for_active"))
 
     return {
@@ -547,6 +565,7 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
         "errors": errors,
         "profile_changed": profile_changed,
         "suggest_modules": [str(s)[:40] for s in suggest_modules[:5]],
+        "invoke_request": invoke_request,
         "ready_for_active": ready,
         "raw": raw,
     }
@@ -554,3 +573,186 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
 
 # datetime для timestamps в add_facts
 from datetime import datetime  # noqa: E402
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Module Runtime — реальное выполнение задач модулями
+# Личный агент решает "нужен модуль X" → invoke_module → возвращается результат
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def invoke_module(*, slug: str, task: str, profile: dict,
+                  module_memory: dict, custom_settings: dict) -> dict:
+    """Запустить модуль на задачу. Использует system_prompt из AGENT_REGISTRY +
+    подмешивает Memory Hub юзера + персональную память модуля + настройки.
+
+    Returns: {
+      "ok": bool,
+      "output": str,         # ответ модуля (markdown)
+      "model_used": str,
+      "error": str | None,
+      "memory_updates": dict | None,  # что модуль выучил за этот вызов
+    }
+    """
+    meta = AGENT_REGISTRY.get(slug)
+    if not meta:
+        return {"ok": False, "output": "",
+                "error": f"Модуль {slug!r} не найден в каталоге",
+                "model_used": "", "memory_updates": None}
+
+    # Профиль юзера в кратком виде
+    profile_lines = []
+    for k in ("name", "industry", "tone", "goals"):
+        if profile.get(k):
+            profile_lines.append(f"  {k}: {profile[k]}")
+    for f in (profile.get("facts") or [])[:15]:
+        if isinstance(f, dict) and f.get("value"):
+            profile_lines.append(f"  • {f.get('key','')}: {f['value']}")
+    profile_text = "\n".join(profile_lines) or "  пусто"
+
+    # Персональная память модуля (что выучено о юзере за прошлые вызовы)
+    memory_lines = []
+    if isinstance(module_memory, dict):
+        for k in ("style", "preferences", "constraints"):
+            if module_memory.get(k):
+                memory_lines.append(f"  • {k}: {module_memory[k]}")
+        learned = module_memory.get("learned") or []
+        for L in learned[:10]:
+            if isinstance(L, dict) and L.get("note"):
+                memory_lines.append(f"  • {L['note']}")
+    memory_text = "\n".join(memory_lines) or "  ничего ещё не выучено"
+
+    # Кастомные настройки (channels/tokens/preferences)
+    settings_text = ""
+    if isinstance(custom_settings, dict) and custom_settings:
+        try:
+            settings_text = json.dumps(custom_settings, ensure_ascii=False, indent=2)[:500]
+        except Exception:
+            settings_text = ""
+
+    base_prompt = meta.get("system_prompt") or (
+        f"Ты — {meta.get('name', slug)}. {meta.get('description', '')}"
+    )
+
+    system = f"""{base_prompt}
+
+═══ КОНТЕКСТ ЮЗЕРА (Memory Hub) ═══
+{profile_text}
+
+═══ ЧТО ТЫ ВЫУЧИЛ ПРО ЭТОГО ЮЗЕРА (твоя память) ═══
+{memory_text}
+
+═══ НАСТРОЙКИ МОДУЛЯ ═══
+{settings_text or '  (нет)'}
+
+═══ ВАЖНО ═══
+- Отвечай ПО СУТИ задачи. Не объясняй что ты модуль — это знает оркестратор.
+- Используй то что знаешь о юзере (его стиль, тон, отрасль).
+- В конце ответа (в новой строке) можешь добавить:
+  «[LEARNED: <что_заметил>]» — например «[LEARNED: юзер пишет в деловом тоне без эмодзи]»
+  Это будет сохранено в твою память для следующих вызовов.
+- Если задача требует данных извне (web, API) которых у тебя нет — напрямую скажи юзеру что нужно подключить (через owner-агента)."""
+
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": task[:8000]},
+    ]
+
+    try:
+        from server.llm_router import ask as router_ask
+        # Подбираем task-type под модуль — для контента/копирайтинга creative,
+        # для legal/finance/analysis deep_analysis, остальные default
+        task_type_map = {
+            "smm": "creative_writing", "copywriter": "creative_writing",
+            "scriptwriter": "creative_writing",
+            "lawyer": "deep_analysis", "accountant": "deep_analysis",
+            "analyst": "deep_analysis", "fin_analyst": "deep_analysis",
+            "researcher": "research", "comp_intel": "research",
+            "tender_parser": "research", "tender_analyst": "deep_analysis",
+            "developer": "code", "seo": "creative_writing",
+        }
+        task_kind = task_type_map.get(slug, "default")
+        route = router_ask(
+            messages,
+            task=task_kind,
+            complexity="medium",
+            extra={"max_tokens": 3000, "temperature": 0.5,
+                   "_purpose": f"module:{slug}"},
+        )
+        output = route.content or ""
+    except Exception as e:
+        log.exception(f"[module:{slug}] LLM call failed: {e}")
+        return {"ok": False, "output": "",
+                "error": f"LLM error: {e!s:.140}",
+                "model_used": "", "memory_updates": None}
+
+    # Парсим [LEARNED: ...] маркеры (модуль выучил что-то про юзера)
+    learned_notes: list[str] = []
+    try:
+        for match in re.finditer(r"\[LEARNED:\s*([^\]]+)\]", output):
+            note = match.group(1).strip()[:300]
+            if note:
+                learned_notes.append(note)
+        # Убираем маркеры из видимого output (показываем чистый ответ юзеру)
+        output_clean = re.sub(r"\[LEARNED:\s*[^\]]+\]", "", output).strip()
+    except Exception:
+        output_clean = output
+
+    memory_updates = None
+    if learned_notes:
+        memory_updates = {"new_notes": learned_notes}
+
+    return {
+        "ok": True,
+        "output": output_clean,
+        "model_used": route.model_used if hasattr(route, "model_used") else "",
+        "error": None,
+        "memory_updates": memory_updates,
+    }
+
+
+def apply_module_memory_updates(memory: dict, updates: dict) -> dict:
+    """Применить memory_updates к module_memory (мутирует dict).
+    Возвращает количество добавленных записей."""
+    if not updates or not isinstance(memory, dict):
+        return memory
+    new_notes = updates.get("new_notes") or []
+    if not new_notes:
+        return memory
+    learned = memory.setdefault("learned", [])
+    for note in new_notes[:5]:  # лимит на ход
+        learned.append({"note": str(note)[:300],
+                        "ts": datetime.utcnow().isoformat()})
+    # Держим топ-50 заметок (старые отсекаем)
+    if len(learned) > 50:
+        memory["learned"] = learned[-50:]
+    return memory
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Прокачка модулей L0 → L1 → L2 → L3 → L4
+# Из ТЗ раздел 5.2:
+#   L0 → L1: 5-10 взаимодействий + заполненный onboarding
+#   L1 → L2: ≥30 взаимодействий + подключён источник данных
+#   L2 → L3: 4+ недели регулярного использования + накопленная база
+#   L3 → L4: явное разрешение юзера (НЕ авто-апгрейд)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def compute_module_level(*, current_level: int, interaction_count: int,
+                         agent_status: str, learned_count: int) -> int:
+    """Вычислить новый уровень модуля. НИКОГДА не понижает (только up).
+    L4 — только через явный API (юзер сам разрешил автономию)."""
+    new_level = current_level
+
+    # L0 → L1: 5+ взаимодействий И юзер прошёл онбординг
+    if new_level < 1 and interaction_count >= 5 and agent_status == "active":
+        new_level = 1
+    # L1 → L2: 30+ взаимодействий И модуль что-то выучил (learned >= 3)
+    if new_level < 2 and interaction_count >= 30 and learned_count >= 3:
+        new_level = 2
+    # L2 → L3: 200+ взаимодействий И накопленная база (learned >= 20)
+    if new_level < 3 and interaction_count >= 200 and learned_count >= 20:
+        new_level = 3
+    # L3 → L4 — только через явный API, авто не повышаем
+    return new_level

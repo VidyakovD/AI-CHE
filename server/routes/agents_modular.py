@@ -269,7 +269,8 @@ def send_message(payload: SendMessagePayload,
 
     asst_meta: dict = {"mode": mode}
     reply = ""
-    profile_updated = False
+    invoke_request = None
+    suggest_modules: list[str] = []
 
     try:
         from server.agent_builder import build_reply_personal
@@ -289,7 +290,12 @@ def send_message(payload: SendMessagePayload,
         # Сохраняем обновлённый profile (Memory Hub после изменений)
         if result.get("profile_changed"):
             a.profile_json = json.dumps(profile, ensure_ascii=False)
-            profile_updated = True
+        # suggest_modules — клиенту, для UI чипов
+        suggest_modules = result.get("suggest_modules", [])
+        if suggest_modules:
+            asst_meta["suggest_modules"] = suggest_modules
+        # invoke_module — делегирование уже подключённому модулю
+        invoke_request = result.get("invoke_request")
         # Авто-активация после онбординга если агент решил что готов
         if result.get("ready_for_active") and a.status == "onboarding":
             a.status = "active"
@@ -304,17 +310,85 @@ def send_message(payload: SendMessagePayload,
         meta_json=json.dumps(asst_meta, ensure_ascii=False),
     )
     db.add(asst_msg)
+    db.flush()
+
+    # ── Если агент попросил delegate → запускаем модуль СИНХРОННО ──
+    # MVP: short-running task (≤8s типично). Long-running через cron позже.
+    module_msg = None
+    if invoke_request and isinstance(invoke_request, dict):
+        slug = invoke_request.get("slug")
+        task = invoke_request.get("task", "")
+        target_mod = next((m for m in modules if m.slug == slug), None)
+        if target_mod and target_mod.is_enabled:
+            try:
+                from server.agent_builder import (
+                    invoke_module, apply_module_memory_updates, compute_module_level,
+                )
+                mod_memory = _safe_json(target_mod.module_memory_json, {})
+                mod_settings = _safe_json(target_mod.custom_settings_json, {})
+                inv = invoke_module(
+                    slug=slug, task=task,
+                    profile=profile,
+                    module_memory=mod_memory,
+                    custom_settings=mod_settings,
+                )
+                # Создаём отдельное сообщение от модуля
+                if inv.get("ok"):
+                    mod_content = inv["output"]
+                    # Применяем выученное модулем к его памяти
+                    if inv.get("memory_updates"):
+                        apply_module_memory_updates(mod_memory, inv["memory_updates"])
+                        target_mod.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
+                else:
+                    mod_content = f"⚠ Модуль не справился: {inv.get('error', 'неизвестная ошибка')}"
+                # Increment interaction_count + level recalc
+                target_mod.interaction_count = (target_mod.interaction_count or 0) + 1
+                target_mod.last_used_at = datetime.utcnow()
+                learned_count = len((mod_memory.get("learned") or []))
+                new_lvl = compute_module_level(
+                    current_level=target_mod.level or 0,
+                    interaction_count=target_mod.interaction_count,
+                    agent_status=a.status,
+                    learned_count=learned_count,
+                )
+                level_up = new_lvl > (target_mod.level or 0)
+                if level_up:
+                    target_mod.level = new_lvl
+                module_msg = AgentMessage(
+                    agent_id=a.id, role="tool", content=mod_content,
+                    meta_json=json.dumps({
+                        "mode": "module_invoke",
+                        "slug": slug,
+                        "model_used": inv.get("model_used", ""),
+                        "level": target_mod.level,
+                        "level_up": level_up,
+                        "interactions": target_mod.interaction_count,
+                    }, ensure_ascii=False),
+                )
+                db.add(module_msg)
+            except Exception as e:
+                log.exception(f"[agents.invoke] module {slug} failed: {e}")
+                module_msg = AgentMessage(
+                    agent_id=a.id, role="system",
+                    content=f"⚠ Ошибка модуля {slug}: {e!s:.140}",
+                )
+                db.add(module_msg)
 
     a.last_activity_at = datetime.utcnow()
     a.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(user_msg); db.refresh(asst_msg); db.refresh(a)
+    if module_msg:
+        db.refresh(module_msg)
 
-    return {
+    out = {
         "user_message": _msg_dict(user_msg),
         "assistant_message": _msg_dict(asst_msg),
         "agent": _agent_dict(a, with_modules_count=True, db=db),
     }
+    if module_msg:
+        out["module_message"] = _msg_dict(module_msg)
+    return out
 
 
 # ── modules ──────────────────────────────────────────────────────────────────

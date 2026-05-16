@@ -60,14 +60,35 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 .hdr .st .dot.paused{background:#a89880}
 
 .main{display:grid;grid-template-columns:1fr 320px;height:100%;min-height:0}
-@media(max-width: 980px){.main{grid-template-columns:1fr}.aside{display:none}}
+.aside-toggle{display:none}
+@media(max-width: 980px){
+  .main{grid-template-columns:1fr}
+  /* На мобиле sidebar — выезжающий drawer справа */
+  .aside{position:fixed;top:0;right:0;bottom:0;width:88vw;max-width:380px;
+         z-index:60;transform:translateX(100%);transition:transform .25s ease;
+         box-shadow:-8px 0 24px rgba(0,0,0,.5)}
+  .aside.open{transform:translateX(0)}
+  .aside-toggle{display:inline-flex;align-items:center;gap:5px;background:#272018;
+                color:#ffb347;border:1px solid rgba(255,140,66,.4);border-radius:8px;
+                padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600}
+  .aside-toggle:hover{background:rgba(255,140,66,.15)}
+  .aside-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:55;
+                  display:none}
+  .aside-backdrop.show{display:block}
+}
 
 .chat-wrap{display:flex;flex-direction:column;min-height:0;background:#1C1C1C}
 .chat-feed{flex:1;overflow-y:auto;padding:24px 18px;display:flex;flex-direction:column;gap:12px;max-width:820px;width:100%;margin:0 auto}
-.msg{max-width:78%;padding:11px 16px;border-radius:14px;font-size:14.5px;line-height:1.55;word-wrap:break-word;white-space:pre-wrap}
+.msg{max-width:78%;padding:11px 16px;border-radius:14px;font-size:14.5px;line-height:1.55;word-wrap:break-word;white-space:pre-wrap;position:relative}
 .msg.user{align-self:flex-end;background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;border-bottom-right-radius:4px}
 .msg.assistant{align-self:flex-start;background:#272018;color:#f0e6d8;border-bottom-left-radius:4px;border:1px solid rgba(74,63,47,0.35)}
 .msg.system{align-self:center;background:transparent;color:#a89880;font-size:12px;font-style:italic;max-width:100%;padding:4px 8px}
+/* Сообщение от модуля — отдельный стиль */
+.msg.tool{align-self:flex-start;background:#1e1f2a;color:#dde2ff;border-left:3px solid #6ec1ff;border-radius:8px;border-bottom-left-radius:4px;margin-left:10px}
+.msg.tool .tool-hdr{font-size:11px;color:#6ec1ff;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.msg.tool .tool-hdr .lvl{background:rgba(110,193,255,.15);padding:1px 6px;border-radius:5px;font-size:10px}
+.msg.tool .tool-hdr .levelup{background:rgba(123,217,104,.2);color:#7bd968;padding:1px 6px;border-radius:5px;font-size:10px;animation:pulse 2s ease-in-out}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
 .suggest-row{align-self:flex-start;display:flex;gap:6px;flex-wrap:wrap;margin-top:-4px}
 .suggest-chip{padding:5px 11px;background:#322a1e;border:1px solid rgba(255,140,66,.4);border-radius:14px;font-size:12px;color:#ffb347;cursor:pointer;transition:all .15s}
 .suggest-chip:hover{background:rgba(255,140,66,.15);color:#fff}
@@ -124,9 +145,11 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
     </div>
     <div class="flex items-center gap-2">
       <span id="balancePill" class="text-xs text-on-dim hidden md:inline"></span>
+      <button class="aside-toggle" onclick="toggleAside()" title="Модули и профиль">🧩 <span id="asideToggleCount">0</span></button>
       <button class="btn-g" onclick="openProfileEdit()" title="Настройки агента">⚙</button>
     </div>
   </header>
+  <div class="aside-backdrop" id="asideBackdrop" onclick="closeAside()"></div>
 
   <div class="main">
     <!-- Chat -->
@@ -245,7 +268,10 @@ function renderHeader(){
   const dot = document.getElementById('statusDot');
   dot.className = 'dot '+st;
   const lbl = {onboarding:'Знакомимся', active:'Активен', paused:'На паузе'}[st] || st;
-  document.getElementById('statusLabel').textContent = lbl + ' · ' + (_agent.modules_count||0) + ' модулей';
+  const modCount = _agent.modules_count || 0;
+  document.getElementById('statusLabel').textContent = lbl + ' · ' + modCount + ' модулей';
+  const tc = document.getElementById('asideToggleCount');
+  if(tc) tc.textContent = modCount;
 }
 
 function renderProfile(){
@@ -399,8 +425,25 @@ async function loadMessages(){
 
 function _msgEl(m){
   const div = document.createElement('div');
-  div.className = 'msg '+(m.role||'assistant');
-  div.textContent = m.content||'';
+  const role = m.role || 'assistant';
+  div.className = 'msg '+role;
+  // Сообщения от модулей — header с slug + level + level-up badge
+  if(role === 'tool' && m.meta){
+    const meta = m.meta || {};
+    const slug = meta.slug || 'модуль';
+    const level = (meta.level != null) ? meta.level : 0;
+    const levelUp = meta.level_up;
+    const hdr = document.createElement('div');
+    hdr.className = 'tool-hdr';
+    hdr.innerHTML = `🧩 ${_esc(slug)} <span class="lvl">L${level}</span>` +
+      (levelUp ? ` <span class="levelup">⬆ повышен!</span>` : '');
+    div.appendChild(hdr);
+    const body = document.createElement('div');
+    body.textContent = m.content || '';
+    div.appendChild(body);
+  } else {
+    div.textContent = m.content || '';
+  }
   return div;
 }
 
@@ -420,6 +463,17 @@ function _suggestRow(suggestSlugs){
     row.appendChild(chip);
   });
   return row;
+}
+
+// ── Aside drawer (mobile) ────────────────────────────────────────────────
+function toggleAside(){
+  const a = document.querySelector('.aside');
+  const b = document.getElementById('asideBackdrop');
+  if(a.classList.contains('open')){closeAside();} else {a.classList.add('open');b.classList.add('show');}
+}
+function closeAside(){
+  document.querySelector('.aside').classList.remove('open');
+  document.getElementById('asideBackdrop').classList.remove('show');
 }
 
 async function sendMessage(){
@@ -450,10 +504,25 @@ async function sendMessage(){
     }else{
       const data = await r.json();
       if(data.assistant_message) feed.appendChild(_msgEl(data.assistant_message));
-      // Если assistant подсказал модули — рисуем suggest-chips
-      const meta = data.assistant_message?.meta||{};
-      // suggest_modules не в meta (мы их в applied/profile_changed не клали);
-      // пока пропускаем — добавим в meta позже если будет полезно
+      // Suggest-chips для не подключённых модулей которые агент рекомендует
+      const suggested = data.assistant_message?.meta?.suggest_modules || [];
+      const connectedSlugs = new Set((_modules||[]).map(m=>m.slug));
+      const filtered = suggested.filter(s => !connectedSlugs.has(s));
+      if(filtered.length){
+        const row = _suggestRow(filtered);
+        if(row) feed.appendChild(row);
+      }
+      // module_message — отдельное сообщение от модуля который агент дернул
+      if(data.module_message){
+        feed.appendChild(_msgEl(data.module_message));
+        // level_up → подсветка + обновляем sidebar модулей
+        if(data.module_message?.meta?.level_up){
+          feed.appendChild(_msgEl({role:'system',
+            content:`⬆ Модуль ${data.module_message.meta.slug} прокачался до L${data.module_message.meta.level}!`}));
+        }
+        // Перезагружаем список модулей (interaction_count + level могли измениться)
+        loadModules();
+      }
       if(data.agent){
         _agent = data.agent;
         renderHeader();
