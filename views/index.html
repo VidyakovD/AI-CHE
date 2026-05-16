@@ -5484,22 +5484,34 @@ async function qrLoginPoll(token){
 }
 
 function acceptTerms(){document.getElementById('rg_agree').checked=true;closeM('termsModal');}
+// credentials:'include' — обязательно: иначе при cookie-auth (без Bearer
+// токена в JS) сервер отвечает 401 и юзер видит "Failed to fetch" если
+// SW/network перехватили запрос. На same-origin браузер всё равно шлёт
+// cookies по умолчанию, но явное include защищает от старых SW и edge cases.
+// catch TypeError ("Failed to fetch" от fetch при network-fail) — даём
+// человеко-понятное сообщение вместо сырой ошибки браузера.
 async function api(path){
   const h={};if(authToken)h["Authorization"]="Bearer "+authToken;
-  const r=await fetch(API+path,{headers:h});
-  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
+  let r;
+  try{r=await fetch(API+path,{headers:h,credentials:'include'});}
+  catch(e){throw new Error("Нет связи с сервером — проверьте интернет и обновите страницу");}
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText||"Ошибка "+r.status);}
   return r.json();
 }
 async function apiPost(path,body){
   const h={"Content-Type":"application/json"};if(authToken)h["Authorization"]="Bearer "+authToken;
-  const r=await fetch(API+path,{method:"POST",headers:h,body:JSON.stringify(body)});
-  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
+  let r;
+  try{r=await fetch(API+path,{method:"POST",headers:h,credentials:'include',body:JSON.stringify(body)});}
+  catch(e){throw new Error("Нет связи с сервером — проверьте интернет и обновите страницу");}
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText||"Ошибка "+r.status);}
   return r.json();
 }
 async function apiPut(path,body){
   const h={"Content-Type":"application/json"};if(authToken)h["Authorization"]="Bearer "+authToken;
-  const r=await fetch(API+path,{method:"PUT",headers:h,body:JSON.stringify(body)});
-  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
+  let r;
+  try{r=await fetch(API+path,{method:"PUT",headers:h,credentials:'include',body:JSON.stringify(body)});}
+  catch(e){throw new Error("Нет связи с сервером — проверьте интернет и обновите страницу");}
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText||"Ошибка "+r.status);}
   return r.json();
 }
 
