@@ -355,10 +355,57 @@
 
 **Sidekicks отложены на потом (Фаза 1):**
 - Module manifest.yaml (формат + загрузчик) — рефакторинг 48 ролей. Пока работают как Python-вызовы.
-- Семантический кэш LLM-вызовов — оптимизация. Без него работает, но дороже.
-- Адаптивная вёрстка моб — все страницы должны хорошо смотреться на телефоне.
+- ~~Семантический кэш~~ ✅ **Сделано как hash-based** ([server/llm_cache.py](../../server/llm_cache.py)).
+  Семантика через embeddings — TODO когда будет большой трафик.
+- ~~Адаптивная вёрстка моб~~ ✅ **Сделано** для agents-modular.html (sidebar→drawer на <980px).
 - Spec-mode классификатор (команда vs изменение настроек) — нужен только когда заработает Runtime active-агентов.
 - Multi-LLM паттерны Pipeline/Parallel/Verify (раздел 4.3 ТЗ) — пока single-model.
+
+### ✅ Фаза 1 (частично) — Module Runtime + прокачка модулей (2026-05-16)
+
+После архитектурной правки (singleton-агент + модули) добавлено:
+
+- ✅ **Singleton-агент** (один Agent на юзера, get-or-create в роутах)
+- ✅ **AgentModule** таблица: slug + level (L0-L4) + interaction_count +
+  module_memory + custom_settings + schedule_cron + is_enabled
+- ✅ **Memory Hub** в `Agent.profile_json` — что агент знает про юзера
+  (имя, сфера, тон, цели, факты с timestamp). Заполняется в онбординге.
+- ✅ **Personality Layer** в `Agent.personality_json` — display_name, icon,
+  voice, addon_prompt. Поверх всех LLM-вызовов.
+- ✅ **Module Runtime** ([server/agent_builder.py](../../server/agent_builder.py)::invoke_module):
+  - Подмешивает Memory Hub + персональную память модуля + custom_settings
+    в `system_prompt` модуля из AGENT_REGISTRY
+  - Модуль может вернуть `[LEARNED: ...]` маркеры — сохраняются
+  - LLM Router выбирает model по типу модуля (smm→creative, lawyer→deep_analysis)
+- ✅ **Прокачка L0→L3** (compute_module_level):
+  - L0→L1 при 5+ взаимодействий + agent.status=active
+  - L1→L2 при 30+ взаимодействий + 3+ выученных заметок
+  - L2→L3 при 200+ взаимодействий + 20+ заметок
+  - L3→L4 — только через явный API (юзер сам разрешает автономию)
+- ✅ **Personal Builder** action `invoke_module` — Че сам делегирует
+  подключённым модулям через JSON-action в его ответе. UI рисует
+  отдельное сообщение `role=tool` от модуля с уровнем + level-up badge.
+- ✅ **LLM Cache** ([server/llm_cache.py](../../server/llm_cache.py)) — exact-match
+  hash-кэш с TTL, daily cleanup через scheduler. Не кэширует
+  streaming/attachments/temperature>0.5/«сейчас». Подключён в LLM Router.
+- ✅ **Mobile drawer** — sidebar становится выезжающим на <980px,
+  toggle-кнопкой 🧩 в header с counter модулей.
+
+**Что юзер может СЕЙЧАС:**
+1. Зайти на /agents-modular.html → получить своего Че
+2. Онбординг: 5+ сообщений → status=active, профиль наполнен
+3. Подключить модуль из каталога (48 ролей доступны)
+4. В чате: «напиши пост про X» → Че делегирует copywriter → отдельная
+   синяя плашка от модуля с ответом + chip L0
+5. После 5 заданий модулю — авто-прокачка до L1 (visual badge ⬆)
+6. Модули учатся через [LEARNED:...] маркеры — память персональная
+
+**Что НЕ реализовано (Фаза 1 продолжение):**
+- Импорт прошлых постов VK/TG для bootstrap-обучения copywriter — нужен OAuth flow
+- UI настроек модуля (custom_settings_json через формы) — пока только через PATCH API
+- 📧 Почта Gmail — нужен OAuth scope + IMAP fallback
+- 💰 Финансы CSV — нужен парсер выписок + категоризатор
+- Реальные расписания/триггеры (cron-execution активных модулей) — есть таблица, нет runtime
 
 **Что юзер может сейчас в проде:**
 1. Зайти на [aiche.ru/agents-modular.html](https://aiche.ru/agents-modular.html)
