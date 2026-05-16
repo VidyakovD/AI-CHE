@@ -294,6 +294,10 @@ def send_message(payload: SendMessagePayload,
         suggest_modules = result.get("suggest_modules", [])
         if suggest_modules:
             asst_meta["suggest_modules"] = suggest_modules
+        # quick_replies — варианты ответа кнопками
+        qrs = result.get("quick_replies", [])
+        if qrs:
+            asst_meta["quick_replies"] = qrs
         # invoke_module — делегирование уже подключённому модулю
         invoke_request = result.get("invoke_request")
         # Авто-активация после онбординга если агент решил что готов
@@ -455,7 +459,7 @@ def connect_module(payload: ConnectModulePayload,
     meta = AGENT_REGISTRY[slug]
     db.add(AgentMessage(
         agent_id=a.id, role="system",
-        content=f"✓ Подключён модуль: {meta['name']} ({slug})",
+        content=f"✓ Подключён агент: {meta['name']} ({slug})",
         meta_json=json.dumps({"mode": "module_connected", "slug": slug}, ensure_ascii=False),
     ))
     a.last_activity_at = datetime.utcnow()
@@ -517,7 +521,7 @@ def disconnect_module(slug: str,
         name = slug
     db.add(AgentMessage(
         agent_id=a.id, role="system",
-        content=f"✗ Отключён модуль: {name}",
+        content=f"✗ Отключён агент: {name}",
         meta_json=json.dumps({"mode": "module_disconnected", "slug": slug}, ensure_ascii=False),
     ))
     db.commit()

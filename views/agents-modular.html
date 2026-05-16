@@ -93,6 +93,13 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 .suggest-chip{padding:5px 11px;background:#322a1e;border:1px solid rgba(255,140,66,.4);border-radius:14px;font-size:12px;color:#ffb347;cursor:pointer;transition:all .15s}
 .suggest-chip:hover{background:rgba(255,140,66,.15);color:#fff}
 
+/* Quick replies — варианты ответа кнопками под сообщением (онбординг, опросы) */
+.qr-row{align-self:flex-start;display:flex;gap:8px;flex-wrap:wrap;margin-top:-2px;margin-left:8px;max-width:78%}
+.qr-chip{padding:9px 16px;background:#272018;border:1.5px solid rgba(255,140,66,.5);border-radius:18px;font-size:13.5px;color:#ffb347;cursor:pointer;transition:all .15s;font-weight:600;font-family:inherit}
+.qr-chip:hover{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;border-color:transparent;transform:translateY(-1px)}
+.qr-chip:active{transform:translateY(0)}
+.qr-chip:disabled{opacity:.4;cursor:not-allowed}
+
 .chat-input-row{padding:14px 18px;border-top:1px solid rgba(74,63,47,0.3);background:#1C1C1C;display:flex;gap:10px;align-items:flex-end;max-width:820px;width:100%;margin:0 auto;box-sizing:border-box}
 .chat-input-row textarea{flex:1}
 .chat-input-row .btn-p{padding:11px 18px;font-size:15px}
@@ -170,9 +177,9 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
         <div id="profileBlock"></div>
       </div>
       <div class="aside-block" style="flex:1">
-        <h4>🧩 Подключённые модули</h4>
+        <h4>🧩 Подключённые агенты</h4>
         <div id="modulesBlock"></div>
-        <button class="add-btn" onclick="openCatalog()" style="margin-top:6px">+ Подключить модуль</button>
+        <button class="add-btn" onclick="openCatalog()" style="margin-top:6px">+ Подключить агента</button>
       </div>
     </aside>
   </div>
@@ -182,7 +189,7 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 <div id="catalogModal" class="modal-bg">
   <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:20px;max-width:720px;width:100%" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-3">
-      <h3 class="text-lg font-bold">🧩 Каталог модулей</h3>
+      <h3 class="text-lg font-bold">🧩 Каталог агентов</h3>
       <button class="btn-g" onclick="closeCatalog()">✕</button>
     </div>
     <input class="inp cat-search" id="catSearch" placeholder="Поиск по названию или ключевым словам..."/>
@@ -269,7 +276,8 @@ function renderHeader(){
   dot.className = 'dot '+st;
   const lbl = {onboarding:'Знакомимся', active:'Активен', paused:'На паузе'}[st] || st;
   const modCount = _agent.modules_count || 0;
-  document.getElementById('statusLabel').textContent = lbl + ' · ' + modCount + ' модулей';
+  const modsWord = (modCount === 1 ? 'агент' : (modCount >= 2 && modCount <= 4 ? 'агента' : 'агентов'));
+  document.getElementById('statusLabel').textContent = lbl + ' · ' + modCount + ' ' + modsWord;
   const tc = document.getElementById('asideToggleCount');
   if(tc) tc.textContent = modCount;
 }
@@ -309,7 +317,7 @@ async function loadModules(){
 function renderModules(){
   const box = document.getElementById('modulesBlock');
   if(!_modules.length){
-    box.innerHTML = '<div class="mod-empty">Пока без модулей.<br/>Подключи навыки агенту ниже.</div>';
+    box.innerHTML = '<div class="mod-empty">Пока без агентов.<br/>Подключи помощников ниже.</div>';
     return;
   }
   box.innerHTML = _modules.map(m => `
@@ -321,7 +329,7 @@ function renderModules(){
 }
 
 async function disconnectModule(slug){
-  if(!confirm(`Отключить модуль «${slug}»? Память модуля удалится.`))return;
+  if(!confirm(`Отключить агента «${slug}»? Его персональная память удалится.`))return;
   try{
     const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(slug)}`,{
       method:'DELETE', credentials:'same-origin',
@@ -416,7 +424,16 @@ async function loadMessages(){
     if(!r.ok)throw new Error('HTTP '+r.status);
     const data = await r.json();
     feed.innerHTML = '';
-    (data.messages||[]).forEach(m => feed.appendChild(_msgEl(m)));
+    const msgs = data.messages||[];
+    msgs.forEach(m => feed.appendChild(_msgEl(m)));
+    // Если последнее сообщение от ассистента имеет quick_replies — рендерим
+    // (актуально при перезагрузке страницы посреди диалога с опросом)
+    const last = msgs[msgs.length-1];
+    if(last && last.role === 'assistant'){
+      const qrs = last.meta?.quick_replies;
+      const row = _qrRow(qrs);
+      if(row) feed.appendChild(row);
+    }
     feed.scrollTop = feed.scrollHeight;
   }catch(e){
     feed.innerHTML = `<div class="msg system">Ошибка загрузки: ${_esc(e.message)}</div>`;
@@ -453,7 +470,7 @@ function _suggestRow(suggestSlugs){
   row.className = 'suggest-row';
   const label = document.createElement('span');
   label.style = 'font-size:11px;color:#a89880;align-self:center;margin-right:4px';
-  label.textContent = '⚡ Подключить:';
+  label.textContent = '⚡ Подключить агента:';
   row.appendChild(label);
   suggestSlugs.forEach(slug => {
     const chip = document.createElement('button');
@@ -461,6 +478,28 @@ function _suggestRow(suggestSlugs){
     chip.textContent = slug;
     chip.addEventListener('click', () => connectModule(slug));
     row.appendChild(chip);
+  });
+  return row;
+}
+
+// Quick-reply chips — варианты ответа кнопками под последним сообщением агента
+// (используется в онбординге / опросах с готовыми вариантами).
+function _qrRow(replies){
+  if(!replies || !replies.length) return null;
+  const row = document.createElement('div');
+  row.className = 'qr-row';
+  replies.forEach(text => {
+    const btn = document.createElement('button');
+    btn.className = 'qr-chip';
+    btn.textContent = text;
+    btn.addEventListener('click', () => {
+      // Дизейблим все chips в row после клика (исключаем повторные)
+      row.querySelectorAll('.qr-chip').forEach(b => b.disabled = true);
+      // Кладём текст в input и отправляем
+      document.getElementById('chatInput').value = text;
+      sendMessage();
+    });
+    row.appendChild(btn);
   });
   return row;
 }
@@ -498,12 +537,19 @@ async function sendMessage(){
       body: JSON.stringify({content: text}),
     });
     typing.remove();
+    // Перед добавлением новых сообщений убираем все qr-row из предыдущих
+    // (юзер только что ответил — старые варианты больше не актуальны)
+    feed.querySelectorAll('.qr-row').forEach(el => el.remove());
     if(!r.ok){
       const d = await r.json().catch(()=>({}));
       feed.appendChild(_msgEl({role:'system', content:'Ошибка: '+(d.detail||r.status)}));
     }else{
       const data = await r.json();
       if(data.assistant_message) feed.appendChild(_msgEl(data.assistant_message));
+      // Quick-replies — кнопки-варианты под сообщением (онбординг / опросы)
+      const qrs = data.assistant_message?.meta?.quick_replies;
+      const qrRow = _qrRow(qrs);
+      if(qrRow) feed.appendChild(qrRow);
       // Suggest-chips для не подключённых модулей которые агент рекомендует
       const suggested = data.assistant_message?.meta?.suggest_modules || [];
       const connectedSlugs = new Set((_modules||[]).map(m=>m.slug));
@@ -528,7 +574,7 @@ async function sendMessage(){
         renderHeader();
         renderProfile();
         if(data.assistant_message?.meta?.activated){
-          feed.appendChild(_msgEl({role:'system', content:'🎉 Онбординг закончен — я перешёл в рабочий режим. Готов наращивать модули.'}));
+          feed.appendChild(_msgEl({role:'system', content:'🎉 Онбординг закончен — я перешёл в рабочий режим. Готов подключать агентов.'}));
         }
       }
     }

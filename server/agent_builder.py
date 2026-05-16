@@ -426,6 +426,12 @@ def _personal_system_prompt(*, agent_name: str, mode: str, profile: dict,
     // опц. — новые факты которые надо запомнить про юзера
     {{"key": "...", "value": "..."}}
   ],
+  "quick_replies": [
+    // опц. — варианты ответа кнопками (UI покажет chips под сообщением).
+    // ОБЯЗАТЕЛЬНО используй когда задаёшь вопрос с понятными вариантами
+    // (стиль, выбор из 2-5 опций, да/нет). 2-5 коротких вариантов.
+    "Деловой", "Дружеский", "Лаконичный"
+  ],
   "suggest_modules": [
     // опц. — slug'и модулей которые стоит подключить (юзер увидит чипы)
     "smm", "lawyer"
@@ -440,6 +446,15 @@ def _personal_system_prompt(*, agent_name: str, mode: str, profile: dict,
   "ready_for_active": false  // true = онбординг считается законченным
 }}
 ```
+
+🎯 ПРАВИЛО ПРО quick_replies:
+   - Если ты задаёшь вопрос с понятными ограниченными вариантами — ВСЕГДА
+     добавляй quick_replies (2-5 коротких опций, ≤30 символов каждый).
+   - Особенно в режиме onboarding: «Какой стиль общения?» → ["Деловой",
+     "Дружеский", "Лаконичный"]. «Готов работать?» → ["Да, поехали",
+     "Ещё пара уточнений"].
+   - НЕ добавляй quick_replies если ответ требует свободного текста
+     (имя, цель, длинное описание).
 
 ПРАВИЛА:
 1. Reply — обязательно. Остальные поля — опционально.
@@ -556,6 +571,12 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
     if not isinstance(suggest_modules, list):
         suggest_modules = []
 
+    # quick_replies — варианты ответа кнопками под сообщением (UX опросов)
+    quick_replies = parsed.get("quick_replies") or []
+    if not isinstance(quick_replies, list):
+        quick_replies = []
+    quick_replies = [str(q).strip()[:40] for q in quick_replies[:5] if str(q).strip()]
+
     # invoke_module — делегирование подключённому модулю
     invoke = parsed.get("invoke_module")
     invoke_request = None
@@ -584,6 +605,7 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
         "errors": errors,
         "profile_changed": profile_changed,
         "suggest_modules": [str(s)[:40] for s in suggest_modules[:5]],
+        "quick_replies": quick_replies,
         "invoke_request": invoke_request,
         "ready_for_active": ready,
         "raw": raw,
