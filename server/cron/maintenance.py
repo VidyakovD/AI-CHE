@@ -148,3 +148,21 @@ async def conv_cleanup_loop():
         except Exception as e:
             log.error(f"[conv-cleanup] tick error: {e}")
         await asyncio.sleep(86400)
+
+
+# ── LLM Cache cleanup: expired entries раз в сутки ──────────────────────────
+
+async def llm_cache_cleanup_loop():
+    """Раз в сутки чистит просроченные записи LLM-кэша (TTL уже прошёл).
+    Без этого таблица llm_cache растёт без границ."""
+    from server.worker_lock import worker_lock
+    await asyncio.sleep(1200)  # 20 мин после старта
+    while True:
+        try:
+            with worker_lock("llm_cache_cleanup", ttl_sec=3600 * 23) as acquired:
+                if acquired:
+                    from server.llm_cache import cleanup_expired
+                    cleanup_expired()
+        except Exception as e:
+            log.error(f"[llm-cache-cleanup] tick error: {e}")
+        await asyncio.sleep(86400)

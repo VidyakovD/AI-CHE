@@ -1774,6 +1774,25 @@ class AgentModule(Base):
     )
 
 
+class LlmCache(Base):
+    """Cache LLM-вызовов (exact-match по hash). TTL по expires_at, очищается
+    периодически scheduler'ом. Экономия 30-50% по ТЗ раздел 4.5 + 7.2.
+
+    Ключ = SHA256(model + JSON(messages) + JSON(extra-filtered)).
+    Не учитываем user_api_key / _user_id / _request_id — это не контент.
+    """
+    __tablename__ = "llm_cache"
+
+    cache_key   = Column(String, primary_key=True, index=True)
+    model       = Column(String, nullable=True, index=True)   # для аналитики
+    response    = Column(Text, nullable=False)                # JSON сериализованный dict
+    purpose     = Column(String, nullable=True, index=True)   # _purpose из extra
+    created_at  = Column(DateTime, default=datetime.utcnow, index=True)
+    expires_at  = Column(DateTime, nullable=False, index=True)
+    hit_count   = Column(Integer, default=0)
+    last_hit_at = Column(DateTime, nullable=True)
+
+
 class AgentMessage(Base):
     """Сообщение в чате с агентом — двусторонний поток между юзером и агентом.
 

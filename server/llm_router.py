@@ -293,11 +293,17 @@ def ask(messages: list, *, task: str | None = None,
     log.info(f"[router] task={actual_task} complexity={actual_complexity} "
              f"sens={sensitivity} → model={model}")
 
-    # 3. Вызываем generate_response
+    # 3. Вызываем generate_response (с попыткой использовать LLM-кэш)
     ex = dict(extra or {})
     ex.setdefault("_router_task", actual_task)
     ex.setdefault("_router_complexity", actual_complexity)
-    result = generate_response(model, messages, extra=ex, user_api_key=user_api_key)
+    try:
+        from server.llm_cache import cached_generate_response
+        result = cached_generate_response(model, messages, extra=ex,
+                                          user_api_key=user_api_key)
+    except Exception as e:
+        log.warning(f"[router] cache wrapper failed, fallback to direct: {e}")
+        result = generate_response(model, messages, extra=ex, user_api_key=user_api_key)
 
     content = ""
     if isinstance(result, dict):
