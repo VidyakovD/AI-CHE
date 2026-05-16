@@ -290,12 +290,16 @@ def build_reply(*, agent_name: str, control_mode: str, spec: dict,
     messages.append({"role": "user", "content": user_input})
 
     try:
-        result = generate_response(
-            "claude-sonnet",
+        # LLM Router сам выбирает модель: agent_tools task → Claude (лидер MCP-Atlas).
+        # Builder — диалог с tool-call'ами, типичная агентная задача.
+        from server.llm_router import ask as router_ask
+        route = router_ask(
             messages,
+            task="agent_tools",
+            complexity="medium",
             extra={"max_tokens": 2000, "temperature": 0.3, "_purpose": "agent_builder"},
         )
-        raw = result.get("content", "") if isinstance(result, dict) else str(result)
+        raw = route.content
     except Exception as e:
         log.exception(f"[builder] LLM call failed: {e}")
         return {
