@@ -191,7 +191,9 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 </div>
 
 <script>
-const API = '';
+// Абсолютный origin — relative-fetch иногда ломается в PWA-контексте
+// (ошибка "Failed to parse URL from /api/agents/me"). Префиксим всегда.
+const API = window.location.origin;
 let _agent = null;
 let _modules = [];
 let _catalog = [];
