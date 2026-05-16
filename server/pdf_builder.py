@@ -18,13 +18,14 @@ log = logging.getLogger(__name__)
 _BRAND_CSS = """
 @page {
     size: a4 portrait;
-    margin: 2.2cm 1.8cm 2.2cm 1.8cm;
+    /* Запас сверху/снизу под header/footer фреймы.
+       НЕ объявляем @frame content_frame — оставляем дефолтный поток
+       xhtml2pdf, иначе при overflow фрейма страницы рендерятся друг
+       поверх друга (длинные бизнес-отчёты ломаются 2026-05-16). */
+    margin: 2.5cm 1.8cm 2cm 1.8cm;
     @frame header_frame {
         -pdf-frame-content: header_content;
         left: 1.8cm; width: 17.4cm; top: 0.8cm; height: 1cm;
-    }
-    @frame content_frame {
-        left: 1.8cm; width: 17.4cm; top: 2.2cm; height: 24cm;
     }
     @frame footer_frame {
         -pdf-frame-content: footer_content;
@@ -92,8 +93,9 @@ h1 {
     padding-bottom: 4mm;
     margin-top: 8mm;
     margin-bottom: 6mm;
-    /* H1 — крупный раздел: всегда с новой страницы для читаемости отчёта */
-    page-break-before: always;
+    /* page-break-before: always — отключили (2026-05-16):
+       создавал пустые страницы и наложения когда H1 встречался часто.
+       Если нужны разделители — Claude вставит --- (hr) в markdown. */
     page-break-after: avoid;
 }
 h2 {
@@ -112,7 +114,9 @@ h3 {
     page-break-after: avoid;
 }
 h4 { color: #2a2a2a; font-size: 11pt; font-weight: 700; margin-top: 4mm; }
-p { margin: 0 0 3mm 0; text-align: justify; }
+/* text-align: left (не justify) — xhtml2pdf криво делает justify
+   на длинных русских словах: накладывает строки или растягивает пробелы. */
+p { margin: 0 0 3mm 0; text-align: left; }
 ul, ol { margin: 0 0 4mm 6mm; }
 li { margin-bottom: 1.5mm; }
 strong { color: #111; }
