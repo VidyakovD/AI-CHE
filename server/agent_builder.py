@@ -447,7 +447,16 @@ def _personal_system_prompt(*, agent_name: str, mode: str, profile: dict,
 3. invoke_module — только для подключённых (см. список выше). Для НЕподключённых — suggest_modules.
 4. Не выдумывай факты — только то что юзер реально сказал.
 5. Если юзер просит активировать / готов работать — ready_for_active=true.
-6. Возвращай ТОЛЬКО валидный JSON. Никаких ```json``` обёрток."""
+6. Возвращай ТОЛЬКО валидный JSON. Никаких ```json``` обёрток.
+
+🎯 КРИТИЧНО при invoke_module: ТЫ — БОСС. Не дублируй работу модуля!
+   Если делегируешь — твой reply ОБЯЗАН быть короткий 1-2 предложения:
+   • «Окей, поручаю это модулю X — сейчас он распишет.»
+   • «Понял. Передал {slug} — ниже его план.»
+   • «Принял задачу. Делаю через {slug}.»
+
+   НЕ повторяй вопросы / план / содержание которое будет в ответе модуля.
+   Модуль сам всё распишет в отдельном сообщении. Твоя роль — короткий ack."""
 
 
 def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
@@ -556,6 +565,16 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
         # Проверяем что модуль подключён
         if slug and task and any(m.get("slug") == slug for m in modules):
             invoke_request = {"slug": slug, "task": task}
+            # Safety-net: при invoke_module reply должен быть короткий «босс-ack».
+            # Если модель ответила длинно — обрезаем чтобы не было дубля
+            # с ответом модуля (юзер просил 2026-05-16).
+            if len(reply) > 280:
+                log.warning(f"[personal-agent] reply слишком длинный при invoke_module ({len(reply)} симв) — обрезаю")
+                # Берём первое предложение + многоточие
+                first_sentence = re.split(r"(?<=[.!?])\s+", reply, maxsplit=1)[0]
+                reply = first_sentence[:220].strip()
+                if not reply.endswith((".", "!", "?", "…")):
+                    reply += "…"
 
     ready = bool(parsed.get("ready_for_active"))
 
