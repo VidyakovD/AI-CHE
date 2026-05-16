@@ -320,20 +320,55 @@
 
 ## 5. План фаз (итеративный)
 
-### Фаза 0 — Фундамент (1-2 недели)
+### ✅ Фаза 0 — Фундамент (выкачена 2026-05-16, 1 сессия)
 
-Не ломаем существующее, надстраиваем.
+Не сломали существующее, надстроили поверх. Деплоено на прод.
 
-- **LLM Router** ([server/llm_router.py](../../server/llm_router.py) — новый):
-  - Классификация запроса (тип / сложность / чувствительность)
-  - Матрица из ТЗ раздела 4.2 (4 паттерна: Pipeline / Parallel / Verify / Specialist)
-  - Cost-aware: дешёвые для простого, флагманы для сложного
-  - Health-check + fallback + circuit breaker
-  - **Использует все 4 ключа уже в БД:** Anthropic ✅, OpenAI ✅, Grok `xai-X4UU...` ✅, Perplexity ✅
-- **Module manifest** — обернуть 48 ролей из [registry.py](../../server/agents/registry.py) в `server/agents/manifests/*.yaml`. Регистратор читает из YAML.
-- **Семантический кэш** — `llm_cache` таблица + similarity check перед вызовом (экономия 30-50%)
-- **PWA включить** — `views/manifest.json` + service worker + install banner для Android + iOS meta-tags
-- **Адаптивная вёрстка для моб** — 7 упрощённых вкладок поверх существующего HTML
+- ✅ **Agent + AgentMessage модели** ([server/models.py](../../server/models.py)): spec_json
+  (modules+schedule+triggers+goals+channels+system_prompt_addon), статусы
+  draft/active/paused/archived, история диалога с агентом. Таблицы `agents`
+  и `agent_messages` созданы автоматически.
+- ✅ **CRUD endpoints** ([server/routes/agents_modular.py](../../server/routes/agents_modular.py))
+  под префиксом `/api/agents`: GET list, POST create, GET/PATCH/DELETE /{id},
+  GET/POST /{id}/messages.
+- ✅ **Страница** [views/agents-modular.html](../../views/agents-modular.html):
+  - Пустое состояние + 4 шаблона (SMM/Почта/Автоответчик/Аналитик)
+  - Сетка карточек агентов с иконкой/статусом/целью/модулями
+  - Create-modal: имя + 4 способа управления + опц. цель → создаёт draft + открывает чат
+  - Detail-view: чат (user/assistant/system) + sidebar со спецификацией (live update)
+  - Soft-delete с подтверждением
+- ✅ **Agent Builder** ([server/agent_builder.py](../../server/agent_builder.py)):
+  prompt-based tool calling через JSON-response. 8 actions: add_module/
+  remove_module/set_schedule/add_trigger/clear_triggers/set_goals/
+  set_channels/set_system_prompt_addon/activate_agent. Сам мутирует spec,
+  активирует агента когда готов. Из 48 ролей AGENT_REGISTRY показывает TOP-25.
+- ✅ **LLM Router** ([server/llm_router.py](../../server/llm_router.py)):
+  TASK_TYPES × COMPLEXITY матрица. 4 ключа в наличии (Claude/GPT/Grok/Perplexity).
+  Keyword-классификатор + availability-check с fallback цепочкой.
+  Подключён в Agent Builder. Старые `generate_response()` вызовы не тронуты.
+- ✅ **PWA** ([views/sw.js](../../views/sw.js) + [views/shared.js](../../views/shared.js)):
+  Network-first для HTML + stale-while-revalidate для статики, не перехватывает
+  API/SSE/uploads, offline-fallback. Регистрация через shared.js на всех страницах.
+  Install-banner на главной (Android Chrome auto, iOS — Share→Home вручную).
+- ✅ **Sidebar**: «🤖 ИИ Агенты» теперь ведёт на `/agents-modular.html`,
+  старый workflow-конструктор остался как «🛠 Конструктор (advanced)».
+
+**Sidekicks отложены на потом (Фаза 1):**
+- Module manifest.yaml (формат + загрузчик) — рефакторинг 48 ролей. Пока работают как Python-вызовы.
+- Семантический кэш LLM-вызовов — оптимизация. Без него работает, но дороже.
+- Адаптивная вёрстка моб — все страницы должны хорошо смотреться на телефоне.
+- Spec-mode классификатор (команда vs изменение настроек) — нужен только когда заработает Runtime active-агентов.
+- Multi-LLM паттерны Pipeline/Parallel/Verify (раздел 4.3 ТЗ) — пока single-model.
+
+**Что юзер может сейчас в проде:**
+1. Зайти на [aiche.ru/agents-modular.html](https://aiche.ru/agents-modular.html)
+2. Создать первого агента из шаблона или с нуля
+3. В диалоге с Builder описать что должен делать — Builder подберёт модули,
+   расписание, триггеры, активирует
+4. Sidebar справа обновляется в реальном времени по мере диалога
+5. Можно сохранить страницу как PWA на главный экран (Android) или Share→Home (iOS)
+6. Активные агенты пока ничего не «делают» (нет Runtime) — но spec сохранён,
+   при добавлении Runtime сразу заработает по расписанию
 
 ### Фаза 1 — MVP модуля «ИИ Агенты» (3-4 недели)
 
