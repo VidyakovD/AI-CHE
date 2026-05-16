@@ -288,6 +288,14 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
       <div class="text-xs text-on-dim">Протестировать прямо сейчас — запустит модуль с задачей выше (с биллингом 1 ₽).</div>
       <button class="btn-g" id="schedRunNowBtn" style="white-space:nowrap">▶ Запустить сейчас</button>
     </div>
+
+    <!-- Webhook trigger — внешний URL чтобы дёрнуть модуль из CRM / Zapier -->
+    <div style="border-top:1px solid rgba(74,63,47,0.4);margin-top:10px;padding-top:10px">
+      <div class="text-xs text-on-dim mb-2">📨 <b>Webhook-триггер</b> — дёргать модуль по URL из CRM / Zapier / webhook'ов.</div>
+      <div id="schedWebhookArea">
+        <button class="btn-g" id="schedWebhookGenBtn">🔑 Сгенерировать webhook URL</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -953,6 +961,9 @@ function openScheduleModal(slug){
       document.getElementById('schedCron').value = btn.dataset.cron;
     });
   });
+  // Webhook: рендерим состояние (есть токен или нет)
+  const existing_token = (m.settings && m.settings.webhook_token) || null;
+  _renderSchedWebhook(existing_token);
   document.getElementById('scheduleModal').classList.add('show');
 }
 
@@ -1036,6 +1047,74 @@ document.getElementById('schedRunNowBtn').addEventListener('click', async () => 
     btn.disabled = false; btn.textContent = '▶ Запустить сейчас';
   }
 });
+
+// Webhook trigger UI ─────────────────────────────────────────────────────
+function _renderSchedWebhook(token){
+  const area = document.getElementById('schedWebhookArea');
+  if(!area) return;
+  if(!token){
+    area.innerHTML = `<button class="btn-g" id="schedWebhookGenBtn">🔑 Сгенерировать webhook URL</button>`;
+    document.getElementById('schedWebhookGenBtn').addEventListener('click', _genSchedWebhook);
+    return;
+  }
+  const url = `${window.location.origin}/api/agents/triggers/webhook/${token}`;
+  area.innerHTML = `
+    <div style="background:#272018;border:1px solid rgba(255,140,66,.3);border-radius:8px;padding:9px;font-family:monospace;font-size:11px;color:#ffb347;word-break:break-all;margin-bottom:6px"></div>
+    <div class="flex gap-2">
+      <button class="btn-g" id="schedWebhookCopyBtn" style="font-size:11px">📋 Скопировать</button>
+      <button class="btn-g" id="schedWebhookRotateBtn" style="font-size:11px">🔄 Сгенерировать заново</button>
+      <button class="btn-d" id="schedWebhookRevokeBtn" style="font-size:11px">✕ Отключить</button>
+    </div>
+    <div class="text-xs text-on-dim mt-2">POST с любым телом → запустит модуль с задачей выше + телом запроса.</div>`;
+  area.querySelector('div').textContent = url;
+  document.getElementById('schedWebhookCopyBtn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      if(window.aiAlert) await window.aiAlert('Webhook URL скопирован.', 'success');
+    } catch(e){
+      // Fallback для несовместимых браузеров — выделим текст
+      const r = document.createRange();
+      r.selectNode(area.querySelector('div'));
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(r);
+      if(window.aiAlert) await window.aiAlert('Выдели и скопируй URL вручную.', 'info');
+    }
+  });
+  document.getElementById('schedWebhookRotateBtn').addEventListener('click', _genSchedWebhook);
+  document.getElementById('schedWebhookRevokeBtn').addEventListener('click', async () => {
+    const ok = await (window.aiConfirm
+      ? window.aiConfirm('Отключить webhook? Старый URL перестанет работать.',
+                         {danger:true, okLabel:'Отключить'})
+      : Promise.resolve(confirm('Отключить webhook?')));
+    if(!ok) return;
+    try {
+      const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(_schedSlug)}/webhook`,
+        {method:'DELETE', credentials:'same-origin'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      _renderSchedWebhook(null);
+      await loadModules();
+    } catch(e){
+      if(window.aiAlert) await window.aiAlert('Не удалось отключить: '+e.message, 'error');
+    }
+  });
+}
+
+async function _genSchedWebhook(){
+  if(!_schedSlug) return;
+  try {
+    const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(_schedSlug)}/webhook`,
+      {method:'POST', credentials:'same-origin'});
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'HTTP '+r.status);
+    }
+    const data = await r.json();
+    _renderSchedWebhook(data.token);
+    await loadModules();
+  } catch(e){
+    if(window.aiAlert) await window.aiAlert('Не удалось: '+e.message, 'error');
+  }
+}
 
 document.getElementById('schedClearBtn').addEventListener('click', async () => {
   if(!_schedSlug) return;

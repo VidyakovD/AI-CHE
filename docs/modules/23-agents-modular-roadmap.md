@@ -411,8 +411,13 @@
   совпавших — invoke_module с `custom_settings.cron_task`, списывает
   agents.module_invoke, сохраняет результат как AgentMessage role=tool
   с mode='cron_invoke'.
-- Триггеры (новое письмо / новый лид / упоминание) — пока нет runtime,
-  только сохранение в spec
+- ✅ Webhook-триггер — POST /api/agents/triggers/webhook/{token} даёт
+  внешним сервисам (CRM / Zapier / любая интеграция) дёрнуть модуль:
+  тело запроса попадает в задачу как «контекст события». Токен 128 бит
+  через `secrets.token_hex(16)`, генерация/ротация/revoke в UI.
+- Триггеры на конкретные события (новое письмо / новый лид в CRM /
+  упоминание в TG) — пока нет специализированных адаптеров. Универсальный
+  webhook покрывает большинство сценариев (CRM/Zapier шлют POST)
 
 **Что юзер может сейчас в проде:**
 1. Зайти на [aiche.ru/agents-modular.html](https://aiche.ru/agents-modular.html)

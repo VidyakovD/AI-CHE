@@ -31,7 +31,9 @@ from collections import defaultdict, deque
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+import secrets
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -883,6 +885,204 @@ def patch_module_memory(slug: str, payload: PatchMemoryItemPayload,
     m.module_memory_json = json.dumps(memory, ensure_ascii=False)
     db.commit(); db.refresh(m)
     return _module_dict(m, with_meta=True)
+
+
+# ── webhook trigger (внешний вход) ───────────────────────────────────────────
+
+
+@router.post("/me/modules/{slug}/webhook")
+def generate_webhook_token(slug: str,
+                            db: Session = Depends(get_db),
+                            user: User = Depends(current_user)):
+    """Сгенерировать (или ротировать) webhook-токен для модуля.
+
+    Юзер копирует URL вида:
+      https://aiche.ru/api/agents/triggers/webhook/{token}
+    и втыкает в CRM / Zapier / etc. При POST на этот URL — модуль запускается.
+    """
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    a = get_or_create_agent(user, db)
+    m = db.query(AgentModule).filter_by(agent_id=a.id, slug=slug).first()
+    if not m:
+        raise HTTPException(404, "Модуль не подключён")
+    settings = _safe_json(m.custom_settings_json, {})
+    # 32 hex символа — 128 бит энтропии, unguessable
+    token = secrets.token_hex(16)
+    settings["webhook_token"] = token
+    m.custom_settings_json = json.dumps(settings, ensure_ascii=False)
+    db.commit(); db.refresh(m)
+    return {
+        "token": token,
+        "webhook_url": f"/api/agents/triggers/webhook/{token}",
+        "module": _module_dict(m, with_meta=True),
+    }
+
+
+@router.delete("/me/modules/{slug}/webhook")
+def revoke_webhook_token(slug: str,
+                         db: Session = Depends(get_db),
+                         user: User = Depends(current_user)):
+    """Удалить webhook-токен. Старый URL перестанет работать."""
+    a = get_or_create_agent(user, db)
+    m = db.query(AgentModule).filter_by(agent_id=a.id, slug=slug).first()
+    if not m:
+        raise HTTPException(404, "Модуль не подключён")
+    settings = _safe_json(m.custom_settings_json, {})
+    settings.pop("webhook_token", None)
+    m.custom_settings_json = json.dumps(settings, ensure_ascii=False)
+    db.commit(); db.refresh(m)
+    return {"module": _module_dict(m, with_meta=True)}
+
+
+# Публичный endpoint — БЕЗ auth, защита через unguessable token.
+# Лимит размера body — 32 KB, чтобы CRM не присылал гигабайты.
+_WEBHOOK_BODY_MAX = 32 * 1024
+
+
+@router.post("/triggers/webhook/{token}")
+async def fire_webhook(token: str, request: Request,
+                       db: Session = Depends(get_db)):
+    """Внешний триггер модуля по webhook-токену.
+
+    Тело запроса (опц., JSON или текст) попадает в задачу модуля как
+    "контекст события". Пример из CRM (Bitrix24/amoCRM):
+      { "event":"new_lead", "lead":{"name":"Иван","phone":"+7..."} }
+    """
+    # Длина токена фиксированная: 32 hex
+    if not token or len(token) != 32 or not all(c in "0123456789abcdef" for c in token):
+        raise HTTPException(404, "Webhook не найден")
+
+    # Поиск модуля по токену — индекса нет, делаем full scan среди is_enabled.
+    # Прода на 1000 модулей это <50ms. Если масштаб >10k — добавить колонку
+    # webhook_token + UNIQUE index.
+    mods = (db.query(AgentModule)
+              .filter(AgentModule.is_enabled.is_(True),
+                      AgentModule.custom_settings_json.like(f'%"webhook_token":%{token}%'))
+              .all())
+    target = None
+    for m in mods:
+        s = _safe_json(m.custom_settings_json, {})
+        if s.get("webhook_token") == token:
+            target = m
+            break
+    if not target:
+        raise HTTPException(404, "Webhook не найден")
+
+    # Берём владельца агента
+    agent = db.query(Agent).filter_by(id=target.agent_id).first()
+    if not agent or agent.status != "active":
+        raise HTTPException(403, "Агент не активен")
+    user = db.query(User).filter_by(id=agent.user_id).first()
+    if not user:
+        raise HTTPException(404, "Юзер не найден")
+
+    # Тело запроса — текст (или JSON) для модуля
+    body = await request.body()
+    if len(body) > _WEBHOOK_BODY_MAX:
+        raise HTTPException(413, "Тело webhook слишком большое (макс 32 KB)")
+    body_text = ""
+    try:
+        body_text = body.decode("utf-8", errors="replace")[:_WEBHOOK_BODY_MAX]
+    except Exception:
+        body_text = ""
+
+    settings = _safe_json(target.custom_settings_json, {})
+    base_task = (settings.get("webhook_task")
+                  or settings.get("cron_task")
+                  or "").strip()
+    if not base_task:
+        raise HTTPException(400, "У модуля не задана webhook_task / cron_task — "
+                                  "нечего выполнять. Настрой задачу в UI.")
+    task = base_task
+    if body_text.strip():
+        task = f"{base_task}\n\n=== Данные события ===\n{body_text}"
+
+    # Биллинг + invoke (та же логика что cron)
+    from server.pricing import get_price
+    from server.billing import deduct_atomic
+    from server.models import Transaction
+    from server.agent_builder import (
+        invoke_module, apply_module_memory_updates, compute_module_level,
+    )
+    module_cost = get_price("agents.module_invoke", default=100)
+    if module_cost > 0 and int(user.tokens_balance or 0) < module_cost:
+        raise HTTPException(402, "Недостаточно средств на балансе агента")
+
+    profile = _safe_json(agent.profile_json, {"facts": []})
+    mod_memory = _safe_json(target.module_memory_json, {})
+
+    try:
+        inv = invoke_module(
+            slug=target.slug, task=task[:8000],
+            profile=profile,
+            module_memory=mod_memory,
+            custom_settings=settings,
+            user_id=user.id,
+        )
+    except Exception as e:
+        log.exception(f"[agents.webhook] {target.slug}: {e}")
+        raise HTTPException(500, f"Модуль упал: {e!s:.140}")
+
+    charged_kop = 0
+    level_up = False
+    if inv.get("ok"):
+        if module_cost > 0:
+            charged_kop = deduct_atomic(db, user.id, module_cost)
+            if charged_kop > 0:
+                db.add(Transaction(
+                    user_id=user.id, type="usage",
+                    tokens_delta=-charged_kop,
+                    description=f"Модуль {target.slug} (webhook): {charged_kop/100:.2f} ₽",
+                    model=f"agents.module:{target.slug}",
+                ))
+        if inv.get("memory_updates"):
+            apply_module_memory_updates(mod_memory, inv["memory_updates"])
+            target.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
+        target.interaction_count = (target.interaction_count or 0) + 1
+        target.last_used_at = datetime.utcnow()
+        learned_count = len(mod_memory.get("learned") or [])
+        new_lvl = compute_module_level(
+            current_level=target.level or 0,
+            interaction_count=target.interaction_count,
+            agent_status=agent.status,
+            learned_count=learned_count,
+        )
+        level_up = new_lvl > (target.level or 0)
+        if level_up:
+            target.level = new_lvl
+        content = inv["output"]
+    else:
+        content = f"⚠ Webhook модуля {target.slug}: {inv.get('error', 'ошибка')}"
+
+    db.add(AgentMessage(
+        agent_id=agent.id, role="tool", content=content,
+        meta_json=_dump_meta({
+            "mode": "webhook_invoke",
+            "slug": target.slug,
+            "model_used": inv.get("model_used", ""),
+            "level": target.level,
+            "level_up": level_up,
+            "ok": bool(inv.get("ok")),
+            "cost_kop": charged_kop,
+        }),
+    ))
+    agent.last_activity_at = datetime.utcnow()
+    db.commit()
+
+    try:
+        from server.audit_log import log_action
+        log_action(
+            "agent.webhook_invoke", user_id=user.id,
+            target_type="agent_module", target_id=target.id,
+            details={"slug": target.slug, "ok": bool(inv.get("ok")),
+                      "cost_kop": charged_kop},
+        )
+    except Exception:
+        pass
+
+    return {"ok": bool(inv.get("ok")), "output": content[:4000],
+             "cost_kop": charged_kop}
 
 
 # ── catalog (доступные модули) ───────────────────────────────────────────────
