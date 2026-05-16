@@ -2,7 +2,58 @@
 
 > История спринтов. **Чтобы понять что было сделано — открой нужный модуль ниже.** Для деталей коммитов — `git log --oneline -100`.
 
-**Свежее состояние:** 2026-05-15. Прод на `193.187.92.147`. **299 тестов проходят.**
+**Свежее состояние:** 2026-05-16. Прод на `193.187.92.147`. **364 тестов проходят.**
+
+---
+
+## 🔥 2026-05-16 (вторая половина): АУДИТ Фазы 0-1 модульных агентов + cron-runtime + webhook-триггер
+
+Аудит свеженакаченного раздела 23 (ИИ Агенты модульные) и закрытие 14 критических проблем + крупная фича.
+
+### Аудит и фиксы (4 коммита)
+
+**`fcb9f66` — 13 фиксов аудита Фазы 0-1:**
+- 🔴 Биллинг подключён в /api/agents/me/messages (50 коп/сообщ + 100 коп/invoke_module через pricing_config, freemium 5 первых сообщений в онбординге, pre-check баланса)
+- 🔴 Race на singleton-агенте: partial UNIQUE `uq_agent_active_per_user` + IntegrityError handling
+- 🔴 Rate-limit на send_message: 20/мин, 200/час (in-memory sliding window)
+- 🔴 PATCH /me/modules/{slug} убрал backdoor поле `level` (юзер мог поставить себе L4)
+- 🔴 PrivacyGuard теперь wrappит build_reply_personal + invoke_module
+- 🧹 Native dialogs (prompt/confirm/alert) → aiPrompt/aiConfirm/aiAlert
+- 🧹 interaction_count++ только при ok-вызове модуля
+- 🧹 Cache leak fix: per-user namespace в `_make_cache_key` для personal_agent / agent_builder / module:*
+- 🧹 _extract_json с балансировкой скобок (учёт строк/escape)
+- 🧹 _dump_meta cap на 8KB (raw/applied/errors режутся первыми)
+- 🚀 /api/agents/me/full — 1 запрос вместо 3 для bootstrap
+- 🚀 Локальные `/avatars/bottts/*.svg` (16 файлов) вместо api.dicebear.com
+- 🔧 Категории в каталоге (Контент/Маркетинг/Документы/Аналитика/Тендеры/Автоматизация/Разработка)
+- 📦 31 unit-test для router/cache/extract_json/levels/privacy/memory/meta/rate_limit
+
+**`0a1318b` — cron-runtime для расписаний модулей + Tailwind build:**
+- 🚀 `server/cron/agents_modules.py` — каждую минуту loop проверяет включённые модули с schedule_cron + agent.status='active', запускает invoke_module под user_id, списывает agents.module_invoke, сохраняет AgentMessage role=tool с meta.mode='cron_invoke'. Worker-lock защищает от двойного запуска.
+- cron-парсер 5-полей "M H D M W" с поддержкой *, N, N-N, N/N
+- Schema: agent_modules.last_cron_fired_at DATETIME
+- UI: модалка «⏰ Расписание агента» с 5 пресетами + cron-выражение + задача
+- 10 новых тестов TestCronParser
+- 🎨 Tailwind CDN → /styles.css на agents-modular.html (build-инфра уже была)
+
+**`74e5a33` — manual invoke + admin stats:**
+- POST /api/agents/me/modules/{slug}/invoke — запустить модуль вручную сейчас с заданной задачей (та же логика что cron: биллинг, прокачка)
+- UI: кнопка «▶ Запустить сейчас» в модалке расписания
+- GET /admin/agents-stats?days=30 — распределение Agent.status / TOP модулей / levels / cron-active / транзакции / total_revenue_rub
+
+**`be25027` — webhook-триггер для модулей:**
+- 📨 POST /api/agents/me/modules/{slug}/webhook — генерирует unguessable токен (128 бит), хранит в custom_settings.webhook_token. URL копируется и втыкается в CRM/Zapier
+- DELETE /me/modules/{slug}/webhook — ревок
+- POST /api/agents/triggers/webhook/{token} — публичный fire endpoint. Без auth, защита через token. Тело запроса (≤32KB) попадает в задачу как «контекст события»
+- UI: секция «📨 Webhook-триггер» в модалке расписания (генерация/копирование/ротация/revoke)
+
+### Итог сессии
+
+- 4 коммита, ~2000 строк (~1300 prod + ~700 tests/docs)
+- 364 теста зелёные (299 → 354 → 364)
+- Закрыты ВСЕ 16 пунктов аудита + 3 идеи реализованы (категории, /me/full, локальные SVG)
+- Реализованы 2 крупные фичи которые в roadmap были «нет runtime»: cron-расписания модулей + webhook-триггеры
+- Pre-launch блокеры из TODO_NEXT не трогали (РКН / ЮKassa live / Google ключ ротация — на стороне юзера)
 
 ---
 
