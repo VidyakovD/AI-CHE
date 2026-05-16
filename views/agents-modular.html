@@ -28,8 +28,24 @@
 <title>AI Студия Че — Мой агент</title>
 <link rel="stylesheet" href="/fonts.css"/>
 <link rel="stylesheet" href="/styles.css"/>
-<script src="https://cdn.tailwindcss.com/3.4.0"></script>
-<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<!-- Tailwind: используем собранный /styles.css (см. tailwind.config.js + npm run build:css)
+     вместо cdn.tailwindcss.com — production-ready, без runtime-JS, без warning'ов. -->
+<script>
+// Fallback: если на этом окружении /styles.css ещё не собран (нет npm run build:css),
+// подгружаем CDN — это не подкладывает баг в проде, но даёт работать в dev.
+(function(){
+  fetch('/styles.css', {method:'HEAD'}).then(r => {
+    if(!r.ok){
+      var s = document.createElement('script');
+      s.src = 'https://cdn.tailwindcss.com/3.4.0';
+      s.onload = function(){
+        window.tailwind && (window.tailwind.config = {darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}});
+      };
+      document.head.appendChild(s);
+    }
+  }).catch(function(){});
+})();
+</script>
 <style>
 *{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
 *::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
@@ -244,6 +260,33 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
   </div>
 </div>
 
+<!-- Schedule (cron) modal -->
+<div id="scheduleModal" class="modal-bg">
+  <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:22px;max-width:520px;width:100%" onclick="event.stopPropagation()">
+    <h3 class="text-lg font-bold mb-3">⏰ Расписание агента <span id="schedSlug" style="color:#ffb347"></span></h3>
+    <p class="text-xs text-on-dim mb-3">Агент будет автоматически выполнять задачу по расписанию. Каждый запуск стоит как обычный вызов модуля (1 ₽).</p>
+
+    <label class="block text-xs text-on-dim mb-1">Когда запускать (готовые шаблоны)</label>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="schedPresets"></div>
+
+    <label class="block text-xs text-on-dim mb-1">Cron-выражение (минута час день месяц день_недели)</label>
+    <input class="inp mb-3" id="schedCron" placeholder="0 9 * * 1-5" maxlength="80"/>
+
+    <label class="block text-xs text-on-dim mb-1">Задача (что делать)</label>
+    <textarea class="inp" id="schedTask" rows="3" maxlength="2000"
+              placeholder="Например: Подготовь пост на тему стройки на сегодня"></textarea>
+    <p class="text-xs text-on-dim mt-1 mb-3">Без задачи расписание не сработает — модулю нужно понять что делать.</p>
+
+    <div class="flex justify-between items-center">
+      <button class="btn-d" id="schedClearBtn">Очистить расписание</button>
+      <div class="flex gap-2">
+        <button class="btn-g" onclick="closeScheduleModal()">Отмена</button>
+        <button class="btn-p" id="schedSaveBtn">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Profile edit modal -->
 <div id="profileModal" class="modal-bg">
   <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:22px;max-width:480px;width:100%" onclick="event.stopPropagation()">
@@ -426,16 +469,30 @@ function _memoryBlock(m){
       </div>`;
     }).join('');
   }
-  // Расписание (пока без runtime — предупреждаем юзера)
+  // Расписание (cron runtime активен)
+  const cronTask = (m.settings && m.settings.cron_task) || '';
   if(m.schedule_cron){
     html += `<div class="mem-stats" style="color:#ffb347">
-      ⏰ Расписание: <code>${_esc(m.schedule_cron)}</code><br>
-      <span style="opacity:.75">⚠ Автозапуск по расписанию пока в разработке —
-      агент пока работает только по твоим командам.</span>
+      ⏰ Расписание: <code>${_esc(m.schedule_cron)}</code>
+      ${cronTask
+        ? `<br><span style="color:#7bd968">✓ задача задана</span>`
+        : `<br><span style="opacity:.75">⚠ задай задачу (что делать по расписанию) — кнопка ниже</span>`}
+      <br><button class="btn-g" style="margin-top:6px;font-size:11px" data-cron-btn="${_esc(m.slug)}">⏰ настроить расписание</button>
+    </div>`;
+  } else {
+    html += `<div class="mem-stats">
+      <button class="btn-g" style="font-size:11px" data-cron-btn="${_esc(m.slug)}">⏰ настроить расписание</button>
     </div>`;
   }
   html += `<div class="mem-stats">Использован ${interactions} раз${_pluralRu(interactions, '', 'а', 'раз')}</div>`;
   div.innerHTML = html;
+  // Кнопка «настроить расписание» — открывает модалку
+  div.querySelectorAll('button[data-cron-btn]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openScheduleModal(btn.dataset.cronBtn);
+    });
+  });
 
   // Безопасно через textContent (xss-safe)
   div.querySelectorAll('.mod-mem-item').forEach(el => {
@@ -863,6 +920,104 @@ async function saveProfileEdit(){
     else alert('Не удалось сохранить: '+e.message);
   }
 }
+
+// ── Schedule (cron) modal ────────────────────────────────────────────────
+const SCHED_PRESETS = [
+  {label: 'Каждый день 09:00', cron: '0 9 * * *'},
+  {label: 'Будни 09:00',       cron: '0 9 * * 1-5'},
+  {label: 'Каждый час',         cron: '0 * * * *'},
+  {label: 'Понедельник 10:00',  cron: '0 10 * * 1'},
+  {label: 'Каждые 30 мин',      cron: '*/30 * * * *'},
+];
+let _schedSlug = null;
+
+function openScheduleModal(slug){
+  const m = (_modules||[]).find(x => x.slug === slug);
+  if(!m) return;
+  _schedSlug = slug;
+  document.getElementById('schedSlug').textContent = m.name || slug;
+  document.getElementById('schedCron').value = m.schedule_cron || '';
+  document.getElementById('schedTask').value = (m.settings && m.settings.cron_task) || '';
+  // Presets
+  const box = document.getElementById('schedPresets');
+  box.innerHTML = SCHED_PRESETS.map(p => `
+    <button class="qr-chip" style="padding:5px 11px;font-size:12px" data-cron="${_esc(p.cron)}">
+      ${_esc(p.label)}
+    </button>`).join('');
+  box.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('schedCron').value = btn.dataset.cron;
+    });
+  });
+  document.getElementById('scheduleModal').classList.add('show');
+}
+
+function closeScheduleModal(){
+  document.getElementById('scheduleModal').classList.remove('show');
+  _schedSlug = null;
+}
+
+document.getElementById('scheduleModal').addEventListener('click', e=>{
+  if(e.target===document.getElementById('scheduleModal'))closeScheduleModal();
+});
+
+document.getElementById('schedSaveBtn').addEventListener('click', async () => {
+  if(!_schedSlug) return;
+  const cron = document.getElementById('schedCron').value.trim();
+  const task = document.getElementById('schedTask').value.trim();
+  // Простая валидация: 5 полей через пробел или пусто
+  if(cron && cron.split(/\s+/).length !== 5){
+    if(window.aiAlert) await window.aiAlert('Cron должен быть из 5 полей через пробел (минута час день месяц день_недели). Например `0 9 * * *`.', 'warn');
+    else alert('Cron должен быть из 5 полей');
+    return;
+  }
+  if(cron && !task){
+    if(window.aiAlert) await window.aiAlert('Задай задачу — без неё расписание не сработает.', 'warn');
+    else alert('Нет задачи');
+    return;
+  }
+  const m = _modules.find(x => x.slug === _schedSlug);
+  const settings = Object.assign({}, (m && m.settings) || {});
+  if(task) settings.cron_task = task;
+  else delete settings.cron_task;
+  try{
+    const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(_schedSlug)}`, {
+      method:'PATCH', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({schedule_cron: cron || null, settings}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'HTTP '+r.status);
+    }
+    closeScheduleModal();
+    await loadModules();
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Не удалось сохранить: '+e.message, 'error');
+    else alert('Не удалось сохранить: '+e.message);
+  }
+});
+
+document.getElementById('schedClearBtn').addEventListener('click', async () => {
+  if(!_schedSlug) return;
+  const ok = await (window.aiConfirm
+    ? window.aiConfirm('Очистить расписание этого агента? Автозапуск отключится.',
+                       {danger:true, okLabel:'Очистить'})
+    : Promise.resolve(confirm('Очистить расписание?')));
+  if(!ok) return;
+  try{
+    const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(_schedSlug)}`, {
+      method:'PATCH', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({schedule_cron: null}),
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    closeScheduleModal();
+    await loadModules();
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Не удалось очистить: '+e.message, 'error');
+  }
+});
 
 // Boot — пытаемся одним запросом /me/full (agent + modules + messages),
 // fallback на старую цепочку из 3 запросов если /full не доступен.

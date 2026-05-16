@@ -157,8 +157,8 @@ _Последнее обновление: 2026-05-13._
 - ✅ **Webhook flaky test** — уже исправлен в прошлом спринте (uuid в email/URL делает каждый прогон уникальным)
 
 ### [20-infra-deploy](docs/modules/20-infra-deploy.md)
-- ✅ **scheduler.py 1379→349** разбит на `server/cron/{creators,data_retention,orchestrations,storage_billing,db_backup,maintenance}.py` (`ad5fdeb`)
-- **Tailwind CDN → build-step**: инфра готова (`02e0e42`), убрать CDN после 1 недели визуального тестирования (target ~2026-05-18)
+- ✅ **scheduler.py 1379→349** разбит на `server/cron/{creators,data_retention,orchestrations,storage_billing,db_backup,maintenance,agents_modules}.py`
+- ✅ **Tailwind CDN → build-step**: `agents-modular.html` переведена на `/styles.css` с fallback на CDN при отсутствии файла. Остальные страницы — постепенно (поиск по `cdn.tailwindcss.com`).
 - ⚠ **starlette upgrade** (CVE-2024-47874 / CVE-2025-54121) — требует FastAPI ≥0.115 (breaking change). Делать со staging-тестированием отдельным спринтом
 
 ### [01-core-auth](docs/modules/01-core-auth.md)

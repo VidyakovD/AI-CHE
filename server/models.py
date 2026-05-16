@@ -1763,6 +1763,9 @@ class AgentModule(Base):
     custom_settings_json = Column(Text, nullable=True)              # параметры юзера
     # cron-расписание этого модуля (опц.) — если задано, scheduler-cron его запустит
     schedule_cron   = Column(String, nullable=True)
+    # Последний раз cron-runtime триггерил этот модуль (отдельно от last_used_at,
+    # которое для любых вызовов включая ручные команды юзера).
+    last_cron_fired_at = Column(DateTime, nullable=True)
     is_enabled      = Column(Boolean, default=True)
     connected_at    = Column(DateTime, default=datetime.utcnow)
     last_used_at    = Column(DateTime, nullable=True)

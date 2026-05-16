@@ -334,6 +334,12 @@ from server.cron.creators import (  # noqa: E402, F401
 )
 
 
+# ── Cron-runtime для модулей ИИ Агентов (раздел 23) ──────────────────────────
+from server.cron.agents_modules import (  # noqa: E402, F401
+    _agents_modules_cron_tick, agents_modules_cron_loop, cron_should_fire,
+)
+
+
 def start_scheduler():
     """Фоновые задачи: scheduler / health / cleanup PDF / backup / conv / audit."""
     asyncio.create_task(scheduler_loop())
@@ -349,3 +355,4 @@ def start_scheduler():
     asyncio.create_task(data_retention_loop())
     asyncio.create_task(creators_prepare_loop())
     asyncio.create_task(creators_publish_loop())
+    asyncio.create_task(agents_modules_cron_loop())

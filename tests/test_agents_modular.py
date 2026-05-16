@@ -290,3 +290,95 @@ class TestRateLimit:
         ok, reason = am._rate_limit_check(uid)
         assert not ok
         assert "мин" in reason
+
+
+# ── Cron parser (agents-modules runtime) ──────────────────────────────────────
+
+
+class TestCronParser:
+    def test_match_field_star(self):
+        from server.cron.agents_modules import _match_field
+        assert _match_field(5, "*")
+        assert _match_field(0, "*")
+        assert _match_field(59, "*")
+
+    def test_match_field_exact(self):
+        from server.cron.agents_modules import _match_field
+        assert _match_field(9, "9")
+        assert not _match_field(10, "9")
+
+    def test_match_field_range(self):
+        from server.cron.agents_modules import _match_field
+        assert _match_field(1, "1-5")
+        assert _match_field(5, "1-5")
+        assert _match_field(3, "1-5")
+        assert not _match_field(6, "1-5")
+        assert not _match_field(0, "1-5")
+
+    def test_match_field_list(self):
+        from server.cron.agents_modules import _match_field
+        assert _match_field(1, "1,3,5")
+        assert _match_field(5, "1,3,5")
+        assert not _match_field(2, "1,3,5")
+
+    def test_match_field_step(self):
+        from server.cron.agents_modules import _match_field
+        assert _match_field(0, "*/15")
+        assert _match_field(15, "*/15")
+        assert _match_field(30, "*/15")
+        assert not _match_field(7, "*/15")
+
+    def test_cron_daily_9am(self):
+        """`0 9 * * *` — каждый день в 9:00."""
+        from datetime import datetime
+        from server.cron.agents_modules import cron_should_fire
+        # 9:00 — fire
+        now = datetime(2026, 5, 16, 9, 0)
+        assert cron_should_fire("0 9 * * *", now, None)
+        # 9:01 — нет (не та минута)
+        assert not cron_should_fire("0 9 * * *", datetime(2026, 5, 16, 9, 1), None)
+        # 10:00 — нет (не тот час)
+        assert not cron_should_fire("0 9 * * *", datetime(2026, 5, 16, 10, 0), None)
+
+    def test_cron_no_double_fire_in_minute(self):
+        """Если уже стреляли в этой минуте — не повторяем."""
+        from datetime import datetime
+        from server.cron.agents_modules import cron_should_fire
+        now = datetime(2026, 5, 16, 9, 0)
+        # last_fired = now - 30s → не fire
+        from datetime import timedelta
+        last = now - timedelta(seconds=30)
+        assert not cron_should_fire("0 9 * * *", now, last)
+        # last_fired = вчера → fire
+        last_old = now - timedelta(days=1)
+        assert cron_should_fire("0 9 * * *", now, last_old)
+
+    def test_cron_weekdays(self):
+        """`0 9 * * 1-5` — пн-пт 9:00."""
+        from datetime import datetime
+        from server.cron.agents_modules import cron_should_fire
+        # 2026-05-18 — понедельник (ISO weekday=1)
+        mon = datetime(2026, 5, 18, 9, 0)
+        assert mon.isoweekday() == 1
+        assert cron_should_fire("0 9 * * 1-5", mon, None)
+        # 2026-05-17 — воскресенье — не fire
+        sun = datetime(2026, 5, 17, 9, 0)
+        assert sun.isoweekday() == 7
+        assert not cron_should_fire("0 9 * * 1-5", sun, None)
+
+    def test_cron_every_30min(self):
+        """`*/30 * * * *` — раз в 30 мин."""
+        from datetime import datetime
+        from server.cron.agents_modules import cron_should_fire
+        assert cron_should_fire("*/30 * * * *", datetime(2026, 5, 16, 10, 0), None)
+        assert cron_should_fire("*/30 * * * *", datetime(2026, 5, 16, 10, 30), None)
+        assert not cron_should_fire("*/30 * * * *", datetime(2026, 5, 16, 10, 15), None)
+
+    def test_cron_invalid_returns_false(self):
+        from datetime import datetime
+        from server.cron.agents_modules import cron_should_fire
+        now = datetime(2026, 5, 16, 9, 0)
+        assert not cron_should_fire("invalid", now, None)
+        assert not cron_should_fire("", now, None)
+        assert not cron_should_fire(None, now, None)
+        assert not cron_should_fire("0 9 * *", now, None)  # 4 поля

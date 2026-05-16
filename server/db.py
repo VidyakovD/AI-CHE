@@ -216,6 +216,9 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # Существующие записи в `agents` уже есть на проде, нужно lightweight-добавление.
     ("agents", "profile_json", "TEXT"),
     ("agents", "personality_json", "TEXT"),
+    # Cron-runtime для модулей: отдельный timestamp от last_used_at чтобы
+    # не путать ручные команды юзера с автоматическим запуском по расписанию.
+    ("agent_modules", "last_cron_fired_at", "DATETIME"),
     # КП: конструктор шапки (4 стиля)
     ("proposal_projects", "header_layout", "VARCHAR DEFAULT 'classic'"),
     # Refresh-token rotation single-use: список активных jti (JSON).

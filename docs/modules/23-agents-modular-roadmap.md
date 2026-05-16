@@ -405,7 +405,14 @@
 - UI настроек модуля (custom_settings_json через формы) — пока только через PATCH API
 - 📧 Почта Gmail — нужен OAuth scope + IMAP fallback
 - 💰 Финансы CSV — нужен парсер выписок + категоризатор
-- Реальные расписания/триггеры (cron-execution активных модулей) — есть таблица, нет runtime
+- ✅ Реальные расписания (cron-execution активных модулей) — **сделано**
+  в `server/cron/agents_modules.py`. UI: «⏰ настроить расписание» в карточке
+  модуля → cron + задача. Workflow: каждую минуту loop проверяет, для
+  совпавших — invoke_module с `custom_settings.cron_task`, списывает
+  agents.module_invoke, сохраняет результат как AgentMessage role=tool
+  с mode='cron_invoke'.
+- Триггеры (новое письмо / новый лид / упоминание) — пока нет runtime,
+  только сохранение в spec
 
 **Что юзер может сейчас в проде:**
 1. Зайти на [aiche.ru/agents-modular.html](https://aiche.ru/agents-modular.html)
