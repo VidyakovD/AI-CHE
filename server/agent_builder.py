@@ -891,6 +891,31 @@ def apply_module_memory_updates(memory: dict, updates: dict) -> dict:
 # ════════════════════════════════════════════════════════════════════════════
 
 
+def increment_module_interaction(db, module) -> int:
+    """Атомарный +1 для interaction_count модуля — безопасно при multi-worker.
+
+    Заменяет RMW pattern `m.interaction_count = (m.interaction_count or 0) + 1`,
+    который при 4 воркерах терял инкременты (read 29 + read 29 → write 30 + write 30).
+
+    Использовать перед compute_module_level() — возвращает актуальное значение,
+    которое уже видно остальным воркерам.
+
+    Pending changes (memory_json, last_used_at и т.д.) — flush'аются ДО UPDATE,
+    чтобы не потеряться при refresh().
+    """
+    from server.models import AgentModule
+    # 1) Сначала зафлэшить уже сделанные изменения этого объекта в БД
+    db.flush()
+    # 2) Атомарный SQL UPDATE: SET interaction_count = interaction_count + 1
+    db.query(AgentModule).filter(AgentModule.id == module.id).update(
+        {AgentModule.interaction_count: AgentModule.interaction_count + 1},
+        synchronize_session="fetch",
+    )
+    # 3) Re-read объекта — берёт актуальный counter из БД (с учётом параллельных +1)
+    db.refresh(module)
+    return int(module.interaction_count or 0)
+
+
 def compute_module_level(*, current_level: int, interaction_count: int,
                          agent_status: str, learned_count: int) -> int:
     """Вычислить новый уровень модуля. НИКОГДА не понижает (только up).

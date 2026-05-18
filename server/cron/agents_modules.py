@@ -114,6 +114,7 @@ async def _agents_modules_cron_tick():
     from server.pricing import get_price
     from server.agent_builder import (
         invoke_module, apply_module_memory_updates, compute_module_level,
+        increment_module_interaction,
     )
 
     now = datetime.utcnow()
@@ -202,12 +203,13 @@ async def _agents_modules_cron_tick():
                     if inv.get("memory_updates"):
                         apply_module_memory_updates(mod_memory, inv["memory_updates"])
                         m.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
-                    m.interaction_count = (m.interaction_count or 0) + 1
                     m.last_used_at = now
+                    # Атомарный SQL +1 (multi-worker safe — заменяет RMW)
+                    new_count = increment_module_interaction(db, m)
                     learned_count = len(mod_memory.get("learned") or [])
                     new_lvl = compute_module_level(
                         current_level=m.level or 0,
-                        interaction_count=m.interaction_count,
+                        interaction_count=new_count,
                         agent_status=agent.status,
                         learned_count=learned_count,
                     )

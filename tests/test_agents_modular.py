@@ -382,3 +382,129 @@ class TestCronParser:
         assert not cron_should_fire("", now, None)
         assert not cron_should_fire(None, now, None)
         assert not cron_should_fire("0 9 * *", now, None)  # 4 поля
+
+
+# ── Atomic interaction_count increment (multi-worker race protection) ────────
+
+
+class TestIncrementModuleInteraction:
+    """Регрессионные тесты: interaction_count должен инкрементиться через
+    SQL UPDATE, а не Python RMW. На multi-worker (prod = 4) воркеры могут
+    одновременно прочитать 29 и записать 30 — терялись инкременты."""
+
+    def _make_module(self):
+        """Создать тестового юзера + агента + модуль. Возвращает (db_session_cm, m)."""
+        import time
+        from server.db import db_session
+        from server.models import User, Agent, AgentModule
+
+        with db_session() as db:
+            u = User(
+                email=f"inc-test-{time.time_ns()}@x.x",
+                password_hash="hash",
+                is_verified=True,
+                agreed_to_terms=True,
+                tokens_balance=0,
+            )
+            db.add(u); db.commit(); db.refresh(u)
+            a = Agent(user_id=u.id, name="Test", status="active",
+                      profile_json="{}", personality_json="{}")
+            db.add(a); db.commit(); db.refresh(a)
+            m = AgentModule(agent_id=a.id, slug="copywriter", level=0,
+                            is_enabled=True, interaction_count=0)
+            db.add(m); db.commit(); db.refresh(m)
+            return u.id, a.id, m.id
+
+    def _cleanup(self, user_id, agent_id, module_id):
+        from server.db import db_session
+        from server.models import User, Agent, AgentModule
+        with db_session() as db:
+            db.query(AgentModule).filter_by(id=module_id).delete()
+            db.query(Agent).filter_by(id=agent_id).delete()
+            db.query(User).filter_by(id=user_id).delete()
+            db.commit()
+
+    def test_increment_returns_new_value(self):
+        from server.db import db_session
+        from server.models import AgentModule
+        from server.agent_builder import increment_module_interaction
+
+        uid, aid, mid = self._make_module()
+        try:
+            with db_session() as db:
+                m = db.query(AgentModule).filter_by(id=mid).first()
+                assert m.interaction_count == 0
+                new = increment_module_interaction(db, m)
+                assert new == 1
+                assert m.interaction_count == 1, "refresh должен подтянуть значение"
+                new2 = increment_module_interaction(db, m)
+                assert new2 == 2
+        finally:
+            self._cleanup(uid, aid, mid)
+
+    def test_increment_persists_to_db(self):
+        """Значение должно быть видно из другой сессии (= другого воркера)."""
+        from server.db import db_session
+        from server.models import AgentModule
+        from server.agent_builder import increment_module_interaction
+
+        uid, aid, mid = self._make_module()
+        try:
+            with db_session() as db1:
+                m1 = db1.query(AgentModule).filter_by(id=mid).first()
+                increment_module_interaction(db1, m1)
+                increment_module_interaction(db1, m1)
+                increment_module_interaction(db1, m1)
+                db1.commit()
+
+            with db_session() as db2:
+                m2 = db2.query(AgentModule).filter_by(id=mid).first()
+                assert m2.interaction_count == 3, (
+                    f"Через другую сессию должно быть видно 3, видно {m2.interaction_count}"
+                )
+        finally:
+            self._cleanup(uid, aid, mid)
+
+    def test_increment_does_not_lose_other_changes(self):
+        """Pending changes на модуль (last_used_at, memory) — не теряются при flush+refresh."""
+        from datetime import datetime
+        from server.db import db_session
+        from server.models import AgentModule
+        from server.agent_builder import increment_module_interaction
+
+        uid, aid, mid = self._make_module()
+        try:
+            with db_session() as db:
+                m = db.query(AgentModule).filter_by(id=mid).first()
+                # Эти изменения нужно зафлэшить ДО UPDATE, чтобы не потерять
+                marker = datetime(2026, 5, 18, 12, 0, 0)
+                m.last_used_at = marker
+                m.module_memory_json = '{"learned": [{"note": "marker"}]}'
+                # Атомарный +1
+                new = increment_module_interaction(db, m)
+                assert new == 1
+                # И при этом наши изменения остались
+                assert m.last_used_at == marker
+                assert "marker" in (m.module_memory_json or "")
+                db.commit()
+            # Проверим в новой сессии
+            with db_session() as db2:
+                m2 = db2.query(AgentModule).filter_by(id=mid).first()
+                assert m2.last_used_at == marker
+                assert "marker" in (m2.module_memory_json or "")
+                assert m2.interaction_count == 1
+        finally:
+            self._cleanup(uid, aid, mid)
+
+
+class TestModuleLimit:
+    """Регрессионные тесты на лимит подключённых модулей.
+    Конкретный лимит из pricing_config — `agents.max_enabled_modules` (default 12).
+    """
+
+    def test_limit_default_from_pricing(self):
+        from server.pricing import get_price
+        v = get_price("agents.max_enabled_modules", default=12)
+        # Должен быть положительный int. Дефолт = 12.
+        assert isinstance(v, int) and v > 0
+        assert v == 12, "default не 12 — обнови docs или этот тест"

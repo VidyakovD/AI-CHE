@@ -321,6 +321,19 @@ def patch_my_agent(payload: PatchAgentPayload,
         a.status = payload.status
     a.updated_at = datetime.utcnow()
     db.commit(); db.refresh(a)
+
+    try:
+        from server.audit_log import log_action
+        log_action("agent.patch", user_id=user.id, target_type="agent",
+                   target_id=a.id, details={
+                       "name_changed": payload.name is not None,
+                       "icon_changed": payload.icon is not None,
+                       "profile_changed": payload.profile is not None,
+                       "personality_changed": payload.personality is not None,
+                       "status": payload.status,
+                   })
+    except Exception:
+        pass
     return _agent_dict(a, with_modules_count=True, db=db)
 
 
@@ -499,6 +512,7 @@ def send_message(payload: SendMessagePayload,
             try:
                 from server.agent_builder import (
                     invoke_module, apply_module_memory_updates, compute_module_level,
+                    increment_module_interaction,
                 )
                 mod_memory = _safe_json(target_mod.module_memory_json, {})
                 mod_settings = _safe_json(target_mod.custom_settings_json, {})
@@ -517,14 +531,14 @@ def send_message(payload: SendMessagePayload,
                     if inv.get("memory_updates"):
                         apply_module_memory_updates(mod_memory, inv["memory_updates"])
                         target_mod.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
-                    # Прокачка считается только за успешные вызовы.
-                    # Фейлы (LLM-error / refusal) не должны прокачивать модуль.
-                    target_mod.interaction_count = (target_mod.interaction_count or 0) + 1
                     target_mod.last_used_at = datetime.utcnow()
+                    # Прокачка считается только за успешные вызовы.
+                    # Атомарный SQL +1 (multi-worker safe — заменяет RMW).
+                    new_count = increment_module_interaction(db, target_mod)
                     learned_count = len((mod_memory.get("learned") or []))
                     new_lvl = compute_module_level(
                         current_level=target_mod.level or 0,
-                        interaction_count=target_mod.interaction_count,
+                        interaction_count=new_count,
                         agent_status=a.status,
                         learned_count=learned_count,
                     )
@@ -623,6 +637,27 @@ def connect_module(payload: ConnectModulePayload,
     existing = (db.query(AgentModule)
                   .filter_by(agent_id=a.id, slug=slug)
                   .first())
+
+    # Лимит одновременно подключённых модулей (из pricing_config, default 12).
+    # Считаем enabled-модули и проверяем ПЕРЕД добавлением нового / re-enable
+    # отключённого. Сценарии:
+    #   - existing=None → подключаем новый, count должен быть < limit
+    #   - existing.is_enabled=False → включаем обратно, count тоже должен быть < limit
+    #   - existing.is_enabled=True → просто patch настроек, лимит не трогаем
+    from server.pricing import get_price
+    _limit = max(1, get_price("agents.max_enabled_modules", default=12))
+    _will_increment = (existing is None) or (not existing.is_enabled)
+    if _will_increment:
+        _enabled_now = (db.query(AgentModule)
+                          .filter_by(agent_id=a.id, is_enabled=True)
+                          .count())
+        if _enabled_now >= _limit:
+            raise HTTPException(
+                400,
+                f"Максимум {_limit} агентов одновременно. Отключите ненужный, "
+                "прежде чем подключать новый."
+            )
+
     if existing:
         # Если был отключён — включаем обратно
         if not existing.is_enabled:
@@ -730,6 +765,7 @@ def invoke_module_now(slug: str,
     from server.models import Transaction
     from server.agent_builder import (
         invoke_module, apply_module_memory_updates, compute_module_level,
+        increment_module_interaction,
     )
 
     module_cost = get_price("agents.module_invoke", default=100)
@@ -766,12 +802,13 @@ def invoke_module_now(slug: str,
         if inv.get("memory_updates"):
             apply_module_memory_updates(mod_memory, inv["memory_updates"])
             m.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
-        m.interaction_count = (m.interaction_count or 0) + 1
         m.last_used_at = datetime.utcnow()
+        # Атомарный SQL +1 (multi-worker safe)
+        new_count = increment_module_interaction(db, m)
         learned_count = len(mod_memory.get("learned") or [])
         new_lvl = compute_module_level(
             current_level=m.level or 0,
-            interaction_count=m.interaction_count,
+            interaction_count=new_count,
             agent_status=a.status,
             learned_count=learned_count,
         )
@@ -842,6 +879,13 @@ def disconnect_module(slug: str,
         meta_json=json.dumps({"mode": "module_disconnected", "slug": slug}, ensure_ascii=False),
     ))
     db.commit()
+
+    try:
+        from server.audit_log import log_action
+        log_action("agent.module_disconnect", user_id=user.id, target_type="agent_module",
+                   target_id=slug, details={"slug": slug, "agent_id": a.id})
+    except Exception:
+        pass
     return {"status": "disconnected", "slug": slug}
 
 
@@ -884,6 +928,17 @@ def patch_module_memory(slug: str, payload: PatchMemoryItemPayload,
     memory["learned"] = learned
     m.module_memory_json = json.dumps(memory, ensure_ascii=False)
     db.commit(); db.refresh(m)
+
+    try:
+        from server.audit_log import log_action
+        log_action(
+            "agent.module_memory_edit",
+            user_id=user.id, target_type="agent_module", target_id=m.id,
+            details={"slug": slug, "index": payload.index,
+                     "action": "delete" if not note else "edit"},
+        )
+    except Exception:
+        pass
     return _module_dict(m, with_meta=True)
 
 
@@ -912,6 +967,16 @@ def generate_webhook_token(slug: str,
     settings["webhook_token"] = token
     m.custom_settings_json = json.dumps(settings, ensure_ascii=False)
     db.commit(); db.refresh(m)
+
+    try:
+        from server.audit_log import log_action
+        log_action(
+            "agent.webhook_token_create",
+            user_id=user.id, target_type="agent_module", target_id=m.id,
+            details={"slug": slug, "token_suffix": token[-4:]},  # full token не пишем
+        )
+    except Exception:
+        pass
     return {
         "token": token,
         "webhook_url": f"/api/agents/triggers/webhook/{token}",
@@ -929,9 +994,21 @@ def revoke_webhook_token(slug: str,
     if not m:
         raise HTTPException(404, "Модуль не подключён")
     settings = _safe_json(m.custom_settings_json, {})
+    had_token = bool(settings.get("webhook_token"))
     settings.pop("webhook_token", None)
     m.custom_settings_json = json.dumps(settings, ensure_ascii=False)
     db.commit(); db.refresh(m)
+
+    if had_token:
+        try:
+            from server.audit_log import log_action
+            log_action(
+                "agent.webhook_token_revoke",
+                user_id=user.id, target_type="agent_module", target_id=m.id,
+                details={"slug": slug},
+            )
+        except Exception:
+            pass
     return {"module": _module_dict(m, with_meta=True)}
 
 
@@ -1004,6 +1081,7 @@ async def fire_webhook(token: str, request: Request,
     from server.models import Transaction
     from server.agent_builder import (
         invoke_module, apply_module_memory_updates, compute_module_level,
+        increment_module_interaction,
     )
     module_cost = get_price("agents.module_invoke", default=100)
     if module_cost > 0 and int(user.tokens_balance or 0) < module_cost:
@@ -1039,12 +1117,13 @@ async def fire_webhook(token: str, request: Request,
         if inv.get("memory_updates"):
             apply_module_memory_updates(mod_memory, inv["memory_updates"])
             target.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
-        target.interaction_count = (target.interaction_count or 0) + 1
         target.last_used_at = datetime.utcnow()
+        # Атомарный SQL +1 (multi-worker safe)
+        new_count = increment_module_interaction(db, target)
         learned_count = len(mod_memory.get("learned") or [])
         new_lvl = compute_module_level(
             current_level=target.level or 0,
-            interaction_count=target.interaction_count,
+            interaction_count=new_count,
             agent_status=agent.status,
             learned_count=learned_count,
         )

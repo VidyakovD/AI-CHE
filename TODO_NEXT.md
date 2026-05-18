@@ -39,6 +39,13 @@ _Последнее обновление: 2026-05-16 (после большой 
 - ✅ **Tailwind**: agents-modular.html переведена на /styles.css с CDN-fallback.
 - 364 теста проходят (было 299 → +65).
 
+**🆕 Сессия 2026-05-18 (вторая половина) — техдолг аудита + 152-ФЗ:**
+- ✅ **PrivacyGuard wiring** ([server/ai.py](server/ai.py)) — все LLM-вызовы маскируют PII перед отправкой, размаскируют в ответе. 7 wiring-тестов.
+- ✅ **Atomic interaction_count** — `m.interaction_count = (...) + 1` RMW заменён на SQL UPDATE через `increment_module_interaction()` в 4 местах (cron + manual invoke + send_message + webhook). 3 интеграционных теста с реальной БД.
+- ✅ **Лимит модулей** — макс 12 одновременно через `pricing_config["agents.max_enabled_modules"]`. Проверка в `connect_module` при подключении нового и re-enable отключённого.
+- ✅ **log_action** в 6 endpoint'ах: `patch_my_agent`, `disconnect_module`, `patch_module_memory`, `generate_webhook_token`, `revoke_webhook_token` (send_message не логируется — spam, история уже в AgentMessage).
+- 375 тестов проходят (было 371 → +4).
+
 **Прогресс модуля 23 «ИИ Агенты (модульные)» — 2026-05-16, одна сессия:**
 
 ✅ **Фаза 0** — полностью закрыта (10+ коммитов):
