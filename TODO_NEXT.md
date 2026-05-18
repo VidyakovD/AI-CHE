@@ -109,15 +109,12 @@ _Последнее обновление: 2026-05-16 (после большой 
 - **30 дней рассмотрения** — лучше начать раньше
 - **ШТРАФ 60-300k₽** при работе без регистрации
 
-### 2. ЮKassa: тестовый shop → live
-- `https://yookassa.ru/my/` → заявка на live-shop
-- 1-3 дня одобрения
-- После одобрения:
-  ```bash
-  sed -i 's/^YOOKASSA_SHOP_ID=.*/YOOKASSA_SHOP_ID=<live>/' /root/AI-CHE/.env
-  sed -i 's/^YOOKASSA_SECRET_KEY=.*/YOOKASSA_SECRET_KEY=<live>/' /root/AI-CHE/.env
-  systemctl restart ai-che
-  ```
+### 2. ✅ ЮKassa live-shop (2026-05-18)
+- Переключено: `YOOKASSA_SHOP_ID=1358774`, `YOOKASSA_SECRET_KEY=live_...` в `/root/AI-CHE/.env`
+- Backup: `/root/AI-CHE/.env.backup-yookassa-20260518-094123`
+- Webhook URL для ЛК ЮKassa (если ещё не прописан): `https://aiche.ru/payment/webhook`
+  - События минимум: `payment.succeeded`, `payment.canceled`, `refund.succeeded`
+- Smoke-тест: webhook возвращает `401 Signature required` без HMAC и `401 Invalid signature` при плохой подписи — защита от фальшивых webhook'ов работает.
 
 ### 3. ОФД для 54-ФЗ (**ШТРАФ 30k₽/чек если не подключено**)
 - В ЛК ЮKassa → Настройки → Кассовый чек → подключить **Атол Онлайн** или **Контур.ОФД**
