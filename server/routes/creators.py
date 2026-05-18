@@ -417,7 +417,8 @@ def prepare_item_endpoint(
 
     # Запускаем pipeline (синхронно — для MVP). Если упадёт — refund.
     try:
-        result = _prepare_item_pipeline(item, brand, user_id=user.id, with_image=payload.with_image)
+        result = _prepare_item_pipeline(item, brand, user_id=user.id,
+                                        with_image=payload.with_image, db=db)
     except Exception as e:
         log.exception("[creators.prepare] item=%s failed: %s", item_id, e)
         # Refund

@@ -78,7 +78,7 @@ async def _creators_prepare_tick():
                 db.commit()
 
                 try:
-                    result = _prepare_item_pipeline(item, brand, user_id=user_id)
+                    result = _prepare_item_pipeline(item, brand, user_id=user_id, db=db)
                 except Exception as e:
                     log.exception(f"[creators.prep_auto] item={item.id} failed: {e}")
                     if charged_kop > 0:

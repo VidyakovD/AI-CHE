@@ -65,7 +65,8 @@ TYPE_FORMAT = {
 }
 
 
-def _build_evergreen_prompt(brand: CreatorBrand, item: ContentItem) -> tuple[str, str]:
+def _build_evergreen_prompt(brand: CreatorBrand, item: ContentItem,
+                            style_examples: list[dict] | None = None) -> tuple[str, str]:
     try:
         topics = json.loads(brand.topics_json) if brand.topics_json else []
     except Exception:
@@ -78,6 +79,15 @@ def _build_evergreen_prompt(brand: CreatorBrand, item: ContentItem) -> tuple[str
         "Никаких комментариев, никаких пояснений вокруг — только готовый пост. "
         "Без кликбейта, без воды, по делу."
     )
+
+    # Если у юзера подключён модуль `copywriter` ИИ-Агента — подмешиваем
+    # его «выученный стиль» (последние опубликованные посты). LLM подражает.
+    # См. server/creators_copywriter_bridge.py.
+    if style_examples:
+        from server.creators_copywriter_bridge import build_style_block
+        block = build_style_block(style_examples)
+        if block:
+            system = system + "\n\n" + block
 
     brand_lines = [f"Бренд: {brand.name}"]
     if brand.niche:    brand_lines.append(f"Ниша: {brand.niche}")
@@ -106,7 +116,9 @@ IMAGE_PROMPT: <одно-два предложения по-английски �
     return system, user
 
 
-def _build_news_prompts(brand: CreatorBrand, item: ContentItem) -> tuple[tuple[str, str], tuple[str, str]]:
+def _build_news_prompts(brand: CreatorBrand, item: ContentItem,
+                        style_examples: list[dict] | None = None
+                        ) -> tuple[tuple[str, str], tuple[str, str]]:
     """Возвращает (research_prompts, writer_prompts).
 
     Research через Perplexity получает свежие факты по brief'у. Writer
@@ -135,6 +147,12 @@ def _build_news_prompts(brand: CreatorBrand, item: ContentItem) -> tuple[tuple[s
         "пишешь ОДИН пост-новость на их основе. Только финальный текст, "
         "никаких пояснений."
     )
+    # Мост к модулю copywriter (см. _build_evergreen_prompt).
+    if style_examples:
+        from server.creators_copywriter_bridge import build_style_block
+        block = build_style_block(style_examples)
+        if block:
+            writer_system = writer_system + "\n\n" + block
     brand_lines = [f"Бренд: {brand.name}", f"Тон: {brand.tone or 'нейтральный'}"]
     if brand.audience: brand_lines.append(f"ЦА: {brand.audience}")
     if brand.stopwords:brand_lines.append(f"НЕ писать: {brand.stopwords}")
@@ -190,18 +208,36 @@ def _strip_image_prompt(text: str) -> tuple[str, Optional[str]]:
 
 
 def prepare_item(item: ContentItem, brand: CreatorBrand, user_id: Optional[int] = None,
-                 with_image: Optional[bool] = None) -> dict:
+                 with_image: Optional[bool] = None,
+                 db: Optional[Session] = None) -> dict:
     """Подготовить пост: вернуть {"text": ..., "media_url": ...|None, "model_chain": [...]}.
 
     Не списывает баланс — это делает caller (routes).
+
+    Если у юзера подключён модуль `copywriter` ИИ-Агента — подмешиваем
+    выученный стиль (последние опубликованные посты) в system prompt.
+    db нужна для этого; если не передана — bridge пропускается (Креаторы
+    работают как раньше).
     """
     if with_image is None:
         with_image = item.type in ("image", "reels")
 
     model_chain = []
 
+    # Bridge → copywriter module. No-op если модуль не подключён.
+    style_examples: list[dict] = []
+    if db is not None and user_id is not None:
+        try:
+            from server.creators_copywriter_bridge import load_copywriter_examples
+            style_examples = load_copywriter_examples(db, user_id)
+            if style_examples:
+                log.info("[creators.prepare] copywriter style applied: %d examples",
+                         len(style_examples))
+        except Exception as e:
+            log.warning("[creators.prepare] copywriter bridge failed: %s", e)
+
     if item.is_news:
-        (_, research_user), (writer_system, writer_user) = _build_news_prompts(brand, item)
+        (_, research_user), (writer_system, writer_user) = _build_news_prompts(brand, item, style_examples)
         # 1) Perplexity research
         extra1 = {"_purpose": "creators_news_research"}
         if user_id is not None: extra1["_user_id"] = user_id
@@ -224,7 +260,7 @@ def prepare_item(item: ContentItem, brand: CreatorBrand, user_id: Optional[int] 
         full_text = (r2 or {}).get("content") or ""
         model_chain.append("claude-sonnet-4-6")
     else:
-        system, user = _build_evergreen_prompt(brand, item)
+        system, user = _build_evergreen_prompt(brand, item, style_examples)
         extra = {"_purpose": "creators_evergreen", "system": system, "max_tokens": 2000}
         if user_id is not None: extra["_user_id"] = user_id
         r = generate_response(

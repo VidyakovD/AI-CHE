@@ -112,6 +112,22 @@ async def publish_item(db: Session, item: ContentItem) -> dict:
         item.error = None
         conn.fail_count = 0
         db.commit()
+
+        # Мост → модуль copywriter ИИ-Агента: сохраняем опубликованный пост
+        # как пример стиля автора. На следующей генерации Креаторы подмешают
+        # его в system_prompt LLM-копирайтера. No-op если модуль не подключён.
+        try:
+            from server.creators_copywriter_bridge import save_published_to_copywriter
+            brand = db.query(CreatorBrand).filter_by(id=cal.brand_id).first()
+            if brand and brand.user_id:
+                save_published_to_copywriter(
+                    db, brand.user_id,
+                    text=item.prepared_content_md or "",
+                    platform=item.platform or "",
+                )
+        except Exception as e:
+            log.warning("[creators.publish] copywriter bridge failed: %s", e)
+
         return {"ok": True, "channel_id": conn.id}
     else:
         # Инкремент fail_count + опц. деактивация
