@@ -74,12 +74,13 @@ _Последнее обновление: 2026-05-16 (после большой 
 
 ---
 
-## 🔴 До коммерческого запуска (security)
+## ✅ Security: PrivacyGuard wiring закрыт (2026-05-18)
 
-- **PrivacyGuard wiring (152-ФЗ)** — модуль `server/privacy_guard.py` полностью реализован, но НЕ ИСПОЛЬЗУЕТСЯ нигде в продакшен-коде. Юзер пишет «составь КП Иванову, тел +7..., ИНН ...» → улетает в Anthropic/OpenAI/Google **сырьём**. После регистрации оператора ПДн в РКН — реальный риск штрафа.
-  - **Где обернуть:** `server/ai.py::generate_response()` (центральный entry point), либо точечно в `server/chatbot_engine.py`, `server/agent_runner.py`, `server/creators_prepare.py`, `server/proposals.py`.
-  - **Паттерн:** `guard = PrivacyGuard(); safe = guard.mask(user_input); response = generate_response(...); final = guard.unmask_response(response["content"])`
-  - **Pre-launch:** не блокер (юзеров нет), но MUST-FIX перед публичным запуском.
+- **152-ФЗ защита**: `server/privacy_guard.py` теперь обёрнут вокруг `server/ai.py::generate_response()` — центральный entry point. Покрывает ВСЕ LLM-вызовы (chat/orchestra/proposal/sites/agents/chatbots/creators/knowledge/presentations).
+  - PII (email/phone/INN/SNILS/CC/IBAN/SWIFT/банк-счёт) маскируется в токены `[[EMAIL_1]]` и т.д. до отправки в Anthropic/OpenAI/Google/Grok/Perplexity, ответ автоматически размаскируется.
+  - Escape hatch: `extra={"_privacy_skip": True}` — для модулей, которым PII нужен сырьём (будущий парсер выписок банка).
+  - Провайдеры image/video (kling, veo) — пропускаются (PII в промпте картинки бессмысленно).
+  - Тесты: `tests/test_ai_privacy.py` (7 wiring-тестов) защищают от регрессии.
 
 ---
 

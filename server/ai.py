@@ -1,6 +1,7 @@
 import os, random, time, base64, httpx, logging
 from openai import OpenAI
 import anthropic as AnthropicSDK
+from server.privacy_guard import PrivacyGuard
 
 # Anthropic SDK по умолчанию ставит httpx-timeout 60 сек, но Claude Sonnet
 # с max_tokens=16000 + большой prompt легко уходит за 90 сек. Для генерации
@@ -1403,6 +1404,74 @@ def _log_ai_request(*, provider: str, model: str, purpose: str | None,
         log.warning(f"[ai_request_log] failed: {type(e).__name__}: {e}")
 
 
+# ── PII protection (152-ФЗ) ─────────────────────────────────────────────────
+# Все user-content сообщений маскируются перед отправкой в LLM. PrivacyGuard
+# заменяет email/phone/INN/SNILS/CC/IBAN на токены [[EMAIL_1]] и т.д., держит
+# мапу в инстансе. После ответа result["content"] анмаскируется.
+#
+# Escape hatch: extra={"_privacy_skip": True} — для модулей, которые ДОЛЖНЫ
+# видеть PII в исходном виде (например финансовый парсер выписки).
+#
+# Провайдеры image/video (kling, veo) — пропускаются: PII в prompt'е для генерации
+# картинки нет смысла маскировать (картинка не строится по реальному ИНН).
+
+_PG_SEP = "\x00@@AIPG@@\x00"  # уникальный разделитель, не матчится regex'ами
+
+
+def _privacy_collect_texts(messages: list) -> tuple[list[str], list[tuple]]:
+    """Возвращает (тексты, пути-к-ним) для последующей замены.
+
+    path: ("str", msg_idx) — content был строкой
+          ("block", msg_idx, block_idx) — content был list[dict], text внутри блока"""
+    texts: list[str] = []
+    paths: list[tuple] = []
+    for i, msg in enumerate(messages):
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            texts.append(content)
+            paths.append(("str", i))
+        elif isinstance(content, list):
+            for j, block in enumerate(content):
+                if isinstance(block, dict) and block.get("type") == "text":
+                    txt = block.get("text", "")
+                    if isinstance(txt, str):
+                        texts.append(txt)
+                        paths.append(("block", i, j))
+    return texts, paths
+
+
+def _privacy_mask_messages(messages: list, guard: PrivacyGuard) -> list:
+    """Замаскировать PII во всех text-частях messages одним guard.
+    Concat-approach: все тексты склеиваются разделителем, маскируются ОДНИМ
+    вызовом mask() (чтобы map был общий), разделяются обратно."""
+    if not messages:
+        return messages
+    texts, paths = _privacy_collect_texts(messages)
+    if not texts:
+        return messages
+    big = _PG_SEP.join(texts)
+    masked_big = guard.mask(big)
+    parts = masked_big.split(_PG_SEP)
+    if len(parts) != len(texts):
+        # Маскировщик случайно сломал разделитель — fail-safe возвращаем оригинал
+        log.warning("[Privacy] separator broken, sending original (parts=%d, expected=%d)",
+                    len(parts), len(texts))
+        return messages
+    out = list(messages)
+    for path, masked in zip(paths, parts):
+        if path[0] == "str":
+            i = path[1]
+            out[i] = {**out[i], "content": masked}
+        elif path[0] == "block":
+            _, i, j = path
+            blocks = list(out[i]["content"])
+            blocks[j] = {**blocks[j], "text": masked}
+            out[i] = {**out[i], "content": blocks}
+    return out
+
+
 def generate_response(model: str, messages: list, extra: dict = None,
                       user_api_key: str = None) -> dict:
     """Вызов AI-модели.
@@ -1414,6 +1483,8 @@ def generate_response(model: str, messages: list, extra: dict = None,
       _purpose: str — для AiRequestLog (chat/orchestra/proposal/sites/agent)
       _user_id: int — для AiRequestLog
       _request_id: str — X-Request-ID для cross-log трассировки
+      _privacy_skip: bool — отключить маскировку PII (для системных вызовов
+                           вроде парсинга выписки, где LLM ДОЛЖНА видеть ПД)
     """
     cfg = resolve_model(model)
     if not cfg:
@@ -1448,6 +1519,18 @@ def generate_response(model: str, messages: list, extra: dict = None,
 
     real = cfg["real_model"]
     start_ms = int(time.time() * 1000)
+
+    # PII маскировка перед LLM (skip для image/video и явного opt-out)
+    _skip_privacy = bool(_extra.get("_privacy_skip")) or cfg["provider"] in ("kling", "veo")
+    _guard: PrivacyGuard | None = None
+    if not _skip_privacy:
+        try:
+            _guard = PrivacyGuard()
+            messages = _privacy_mask_messages(messages, _guard)
+        except Exception as _pe:
+            log.warning(f"[Privacy] mask failed, sending unmasked: {_pe}")
+            _guard = None
+
     try:
         if cfg["provider"] in ("kling", "veo"):
             result = handler(real, messages, _extra)
@@ -1455,6 +1538,15 @@ def generate_response(model: str, messages: list, extra: dict = None,
             result = handler(real, messages, user_key=user_api_key)
         else:
             result = handler(real, messages)
+
+        # Unmask текстового ответа (если маскировали)
+        if _guard is not None and isinstance(result, dict):
+            _content = result.get("content")
+            if isinstance(_content, str):
+                try:
+                    result["content"] = _guard.unmask_response(_content)
+                except Exception as _ue:
+                    log.warning(f"[Privacy] unmask failed: {_ue}")
 
         # Логирование успеха (fire-and-forget — не блокирует ответ)
         try:
