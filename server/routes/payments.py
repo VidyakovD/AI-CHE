@@ -164,6 +164,13 @@ def buy_tokens(req: BuyTokenRequest, user: User = Depends(current_user),
     """Создать платёж на пополнение баланса по выбранному пакету."""
     if not user.is_verified:
         raise HTTPException(403, "Подтвердите email для оплаты")
+    # Без email нельзя создать receipt → ЮKassa с подключённым ОФД (54-ФЗ)
+    # либо откажет, либо примет платёж без чека (штраф 30k₽ за каждый
+    # некассовый платёж). is_verified выше гарантирует email есть, но
+    # defence-in-depth: явный 400 а не silent skip receipt.
+    if not (user.email or "").strip():
+        raise HTTPException(400, "У аккаунта нет email — невозможно отправить чек 54-ФЗ. "
+                                  "Укажите email в профиле.")
     pkg = db.query(TokenPackage).filter_by(id=req.package_id, is_active=True).first()
     if not pkg:
         raise HTTPException(404, "Пакет не найден")
@@ -182,37 +189,34 @@ def buy_tokens(req: BuyTokenRequest, user: User = Depends(current_user),
                 "pkg_name": pkg.name,
             },
         }
-        if user.email:
-            # Чек 54-ФЗ. ЮKassa автоматически передаёт его в ОФД, который
-            # подключён в личном кабинете ЮKassa (Атол Онлайн / Контур.ОФД).
-            #
-            # Поля:
-            # - vat_code: 1=Без НДС | 2=НДС 0% | 3=НДС 10% | 4=НДС 20% |
-            #             5=НДС 10/110 | 6=НДС 20/120
-            #   По умолчанию 1 (Без НДС) — актуально для УСН без НДС.
-            # - tax_system_code: 1=ОСН | 2=УСН доходы | 3=УСН доходы-расходы
-            #                    | 4=ЕНВД | 5=ЕСН | 6=ПСН
-            #   По умолчанию 2 (УСН доходы 6%).
-            # - payment_subject: "service" — услуга (наш случай).
-            # - payment_mode: "full_payment" — полная оплата при покупке.
-            #
-            # Юзер настраивает под свою налоговую систему через env:
-            #   YOOKASSA_VAT_CODE=1
-            #   YOOKASSA_TAX_SYSTEM_CODE=2
-            vat_code = os.getenv("YOOKASSA_VAT_CODE", "1")
-            tax_system = os.getenv("YOOKASSA_TAX_SYSTEM_CODE", "2")
-            payment_data["receipt"] = {
-                "customer": {"email": user.email},
-                "tax_system_code": int(tax_system),
-                "items": [{
-                    "description": f"Пополнение баланса: {pkg.name}"[:128],
-                    "quantity": "1",
-                    "amount": {"value": str(float(pkg.price_rub)), "currency": "RUB"},
-                    "vat_code": int(vat_code),
-                    "payment_subject": "service",
-                    "payment_mode": "full_payment",
-                }],
-            }
+        # Чек 54-ФЗ — обязателен, email проверен выше.
+        # ЮKassa передаёт receipt в подключённый ОФД (Атол / Контур),
+        # чек уходит на customer.email автоматически.
+        #
+        # Поля:
+        # - vat_code: 1=Без НДС | 2=НДС 0% | 3=НДС 10% | 4=НДС 20% |
+        #             5=НДС 10/110 | 6=НДС 20/120
+        # - tax_system_code: 1=ОСН | 2=УСН доходы | 3=УСН доходы-расходы
+        #                    | 4=ЕНВД | 5=ЕСН | 6=ПСН
+        # - payment_subject: "service" — услуга.
+        # - payment_mode: "full_payment" — полная оплата при покупке.
+        #
+        # На проде .env: YOOKASSA_VAT_CODE=1, YOOKASSA_TAX_SYSTEM_CODE=2
+        # (ИП на УСН доходы 6%, без НДС). Меняй там при смене налоговой.
+        vat_code = os.getenv("YOOKASSA_VAT_CODE", "1")
+        tax_system = os.getenv("YOOKASSA_TAX_SYSTEM_CODE", "2")
+        payment_data["receipt"] = {
+            "customer": {"email": user.email},
+            "tax_system_code": int(tax_system),
+            "items": [{
+                "description": f"Пополнение баланса: {pkg.name}"[:128],
+                "quantity": "1",
+                "amount": {"value": str(float(pkg.price_rub)), "currency": "RUB"},
+                "vat_code": int(vat_code),
+                "payment_subject": "service",
+                "payment_mode": "full_payment",
+            }],
+        }
         p = YKP.create(payment_data, str(uuid.uuid4()))
         return {
             "payment_id": p.id,
