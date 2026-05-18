@@ -410,15 +410,31 @@ def _existing_columns(conn, table: str) -> set[str]:
 
 
 def _normalize_sql_type(sql_type: str) -> str:
-    """Подгоняет SQL-type к диалекту. SQLite принимает почти всё, postgres строже:
-    BOOLEAN DEFAULT 0/1 → BOOLEAN DEFAULT FALSE/TRUE.
-    Прочие типы (INTEGER/TEXT/VARCHAR/DATETIME) понимаются обоими.
+    """Подгоняет SQL-type к диалекту.
+
+    SQLite очень либеральный (type affinity) — принимает почти что угодно
+    включая DATETIME, TIMESTAMP, BOOLEAN.
+
+    PostgreSQL строже:
+    - DATETIME — НЕ существует. Нужен TIMESTAMP (или TIMESTAMP WITH TIME ZONE).
+    - BOOLEAN DEFAULT 0/1 — литералы int не приводятся к BOOLEAN. Нужно FALSE/TRUE.
+
+    Старые DATETIME-колонки в проде работают потому что были созданы через
+    `Base.metadata.create_all` (SQLAlchemy сам генерирует TIMESTAMP в DDL).
+    А LIGHTWEIGHT_MIGRATIONS делает `ALTER ADD COLUMN <type>` raw — без
+    нормализации валится с `type "datetime" does not exist`.
     """
     if IS_POSTGRES:
+        out = sql_type
         # BOOLEAN DEFAULT 0/1 → FALSE/TRUE
-        return (sql_type
-                .replace("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE")
-                .replace("BOOLEAN DEFAULT 1", "BOOLEAN DEFAULT TRUE"))
+        out = (out
+               .replace("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE")
+               .replace("BOOLEAN DEFAULT 1", "BOOLEAN DEFAULT TRUE"))
+        # DATETIME → TIMESTAMP (регистр сохраняем для читаемости; PG case-insensitive)
+        # Заменяем только как отдельное слово, не часть длинного типа.
+        import re as _re
+        out = _re.sub(r"\bDATETIME\b", "TIMESTAMP", out, flags=_re.IGNORECASE)
+        return out
     return sql_type
 
 
@@ -434,6 +450,9 @@ def apply_lightweight_migrations():
                 existing = _existing_columns(conn, table)
             except Exception as e:
                 log.warning(f"migration: cannot read {table}: {e}")
+                # Если read зафейлился (например aborted transaction) — почистить
+                try: conn.rollback()
+                except Exception: pass
                 continue
             if col in existing:
                 continue
@@ -444,6 +463,10 @@ def apply_lightweight_migrations():
                 log.info(f"migration: added {table}.{col} {normalized}")
             except Exception as e:
                 log.error(f"migration: failed to add {table}.{col}: {e}")
+                # КРИТИЧНО для PostgreSQL: после ошибки транзакция в aborted state,
+                # все последующие команды отскочат. Откатываем чтобы спасти остальные миграции.
+                try: conn.rollback()
+                except Exception: pass
         # Indexes
         for name, sql in LIGHTWEIGHT_INDEXES:
             try:
@@ -451,12 +474,16 @@ def apply_lightweight_migrations():
                 conn.commit()
             except Exception as e:
                 log.warning(f"migration: index {name}: {e}")
+                try: conn.rollback()
+                except Exception: pass
         # Data migration: backfill public_token для уже опубликованных сайтов
         # (idempotent — обновляет только rows где public_token IS NULL).
         try:
             _backfill_site_public_tokens(conn)
         except Exception as e:
             log.warning(f"migration: site public_token backfill error: {e}")
+            try: conn.rollback()
+            except Exception: pass
         # Special migration: knowledge_files.bot_id was NOT NULL (legacy для ботов).
         # Теперь поддерживаем агентов через owner_type/owner_id, и для агента
         # bot_id=NULL. SQLite ALTER не умеет менять NULL/NOT NULL — пересоздаём
