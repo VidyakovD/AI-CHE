@@ -174,7 +174,7 @@ class TestSavePublishedToCopywriter:
             _cleanup(uid, aid, mid)
 
     def test_save_caps_at_examples_cap(self):
-        """Хранится максимум EXAMPLES_CAP (10) — самые свежие."""
+        """Хранится максимум EXAMPLES_CAP (10) — самые свежие. Per-brand."""
         from server.db import db_session
         from server.models import AgentModule
         from server.creators_copywriter_bridge import (
@@ -190,12 +190,12 @@ class TestSavePublishedToCopywriter:
             with db_session() as db2:
                 m = db2.query(AgentModule).filter_by(id=mid).first()
                 memory = json.loads(m.module_memory_json or "{}")
-                examples = memory.get("examples") or []
-                assert len(examples) == EXAMPLES_CAP
-                # Проверим что остались самые свежие — последний по индексу есть
-                texts = [e["text"] for e in examples]
+                # B-3: записи в examples_by_brand._default (brand_id не указан)
+                by_brand = memory.get("examples_by_brand") or {}
+                bucket = by_brand.get("_default") or []
+                assert len(bucket) == EXAMPLES_CAP
+                texts = [e["text"] for e in bucket]
                 assert f"пост {EXAMPLES_CAP + 4}" in texts
-                # А самый старый отброшен
                 assert "пост 0" not in texts
         finally:
             _cleanup(uid, aid, mid)
@@ -217,5 +217,174 @@ class TestSavePublishedToCopywriter:
             with db_session() as db2:
                 ex = load_copywriter_examples(db2, uid, limit=1)
                 assert len(ex[0]["text"]) <= EXAMPLE_TEXT_TRUNC
+        finally:
+            _cleanup(uid, aid, mid)
+
+
+class TestPerBrandLearning:
+    """B-3: per-brand изоляция examples (один tone на бренд)."""
+
+    def test_save_with_brand_id_isolated_buckets(self):
+        """Посты разных брендов хранятся в разных bucket'ах."""
+        from server.db import db_session
+        from server.models import AgentModule
+        from server.creators_copywriter_bridge import save_published_to_copywriter
+
+        uid, aid, mid = _make_user_agent_with_optional_copywriter(connect_copywriter=True)
+        try:
+            with db_session() as db:
+                save_published_to_copywriter(db, uid, "стройка пост 1", "vk", brand_id=11)
+                save_published_to_copywriter(db, uid, "мама-блог пост", "tg", brand_id=22)
+                save_published_to_copywriter(db, uid, "стройка пост 2", "vk", brand_id=11)
+
+            with db_session() as db2:
+                m = db2.query(AgentModule).filter_by(id=mid).first()
+                by_brand = json.loads(m.module_memory_json)["examples_by_brand"]
+                assert "11" in by_brand and "22" in by_brand
+                assert len(by_brand["11"]) == 2
+                assert len(by_brand["22"]) == 1
+                assert all("стройка" in e["text"] for e in by_brand["11"])
+                assert "мама" in by_brand["22"][0]["text"]
+        finally:
+            _cleanup(uid, aid, mid)
+
+    def test_load_filters_by_brand(self):
+        """load_copywriter_examples(brand_id=X) вернёт ТОЛЬКО посты бренда X."""
+        from server.db import db_session
+        from server.creators_copywriter_bridge import (
+            save_published_to_copywriter, load_copywriter_examples,
+        )
+
+        uid, aid, mid = _make_user_agent_with_optional_copywriter(connect_copywriter=True)
+        try:
+            with db_session() as db:
+                save_published_to_copywriter(db, uid, "стройка-1", "vk", brand_id=11)
+                save_published_to_copywriter(db, uid, "стройка-2", "vk", brand_id=11)
+                save_published_to_copywriter(db, uid, "мама-1", "tg", brand_id=22)
+
+            with db_session() as db2:
+                stroika = load_copywriter_examples(db2, uid, brand_id=11)
+                mama = load_copywriter_examples(db2, uid, brand_id=22)
+                assert len(stroika) == 2
+                assert all("стройка" in e["text"] for e in stroika)
+                assert len(mama) == 1
+                assert "мама" in mama[0]["text"]
+        finally:
+            _cleanup(uid, aid, mid)
+
+    def test_load_unknown_brand_falls_back_to_legacy(self):
+        """Если для бренда ещё ничего нет — fallback на legacy examples."""
+        from server.db import db_session
+        from server.models import AgentModule
+        from server.creators_copywriter_bridge import load_copywriter_examples
+
+        uid, aid, mid = _make_user_agent_with_optional_copywriter(connect_copywriter=True)
+        try:
+            # Засеиваем ТОЛЬКО legacy examples
+            with db_session() as db:
+                m = db.query(AgentModule).filter_by(id=mid).first()
+                m.module_memory_json = json.dumps({"examples": [
+                    {"text": "старый пост", "platform": "tg", "ts": "2026-01-01"},
+                ]}, ensure_ascii=False)
+                db.commit()
+
+            with db_session() as db2:
+                # Запрос для нового бренда — должен взять legacy
+                ex = load_copywriter_examples(db2, uid, brand_id=99)
+                assert len(ex) == 1
+                assert ex[0]["text"] == "старый пост"
+        finally:
+            _cleanup(uid, aid, mid)
+
+    def test_load_brand_with_data_ignores_legacy(self):
+        """Если у бренда УЖЕ есть свои посты — legacy не подмешивается."""
+        from server.db import db_session
+        from server.models import AgentModule
+        from server.creators_copywriter_bridge import (
+            save_published_to_copywriter, load_copywriter_examples,
+        )
+
+        uid, aid, mid = _make_user_agent_with_optional_copywriter(connect_copywriter=True)
+        try:
+            # Засеиваем legacy + новый бренд
+            with db_session() as db:
+                m = db.query(AgentModule).filter_by(id=mid).first()
+                m.module_memory_json = json.dumps({"examples": [
+                    {"text": "legacy", "platform": "tg", "ts": "2026-01-01"},
+                ]}, ensure_ascii=False)
+                db.commit()
+            with db_session() as db:
+                save_published_to_copywriter(db, uid, "новый бренд-пост", "vk", brand_id=11)
+
+            with db_session() as db2:
+                ex = load_copywriter_examples(db2, uid, brand_id=11)
+                # Только новый, без legacy
+                assert len(ex) == 1
+                assert ex[0]["text"] == "новый бренд-пост"
+        finally:
+            _cleanup(uid, aid, mid)
+
+    def test_per_brand_cap_independent(self):
+        """Cap (10) применяется к каждому бренду отдельно — не суммарно."""
+        from server.db import db_session
+        from server.models import AgentModule
+        from server.creators_copywriter_bridge import (
+            save_published_to_copywriter, EXAMPLES_CAP,
+        )
+
+        uid, aid, mid = _make_user_agent_with_optional_copywriter(connect_copywriter=True)
+        try:
+            with db_session() as db:
+                for i in range(EXAMPLES_CAP + 3):
+                    save_published_to_copywriter(db, uid, f"br1-{i}", "tg", brand_id=1)
+                for i in range(EXAMPLES_CAP + 3):
+                    save_published_to_copywriter(db, uid, f"br2-{i}", "vk", brand_id=2)
+
+            with db_session() as db2:
+                m = db2.query(AgentModule).filter_by(id=mid).first()
+                by_brand = json.loads(m.module_memory_json)["examples_by_brand"]
+                assert len(by_brand["1"]) == EXAMPLES_CAP
+                assert len(by_brand["2"]) == EXAMPLES_CAP
+                # Самые свежие — оба
+                assert any(f"br1-{EXAMPLES_CAP+2}" in e["text"] for e in by_brand["1"])
+                assert any(f"br2-{EXAMPLES_CAP+2}" in e["text"] for e in by_brand["2"])
+        finally:
+            _cleanup(uid, aid, mid)
+
+
+class TestGetBrandSummary:
+    def test_no_module_returns_empty_dict(self):
+        from server.db import db_session
+        from server.creators_copywriter_bridge import get_brand_summary
+
+        uid, aid, _ = _make_user_agent_with_optional_copywriter(connect_copywriter=False)
+        try:
+            with db_session() as db:
+                assert get_brand_summary(db, uid) == {}
+        finally:
+            _cleanup(uid, aid, None)
+
+    def test_returns_totals_per_brand(self):
+        from server.db import db_session
+        from server.creators_copywriter_bridge import (
+            save_published_to_copywriter, get_brand_summary,
+        )
+
+        uid, aid, mid = _make_user_agent_with_optional_copywriter(connect_copywriter=True)
+        try:
+            with db_session() as db:
+                save_published_to_copywriter(db, uid, "a1", "tg", brand_id=1)
+                save_published_to_copywriter(db, uid, "a2", "tg", brand_id=1)
+                save_published_to_copywriter(db, uid, "b1", "vk", brand_id=2)
+
+            with db_session() as db2:
+                s = get_brand_summary(db2, uid)
+                assert s["total"] == 3
+                # Сортировка по count desc
+                assert s["brands"][0]["brand_id"] == 1
+                assert s["brands"][0]["count"] == 2
+                assert s["brands"][1]["brand_id"] == 2
+                assert s["brands"][1]["count"] == 1
+                assert s["has_legacy"] is False
         finally:
             _cleanup(uid, aid, mid)

@@ -467,7 +467,23 @@ function _memoryBlock(m){
   div.className = 'mod-mem show';
   const memory = m.memory || {};
   const learned = memory.learned || [];
-  const examples = memory.examples || [];
+  // Per-brand learning (B-3): копит стиль отдельно для каждого бренда.
+  // Объединяем все бренды + legacy examples для общего счётчика.
+  const byBrand = memory.examples_by_brand || {};
+  const legacyExamples = memory.examples || [];
+  const allExamples = [];
+  for(const key in byBrand){
+    const bucket = byBrand[key] || [];
+    if(Array.isArray(bucket)){
+      bucket.forEach(ex => allExamples.push({...ex, _bucket: key}));
+    }
+  }
+  // Legacy examples — только если new buckets ещё нет (плавная миграция)
+  if(allExamples.length === 0 && Array.isArray(legacyExamples)){
+    legacyExamples.forEach(ex => allExamples.push({...ex, _bucket: '_legacy'}));
+  }
+  const examples = allExamples;
+  const brandCount = Object.keys(byBrand).filter(k => (byBrand[k]||[]).length).length;
   const interactions = m.interaction_count || 0;
 
   let html = '<div class="mem-title">📚 Что выучил про тебя</div>';
@@ -484,23 +500,26 @@ function _memoryBlock(m){
   }
 
   // Блок «Изучаю стиль автора» — для copywriter (или любого модуля
-  // с накопленными examples). Показывает 3 свежих опубликованных поста.
-  // Если modеуль = copywriter но examples пока нет — показываем подсказку
-  // как обучить агента (через публикацию в Креаторах).
+  // с накопленными examples). Per-brand изоляция (B-3): копилка отдельная
+  // для каждого бренда, в UI показываем сводку по всем + 3 свежих.
   const showStyleBlock = m.slug === 'copywriter' || examples.length > 0;
   if(showStyleBlock){
     html += '<div class="mem-title" style="margin-top:14px">🎨 Изучаю стиль автора</div>';
     if(examples.length === 0){
-      html += `<div class="mod-mem-empty">Опубликуй несколько постов через <a href="/creators.html" style="color:#ffb347;text-decoration:underline">Креаторов</a> — агент запомнит стиль и будет писать в нём же.</div>`;
+      html += `<div class="mod-mem-empty">Опубликуй несколько постов через <a href="/creators.html" style="color:#ffb347;text-decoration:underline">Креаторов</a> — агент запомнит стиль и будет писать в нём же. Стиль копится <b>отдельно для каждого бренда</b>.</div>`;
     } else {
-      html += `<div class="mem-stats">Запомнено постов: <b>${examples.length}</b> / 10 свежих</div>`;
-      // Самые свежие 3 (бэкенд сортирует по ts при загрузке через bridge,
-      // но при отображении сделаем тоже для надёжности).
+      const brandLabel = brandCount > 1
+        ? ` по ${brandCount} ${_pluralRu(brandCount,'бренду','брендам','брендам')}`
+        : '';
+      html += `<div class="mem-stats">Запомнено постов: <b>${examples.length}</b>${brandLabel} (10 свежих на каждый бренд)</div>`;
       const sorted = examples.slice().sort((a,b) =>
         String(b.ts||'').localeCompare(String(a.ts||'')));
       sorted.slice(0, 3).forEach((ex, idx) => {
+        const bucketLabel = ex._bucket === '_legacy' ? 'legacy'
+                          : ex._bucket === '_default' ? 'без бренда'
+                          : ex._bucket ? `br#${ex._bucket}` : '';
         html += `<div class="mod-mem-item style-example" data-ex-idx="${idx}">
-          <span class="mem-plat" style="opacity:.7;font-size:11px">${_esc(ex.platform||'?')}</span>
+          <span class="mem-plat" style="opacity:.7;font-size:11px">${_esc(ex.platform||'?')}${bucketLabel?` · ${_esc(bucketLabel)}`:''}</span>
           <span class="mem-text"></span>
         </div>`;
       });

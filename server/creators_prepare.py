@@ -225,14 +225,15 @@ def prepare_item(item: ContentItem, brand: CreatorBrand, user_id: Optional[int] 
     model_chain = []
 
     # Bridge → copywriter module. No-op если модуль не подключён.
+    # Per-brand: загружаем стиль ТОЛЬКО этого бренда (B-3).
     style_examples: list[dict] = []
     if db is not None and user_id is not None:
         try:
             from server.creators_copywriter_bridge import load_copywriter_examples
-            style_examples = load_copywriter_examples(db, user_id)
+            style_examples = load_copywriter_examples(db, user_id, brand_id=brand.id)
             if style_examples:
-                log.info("[creators.prepare] copywriter style applied: %d examples",
-                         len(style_examples))
+                log.info("[creators.prepare] copywriter style applied: %d examples (brand=%s)",
+                         len(style_examples), brand.id)
         except Exception as e:
             log.warning("[creators.prepare] copywriter bridge failed: %s", e)
 
