@@ -467,6 +467,7 @@ function _memoryBlock(m){
   div.className = 'mod-mem show';
   const memory = m.memory || {};
   const learned = memory.learned || [];
+  const examples = memory.examples || [];
   const interactions = m.interaction_count || 0;
 
   let html = '<div class="mem-title">📚 Что выучил про тебя</div>';
@@ -480,6 +481,33 @@ function _memoryBlock(m){
         <span class="mem-edit">✏</span>
       </div>`;
     }).join('');
+  }
+
+  // Блок «Изучаю стиль автора» — для copywriter (или любого модуля
+  // с накопленными examples). Показывает 3 свежих опубликованных поста.
+  // Если modеуль = copywriter но examples пока нет — показываем подсказку
+  // как обучить агента (через публикацию в Креаторах).
+  const showStyleBlock = m.slug === 'copywriter' || examples.length > 0;
+  if(showStyleBlock){
+    html += '<div class="mem-title" style="margin-top:14px">🎨 Изучаю стиль автора</div>';
+    if(examples.length === 0){
+      html += `<div class="mod-mem-empty">Опубликуй несколько постов через <a href="/creators.html" style="color:#ffb347;text-decoration:underline">Креаторов</a> — агент запомнит стиль и будет писать в нём же.</div>`;
+    } else {
+      html += `<div class="mem-stats">Запомнено постов: <b>${examples.length}</b> / 10 свежих</div>`;
+      // Самые свежие 3 (бэкенд сортирует по ts при загрузке через bridge,
+      // но при отображении сделаем тоже для надёжности).
+      const sorted = examples.slice().sort((a,b) =>
+        String(b.ts||'').localeCompare(String(a.ts||'')));
+      sorted.slice(0, 3).forEach((ex, idx) => {
+        html += `<div class="mod-mem-item style-example" data-ex-idx="${idx}">
+          <span class="mem-plat" style="opacity:.7;font-size:11px">${_esc(ex.platform||'?')}</span>
+          <span class="mem-text"></span>
+        </div>`;
+      });
+      if(examples.length > 3){
+        html += `<div class="mem-stats" style="opacity:.7">... и ещё ${examples.length - 3}</div>`;
+      }
+    }
   }
   // Расписание (cron runtime активен)
   const cronTask = (m.settings && m.settings.cron_task) || '';
@@ -506,13 +534,28 @@ function _memoryBlock(m){
     });
   });
 
-  // Безопасно через textContent (xss-safe)
-  div.querySelectorAll('.mod-mem-item').forEach(el => {
+  // Безопасно через textContent (xss-safe) — для learned (data-idx)
+  div.querySelectorAll('.mod-mem-item[data-idx]').forEach(el => {
     const idx = parseInt(el.dataset.idx, 10);
     const note = (learned[idx] && learned[idx].note) || '';
     el.querySelector('.mem-text').textContent = note;
     el.addEventListener('click', () => editMemoryItem(m.slug, idx, note));
   });
+  // Style examples (data-ex-idx) — только показываем, не редактируем.
+  // textContent защищает от XSS (пост может содержать <, > и т.п.).
+  if(examples.length){
+    const sorted = examples.slice().sort((a,b) =>
+      String(b.ts||'').localeCompare(String(a.ts||'')));
+    div.querySelectorAll('.mod-mem-item.style-example').forEach(el => {
+      const idx = parseInt(el.dataset.exIdx, 10);
+      const ex = sorted[idx];
+      if(ex){
+        const text = (ex.text || '').slice(0, 140);
+        el.querySelector('.mem-text').textContent =
+          text + (ex.text && ex.text.length > 140 ? '…' : '');
+      }
+    });
+  }
   return div;
 }
 
