@@ -1337,7 +1337,8 @@
       {label: 'Коммерческие предложения',   emoji: '📄', url: '/proposals.html'},
       {label: 'Презентации',                emoji: '🎬', url: '/presentations.html'},
       {label: 'Сайты',                      emoji: '🌐', url: '/sites.html'},
-      {label: 'AI-агенты',                  emoji: '🛠️', url: '/agents.html'},
+      {label: 'ИИ Агенты',                  emoji: '🤖', url: '/agents-modular.html'},
+      {label: 'Креаторы — контент-план',    emoji: '🎨', url: '/creators.html'},
       {label: 'Кабинет — токены / биллинг', emoji: '💰', url: '/?tab=tokens'},
       {label: 'Кабинет — настройки',        emoji: '⚙️', url: '/?tab=settings'},
     ];
@@ -2611,12 +2612,19 @@
       cta: 'Выбрать шаблон →',
       ctaSelector: '[data-action="new-bot"], #newBotBtn',
     },
-    '/agents.html': {
-      key: 'agents',
-      title: 'AI-агент для внутренних задач',
-      text: 'Это не клиентский бот. Агент — твой личный помощник: юрист, копирайтер, аналитик, продажник. Запусти готовую роль за 2 минуты или собери свою.',
-      cta: 'Открыть библиотеку →',
-      ctaSelector: '#tab-library, [data-tab="library"]',
+    '/agents-modular.html': {
+      key: 'agents-modular',
+      title: 'Твой ИИ-помощник Че',
+      text: 'Че — один личный AI-помощник, к которому подключаешь модули-агенты (копирайтер, юрист, SMM, аналитик…). Каждый модуль учится со временем и прокачивается L0→L4. Можно поручить пост, контент-план, расписание задач или webhook от CRM.',
+      cta: 'Создать первый агент →',
+      ctaSelector: '[data-action="add-module"], #addModuleBtn',
+    },
+    '/creators.html': {
+      key: 'creators',
+      title: 'Контент-план для бизнеса',
+      text: 'Создаём бренд → AI планирует посты (TG/VK/IG/YT) → готовим тексты+картинки → автопостинг в TG и VK. Анализ соцсетей конкурентов через Perplexity. Freemium 3 поста в месяц.',
+      cta: 'Создать бренд →',
+      ctaSelector: '[data-action="create-brand"], #createBrandBtn',
     },
     '/mobile.html': {
       key: 'mobile',
