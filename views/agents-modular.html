@@ -543,6 +543,25 @@ function _memoryBlock(m){
       </div>`;
     }
   }
+
+  // Блок «Подключённые ящики» — для модуля mail. Управление списком + кнопка
+  // «➕ Подключить ящик». Сам fetch писем происходит в module runtime
+  // (server-side) при invoke, в UI здесь храним только метаданные ящиков.
+  if(m.slug === 'mail'){
+    html += '<div class="mem-title" style="margin-top:14px">📧 Подключённые ящики</div>';
+    html += `<div data-mailbox-list="${_esc(m.slug)}" style="font-size:12px">
+      <span style="opacity:.6">загружаю…</span>
+    </div>`;
+    html += `<div class="mem-stats" style="margin-top:8px">
+      <button class="btn-g" style="font-size:11px" data-mailbox-add="${_esc(m.slug)}">
+        ➕ Подключить ящик
+      </button>
+      <div style="opacity:.65;font-size:10px;margin-top:4px;line-height:1.4">
+        Yandex / Gmail / Mail.ru — нужен <b>app-password</b>, не обычный.
+        При запросе «разбери почту» — модуль увидит ваши последние письма.
+      </div>
+    </div>`;
+  }
   // Расписание (cron runtime активен)
   const cronTask = (m.settings && m.settings.cron_task) || '';
   if(m.schedule_cron){
@@ -573,6 +592,16 @@ function _memoryBlock(m){
       e.stopPropagation();
       runBootstrapImport(btn.dataset.bootstrapBtn, btn);
     });
+  });
+  // Mailbox: кнопка «Подключить ящик» + загрузка списка
+  div.querySelectorAll('button[data-mailbox-add]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openMailboxConnectModal();
+    });
+  });
+  div.querySelectorAll('[data-mailbox-list]').forEach(el => {
+    loadMailboxList(el);
   });
 
   // Безопасно через textContent (xss-safe) — для learned (data-idx)
@@ -689,6 +718,214 @@ async function runBootstrapImport(slug, btn){
       btn.textContent = '📥 Изучить мои прошлые посты из VK/TG';
     }
   }
+}
+
+// ── Mailbox CRUD UI для модуля mail ─────────────────────────────────────
+
+async function loadMailboxList(container){
+  try{
+    const r = await fetch(`${API}/api/agents/me/mailboxes`, {credentials:'same-origin'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const boxes = await r.json();
+    if(!boxes || !boxes.length){
+      container.innerHTML = '<span style="opacity:.6">Пока ни одного ящика. ' +
+        'Нажми «➕ Подключить ящик», чтобы модуль мог читать твою почту.</span>';
+      return;
+    }
+    container.innerHTML = boxes.map(b => {
+      const synced = b.last_synced_at
+        ? ` · синхрон. ${new Date(b.last_synced_at).toLocaleString('ru-RU')}`
+        : '';
+      const errClass = b.last_error ? 'style="color:#ff6b6b"' : '';
+      return `<div ${errClass} style="display:flex;align-items:center;gap:6px;padding:4px 0">
+        <span style="flex:1">
+          <b>${_esc(b.email)}</b>
+          ${b.label ? `<span style="opacity:.7"> · ${_esc(b.label)}</span>` : ''}
+          <span style="opacity:.6;font-size:10px">${_esc(b.provider||'')}${synced}</span>
+          ${b.last_error ? `<br><span style="font-size:10px">${_esc(b.last_error)}</span>` : ''}
+        </span>
+        <button class="btn-d" style="font-size:10px;padding:2px 6px"
+                data-mailbox-del="${b.id}">✕</button>
+      </div>`;
+    }).join('');
+    container.querySelectorAll('button[data-mailbox-del]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await deleteMailbox(parseInt(btn.dataset.mailboxDel, 10), container);
+      });
+    });
+  }catch(e){
+    container.innerHTML = `<span style="color:#ff6b6b">Не удалось загрузить: ${_esc(e.message)}</span>`;
+  }
+}
+
+async function deleteMailbox(id, container){
+  const ok = await (window.aiConfirm
+    ? window.aiConfirm('Отключить этот ящик? Модуль перестанет видеть его письма.',
+                        {danger:true, okLabel:'Отключить'})
+    : Promise.resolve(confirm('Отключить этот ящик?')));
+  if(!ok) return;
+  try{
+    const r = await fetch(`${API}/api/agents/me/mailboxes/${id}`, {
+      method:'DELETE', credentials:'same-origin',
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'HTTP '+r.status);
+    }
+    if(container) await loadMailboxList(container);
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Ошибка: '+e.message, 'error');
+  }
+}
+
+async function openMailboxConnectModal(){
+  // Загрузим пресеты (host/port + help-text по провайдеру)
+  let presets = {};
+  try{
+    const r = await fetch(`${API}/api/agents/mailbox-presets`, {credentials:'same-origin'});
+    if(r.ok) presets = await r.json();
+  }catch(_){}
+
+  // Простой модал на лету. Не делаем отдельную html-разметку — это
+  // изолированный одноразовый flow для нечастого действия.
+  const back = document.createElement('div');
+  back.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,12,.7);z-index:99998;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)';
+  const card = document.createElement('div');
+  card.style.cssText = 'background:#1a1a1d;border:1px solid rgba(255,140,66,.25);border-radius:14px;padding:20px;max-width:480px;width:100%;color:#e6e4f0;font:14px/1.5 system-ui,sans-serif;max-height:90vh;overflow-y:auto';
+  card.innerHTML = `
+    <h3 style="margin:0 0 8px;font-size:16px;font-weight:700">📧 Подключить почтовый ящик</h3>
+    <p style="opacity:.7;font-size:12px;margin:0 0 14px">
+      Модуль будет читать <b>только последние 8 писем</b> при каждом обращении.
+      Письма не хранятся у нас — забираются вживую через IMAP.
+    </p>
+    <label style="display:block;margin-bottom:8px;font-size:12px">
+      Провайдер
+      <select id="mb-provider" style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px">
+        <option value="yandex">Yandex (imap.yandex.ru)</option>
+        <option value="gmail">Gmail (imap.gmail.com)</option>
+        <option value="mailru">Mail.ru (imap.mail.ru)</option>
+        <option value="other">Другой (указать host вручную)</option>
+      </select>
+    </label>
+    <label style="display:block;margin-bottom:8px;font-size:12px">
+      Email
+      <input id="mb-email" type="email" placeholder="me@yandex.ru"
+             style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px"/>
+    </label>
+    <label style="display:block;margin-bottom:8px;font-size:12px">
+      App-password <span style="opacity:.6">(не обычный пароль)</span>
+      <input id="mb-password" type="password" placeholder="XXXX XXXX XXXX XXXX"
+             style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px"/>
+    </label>
+    <label style="display:block;margin-bottom:8px;font-size:12px">
+      Метка <span style="opacity:.6">(опц., для UI)</span>
+      <input id="mb-label" type="text" placeholder="Личный / Рабочий / info@"
+             style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px"/>
+    </label>
+    <div id="mb-host-row" style="display:none;margin-bottom:8px">
+      <label style="display:block;font-size:12px">
+        IMAP host
+        <input id="mb-host" type="text" placeholder="imap.example.com"
+               style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px"/>
+      </label>
+      <label style="display:block;font-size:12px;margin-top:6px">
+        Port
+        <input id="mb-port" type="number" value="993"
+               style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px"/>
+      </label>
+    </div>
+    <div id="mb-help" style="background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.2);border-radius:8px;padding:10px;font-size:11px;line-height:1.5;margin-bottom:14px;color:#ffb347">
+      <!-- помощь по провайдеру -->
+    </div>
+    <div id="mb-err" style="display:none;color:#ff6b6b;font-size:12px;margin-bottom:10px"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button id="mb-cancel" class="btn-g" style="font-size:12px">Отмена</button>
+      <button id="mb-save" class="btn-p" style="font-size:12px">Проверить и подключить</button>
+    </div>
+  `;
+  back.appendChild(card);
+  document.body.appendChild(back);
+
+  const providerSel = card.querySelector('#mb-provider');
+  const emailInp = card.querySelector('#mb-email');
+  const helpEl = card.querySelector('#mb-help');
+  const hostRow = card.querySelector('#mb-host-row');
+  const errEl = card.querySelector('#mb-err');
+
+  function refreshHelp(){
+    const p = providerSel.value;
+    const pdef = presets[p] || {};
+    helpEl.innerHTML = pdef.help_url
+      ? `${_esc(pdef.help_text||'')}<br><a href="${_esc(pdef.help_url)}" target="_blank" rel="noopener" style="color:#ffb347;text-decoration:underline">Открыть инструкцию</a>`
+      : _esc(pdef.help_text || '');
+    hostRow.style.display = (p === 'other') ? 'block' : 'none';
+  }
+  providerSel.addEventListener('change', refreshHelp);
+  emailInp.addEventListener('blur', () => {
+    // Автоопределение провайдера по email
+    const e = emailInp.value.toLowerCase();
+    let detected = null;
+    if(e.includes('@yandex.') || e.includes('@ya.ru')) detected='yandex';
+    else if(e.includes('@gmail.com') || e.includes('@googlemail.com')) detected='gmail';
+    else if(e.includes('@mail.ru')||e.includes('@inbox.ru')||e.includes('@list.ru')||e.includes('@bk.ru')) detected='mailru';
+    if(detected && providerSel.value !== detected){
+      providerSel.value = detected;
+      refreshHelp();
+    }
+  });
+  refreshHelp();
+  setTimeout(() => emailInp.focus(), 80);
+
+  function close(){ back.remove(); }
+  card.querySelector('#mb-cancel').addEventListener('click', close);
+  back.addEventListener('click', e => { if(e.target === back) close(); });
+
+  card.querySelector('#mb-save').addEventListener('click', async () => {
+    errEl.style.display = 'none';
+    const body = {
+      email: emailInp.value.trim(),
+      password: card.querySelector('#mb-password').value,
+      label: card.querySelector('#mb-label').value.trim() || null,
+      provider: providerSel.value,
+    };
+    if(providerSel.value === 'other'){
+      body.host = card.querySelector('#mb-host').value.trim();
+      body.port = parseInt(card.querySelector('#mb-port').value, 10) || 993;
+    }
+    const saveBtn = card.querySelector('#mb-save');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Проверяю…';
+    try{
+      const r = await fetch(`${API}/api/agents/me/mailboxes`, {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok){
+        errEl.textContent = d.detail || ('HTTP '+r.status);
+        errEl.style.display = 'block';
+        return;
+      }
+      if(!d.ok){
+        errEl.textContent = d.error || 'Не удалось подключиться';
+        errEl.style.display = 'block';
+        return;
+      }
+      close();
+      await loadModules();  // перерисуем модуль mail с обновлённым списком
+      if(window.aiAlert) await window.aiAlert(
+        `✓ Ящик ${d.mailbox.email} подключён. В нём ${d.mailbox.messages_total||0} писем.`,
+        'success');
+    }catch(e){
+      errEl.textContent = 'Ошибка: '+e.message;
+      errEl.style.display = 'block';
+    }finally{
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Проверить и подключить';
+    }
+  });
 }
 
 async function disconnectModule(slug){

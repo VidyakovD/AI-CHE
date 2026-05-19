@@ -407,6 +407,34 @@
   TG-канала через t.me/s/ preview. Сохраняет в `examples_by_brand[brand_id]`.
   Без OAuth — использует уже подключённые в Креаторах токены/каналы.
   Бесплатно, прокачивает уровень модуля. 12 тестов.
+- ✅ **📧 Модуль Почта (Yandex IMAP + Gmail + Mail.ru)** — реализован.
+  - `server/models.py`: новая таблица `UserMailbox` (user_id, provider, email,
+    host/port, password EncryptedString, is_active).
+  - `server/mailbox_runtime.py`: `verify_mailbox_connection` для UI-валидации
+    при подключении (`_verify_sync` через `imaplib.IMAP4_SSL.login + select INBOX`),
+    `_fetch_recent_sync` берёт последние N писем без сохранения last_uid,
+    `build_mail_context` формирует markdown-блок для system-prompt модуля,
+    `PRESETS` (host/port + help-text + help-url) для Yandex/Gmail/Mail.ru/other,
+    `detect_provider` по домену email.
+  - `server/agent_builder.py`: новый extension point `_build_module_extra_context`
+    в invoke_module — для slug=="mail" вызывает `_fetch_mail_context_for_user`
+    которая берёт все активные UserMailbox юзера, sync IMAP fetch до 8 писем
+    с каждого, подмешивает в system-prompt модуля. Ошибки логируем + friendly
+    hint в context, без падений invoke_module.
+  - `server/agents/registry.py`: добавлен `mail` агент с описанием
+    «личный помощник по электронной почте» (суммаризация / составление
+    ответов / классификация / поиск). System-prompt учит LLM работать
+    с подмешенными письмами + [LEARNED:] для запоминания привычек.
+  - `server/routes/agents_modular.py`: новая категория `personal` для
+    каталога, endpoints CRUD ящиков:
+    `GET/POST/DELETE /api/agents/me/mailboxes`, `GET /mailbox-presets`.
+    Лимит 5 ящиков на юзера. UNIQUE(user_id, email).
+  - `views/agents-modular.html`: блок «📧 Подключённые ящики» в карточке
+    mail с CRUD-UI; модал на лету с пресетами провайдеров, автоопределение
+    по домену email, help-link на инструкцию по созданию app-password.
+  - 19 unit-тестов: detect_provider, MIME decoding, verify (success/login_fail/
+    connect_fail), fetch (inactive/none/exception), build_context (empty/full),
+    _build_module_extra_context end-to-end через БД.
 - UI настроек модуля (custom_settings_json через формы) — пока только через PATCH API
 - 📧 Почта Gmail — нужен OAuth scope + IMAP fallback
 - 💰 Финансы CSV — нужен парсер выписок + категоризатор

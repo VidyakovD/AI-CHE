@@ -39,7 +39,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db, current_user
-from server.models import User, Agent, AgentMessage, AgentModule
+from server.models import User, Agent, AgentMessage, AgentModule, UserMailbox
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agents", tags=["agents-modular"])
@@ -1289,6 +1289,8 @@ _CATEGORY_MAP = {
     "tender_parser": "tenders", "tender_analyst": "tenders", "tender_writer": "tenders",
     # Автоматизация
     "bot_tg": "automation", "bot_site": "automation", "bot_vk": "automation",
+    # Личные ассистенты (для самого юзера, а не для его клиентов)
+    "mail": "personal",
     # Разработка
     "developer": "dev",
 }
@@ -1299,6 +1301,7 @@ _CATEGORY_LABELS = {
     "analytics": "Аналитика",
     "tenders": "Тендеры",
     "automation": "Автоматизация",
+    "personal": "Личный ассистент",
     "dev": "Разработка",
     "other": "Прочее",
 }
@@ -1334,7 +1337,154 @@ def get_catalog(db: Session = Depends(get_db),
     categories = [
         {"key": k, "label": _CATEGORY_LABELS.get(k, k), "count": cat_counts.get(k, 0)}
         for k in ["content", "marketing", "docs", "analytics", "tenders",
-                  "automation", "dev", "other"]
+                  "automation", "personal", "dev", "other"]
         if cat_counts.get(k, 0) > 0
     ]
     return {"modules": items, "total": len(items), "categories": categories}
+
+
+# ── mailboxes: подключения IMAP для модуля mail ─────────────────────────────
+
+
+class MailboxConnectPayload(BaseModel):
+    email: str
+    password: str          # app-password (НЕ обычный пароль от аккаунта)
+    label: str | None = None
+    provider: str | None = None  # "yandex"/"gmail"/"mailru"/"other"; если None — autodetect
+    host: str | None = None      # для "other" — указывает юзер вручную
+    port: int | None = None
+
+
+@router.get("/me/mailboxes")
+def list_my_mailboxes(db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
+    """Список подключённых ящиков юзера. Password НЕ возвращаем."""
+    boxes = (db.query(UserMailbox)
+               .filter(UserMailbox.user_id == user.id)
+               .order_by(UserMailbox.id.asc())
+               .all())
+    return [{
+        "id": b.id,
+        "provider": b.provider,
+        "label": b.label,
+        "email": b.email,
+        "host": b.host,
+        "port": b.port,
+        "is_active": b.is_active,
+        "last_synced_at": b.last_synced_at.isoformat() if b.last_synced_at else None,
+        "last_error": b.last_error,
+    } for b in boxes]
+
+
+@router.post("/me/mailboxes")
+async def connect_my_mailbox(payload: MailboxConnectPayload,
+                              db: Session = Depends(get_db),
+                              user: User = Depends(current_user)):
+    """Подключить новый IMAP-ящик. Проверяет логин до сохранения."""
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    allowed, reason = _rate_limit_check(user.id)
+    if not allowed:
+        raise HTTPException(429, reason)
+
+    from server.mailbox_runtime import (
+        verify_mailbox_connection, detect_provider, PRESETS,
+    )
+
+    email = (payload.email or "").strip().lower()
+    password = (payload.password or "").strip()
+    if not email or "@" not in email or not password:
+        raise HTTPException(400, "Нужен корректный email и app-password")
+    if len(password) < 6 or len(password) > 256:
+        raise HTTPException(400, "Неверная длина app-password")
+
+    provider = (payload.provider or detect_provider(email)).strip().lower()
+    preset = PRESETS.get(provider, PRESETS["other"])
+    host = (payload.host or preset.get("host") or "").strip()
+    port = int(payload.port or preset.get("port") or 993)
+    if not host:
+        raise HTTPException(400, "Не задан IMAP host (для provider=other укажи host вручную)")
+
+    # Лимит ящиков на юзера — 5 (без UI обоснования, защита от абуза)
+    existing = db.query(UserMailbox).filter(UserMailbox.user_id == user.id).count()
+    if existing >= 5:
+        raise HTTPException(400, "Лимит 5 подключённых ящиков на юзера. "
+                                  "Удали ненужный, чтобы подключить ещё.")
+
+    # Дубликат? — UNIQUE(user_id, email) словит, но дадим friendly error.
+    dup = (db.query(UserMailbox)
+             .filter(UserMailbox.user_id == user.id,
+                     UserMailbox.email == email)
+             .first())
+    if dup:
+        raise HTTPException(400, f"Ящик {email} уже подключён")
+
+    # Verify
+    result = await verify_mailbox_connection(host, port, email, password)
+    if not result.get("ok"):
+        return {"ok": False, "error": result.get("error", "не удалось подключиться")}
+
+    box = UserMailbox(
+        user_id=user.id, provider=provider, label=payload.label or None,
+        email=email, host=host, port=port, password=password,
+        is_active=True,
+    )
+    db.add(box); db.commit(); db.refresh(box)
+
+    try:
+        from server.audit_log import log_action
+        log_action("agent.mailbox_connect", user_id=user.id,
+                   target_type="user_mailbox", target_id=box.id,
+                   details={"provider": provider, "host": host})
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "mailbox": {
+            "id": box.id, "provider": provider, "label": box.label,
+            "email": email, "host": host, "port": port,
+            "is_active": True,
+            "messages_total": result.get("messages_total", 0),
+        },
+    }
+
+
+@router.delete("/me/mailboxes/{mailbox_id}")
+def delete_my_mailbox(mailbox_id: int,
+                     db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
+    """Отключить ящик. Письма не хранятся локально — просто удаляем
+    credentials. При следующем invoke модуля mail этот ящик исчезнет
+    из контекста."""
+    box = (db.query(UserMailbox)
+             .filter(UserMailbox.id == mailbox_id,
+                     UserMailbox.user_id == user.id)
+             .first())
+    if not box:
+        raise HTTPException(404, "Ящик не найден")
+    db.delete(box); db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("agent.mailbox_disconnect", user_id=user.id,
+                   target_type="user_mailbox", target_id=mailbox_id,
+                   details={"email": box.email})
+    except Exception:
+        pass
+    return {"status": "deleted", "id": mailbox_id}
+
+
+@router.get("/mailbox-presets")
+def get_mailbox_presets(user: User = Depends(current_user)):
+    """Помощь UI: пресеты host/port для популярных провайдеров +
+    ссылка на инструкцию по созданию app-password."""
+    from server.mailbox_runtime import PRESETS
+    return {
+        key: {
+            "host": meta.get("host", ""),
+            "port": meta.get("port", 993),
+            "help_url": meta.get("help_url"),
+            "help_text": meta.get("help_text", ""),
+        }
+        for key, meta in PRESETS.items()
+    }

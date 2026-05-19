@@ -714,6 +714,91 @@ from datetime import datetime  # noqa: E402
 # ════════════════════════════════════════════════════════════════════════════
 
 
+def _build_module_extra_context(slug: str, user_id: int | None) -> str:
+    """Module-specific runtime hook: тянет внешние данные перед LLM-вызовом.
+
+    Для модуля `mail` — fetch последних писем из подключённых ящиков
+    UserMailbox юзера. Для других модулей пока пусто (расширяется по мере
+    добавления — finance/calendar/notes).
+
+    Возвращает готовую markdown-секцию для подмешивания в system prompt
+    или пустую строку. Ошибки логируем + return "" — не валим invoke_module.
+    """
+    if not user_id:
+        return ""
+    try:
+        if slug == "mail":
+            return _fetch_mail_context_for_user(user_id)
+    except Exception as e:
+        log.warning("[module-extra-context] slug=%s user=%s failed: %s",
+                    slug, user_id, e)
+    return ""
+
+
+def _fetch_mail_context_for_user(user_id: int) -> str:
+    """Sync IMAP fetch для модуля mail. Берёт все активные UserMailbox юзера,
+    делает sync fetch до 10 свежих писем с каждого, собирает в один блок."""
+    from server.db import db_session
+    from server.models import UserMailbox
+    from server.mailbox_runtime import _fetch_recent_sync, build_mail_context
+
+    all_emails: list[dict] = []
+    boxes_info: list[str] = []
+    with db_session() as db:
+        boxes = (db.query(UserMailbox)
+                   .filter(UserMailbox.user_id == user_id,
+                           UserMailbox.is_active.is_(True))
+                   .all())
+        # Снимаем расшифрованный password сразу — после сессии не сможем.
+        boxes_data = [
+            {"id": b.id, "email": b.email, "host": b.host, "port": b.port,
+             "password": b.password, "label": b.label}
+            for b in boxes
+        ]
+
+    if not boxes_data:
+        return ""  # ящиков нет — без context секции
+
+    for b in boxes_data:
+        try:
+            # limit=8 на ящик: при 2-3 ящиках ~20 писем — нормально для LLM,
+            # больше — раздуем prompt без пользы.
+            emails = _fetch_recent_sync(
+                b["host"], b["port"], b["email"], b["password"], limit=8
+            )
+            for e in emails:
+                e["_mailbox"] = b["label"] or b["email"]
+            all_emails.extend(emails)
+            boxes_info.append(f"  • {b['email']} ({b['label'] or 'без метки'}): "
+                              f"{len(emails)} писем")
+        except Exception as e:
+            log.warning("[mail-context] mailbox %s failed: %s", b["email"], e)
+            boxes_info.append(f"  • {b['email']}: ошибка {e!s:.80}")
+
+    if not all_emails:
+        return f"\n═══ ПОЧТА ═══\nПодключено ящиков: {len(boxes_data)}, " \
+               "но не удалось прочитать. Проверь app-password.\n"
+
+    header = (f"\n═══ ПОЧТА (свежие письма из подключённых ящиков) ═══\n"
+              f"Подключено: {len(boxes_data)} {_pluralRu(len(boxes_data), 'ящик','ящика','ящиков')}\n")
+    for line in boxes_info:
+        header += line + "\n"
+    return header + "\n" + build_mail_context(all_emails)
+
+
+def _pluralRu(n: int, one: str, few: str, many: str) -> str:
+    """Простой русский плюрал. Дублирует JS-helper в UI."""
+    n = abs(int(n))
+    if 11 <= (n % 100) <= 14:
+        return many
+    last = n % 10
+    if last == 1:
+        return one
+    if 2 <= last <= 4:
+        return few
+    return many
+
+
 def invoke_module(*, slug: str, task: str, profile: dict,
                   module_memory: dict, custom_settings: dict,
                   user_id: int | None = None) -> dict:
@@ -768,6 +853,11 @@ def invoke_module(*, slug: str, task: str, profile: dict,
         f"Ты — {meta.get('name', slug)}. {meta.get('description', '')}"
     )
 
+    # Module-specific context: некоторые модули умеют дёргать внешний мир
+    # перед LLM-вызовом (mail тянет inbox, finance — выписку из CSV кэша,
+    # etc). Изолированно — отдельная функция, ошибки не валят invoke_module.
+    extra_context = _build_module_extra_context(slug, user_id)
+
     system = f"""{base_prompt}
 
 ═══ КОНТЕКСТ ЮЗЕРА (Memory Hub) ═══
@@ -778,6 +868,7 @@ def invoke_module(*, slug: str, task: str, profile: dict,
 
 ═══ НАСТРОЙКИ МОДУЛЯ ═══
 {settings_text or '  (нет)'}
+{extra_context}
 
 ═══ ВАЖНО ═══
 - Отвечай ПО СУТИ задачи. Не объясняй что ты модуль — это знает оркестратор.

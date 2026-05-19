@@ -1070,6 +1070,43 @@ class ImapCredential(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class UserMailbox(Base):
+    """Личный почтовый ящик юзера, подключённый к модулю Почта (Loom).
+
+    Отдельная сущность от ImapCredential — у того контекст «триггер для
+    бота» (нужен last_uid, привязка к workflow). Здесь — «модуль читает
+    мою почту по запросу»: last_synced_at для отображения «синхронизирован
+    минуту назад», без сохранения last_uid.
+
+    provider: yandex / gmail / mailru / other (для подсказок host/port в UI).
+    password — app-password (Yandex даёт в id.yandex.ru/security/app-passwords;
+    Gmail — в myaccount.google.com/apppasswords при включённой 2FA).
+    EncryptedString — HKDF от JWT_SECRET, прозрачно для приложения.
+
+    Один юзер может подключить несколько ящиков (личный + рабочий + общий
+    info@), модуль mail увидит все при invoke.
+    """
+    __tablename__ = "user_mailboxes"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    provider        = Column(String, default="other")  # yandex/gmail/mailru/other
+    label           = Column(String, nullable=True)    # «Личный», «Рабочий» — для UI
+    email           = Column(String, nullable=False)   # me@yandex.ru — также username для IMAP
+    host            = Column(String, nullable=False)   # imap.yandex.ru
+    port            = Column(Integer, default=993)
+    password        = Column(EncryptedString(1024), nullable=False)  # app-password
+    is_active       = Column(Boolean, default=True)
+    last_synced_at  = Column(DateTime, nullable=True)
+    last_error      = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "email", name="uq_user_mailbox_email"),
+    )
+
+
 class ActionLog(Base):
     """Аудит-лог всех значимых действий пользователя/системы.
 
