@@ -401,7 +401,12 @@
 6. Модули учатся через [LEARNED:...] маркеры — память персональная
 
 **Что НЕ реализовано (Фаза 1 продолжение):**
-- Импорт прошлых постов VK/TG для bootstrap-обучения copywriter — нужен OAuth flow
+- ✅ **Импорт прошлых постов VK/TG для bootstrap-обучения copywriter** — реализован
+  (`server/creators_bootstrap.py`, endpoint POST `/api/agents/me/modules/copywriter/bootstrap`).
+  Тянет до 50 постов из VK community через wall.get + до 30 постов из public
+  TG-канала через t.me/s/ preview. Сохраняет в `examples_by_brand[brand_id]`.
+  Без OAuth — использует уже подключённые в Креаторах токены/каналы.
+  Бесплатно, прокачивает уровень модуля. 12 тестов.
 - UI настроек модуля (custom_settings_json через формы) — пока только через PATCH API
 - 📧 Почта Gmail — нужен OAuth scope + IMAP fallback
 - 💰 Финансы CSV — нужен парсер выписок + категоризатор

@@ -527,6 +527,21 @@ function _memoryBlock(m){
         html += `<div class="mem-stats" style="opacity:.7">... и ещё ${examples.length - 3}</div>`;
       }
     }
+    // Bootstrap-кнопка: только для copywriter, всегда (импортирует прошлые
+    // посты VK/TG в memory мгновенно, не дожидаясь когда юзер опубликует
+    // 10+ через Креаторов). Бесплатно. Идемпотентно — повторный запуск
+    // только обновит свежие посты до cap 10 per-brand.
+    if(m.slug === 'copywriter'){
+      html += `<div class="mem-stats" style="margin-top:10px">
+        <button class="btn-g" style="font-size:11px" data-bootstrap-btn="${_esc(m.slug)}">
+          📥 Изучить мои прошлые посты из VK/TG
+        </button>
+        <div style="opacity:.65;font-size:10px;margin-top:4px;line-height:1.4">
+          Тянет последние посты из подключённых к Креаторам каналов
+          (VK community + public TG). Бесплатно. Прокачает уровень.
+        </div>
+      </div>`;
+    }
   }
   // Расписание (cron runtime активен)
   const cronTask = (m.settings && m.settings.cron_task) || '';
@@ -550,6 +565,13 @@ function _memoryBlock(m){
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       openScheduleModal(btn.dataset.cronBtn);
+    });
+  });
+  // Bootstrap кнопка для copywriter: импорт прошлых постов VK/TG
+  div.querySelectorAll('button[data-bootstrap-btn]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      runBootstrapImport(btn.dataset.bootstrapBtn, btn);
     });
   });
 
@@ -606,6 +628,66 @@ async function editMemoryItem(slug, idx, currentNote){
   }catch(e){
     if(window.aiAlert) await window.aiAlert('Не удалось сохранить: '+e.message, 'error');
     else alert('Не удалось сохранить: '+e.message);
+  }
+}
+
+async function runBootstrapImport(slug, btn){
+  // Подтверждение — операция длинная (~10-30 сек на бренд), хочется
+  // чтобы юзер понял что будет дёрнут внешний API.
+  const ok = await (window.aiConfirm
+    ? window.aiConfirm(
+        'Запустить импорт прошлых постов?\n\n' +
+        'Я подтяну последние посты из каждого подключённого канала ' +
+        '(VK community + public TG) и сохраню в память Копирайтера. ' +
+        'Бесплатно. После импорта Копирайтер сразу начнёт писать в твоём стиле.',
+        {okLabel:'Запустить'})
+    : Promise.resolve(confirm('Запустить импорт прошлых постов?')));
+  if(!ok) return;
+
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = '⏳ Импортирую…';
+  }
+  try{
+    const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(slug)}/bootstrap`, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+    });
+    const data = await r.json().catch(()=>({}));
+    if(!r.ok){
+      throw new Error(data.detail || 'HTTP '+r.status);
+    }
+    const imported = data.imported || 0;
+    if(imported === 0){
+      const reason = (data.errors && data.errors.length)
+        ? '\n\nПодробнее:\n' + data.errors.join('\n')
+        : (data.skipped_brands > 0
+            ? '\n\nУ брендов нет активных каналов. Подключи VK community или public TG-канал в /creators.html.'
+            : '\n\nСоздай бренд и подключи канал в /creators.html, потом попробуй снова.');
+      if(window.aiAlert) await window.aiAlert('Импорт ничего не нашёл.' + reason, 'warn');
+    } else {
+      const detail = (data.per_brand || [])
+        .filter(b => b.imported > 0)
+        .map(b => `  • ${b.brand_name}: ${b.imported} постов`)
+        .join('\n');
+      if(window.aiAlert) {
+        await window.aiAlert(
+          `✓ Импортировано ${imported} постов.\n\n${detail}\n\n` +
+          'Копирайтер запомнил твой стиль. Следующая генерация будет писать в твоей манере.',
+          'success'
+        );
+      }
+    }
+    await loadModules();
+    await loadMessages();  // подхватим system-message от backend
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Импорт упал: '+e.message, 'error');
+    else alert('Импорт упал: '+e.message);
+  }finally{
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = '📥 Изучить мои прошлые посты из VK/TG';
+    }
   }
 }
 

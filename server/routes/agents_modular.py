@@ -889,6 +889,110 @@ def disconnect_module(slug: str,
     return {"status": "disconnected", "slug": slug}
 
 
+# ── bootstrap: импорт прошлых постов из подключённых каналов ────────────────
+
+
+@router.post("/me/modules/{slug}/bootstrap")
+async def bootstrap_module_memory(slug: str,
+                                  db: Session = Depends(get_db),
+                                  user: User = Depends(current_user)):
+    """Bootstrap-импорт прошлых публикаций юзера в memory модуля.
+
+    Сейчас поддерживается ТОЛЬКО slug='copywriter' — тянет посты из
+    каждого подключённого канала каждого бренда (Креаторы):
+      - VK community → wall.get (~50 свежих постов)
+      - public TG канал → t.me/s/{username} preview (~30 постов)
+
+    Импортированные посты складываются в copywriter.examples_by_brand[brand_id]
+    через тот же save_published_to_copywriter, что и реальные публикации.
+    Модуль учится стилю бренда мгновенно — не нужно ждать пока юзер
+    опубликует через Креаторов 10+ постов.
+
+    Бесплатно (трафик к VK/Telegram — копейки на стороне сервера, плата
+    с юзера не имеет смысла). Лимит — 1 запуск раз в 5 минут на юзера
+    (через общий rate-limit).
+    """
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    allowed, reason = _rate_limit_check(user.id)
+    if not allowed:
+        raise HTTPException(429, reason)
+    if slug != "copywriter":
+        raise HTTPException(400, "Bootstrap пока работает только для модуля copywriter")
+
+    a = get_or_create_agent(user, db)
+    m = db.query(AgentModule).filter_by(agent_id=a.id, slug=slug).first()
+    if not m or not m.is_enabled:
+        raise HTTPException(404, "Модуль не подключён или отключён — подключи "
+                                 "copywriter из каталога и попробуй снова")
+
+    from server.creators_bootstrap import bootstrap_copywriter_from_channels
+
+    try:
+        result = await bootstrap_copywriter_from_channels(db, user.id)
+    except Exception as e:
+        log.exception("[agents.bootstrap] failed: %s", e)
+        raise HTTPException(500, f"Импорт упал: {e!s:.140}")
+
+    # Если что-то импортировали — обновим last_used_at и прокачаем уровень.
+    if result.get("imported", 0) > 0:
+        from server.agent_builder import compute_module_level
+        m.last_used_at = datetime.utcnow()
+        # interaction_count не трогаем (это для разговоров с модулем), но
+        # examples теперь есть → пересчитаем уровень. compute_module_level
+        # сам решит на основе interaction_count + learned + agent.status.
+        memory = _safe_json(m.module_memory_json, {})
+        learned_count = len(memory.get("learned") or [])
+        new_lvl = compute_module_level(
+            current_level=m.level or 0,
+            interaction_count=m.interaction_count or 0,
+            agent_status=a.status,
+            learned_count=learned_count,
+        )
+        if new_lvl > (m.level or 0):
+            m.level = new_lvl
+        db.commit()
+        db.refresh(m)
+
+        # Системное сообщение в чат
+        brand_breakdown = "\n".join(
+            f"  • {b['brand_name']}: {b['imported']} постов"
+            for b in result.get("per_brand", []) if b.get("imported", 0) > 0
+        )
+        content = (f"📥 Импортировал {result['imported']} прошлых постов "
+                   f"из твоих каналов:\n{brand_breakdown}\n\n"
+                   "Теперь Копирайтер знает твой стиль — следующая генерация "
+                   "будет писать в твоей манере.")
+        db.add(AgentMessage(
+            agent_id=a.id, role="system", content=content,
+            meta_json=json.dumps({"mode": "module_bootstrap",
+                                  "slug": slug,
+                                  "imported": result["imported"]},
+                                  ensure_ascii=False),
+        ))
+        db.commit()
+
+    try:
+        from server.audit_log import log_action
+        log_action(
+            "agent.module_bootstrap",
+            user_id=user.id, target_type="agent_module", target_id=m.id,
+            details={"slug": slug, "imported": result.get("imported", 0),
+                     "brands": len(result.get("per_brand", []))},
+        )
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "imported": result.get("imported", 0),
+        "per_brand": result.get("per_brand", []),
+        "skipped_brands": result.get("skipped_brands", 0),
+        "errors": result.get("errors", []),
+        "module": _module_dict(m, with_meta=True),
+    }
+
+
 # ── module memory edit (раскрытие карточки агента в sidebar) ────────────────
 
 class PatchMemoryItemPayload(BaseModel):
