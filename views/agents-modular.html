@@ -544,6 +544,28 @@ function _memoryBlock(m){
     }
   }
 
+  // Блок «Финансы» — для модуля finance. Загрузка CSV + сводка по
+  // категориям. Сам анализ происходит в module runtime при invoke.
+  if(m.slug === 'finance'){
+    html += '<div class="mem-title" style="margin-top:14px">💰 Финансы</div>';
+    html += `<div data-finance-summary="${_esc(m.slug)}" style="font-size:12px">
+      <span style="opacity:.6">загружаю…</span>
+    </div>`;
+    html += `<div class="mem-stats" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn-g" style="font-size:11px" data-finance-upload>
+        📥 Загрузить CSV-выписку
+      </button>
+      <button class="btn-d" style="font-size:11px;padding:5px 9px" data-finance-clear>
+        Очистить
+      </button>
+    </div>
+    <div style="opacity:.65;font-size:10px;margin-top:4px;line-height:1.4">
+      Поддерживаются выписки Tinkoff / Sber / Alfa / любые CSV с колонками
+      Дата + Сумма + Описание. Категории определяются по ключевым словам
+      (без LLM, без задержек). Файл хранится у нас не дольше парсинга.
+    </div>`;
+  }
+
   // Блок «Подключённые ящики» — для модуля mail. Управление списком + кнопка
   // «➕ Подключить ящик». Сам fetch писем происходит в module runtime
   // (server-side) при invoke, в UI здесь храним только метаданные ящиков.
@@ -602,6 +624,22 @@ function _memoryBlock(m){
   });
   div.querySelectorAll('[data-mailbox-list]').forEach(el => {
     loadMailboxList(el);
+  });
+  // Finance: загрузить CSV / сводка / очистить
+  div.querySelectorAll('button[data-finance-upload]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openFinanceUploadDialog();
+    });
+  });
+  div.querySelectorAll('button[data-finance-clear]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearFinanceTransactions();
+    });
+  });
+  div.querySelectorAll('[data-finance-summary]').forEach(el => {
+    loadFinanceSummary(el);
   });
 
   // Безопасно через textContent (xss-safe) — для learned (data-idx)
@@ -717,6 +755,124 @@ async function runBootstrapImport(slug, btn){
       btn.disabled = false;
       btn.textContent = '📥 Изучить мои прошлые посты из VK/TG';
     }
+  }
+}
+
+// ── Finance UI для модуля finance ───────────────────────────────────────
+
+async function loadFinanceSummary(container){
+  try{
+    const r = await fetch(`${API}/api/agents/me/finance/summary`, {credentials:'same-origin'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    if(!d.total){
+      container.innerHTML = '<span style="opacity:.6">Транзакций пока нет. ' +
+        'Загрузи CSV-выписку — модуль увидит расходы и подскажет где деньги уходят.</span>';
+      return;
+    }
+    const rub = (kop) => (Math.abs(kop)/100).toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ₽';
+    const topCats = (d.by_category||[]).slice(0, 5).map(c =>
+      `<div style="display:flex;justify-content:space-between;padding:1px 0">
+        <span>${_esc(c.label)}</span>
+        <span style="opacity:.85">${rub(c.amount_kop)}</span>
+      </div>`
+    ).join('');
+    const lastLines = (d.last||[]).slice(0, 5).map(t => {
+      const sign = t.amount_kop > 0 ? '+' : '−';
+      const date = t.date ? new Date(t.date).toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit'}) : '?';
+      return `<div style="display:flex;gap:6px;padding:1px 0;font-size:11px">
+        <span style="opacity:.6;min-width:40px">${date}</span>
+        <span style="min-width:75px">${sign}${rub(t.amount_kop)}</span>
+        <span style="opacity:.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${_esc(t.category_label||'')}</span>
+      </div>`;
+    }).join('');
+    container.innerHTML = `
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+        <span>📥 Доходы: <b style="color:#7bd968">${rub(d.in_kop)}</b></span>
+        <span>📤 Расходы: <b style="color:#ff8c42">${rub(d.out_kop)}</b></span>
+        <span>Всего операций: <b>${d.total}</b></span>
+      </div>
+      ${topCats ? `<div style="margin-bottom:6px">
+        <div style="opacity:.7;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Топ-5 расходов</div>
+        ${topCats}
+      </div>` : ''}
+      ${lastLines ? `<div>
+        <div style="opacity:.7;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Последние</div>
+        ${lastLines}
+      </div>` : ''}
+    `;
+  }catch(e){
+    container.innerHTML = `<span style="color:#ff6b6b">Не удалось загрузить: ${_esc(e.message)}</span>`;
+  }
+}
+
+function openFinanceUploadDialog(){
+  // Программно создаём <input type="file"> — модальный диалог не нужен.
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.csv,text/csv';
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if(!file) return;
+    await uploadFinanceCsv(file);
+  };
+  input.click();
+}
+
+async function uploadFinanceCsv(file){
+  const fd = new FormData();
+  fd.append('file', file);
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:center;justify-content:center;color:#fff;font:14px system-ui';
+  overlay.textContent = '⏳ Парсю выписку...';
+  document.body.appendChild(overlay);
+  try{
+    const r = await fetch(`${API}/api/agents/me/modules/finance/import-csv`, {
+      method:'POST', credentials:'same-origin',
+      body: fd,
+    });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){
+      throw new Error(d.detail || ('HTTP '+r.status));
+    }
+    if(!d.ok || !d.imported){
+      const detail = (d.parse_errors||[]).join('\n') || (d.errors||[]).join('\n') ||
+                     'Не удалось распознать ни одну транзакцию. Проверь формат CSV.';
+      if(window.aiAlert) await window.aiAlert(
+        'Импорт не нашёл транзакций.\n\nИсточник: ' + (d.source||'?') + '\n\n' + detail,
+        'warn');
+      return;
+    }
+    if(window.aiAlert) await window.aiAlert(
+      `✓ Импортировано ${d.imported} транзакций из ${d.source}.\n` +
+      (d.duplicates ? `Дубликатов пропущено: ${d.duplicates}\n` : '') +
+      '\nТеперь спроси меня в чате: «куда я трачу деньги?» или ' +
+      '«найди регулярные подписки».',
+      'success');
+    await loadModules();
+    await loadMessages();
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Импорт упал: '+e.message, 'error');
+  }finally{
+    overlay.remove();
+  }
+}
+
+async function clearFinanceTransactions(){
+  const ok = await (window.aiConfirm
+    ? window.aiConfirm('Удалить ВСЕ транзакции? Сам файл выписки у нас не хранится — ' +
+                        'если что, заново загрузишь.', {danger:true, okLabel:'Удалить всё'})
+    : Promise.resolve(confirm('Удалить ВСЕ транзакции?')));
+  if(!ok) return;
+  try{
+    const r = await fetch(`${API}/api/agents/me/finance/transactions`, {
+      method:'DELETE', credentials:'same-origin',
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    await loadModules();
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Ошибка: '+e.message, 'error');
   }
 }
 

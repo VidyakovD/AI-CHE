@@ -1070,6 +1070,46 @@ class ImapCredential(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class FinanceTransaction(Base):
+    """Транзакция личных финансов юзера (для модуля finance).
+
+    Источники: CSV-импорт банковской выписки (Tinkoff/Sber/Alfa/generic)
+    или ручной ввод. Хранится в КОПЕЙКАХ (amount_kop) как и balance юзера.
+
+    category — auto-классифицирована при импорте (keyword-based) или
+    переопределена юзером. Стандартные категории — см. _CATEGORIES в
+    server/finance_csv.py.
+
+    Без PII по умолчанию — описание из банк-выписки может содержать
+    мерчанта/реквизиты, PrivacyGuard замаскирует при подмешивании
+    в LLM context.
+
+    Уникальность: по (user_id, date, amount_kop, description_hash) —
+    не даём дублирующий импорт CSV (юзер может загрузить тот же файл
+    дважды). description_hash — md5 от raw_description.
+    """
+    __tablename__ = "finance_transactions"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    source          = Column(String, default="manual")  # manual / csv:tinkoff / csv:sber / csv:alfa / csv:generic
+    date            = Column(DateTime, nullable=False, index=True)
+    amount_kop      = Column(Integer, nullable=False)   # +доход / -расход в копейках
+    currency        = Column(String, default="RUB")
+    description     = Column(Text, nullable=True)        # raw из выписки
+    merchant        = Column(String, nullable=True)      # извлечённый мерчант (опц.)
+    category        = Column(String, nullable=True, index=True)  # food/transport/...
+    is_manual_cat   = Column(Boolean, default=False)     # юзер переопределил категорию вручную
+    description_hash= Column(String, nullable=True, index=True)  # md5 для дедупликации
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", "amount_kop", "description_hash",
+                         name="uq_finance_tx_dedupe"),
+    )
+
+
 class UserMailbox(Base):
     """Личный почтовый ящик юзера, подключённый к модулю Почта (Loom).
 

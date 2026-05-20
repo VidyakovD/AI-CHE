@@ -33,13 +33,14 @@ from typing import Any
 
 import secrets
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.routes.deps import get_db, current_user
-from server.models import User, Agent, AgentMessage, AgentModule, UserMailbox
+from server.models import (User, Agent, AgentMessage, AgentModule, UserMailbox,
+                            FinanceTransaction)
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agents", tags=["agents-modular"])
@@ -1290,7 +1291,7 @@ _CATEGORY_MAP = {
     # Автоматизация
     "bot_tg": "automation", "bot_site": "automation", "bot_vk": "automation",
     # Личные ассистенты (для самого юзера, а не для его клиентов)
-    "mail": "personal",
+    "mail": "personal", "finance": "personal",
     # Разработка
     "developer": "dev",
 }
@@ -1488,3 +1489,181 @@ def get_mailbox_presets(user: User = Depends(current_user)):
         }
         for key, meta in PRESETS.items()
     }
+
+
+# ── finance: CSV-импорт банковских выписок ──────────────────────────────────
+
+
+@router.post("/me/modules/finance/import-csv")
+async def import_finance_csv(file: UploadFile = File(...),
+                              db: Session = Depends(get_db),
+                              user: User = Depends(current_user)):
+    """Загрузить CSV-выписку банка → парсинг → keyword-категоризация → сохранение.
+
+    Поддерживает Tinkoff/Sber/Alfa/generic форматы (detect по заголовкам).
+    Дедупликация по UNIQUE(user_id, date, amount_kop, description_hash):
+    если юзер загрузил тот же файл дважды — дубликаты молча пропускаются.
+    Без LLM (категоризация keyword-based, ~мгновенно для 1000 строк).
+    """
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    allowed, reason = _rate_limit_check(user.id)
+    if not allowed:
+        raise HTTPException(429, reason)
+
+    a = get_or_create_agent(user, db)
+    m = db.query(AgentModule).filter_by(agent_id=a.id, slug="finance").first()
+    if not m or not m.is_enabled:
+        raise HTTPException(404, "Модуль finance не подключён — подключи из каталога")
+
+    # Лимит размера: 5 МБ (~50k строк типичная выписка)
+    MAX_BYTES = 5 * 1024 * 1024
+    content = await file.read()
+    if len(content) > MAX_BYTES:
+        raise HTTPException(400, f"Файл больше {MAX_BYTES//(1024*1024)} МБ — слишком крупный. "
+                                  "Разбей на части или экспортируй меньший период.")
+    if not content:
+        raise HTTPException(400, "Файл пуст")
+
+    from server.finance_csv import parse_csv_statement
+
+    result = parse_csv_statement(content, file.filename or "")
+    if not result["rows"]:
+        return {
+            "ok": False,
+            "source": result["source"],
+            "imported": 0,
+            "errors": result["errors"] or ["Не удалось распознать ни одну транзакцию"],
+        }
+
+    # Записываем в БД. Дубликаты ловим через UNIQUE.
+    imported = 0
+    duplicates = 0
+    errors_db: list[str] = []
+    for row in result["rows"]:
+        tx = FinanceTransaction(
+            user_id=user.id,
+            source=result["source"],
+            date=row["date"],
+            amount_kop=row["amount_kop"],
+            currency=row["currency"],
+            description=row["description"],
+            category=row["category"],
+            description_hash=row["description_hash"],
+        )
+        try:
+            db.add(tx)
+            db.flush()
+            imported += 1
+        except IntegrityError:
+            db.rollback()
+            duplicates += 1
+        except Exception as e:
+            db.rollback()
+            errors_db.append(str(e)[:100])
+            if len(errors_db) > 10:
+                break
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Ошибка сохранения в БД: {e!s:.140}")
+
+    m.last_used_at = datetime.utcnow()
+    db.commit()
+
+    try:
+        from server.audit_log import log_action
+        log_action("agent.finance_import", user_id=user.id,
+                   target_type="agent_module", target_id=m.id,
+                   details={"source": result["source"], "imported": imported,
+                            "duplicates": duplicates})
+    except Exception:
+        pass
+
+    if imported > 0:
+        # Системное сообщение в чат
+        msg_text = (f"💰 Импортировано {imported} транзакций из {result['source']}. "
+                    f"Дубликатов пропущено: {duplicates}.\n\n"
+                    "Теперь можешь спросить меня: «куда я трачу деньги?», "
+                    "«сколько потратил на еду в этом месяце?», «есть ли подписки которые я не помню?»")
+        db.add(AgentMessage(
+            agent_id=a.id, role="system", content=msg_text,
+            meta_json=json.dumps({"mode": "finance_import",
+                                  "source": result["source"],
+                                  "imported": imported}, ensure_ascii=False),
+        ))
+        db.commit()
+
+    return {
+        "ok": True,
+        "source": result["source"],
+        "imported": imported,
+        "duplicates": duplicates,
+        "parse_errors": result["errors"],
+        "db_errors": errors_db,
+    }
+
+
+@router.get("/me/finance/summary")
+def finance_summary(db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    """Сводка финансов для UI карточки модуля. Не подгружает все транзакции
+    клиенту — только агрегаты + последние 10."""
+    rows = (db.query(FinanceTransaction)
+              .filter(FinanceTransaction.user_id == user.id)
+              .order_by(FinanceTransaction.date.desc())
+              .limit(100)
+              .all())
+    if not rows:
+        return {"total": 0, "imported": 0, "by_category": [], "last": []}
+
+    total_in = sum(r.amount_kop for r in rows if r.amount_kop > 0)
+    total_out = sum(-r.amount_kop for r in rows if r.amount_kop < 0)
+
+    by_cat: dict[str, int] = {}
+    for r in rows:
+        if r.amount_kop < 0:
+            c = r.category or "other"
+            by_cat[c] = by_cat.get(c, 0) + (-r.amount_kop)
+
+    from server.finance_csv import CATEGORIES
+    by_category = [
+        {"key": k, "label": CATEGORIES.get(k, k), "amount_kop": v}
+        for k, v in sorted(by_cat.items(), key=lambda kv: -kv[1])
+    ]
+
+    last = [{
+        "id": r.id,
+        "date": r.date.isoformat() if r.date else None,
+        "amount_kop": r.amount_kop,
+        "category": r.category,
+        "category_label": CATEGORIES.get(r.category or "other", r.category),
+        "description": (r.description or "")[:120],
+    } for r in rows[:10]]
+
+    total = db.query(FinanceTransaction).filter(FinanceTransaction.user_id == user.id).count()
+
+    return {
+        "total": total,
+        "in_kop": total_in, "out_kop": total_out,
+        "balance_kop": total_in - total_out,
+        "by_category": by_category,
+        "last": last,
+    }
+
+
+@router.delete("/me/finance/transactions")
+def clear_finance_transactions(db: Session = Depends(get_db),
+                               user: User = Depends(current_user)):
+    """Очистить ВСЕ транзакции юзера. Для случая «загрузил не тот файл,
+    хочу начать с нуля». Подтверждение делает UI."""
+    n = db.query(FinanceTransaction).filter(FinanceTransaction.user_id == user.id).delete()
+    db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("agent.finance_clear", user_id=user.id,
+                   details={"deleted_count": n})
+    except Exception:
+        pass
+    return {"status": "cleared", "deleted": n}

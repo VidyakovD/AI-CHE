@@ -407,6 +407,44 @@
   TG-канала через t.me/s/ preview. Сохраняет в `examples_by_brand[brand_id]`.
   Без OAuth — использует уже подключённые в Креаторах токены/каналы.
   Бесплатно, прокачивает уровень модуля. 12 тестов.
+- ✅ **💰 Модуль Финансы CSV** — реализован.
+  - `server/models.py`: новая таблица `FinanceTransaction` (user_id, source,
+    date, amount_kop, currency, description, merchant, category,
+    is_manual_cat, description_hash для дедупликации, UNIQUE).
+  - `server/finance_csv.py`: 18 категорий (food/cafe/transport/fuel/shopping/
+    clothing/health/entertain/subscript/utility/travel/education/transfer/
+    p2p/income/tax/fees/atm/other) с keyword-rules для типичных российских
+    мерчантов (Пятёрочка, Yandex Taxi, МТС, Лукойл и т.д.). `detect_format`
+    распознаёт Tinkoff/Sber/Alfa/generic по заголовкам CSV. `_parse_decimal`
+    понимает форматы '1 234,56 ₽' и '-50.00'. Encoding auto-detect:
+    utf-8-sig/utf-8/cp1251 (российские банки часто отдают cp1251).
+    Разделитель ';' (российский) или ',' (англо) — auto. Категоризация
+    БЕЗ LLM (keyword-rules ~мгновенно для 1000 строк). `build_finance_summary`
+    формирует markdown с доходами/расходами/категориями/последними операциями.
+  - `server/agent_builder.py`: расширен `_build_module_extra_context` —
+    для slug=='finance' тянет последние 100 транзакций юзера из БД,
+    собирает summary, подмешивает в system prompt.
+  - `server/agents/registry.py`: добавлен `finance` агент с описанием
+    «помощник по личным финансам». System-prompt учит работать с context
+    (только реальные цифры, никаких выдумок), отвечать на запросы
+    «куда я трачу», «сколько на еду», «найди подписки», давать советы
+    без морализаторства.
+  - `server/routes/agents_modular.py`: категория `finance → personal`.
+    POST `/api/agents/me/modules/finance/import-csv` (multipart UploadFile,
+    лимит 5 МБ, парсинг + сохранение, дедупликация через UNIQUE constraint).
+    GET `/me/finance/summary` для UI карточки (агрегаты + последние 10).
+    DELETE `/me/finance/transactions` для очистки всех.
+  - `views/agents-modular.html`: блок «💰 Финансы» в карточке finance —
+    inline-сводка доходов/расходов/топ-5 категорий/последних 5 операций.
+    Кнопки «📥 Загрузить CSV-выписку» (программный file input, без модала)
+    и «Очистить» с confirm. uploadFinanceCsv: progress-overlay, friendly
+    success/error messages с указанием источника (Tinkoff/Sber/...).
+  - 27 unit-тестов: _parse_decimal (русский/англо/мусор), _parse_date
+    (разные форматы), detect_format (4 банка), categorize (food/cafe/
+    transport/fuel/subscript/utility/income), parse_csv_statement
+    (Tinkoff/generic/cp1251/no-date/empty/skip-broken), build_finance_summary
+    (empty/data), _build_module_extra_context end-to-end через БД.
+
 - ✅ **📧 Модуль Почта (Yandex IMAP + Gmail + Mail.ru)** — реализован.
   - `server/models.py`: новая таблица `UserMailbox` (user_id, provider, email,
     host/port, password EncryptedString, is_active).

@@ -729,10 +729,41 @@ def _build_module_extra_context(slug: str, user_id: int | None) -> str:
     try:
         if slug == "mail":
             return _fetch_mail_context_for_user(user_id)
+        if slug == "finance":
+            return _fetch_finance_context_for_user(user_id)
     except Exception as e:
         log.warning("[module-extra-context] slug=%s user=%s failed: %s",
                     slug, user_id, e)
     return ""
+
+
+def _fetch_finance_context_for_user(user_id: int) -> str:
+    """Подмешать сводку финансов в system-prompt модуля finance.
+
+    Берёт последние 100 транзакций (за всё время, без фильтра по периоду)
+    и строит build_finance_summary. Если транзакций нет — friendly hint.
+    """
+    from server.db import db_session
+    from server.models import FinanceTransaction
+    from server.finance_csv import build_finance_summary
+
+    with db_session() as db:
+        rows = (db.query(FinanceTransaction)
+                  .filter(FinanceTransaction.user_id == user_id)
+                  .order_by(FinanceTransaction.date.desc())
+                  .limit(100)
+                  .all())
+        if not rows:
+            return ""
+        # Snapshot в dict до закрытия сессии
+        data = [{
+            "date": r.date,
+            "amount_kop": r.amount_kop,
+            "currency": r.currency,
+            "description": r.description,
+            "category": r.category,
+        } for r in rows]
+    return "\n" + build_finance_summary(data)
 
 
 def _fetch_mail_context_for_user(user_id: int) -> str:
