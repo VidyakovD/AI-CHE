@@ -279,10 +279,18 @@ async def handle_update(update: dict) -> None:
     if text.startswith("/menu") or text.startswith("/help"):
         await _do_menu(chat_id, tg_uid)
         return
-    # Незнакомая команда
-    await send_message(chat_id,
-        "Не понял команду. Доступные: /menu, /me, /stats, /link, /unlink.\n"
-        "Если ещё не привязан — открой /start.")
+    # Команда не распознана (начинается со /)?
+    if text.startswith("/"):
+        await send_message(chat_id,
+            "Не понял команду. Доступные: /menu, /me, /stats, /link, /unlink.\n"
+            "Если ещё не привязан — открой /start.\n\n"
+            "А если хочешь поговорить с Че (AI-помощником) — пиши без слэша.")
+        return
+    # ── Обычное сообщение → relay к Че ──────────────────────────────────────
+    # Если юзер не привязан — просим привязать через /start или /link.
+    # Если привязан — пропускаем текст через ту же логику что web-чат:
+    # build_reply_personal + опционально invoke_module → ответ обратно в TG.
+    await _do_relay_to_che(chat_id, tg_uid, text)
 
 
 async def _do_link(chat_id: str, tg_uid: str, tg_username: str, code: str) -> None:
@@ -528,6 +536,95 @@ async def _do_proposal_action(chat_id: str, tg_uid: str, project_id: int, action
         db.commit()
     label = {"won":"✅ Выиграно","lost":"❌ Отказ","sent":"📨 Отправлено"}[action]
     await send_message(chat_id, f"КП #{project_id}: {label}")
+
+
+# ── Relay входящего сообщения к Che (singleton-агент модуля 23) ───────────
+
+
+async def _send_typing(chat_id: str) -> None:
+    """Показать «typing...» индикатор в TG. Авто-исчезает через 5 сек или
+    при следующем sendMessage. Делаем перед длинной операцией build_reply."""
+    token = _bot_token()
+    if not token:
+        return
+    url = f"{TG_API_BASE}{token}/sendChatAction"
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(url, json={"chat_id": str(chat_id),
+                                          "action": "typing"})
+    except Exception:
+        pass
+
+
+async def _do_relay_to_che(chat_id: str, tg_uid: str, text: str) -> None:
+    """Любое сообщение от привязанного юзера → Че.
+
+    Юзер пишет в management-бот «напиши пост про X» — мы дёргаем ту же
+    логику что и web-чат /api/agents/me/messages: build_reply_personal +
+    invoke_module если нужно, ответ обратно в TG.
+
+    Если юзер НЕ привязан — отправляем подсказку как привязаться.
+    """
+    from server.db import db_session
+    from server.models import User
+    from server.tg_che_relay import process_message, format_for_tg
+    from server.security import _check as _rl_check
+
+    # Rate-limit: 20 сообщ/мин, 200/час — те же что в web (защита от спама)
+    if not _rl_check(f"tg-che:{tg_uid}", max_calls=20, window_sec=60):
+        await send_message(chat_id, "🛑 Слишком много сообщений. Подожди минуту.")
+        return
+    if not _rl_check(f"tg-che-h:{tg_uid}", max_calls=200, window_sec=3600):
+        await send_message(chat_id, "🛑 Слишком много сообщений за час. Подожди.")
+        return
+
+    # Привязка
+    with db_session() as db:
+        u = db.query(User).filter_by(tg_user_id=tg_uid).first()
+        if not u:
+            await send_message(chat_id,
+                "👋 Чтобы общаться с Че через Telegram, привяжи аккаунт:\n\n"
+                "1. Открой aiche.ru → Кабинет → 📲 Telegram\n"
+                "2. Скопируй код привязки\n"
+                "3. Пришли его сюда командой <code>/link XXXXXX</code>\n\n"
+                "После привязки Че будет помнить тебя как на сайте.")
+            return
+        user_id = u.id
+        agent_name = "Че"  # будет получено из process_message
+
+    # Typing-индикатор (юзер видит что бот «печатает», build_reply может занять 5-15 сек)
+    await _send_typing(chat_id)
+
+    # Сам relay — синхронная функция (БД-операции), запускаем в thread.
+    import asyncio
+    loop = asyncio.get_event_loop()
+
+    def _do_in_thread():
+        with db_session() as db:
+            u = db.query(User).filter_by(id=user_id).first()
+            if not u:
+                return {"reply": "Аккаунт не найден.", "error": "no_user"}
+            return process_message(db, u, text)
+
+    try:
+        result = await loop.run_in_executor(None, _do_in_thread)
+    except Exception as e:
+        log.exception(f"[tg-mgmt] relay to Che failed: {e}")
+        await send_message(chat_id,
+            "😔 Что-то пошло не так при обработке. Попробуй ещё раз через минуту.")
+        return
+
+    # Возможные ошибки от relay
+    if result.get("error") == "insufficient_funds":
+        await send_message(chat_id, result.get("reply", "Недостаточно средств."))
+        return
+
+    # Форматируем 1-2 сообщения и шлём в TG
+    parts = format_for_tg(result, agent_name=agent_name)
+    for i, part in enumerate(parts):
+        ok = await send_message(chat_id, part)
+        if not ok:
+            log.warning(f"[tg-mgmt] failed to send part {i} to chat={chat_id}")
 
 
 # ── Хелперы для отправки push-уведомлений (вызываются из chatbot_engine etc) ──

@@ -370,12 +370,25 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
       <div class="ch-head">
         <span class="ch-icon">✈</span>
         <div class="ch-title">Telegram-бот
-          <span class="ch-badge soon">⏳ скоро</span>
+          <span class="ch-badge ok" id="tgLinkedBadge" style="display:none">✓ подключен</span>
+          <span class="ch-badge wait" id="tgAvailBadge">доступно</span>
         </div>
       </div>
       <div class="ch-desc">Пишешь в Telegram → Че отвечает там же, делегирует модулям, история общая с веб. Без установки приложения.</div>
-      <div class="ch-actions">
-        <button class="btn-g" disabled title="Подключаем в ближайшее время">Подключить Telegram</button>
+      <div class="ch-actions" id="tgActions">
+        <button class="btn-p" id="tgLinkBtn" onclick="generateTgLinkCode()">📱 Подключить Telegram</button>
+        <button class="btn-g" id="tgUnlinkBtn" onclick="unlinkTg()" style="display:none">Отвязать</button>
+      </div>
+      <div id="tgLinkInstructions" class="ch-instructions" style="display:none">
+        <div class="ch-instr-os">
+          <b>1.</b> Открой <a id="tgBotLink" href="https://t.me/aiche_bot" target="_blank" style="color:#ffb347">@aiche_bot</a> в Telegram<br>
+          <b>2.</b> Нажми <b>«Start»</b><br>
+          <b>3.</b> Пришли боту код: <code id="tgLinkCode" style="font-size:14px;color:#ff8c42">XXXXXX</code> (или команду <code id="tgLinkCmd">/link XXXXXX</code>)<br>
+          <b>4.</b> После «✅ Привязано» — пиши Че прямо в Telegram-чат, без слэшей
+        </div>
+        <div class="ch-instr-os" style="opacity:.7;font-size:11px">
+          Код действует 10 минут. После привязки доступны команды /me /stats /menu /unlink.
+        </div>
       </div>
     </div>
 
@@ -1593,6 +1606,112 @@ function _updatePwaUiState() {
 function openChannelsModal() {
   document.getElementById('channelsModal').classList.add('show');
   _updatePwaUiState();
+  _updateTgUiState();
+}
+
+// ── Telegram link state ─────────────────────────────────────────────────────
+let _tgStatus = null;  // {bot_configured, linked, tg_username, bot_username}
+
+async function _loadTgStatus() {
+  try {
+    const r = await fetch(`${API}/user/tg-link/status`, {credentials:'same-origin'});
+    if (!r.ok) return null;
+    return await r.json();
+  } catch(_) { return null; }
+}
+
+async function _updateTgUiState() {
+  _tgStatus = await _loadTgStatus();
+  const linkBtn = document.getElementById('tgLinkBtn');
+  const unlinkBtn = document.getElementById('tgUnlinkBtn');
+  const linkedBadge = document.getElementById('tgLinkedBadge');
+  const availBadge = document.getElementById('tgAvailBadge');
+  const instr = document.getElementById('tgLinkInstructions');
+  if (!linkBtn) return;
+
+  if (!_tgStatus || !_tgStatus.bot_configured) {
+    // Бот не настроен на сервере — оставляем placeholder
+    linkBtn.disabled = true;
+    linkBtn.textContent = '⏳ TG-бот не подключен админом';
+    linkBtn.title = 'Админу: установи TG_MGMT_BOT_TOKEN и TG_MGMT_BOT_USERNAME в .env';
+    if (availBadge) {
+      availBadge.textContent = 'скоро';
+      availBadge.className = 'ch-badge soon';
+    }
+    return;
+  }
+
+  if (_tgStatus.linked) {
+    linkBtn.style.display = 'none';
+    unlinkBtn.style.display = 'inline-flex';
+    unlinkBtn.textContent = `Отвязать @${_tgStatus.tg_username || '—'}`;
+    if (linkedBadge) linkedBadge.style.display = 'inline-block';
+    if (availBadge) availBadge.style.display = 'none';
+    if (instr) instr.style.display = 'none';
+  } else {
+    linkBtn.style.display = 'inline-flex';
+    linkBtn.disabled = false;
+    linkBtn.textContent = '📱 Подключить Telegram';
+    unlinkBtn.style.display = 'none';
+    if (linkedBadge) linkedBadge.style.display = 'none';
+    if (availBadge) {
+      availBadge.style.display = 'inline-block';
+      availBadge.textContent = 'доступно';
+      availBadge.className = 'ch-badge wait';
+    }
+  }
+}
+
+async function generateTgLinkCode() {
+  if (!_tgStatus || !_tgStatus.bot_configured) {
+    if (window.aiAlert) await window.aiAlert('TG-бот не настроен на сервере. Попроси админа.', 'warn');
+    return;
+  }
+  try {
+    const r = await fetch(`${API}/user/tg-link/code`, {
+      method:'POST', credentials:'same-origin',
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'HTTP '+r.status);
+    }
+    const d = await r.json();
+    const code = d.code;
+    const botUser = (_tgStatus && _tgStatus.bot_username) || 'aiche_bot';
+    const deepLink = d.deep_link || `https://t.me/${botUser}?start=LINK_${code}`;
+    // Показываем инструкцию + код
+    const instr = document.getElementById('tgLinkInstructions');
+    const codeEl = document.getElementById('tgLinkCode');
+    const cmdEl = document.getElementById('tgLinkCmd');
+    const botLink = document.getElementById('tgBotLink');
+    if (codeEl) codeEl.textContent = code;
+    if (cmdEl) cmdEl.textContent = `/link ${code}`;
+    if (botLink) {
+      botLink.href = deepLink;
+      botLink.textContent = `@${botUser}`;
+    }
+    if (instr) instr.style.display = 'block';
+  } catch(e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось сгенерировать код: '+e.message, 'error');
+  }
+}
+
+async function unlinkTg() {
+  const ok = await (window.aiConfirm
+    ? window.aiConfirm('Отвязать Telegram? Уведомления и чат через TG перестанут работать.',
+                        {danger:true, okLabel:'Отвязать'})
+    : Promise.resolve(confirm('Отвязать Telegram?')));
+  if (!ok) return;
+  try {
+    const r = await fetch(`${API}/user/tg-link/unlink`, {
+      method:'POST', credentials:'same-origin',
+    });
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    await _updateTgUiState();
+    if (window.aiAlert) await window.aiAlert('🔓 Telegram отвязан.', 'success');
+  } catch(e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось отвязать: '+e.message, 'error');
+  }
 }
 function closeChannelsModal() {
   document.getElementById('channelsModal').classList.remove('show');
