@@ -355,6 +355,44 @@ def tg_link_unlink(user: User = Depends(current_user), db: Session = Depends(get
     return {"status": "unlinked"}
 
 
+# ── MAX-link (симметрично TG) ──────────────────────────────────────────────
+
+
+@router.get("/max-link/status")
+def max_link_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Статус привязки MAX к юзеру + конфигурация бота на сервере."""
+    from server.max_management import is_configured
+    u = db.query(User).filter_by(id=user.id).first()
+    return {
+        "bot_configured": is_configured(),
+        "bot_username": os.getenv("MAX_MGMT_BOT_USERNAME", "").strip().lstrip("@") or None,
+        "linked": bool(u and u.max_user_id),
+        "max_username": (u.max_username if u and u.max_username else None),
+    }
+
+
+@router.post("/max-link/code")
+def max_link_code(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Сгенерировать одноразовый код для привязки MAX. Юзер вводит его в боте
+    командой /link XXXXXX — после этого аккаунт связан."""
+    from server.max_management import generate_link_code, is_configured
+    if not is_configured():
+        raise HTTPException(503, "MAX-бот управления не настроен")
+    code = generate_link_code(db, user.id)
+    bot_username = os.getenv("MAX_MGMT_BOT_USERNAME", "").strip().lstrip("@")
+    # MAX-эквивалент t.me deep-link — используем max.ru/<username>?start=LINK_<code>
+    deep_link = (f"https://max.ru/{bot_username}?start=LINK_{code}"
+                  if bot_username else None)
+    return {"code": code, "deep_link": deep_link, "expires_in_minutes": 10}
+
+
+@router.post("/max-link/unlink")
+def max_link_unlink(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from server.max_management import unlink
+    unlink(db, user.id)
+    return {"status": "unlinked"}
+
+
 class TgNotifyToggleBody(BaseModel):
     notify_proposals: bool | None = None
     notify_records: bool | None = None

@@ -429,8 +429,74 @@ def _spawn_site_task(coro):
     return task
 
 
-def _build_site_prompt(spec_text: str, image_paths_json: str | None) -> tuple[str, list[str]]:
-    """Строит финальный prompt для Claude по ТЗ + картинкам пользователя."""
+# ── System prompt для генерации сайтов ──────────────────────────────────────
+# СТАБИЛЬНАЯ часть (одинаковая для всех генераций) — выделена в system, чтобы
+# Anthropic prompt caching её закэшировал. Каждый второй+ запрос за 5 мин
+# (ephemeral TTL) платит ~10% от обычной цены input. Для сайтов это критично:
+# у нас 3-5K input × до 6 continues = 30K input на один сайт, кэш экономит
+# 70-90% input-токенов.
+#
+# ВАЖНО для кэша: текст должен быть стабильным БАЙТ-В-БАЙТ. Никакой подстановки
+# имён, дат, юзер-данных. Только универсальные инструкции для модели.
+# Минимум 1024 символа — иначе anthropic_response не активирует cache_control
+# (см. server/ai.py:1014).
+_SITE_GEN_SYSTEM_PROMPT = """Ты — опытный веб-разработчик с многолетним опытом создания премиум landing-page'ей.
+Твоя задача — по ТЗ от клиента сгенерировать полный HTML-код одностраничного сайта.
+
+⚠️ КРИТИЧЕСКИ ВАЖНО:
+- Строго следуй ТЗ. Тематика, отрасль, продукт, целевая аудитория, названия блоков
+  и разделов — берутся ТОЛЬКО из ТЗ. Не придумывай шаблонные тексты про рестораны,
+  кофейни, меню, если этого нет в ТЗ.
+- Все заголовки, тексты, призывы — строго по теме ТЗ.
+- Если ТЗ короткое или неполное — додумай детали в той же нише, не уходи в сторону.
+
+ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:
+- Чистый, современный, адаптивный HTML+CSS (mobile-first подход)
+- Без внешних фреймворков (только inline CSS или <style> в head; Tailwind через CDN допустим)
+- Семантичная HTML5-разметка: header, nav, main, section, article, footer
+- Доступность (a11y): alt у всех картинок, aria-label у icon-кнопок, контрастность WCAG AA минимум
+- Красивый современный дизайн под тематику ТЗ (без AI-generic эстетики)
+- Тексты — строго на русском (если ТЗ на русском), без английского lorem ipsum
+- Картинки: используй ТОЛЬКО те URL, что переданы в ТЗ. Если их нет — CSS-плейсхолдеры с
+  градиентами или CSS-художественные блоки. Не вставляй https://placeholder.com или другие
+  внешние плейсхолдеры.
+- Иконки: inline SVG (стиль Heroicons / Lucide / Phosphor) или Unicode-эмодзи. Не подключай
+  внешние библиотеки иконок через CDN.
+- Производительность: критический CSS inline в <style>, lazy-loading для картинок (loading="lazy")
+- SEO-метатеги: <title>, <meta name="description">, OpenGraph (og:title, og:description, og:type=website)
+- Viewport-meta для адаптива: <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+СТРУКТУРА СТРАНИЦЫ (выбирай релевантные нише секции):
+1. Sticky-header с навигацией + основной CTA-кнопкой
+2. Hero-секция (полноэкранная, с конкретным заголовком, подзаголовком, 1-2 CTA-кнопками)
+3. Доверие/social proof (логотипы клиентов / цифры / отзывы / награды)
+4. Преимущества или "как мы работаем" (3-6 пунктов с иконками)
+5. Услуги/продукты (карточки с описаниями, опционально с ценами)
+6. Кейсы / результаты клиентов (с конкретными цифрами и до/после)
+7. Отзывы (с фото-аватарами, именами, должностями — придумай реалистичные)
+8. FAQ (5-7 вопросов с развёрнутыми ответами в accordion-стиле)
+9. CTA-секция перед footer (повторение основного призыва)
+10. Footer с контактами, соц-сетями, мини-навигацией
+
+UX-фишки:
+- Sticky-header (всегда видна навигация)
+- Smooth scroll к якорям (CSS scroll-behavior: smooth)
+- Hover-эффекты на интерактивных элементах (lift, shadow, color-shift)
+- Mobile UX: hamburger menu, кликабельные телефоны/email (tel:/mailto:), большие touch-таргеты (44×44 px минимум)
+
+ФОРМАТ ОТВЕТА:
+- ТОЛЬКО HTML-код, начиная с <!DOCTYPE html> или <html>
+- Без markdown-обёрток (```html ... ```)
+- Без объяснений или комментариев перед/после кода
+- Сайт должен быть полным: открыл — увидел всё, без "TODO" или placeholder-секций"""
+
+
+def _build_site_user_prompt(spec_text: str, image_paths_json: str | None) -> tuple[str, list[str]]:
+    """Строит VARIABLE часть промпта (ТЗ + список картинок).
+
+    Variable часть НЕ кэшируется (она уникальна для каждого юзера/сайта),
+    но это всего 200-2000 символов — не критично.
+    """
     img_context = ""
     full_urls: list[str] = []
     try:
@@ -447,24 +513,24 @@ def _build_site_prompt(spec_text: str, image_paths_json: str | None) -> tuple[st
     except Exception:
         pass
 
-    prompt = (
-        f"Ты — опытный веб-разработчик. Создай полный HTML-код одностраничного сайта.\n\n"
-        f"⚠️ ВАЖНО: строго следуй ТЗ ниже. Тематика, отрасль, продукт, целевая аудитория, "
-        f"названия блоков и разделов — берутся ТОЛЬКО из ТЗ. Не придумывай шаблонные тексты "
-        f"про рестораны, кофейни, меню если этого нет в ТЗ. Все заголовки, тексты, призывы — "
-        f"строго по теме ТЗ.\n\n"
-        f"=== ТЗ ===\n{spec_text}\n=== КОНЕЦ ТЗ ===\n"
-        f"{img_context}\n"
-        f"Технические требования:\n"
-        f"- Чистый, современный адаптивный HTML+CSS (mobile-first)\n"
-        f"- Без внешних фреймворков (только inline CSS или <style>)\n"
-        f"- Семантичная разметка, доступность (alt у картинок, aria-label у иконок)\n"
-        f"- Красивый современный дизайн под тематику ТЗ\n"
-        f"- Тексты — строго по теме из ТЗ, на русском, без английского lorem ipsum\n"
-        f"- Картинки: используй ТОЛЬКО URL из списка выше (если он есть). Иначе — CSS-плейсхолдеры\n"
-        f"- Ответ: ТОЛЬКО HTML-код, без markdown-обёрток и объяснений\n"
+    user_text = (
+        f"=== ТЗ от клиента ===\n{spec_text}\n=== КОНЕЦ ТЗ ===\n"
+        f"{img_context}\n\n"
+        f"Сгенерируй полный HTML по ТЗ выше. Следуй системным инструкциям."
     )
-    return prompt, full_urls
+    return user_text, full_urls
+
+
+def _build_site_prompt(spec_text: str, image_paths_json: str | None) -> tuple[str, list[str]]:
+    """Legacy-обёртка: возвращает (combined_prompt, full_urls).
+
+    Старый код (до prompt caching) ожидал один цельный prompt без system.
+    Оставлено для back-compat — auto-continue использует ту же сигнатуру.
+    Новый код должен вызывать _build_site_user_prompt + system_prompt отдельно.
+    """
+    user_text, full_urls = _build_site_user_prompt(spec_text, image_paths_json)
+    combined = _SITE_GEN_SYSTEM_PROMPT + "\n\n" + user_text
+    return combined, full_urls
 
 
 def _enhance_spec_with_gpt(spec_text: str, premium: bool = False) -> str:
@@ -659,14 +725,21 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
                 db.commit()
 
         # 3. Основная генерация Claude (Sonnet или Opus, timeout=600s в SDK)
-        prompt, _full_urls = _build_site_prompt(enhanced, image_paths_json)
+        # Prompt caching: system_prompt стабильный (одинаковый для всех генераций)
+        # → Anthropic закэширует его, и каждый запрос за 5 мин платит ~10% от
+        # обычной цены input. user_prompt — variable per request. См.
+        # _SITE_GEN_SYSTEM_PROMPT и server/ai.py:anthropic_response (line ~1014).
+        user_prompt, _full_urls = _build_site_user_prompt(enhanced, image_paths_json)
+        messages = [
+            {"role": "system", "content": _SITE_GEN_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
         # default-args фиксируют значения closure'а ПО ЗНАЧЕНИЮ — защита от
         # потенциального closure-bug если когда-нибудь окажемся внутри цикла.
         ans = await loop.run_in_executor(
             None,
-            lambda mid=model_id, pr=prompt, mt=max_tokens:
-                generate_response(mid, [{"role": "user", "content": pr}],
-                                   {"max_tokens": mt}),
+            lambda mid=model_id, msgs=messages, mt=max_tokens:
+                generate_response(mid, msgs, {"max_tokens": mt}),
         )
         content = (ans.get("content", "") if isinstance(ans, dict) else "").strip()
 
@@ -701,8 +774,13 @@ async def _run_site_generation(project_id: int, quality: str = "standard"):
                     p.gen_progress = f"[{tier_label}] Готово {kb} KB, дописываю ({attempt+2}/{max_continues+1})…"
                     db.commit()
 
+            # Auto-continue: system+user первый turn такой же, плюс
+            # assistant-сообщение с уже сгенерированным куском, плюс новый user
+            # «продолжи». Cache читается как и в основном запросе — экономия
+            # на input ~80% даже на 6-м continue.
             cont_messages = [
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": _SITE_GEN_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
                 {"role": "assistant", "content": content},
                 {"role": "user", "content": (
                     "Ты не закончил — ответ обрезался. Продолжи строго с того места "

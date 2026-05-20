@@ -450,6 +450,52 @@ async def telegram_mgmt_webhook_legacy(path_secret: str, request: Request):
     return await _tg_mgmt_handle(request)
 
 
+# ── MAX management bot webhook ────────────────────────────────────────────
+# Симметрично tg-mgmt, но для MAX (max.ru). MAX webhook регистрируется
+# через POST https://botapi.max.ru/subscriptions {url}. Защищаем через
+# path-secret (MAX не поддерживает Telegram-style header secret).
+#
+# Установить webhook (после получения MAX_MGMT_BOT_TOKEN):
+#   curl -X POST -H "Authorization: $MAX_MGMT_BOT_TOKEN" \
+#        -H "Content-Type: application/json" \
+#        -d '{"url":"https://aiche.ru/webhook/max-mgmt/<SECRET>","update_types":["message_created"]}' \
+#        https://botapi.max.ru/subscriptions
+
+
+def _max_mgmt_check_secret(path_secret: str) -> None:
+    """Проверка что path-secret совпадает с derived из MAX_MGMT_BOT_TOKEN."""
+    import hmac
+    from server.max_management import _bot_token, is_configured
+    if not is_configured():
+        raise HTTPException(503, "MAX management bot not configured (MAX_MGMT_BOT_TOKEN missing)")
+    expected = tg_webhook_secret(_bot_token() or "")  # та же derivation что и для TG
+    if not expected:
+        raise HTTPException(503, "Webhook secret not derivable")
+    if not hmac.compare_digest(path_secret, expected):
+        raise HTTPException(401, "Invalid path secret")
+
+
+async def _max_mgmt_handle(request: Request) -> dict:
+    """Общая логика обработки апдейта от MAX management-бота."""
+    from server.max_management import handle_update
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": True}
+    try:
+        await handle_update(body)
+    except Exception as e:
+        log.error(f"[max-mgmt] update handler error: {type(e).__name__}: {e}")
+    return {"ok": True}
+
+
+@router.post("/max-mgmt/{path_secret}")
+async def max_mgmt_webhook(path_secret: str, request: Request):
+    """MAX webhook. Path-secret — derived из MAX_MGMT_BOT_TOKEN."""
+    _max_mgmt_check_secret(path_secret)
+    return await _max_mgmt_handle(request)
+
+
 # ── WhatsApp через Wazzup24 ────────────────────────────────────────────────
 
 

@@ -177,6 +177,11 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("users", "tg_notify_proposals", "BOOLEAN DEFAULT 1"),
     ("users", "tg_notify_records", "BOOLEAN DEFAULT 1"),
     ("users", "tg_notify_errors", "BOOLEAN DEFAULT 1"),
+    # MAX-бот управления (российская альтернатива Telegram, симметрично TG)
+    ("users", "max_user_id", "VARCHAR"),
+    ("users", "max_username", "VARCHAR"),
+    ("users", "max_link_code", "VARCHAR"),
+    ("users", "max_link_expires", "DATETIME"),
     # Презентации — переработанный модуль (см. server/presentation_builder.py)
     ("presentation_projects", "topic", "VARCHAR"),
     ("presentation_projects", "audience", "VARCHAR"),

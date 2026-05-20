@@ -66,6 +66,13 @@ class User(Base):
     tg_notify_proposals = Column(Boolean, default=True)   # уведомлять о новых КП
     tg_notify_records   = Column(Boolean, default=True)   # о новых заявках
     tg_notify_errors    = Column(Boolean, default=True)   # об ошибках/refund'ах
+    # Привязка MAX-аккаунта (российская альтернатива Telegram). Симметрично TG:
+    # отдельный bot создаётся в @MasterBot (MAX-эквивалент BotFather), токен
+    # лежит в env MAX_MGMT_BOT_TOKEN. Юзер привязывает через /link или deep-link.
+    max_user_id      = Column(String, unique=True, nullable=True, index=True)
+    max_username     = Column(String, nullable=True)
+    max_link_code    = Column(String, nullable=True, index=True)
+    max_link_expires = Column(DateTime, nullable=True)
     # In-app колокольчик уведомлений: всё новее этого таймстампа = непрочитано.
     # Устанавливается клиентом через POST /user/notifications/seen.
     notifications_last_seen_at = Column(DateTime, nullable=True)

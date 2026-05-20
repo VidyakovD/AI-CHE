@@ -397,12 +397,25 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
       <div class="ch-head">
         <span class="ch-icon">🇷🇺</span>
         <div class="ch-title">MAX-бот
-          <span class="ch-badge soon">⏳ скоро</span>
+          <span class="ch-badge ok" id="maxLinkedBadge" style="display:none">✓ подключен</span>
+          <span class="ch-badge wait" id="maxAvailBadge">доступно</span>
         </div>
       </div>
       <div class="ch-desc">Российский мессенджер MAX от VK — для пользователей без VPN. Тот же чат с Че, что и в TG.</div>
-      <div class="ch-actions">
-        <button class="btn-g" disabled title="Подключаем в ближайшее время">Подключить MAX</button>
+      <div class="ch-actions" id="maxActions">
+        <button class="btn-p" id="maxLinkBtn" onclick="generateMaxLinkCode()">📱 Подключить MAX</button>
+        <button class="btn-g" id="maxUnlinkBtn" onclick="unlinkMax()" style="display:none">Отвязать</button>
+      </div>
+      <div id="maxLinkInstructions" class="ch-instructions" style="display:none">
+        <div class="ch-instr-os">
+          <b>1.</b> Открой <a id="maxBotLink" href="#" target="_blank" style="color:#ffb347">MAX-бот</a> в приложении MAX<br>
+          <b>2.</b> Напиши <b>Start</b><br>
+          <b>3.</b> Пришли боту: <code id="maxLinkCode" style="font-size:14px;color:#ff8c42">XXXXXX</code> (или команду <code id="maxLinkCmd">/link XXXXXX</code>)<br>
+          <b>4.</b> После «✅ Привязано» — пиши Че прямо в MAX-чат
+        </div>
+        <div class="ch-instr-os" style="opacity:.7;font-size:11px">
+          Код действует 10 минут. После привязки доступны команды /me /unlink /help.
+        </div>
       </div>
     </div>
 
@@ -1607,6 +1620,7 @@ function openChannelsModal() {
   document.getElementById('channelsModal').classList.add('show');
   _updatePwaUiState();
   _updateTgUiState();
+  _updateMaxUiState();
 }
 
 // ── Telegram link state ─────────────────────────────────────────────────────
@@ -1709,6 +1723,109 @@ async function unlinkTg() {
     if (!r.ok) throw new Error('HTTP '+r.status);
     await _updateTgUiState();
     if (window.aiAlert) await window.aiAlert('🔓 Telegram отвязан.', 'success');
+  } catch(e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось отвязать: '+e.message, 'error');
+  }
+}
+
+// ── MAX link state (симметрично TG) ──────────────────────────────────────────
+let _maxStatus = null;
+
+async function _loadMaxStatus() {
+  try {
+    const r = await fetch(`${API}/user/max-link/status`, {credentials:'same-origin'});
+    if (!r.ok) return null;
+    return await r.json();
+  } catch(_) { return null; }
+}
+
+async function _updateMaxUiState() {
+  _maxStatus = await _loadMaxStatus();
+  const linkBtn = document.getElementById('maxLinkBtn');
+  const unlinkBtn = document.getElementById('maxUnlinkBtn');
+  const linkedBadge = document.getElementById('maxLinkedBadge');
+  const availBadge = document.getElementById('maxAvailBadge');
+  const instr = document.getElementById('maxLinkInstructions');
+  if (!linkBtn) return;
+
+  if (!_maxStatus || !_maxStatus.bot_configured) {
+    linkBtn.disabled = true;
+    linkBtn.textContent = '⏳ MAX-бот не подключен админом';
+    linkBtn.title = 'Админу: установи MAX_MGMT_BOT_TOKEN и MAX_MGMT_BOT_USERNAME в .env';
+    if (availBadge) {
+      availBadge.textContent = 'скоро';
+      availBadge.className = 'ch-badge soon';
+    }
+    return;
+  }
+
+  if (_maxStatus.linked) {
+    linkBtn.style.display = 'none';
+    unlinkBtn.style.display = 'inline-flex';
+    unlinkBtn.textContent = `Отвязать @${_maxStatus.max_username || '—'}`;
+    if (linkedBadge) linkedBadge.style.display = 'inline-block';
+    if (availBadge) availBadge.style.display = 'none';
+    if (instr) instr.style.display = 'none';
+  } else {
+    linkBtn.style.display = 'inline-flex';
+    linkBtn.disabled = false;
+    linkBtn.textContent = '📱 Подключить MAX';
+    unlinkBtn.style.display = 'none';
+    if (linkedBadge) linkedBadge.style.display = 'none';
+    if (availBadge) {
+      availBadge.style.display = 'inline-block';
+      availBadge.textContent = 'доступно';
+      availBadge.className = 'ch-badge wait';
+    }
+  }
+}
+
+async function generateMaxLinkCode() {
+  if (!_maxStatus || !_maxStatus.bot_configured) {
+    if (window.aiAlert) await window.aiAlert('MAX-бот не настроен на сервере. Попроси админа.', 'warn');
+    return;
+  }
+  try {
+    const r = await fetch(`${API}/user/max-link/code`, {
+      method:'POST', credentials:'same-origin',
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'HTTP '+r.status);
+    }
+    const d = await r.json();
+    const code = d.code;
+    const botUser = (_maxStatus && _maxStatus.bot_username) || 'aiche_bot';
+    const deepLink = d.deep_link || `https://max.ru/${botUser}?start=LINK_${code}`;
+    const codeEl = document.getElementById('maxLinkCode');
+    const cmdEl = document.getElementById('maxLinkCmd');
+    const botLink = document.getElementById('maxBotLink');
+    const instr = document.getElementById('maxLinkInstructions');
+    if (codeEl) codeEl.textContent = code;
+    if (cmdEl) cmdEl.textContent = `/link ${code}`;
+    if (botLink) {
+      botLink.href = deepLink;
+      botLink.textContent = `@${botUser}`;
+    }
+    if (instr) instr.style.display = 'block';
+  } catch(e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось сгенерировать код: '+e.message, 'error');
+  }
+}
+
+async function unlinkMax() {
+  const ok = await (window.aiConfirm
+    ? window.aiConfirm('Отвязать MAX? Чат через MAX перестанет работать.',
+                        {danger:true, okLabel:'Отвязать'})
+    : Promise.resolve(confirm('Отвязать MAX?')));
+  if (!ok) return;
+  try {
+    const r = await fetch(`${API}/user/max-link/unlink`, {
+      method:'POST', credentials:'same-origin',
+    });
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    await _updateMaxUiState();
+    if (window.aiAlert) await window.aiAlert('🔓 MAX отвязан.', 'success');
   } catch(e) {
     if (window.aiAlert) await window.aiAlert('Не удалось отвязать: '+e.message, 'error');
   }
