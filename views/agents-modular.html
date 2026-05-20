@@ -180,6 +180,23 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 .add-btn{width:100%;background:rgba(255,140,66,.08);border:1px dashed rgba(255,140,66,.4);color:#ffb347;border-radius:9px;padding:9px;font-size:12.5px;cursor:pointer;font-weight:600;transition:all .15s}
 .add-btn:hover{background:rgba(255,140,66,.15);border-color:#ff8c42;color:#fff}
 
+/* Channels modal — 4 способа использовать Че */
+.channel-card{background:#272018;border:1px solid rgba(74,63,47,0.4);border-left:3px solid rgba(74,63,47,0.4);border-radius:10px;padding:13px 14px;margin-bottom:10px;transition:border-color .15s}
+.channel-card:hover{border-color:rgba(255,140,66,.5)}
+.channel-card .ch-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.channel-card .ch-icon{font-size:20px;line-height:1}
+.channel-card .ch-title{font-weight:600;font-size:13.5px;color:#f0e6d8;flex:1;display:flex;align-items:center;gap:8px}
+.channel-card .ch-badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:9px;letter-spacing:.5px;text-transform:uppercase;background:rgba(255,255,255,.05);color:#a89880}
+.channel-card .ch-badge.ok{background:rgba(123,217,104,.15);color:#7bd968}
+.channel-card .ch-badge.wait{background:rgba(255,179,71,.15);color:#ffb347}
+.channel-card .ch-badge.soon{background:rgba(168,152,128,.18);color:#a89880}
+.channel-card .ch-desc{font-size:12.5px;color:#a89880;line-height:1.5;margin-bottom:8px}
+.channel-card .ch-actions{display:flex;gap:8px;flex-wrap:wrap}
+.channel-card .ch-actions button{font-size:12px;padding:6px 12px}
+.channel-card .ch-instructions{margin-top:10px;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;border:1px solid rgba(74,63,47,.3)}
+.channel-card .ch-instr-os{margin-bottom:8px;font-size:12px;line-height:1.55}
+.channel-card .ch-instr-os:last-child{margin-bottom:0}
+
 /* Catalog modal */
 .cat-search{margin-bottom:12px}
 .cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;max-height:60vh;overflow-y:auto;padding-right:6px}
@@ -212,6 +229,7 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
     </div>
     <div class="flex items-center gap-2">
       <span id="balancePill" class="text-xs text-on-dim hidden md:inline"></span>
+      <button class="btn-g" onclick="openChannelsModal()" title="Где использовать Че (PWA, TG, MAX)">📲</button>
       <button class="aside-toggle" onclick="toggleAside()" title="Модули и профиль">🧩 <span id="asideToggleCount">0</span></button>
       <button class="btn-g" onclick="openProfileEdit()" title="Настройки агента">⚙</button>
     </div>
@@ -296,6 +314,88 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
         <button class="btn-g" id="schedWebhookGenBtn">🔑 Сгенерировать webhook URL</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Channels modal — 4 способа использовать Че -->
+<div id="channelsModal" class="modal-bg">
+  <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:22px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-lg font-bold">📲 Где использовать Че</h3>
+      <button class="btn-g" onclick="closeChannelsModal()">✕</button>
+    </div>
+    <p class="text-xs text-on-dim mb-4">Че — один помощник, доступный отовсюду. История и память синхронизируются между каналами.</p>
+
+    <!-- 1. Веб (текущий) -->
+    <div class="channel-card" style="border-left:3px solid #7bd968">
+      <div class="ch-head">
+        <span class="ch-icon">💻</span>
+        <div class="ch-title">Веб <span class="ch-badge ok">✓ сейчас</span></div>
+      </div>
+      <div class="ch-desc">Ты прямо сейчас здесь — aiche.ru/agents-modular.html в браузере. Полный функционал.</div>
+    </div>
+
+    <!-- 2. PWA — установить как приложение -->
+    <div class="channel-card" id="pwaCard">
+      <div class="ch-head">
+        <span class="ch-icon">📱</span>
+        <div class="ch-title">Приложение на телефон / компьютер
+          <span class="ch-badge ok" id="pwaStateBadge" style="display:none">✓ установлено</span>
+          <span class="ch-badge wait" id="pwaWaitBadge">доступно</span>
+        </div>
+      </div>
+      <div class="ch-desc">Сохрани Че на главный экран — иконка, без адресной строки, работает офлайн.</div>
+      <div class="ch-actions">
+        <button class="btn-p" id="pwaInstallBtn" onclick="triggerPwaInstall()">📥 Установить</button>
+        <button class="btn-g" id="pwaInstructBtn" onclick="togglePwaInstructions()">📖 Показать инструкции</button>
+      </div>
+      <div id="pwaInstructions" class="ch-instructions" style="display:none">
+        <div class="ch-instr-os">
+          <b>🤖 Android (Chrome)</b><br>
+          <span class="text-on-dim">Нажми <b>«📥 Установить»</b> выше. Если кнопка не появилась — меню браузера «⋮» → «Установить приложение».</span>
+        </div>
+        <div class="ch-instr-os">
+          <b>🍎 iOS (Safari)</b><br>
+          <span class="text-on-dim">Кнопка «Поделиться» внизу (квадрат со стрелкой ↑) → «На экран «Домой»» → «Добавить».</span>
+        </div>
+        <div class="ch-instr-os">
+          <b>💻 Desktop (Chrome, Edge, Arc)</b><br>
+          <span class="text-on-dim">Нажми <b>«📥 Установить»</b> выше. Или: иконка установки в правом углу адресной строки.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Telegram -->
+    <div class="channel-card" id="tgCard">
+      <div class="ch-head">
+        <span class="ch-icon">✈</span>
+        <div class="ch-title">Telegram-бот
+          <span class="ch-badge soon">⏳ скоро</span>
+        </div>
+      </div>
+      <div class="ch-desc">Пишешь в Telegram → Че отвечает там же, делегирует модулям, история общая с веб. Без установки приложения.</div>
+      <div class="ch-actions">
+        <button class="btn-g" disabled title="Подключаем в ближайшее время">Подключить Telegram</button>
+      </div>
+    </div>
+
+    <!-- 4. MAX -->
+    <div class="channel-card" id="maxCard">
+      <div class="ch-head">
+        <span class="ch-icon">🇷🇺</span>
+        <div class="ch-title">MAX-бот
+          <span class="ch-badge soon">⏳ скоро</span>
+        </div>
+      </div>
+      <div class="ch-desc">Российский мессенджер MAX от VK — для пользователей без VPN. Тот же чат с Че, что и в TG.</div>
+      <div class="ch-actions">
+        <button class="btn-g" disabled title="Подключаем в ближайшее время">Подключить MAX</button>
+      </div>
+    </div>
+
+    <p class="text-xs text-on-dim mt-3" style="opacity:.7">
+      💡 Подключённые TG/MAX будут пушить тебя если Че/модули закончили работу (например cron-расписание сделало пост → ты узнаешь в TG).
+    </p>
   </div>
 </div>
 
@@ -1434,6 +1534,117 @@ function renderIconGrid(currentIcon){
     });
     grid.appendChild(cell);
   });
+}
+
+// ── Channels modal (📲 Где использовать Че) ─────────────────────────────────
+// Хранилище отложенного PWA install-prompt'а. Браузер шлёт событие
+// `beforeinstallprompt` когда видит что PWA соответствует критериям
+// (manifest.json + service worker + HTTPS + домен зарегистрирован).
+// Мы preventDefault'им чтобы НЕ показывать его сразу, а сохранить и
+// триггернуть только когда юзер сам нажмёт «Установить».
+let _pwaInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _pwaInstallPrompt = e;
+  // Обновим бейдж в модалке если она уже отрендерена
+  _updatePwaUiState();
+  console.log('[PWA] install prompt captured, ready to trigger');
+});
+
+window.addEventListener('appinstalled', () => {
+  _pwaInstallPrompt = null;
+  _updatePwaUiState();
+  console.log('[PWA] app installed');
+});
+
+function _updatePwaUiState() {
+  // Определяем «уже установлено» через display-mode media query.
+  // На Android Chrome / Desktop Chrome это true когда PWA запущен как app.
+  // На iOS PWA — `navigator.standalone === true`.
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+                    || window.navigator.standalone === true;
+  const installBtn = document.getElementById('pwaInstallBtn');
+  const okBadge = document.getElementById('pwaStateBadge');
+  const waitBadge = document.getElementById('pwaWaitBadge');
+  if (!installBtn) return;
+
+  if (isStandalone) {
+    installBtn.style.display = 'none';
+    if (okBadge) okBadge.style.display = 'inline-block';
+    if (waitBadge) waitBadge.style.display = 'none';
+  } else if (_pwaInstallPrompt) {
+    // Браузер готов установить — кнопка активна
+    installBtn.style.display = 'inline-flex';
+    installBtn.disabled = false;
+    if (okBadge) okBadge.style.display = 'none';
+    if (waitBadge) waitBadge.style.display = 'inline-block';
+  } else {
+    // Браузер не поддерживает beforeinstallprompt (iOS Safari, Firefox)
+    // — оставляем кнопку, но она не сможет дёрнуть автоматически.
+    // Юзеру покажем инструкцию (см. triggerPwaInstall).
+    installBtn.style.display = 'inline-flex';
+    installBtn.disabled = false;
+    if (okBadge) okBadge.style.display = 'none';
+    if (waitBadge) waitBadge.style.display = 'inline-block';
+  }
+}
+
+function openChannelsModal() {
+  document.getElementById('channelsModal').classList.add('show');
+  _updatePwaUiState();
+}
+function closeChannelsModal() {
+  document.getElementById('channelsModal').classList.remove('show');
+}
+document.getElementById('channelsModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('channelsModal')) closeChannelsModal();
+});
+
+function togglePwaInstructions() {
+  const el = document.getElementById('pwaInstructions');
+  const btn = document.getElementById('pwaInstructBtn');
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.style.display = 'block';
+    if (btn) btn.textContent = '📖 Скрыть инструкции';
+  } else {
+    el.style.display = 'none';
+    if (btn) btn.textContent = '📖 Показать инструкции';
+  }
+}
+
+async function triggerPwaInstall() {
+  // Если событие beforeinstallprompt уже было перехвачено — используем его
+  if (_pwaInstallPrompt) {
+    try {
+      _pwaInstallPrompt.prompt();
+      const choice = await _pwaInstallPrompt.userChoice;
+      console.log('[PWA] user choice:', choice.outcome);
+      _pwaInstallPrompt = null;
+      _updatePwaUiState();
+      if (choice.outcome === 'accepted') {
+        if (window.aiAlert) await window.aiAlert('✅ Че установлен. Найди иконку на главном экране.', 'success');
+      }
+      return;
+    } catch (e) {
+      console.warn('[PWA] prompt failed:', e);
+    }
+  }
+  // Браузер не поддерживает — показываем инструкции
+  togglePwaInstructions();
+  const ua = navigator.userAgent.toLowerCase();
+  let hint = '';
+  if (/iphone|ipad|ipod/.test(ua)) {
+    hint = '🍎 На iPhone: нажми «Поделиться» (квадрат со стрелкой ↑) → «На экран «Домой»».';
+  } else if (/android/.test(ua) && /firefox/.test(ua)) {
+    hint = 'Firefox: меню «⋮» → «Добавить на главный экран».';
+  } else if (/firefox/.test(ua)) {
+    hint = 'Firefox пока не поддерживает PWA-установку. Открой aiche.ru в Chrome / Edge / Arc.';
+  } else {
+    hint = 'Браузер не поддерживает автоустановку. См. инструкцию выше — она показана.';
+  }
+  if (window.aiAlert) await window.aiAlert(hint, 'info');
 }
 
 function openProfileEdit(){
