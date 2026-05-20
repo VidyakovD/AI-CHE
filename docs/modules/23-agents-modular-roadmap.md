@@ -407,6 +407,45 @@
   TG-канала через t.me/s/ preview. Сохраняет в `examples_by_brand[brand_id]`.
   Без OAuth — использует уже подключённые в Креаторах токены/каналы.
   Бесплатно, прокачивает уровень модуля. 12 тестов.
+- ✅ **Adaptive System Prompts** — реализованы (расширение [LEARNED:] маркеров).
+  Раньше [LEARNED:] просто складывался в module_memory.learned как «случайные
+  заметки», подмешивался в system_prompt как `• note`. Теперь:
+  - **Структурированные маркеры**: парсер `_parse_learned_marker` понимает
+    форматы:
+    ```
+    [LEARNED: текст]                     — scope=module, type=note (legacy)
+    [LEARNED:style: текст]               — type=style
+    [LEARNED:preference: текст]          — type=preference
+    [LEARNED:constraint: текст]          — type=constraint
+    [LEARNED:fact: текст]                — type=fact
+    [LEARNED:global: текст]              — scope=global → promotion
+    [LEARNED:global:fact: текст]         — global + типизированный
+    [LEARNED:fact:global: текст]         — порядок флагов любой
+    ```
+  - **Дедупликация**: `_is_duplicate_learned` нормализует case + удаляет
+    пунктуацию перед сравнением — не дублирует «Деловой тон!» и «деловой тон».
+  - **Promotion в Memory Hub**: `apply_module_memory_updates(memory, updates,
+    profile=profile)` — если items со scope=global и profile передан,
+    они мутируют agent.profile_json.facts (с key=type, value=note, source=
+    'module_learned'). Дедупликация в facts тоже case-insensitive.
+    Подключено в 4 вызывающих местах: send_message, manual_invoke,
+    webhook_fire, cron_runtime — каждый теперь сохраняет profile_json
+    в БД после apply.
+  - **Adaptive формат секции** в system-prompt модуля:
+    `_format_adaptive_rules` группирует learned по типу с emoji-заголовками
+    (📝 Стиль / 💛 Предпочтения / 🚫 Ограничения / 📋 Факты / 💭 Заметки),
+    нумерует, сортирует по ts desc. Заголовок секции изменён на
+    «ВЫУЧЕННЫЕ ПРАВИЛА — ОБЯЗАТЕЛЬНО СОБЛЮДАЙ» (раньше — «что выучил»).
+    Legacy блоки {style, preferences, constraints} в module_memory
+    остаются (показываются как «legacy memory»).
+  - **Лимиты**: 5 items per call (защита от LLM который пишет 20 LEARNED'ов),
+    cap 50 learned всего (старые отсекаются), cap 50 facts в profile.
+  - **System-prompt инструкция** в invoke_module научен LLM использовать
+    новый формат, объясняет когда нужен `global:` префикс.
+  - 22 unit-теста: parse всех форматов, dedup (same note / pun / case),
+    promotion в profile (+dedup), limits (5/call, cap50), format
+    (grouping, sorted by ts desc, legacy compat, only old-format).
+
 - ✅ **💰 Модуль Финансы CSV** — реализован.
   - `server/models.py`: новая таблица `FinanceTransaction` (user_id, source,
     date, amount_kop, currency, description, merchant, category,

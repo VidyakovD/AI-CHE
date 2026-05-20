@@ -201,8 +201,12 @@ async def _agents_modules_cron_tick():
                                 model=f"agents.module:{m.slug}",
                             ))
                     if inv.get("memory_updates"):
-                        apply_module_memory_updates(mod_memory, inv["memory_updates"])
+                        # Adaptive Prompts: scope=global → promotion в Memory Hub.
+                        apply_module_memory_updates(
+                            mod_memory, inv["memory_updates"], profile=profile
+                        )
                         m.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
+                        agent.profile_json = json.dumps(profile, ensure_ascii=False)
                     m.last_used_at = now
                     # Атомарный SQL +1 (multi-worker safe — заменяет RMW)
                     new_count = increment_module_interaction(db, m)

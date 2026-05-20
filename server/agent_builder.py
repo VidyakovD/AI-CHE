@@ -860,17 +860,11 @@ def invoke_module(*, slug: str, task: str, profile: dict,
             profile_lines.append(f"  • {f.get('key','')}: {f['value']}")
     profile_text = "\n".join(profile_lines) or "  пусто"
 
-    # Персональная память модуля (что выучено о юзере за прошлые вызовы)
-    memory_lines = []
-    if isinstance(module_memory, dict):
-        for k in ("style", "preferences", "constraints"):
-            if module_memory.get(k):
-                memory_lines.append(f"  • {k}: {module_memory[k]}")
-        learned = module_memory.get("learned") or []
-        for L in learned[:10]:
-            if isinstance(L, dict) and L.get("note"):
-                memory_lines.append(f"  • {L['note']}")
-    memory_text = "\n".join(memory_lines) or "  ничего ещё не выучено"
+    # Adaptive System Prompts: выученные правила из прошлых взаимодействий
+    # группируются по типу (style/preference/constraint/fact/note) и
+    # подаются LLM как НУМЕРОВАННЫЕ ПРАВИЛА, которые «обязательно соблюдать».
+    # Это качественный апгрейд по сравнению с «случайной заметкой».
+    memory_text = _format_adaptive_rules(module_memory)
 
     # Кастомные настройки (channels/tokens/preferences)
     settings_text = ""
@@ -903,11 +897,29 @@ def invoke_module(*, slug: str, task: str, profile: dict,
 
 ═══ ВАЖНО ═══
 - Отвечай ПО СУТИ задачи. Не объясняй что ты модуль — это знает оркестратор.
-- Используй то что знаешь о юзере (его стиль, тон, отрасль).
-- В конце ответа (в новой строке) можешь добавить:
-  «[LEARNED: <что_заметил>]» — например «[LEARNED: юзер пишет в деловом тоне без эмодзи]»
-  Это будет сохранено в твою память для следующих вызовов.
-- Если задача требует данных извне (web, API) которых у тебя нет — напрямую скажи юзеру что нужно подключить (через owner-агента)."""
+- Используй то что знаешь о юзере (его стиль, тон, отрасль) — это твои
+  ПРАВИЛА, не «случайные заметки», соблюдай их обязательно.
+- Если задача требует данных извне (web, API) которых у тебя нет —
+  напрямую скажи юзеру что нужно подключить (через owner-агента).
+
+═══ ADAPTIVE PROMPTS — как ты сам прокачиваешься ═══
+В конце ответа (в новой строке) можешь добавить маркеры [LEARNED:...]
+— это сохранится в твою память и подмешается в следующие вызовы как
+ПРАВИЛО для тебя же.
+
+Категории (явно указывай тип через ":"):
+  [LEARNED:style: пишет в деловом тоне без эмодзи]
+  [LEARNED:preference: предпочитает короткие маркированные списки]
+  [LEARNED:constraint: не упоминать конкурентов]
+  [LEARNED:fact: компания работает в b2b-стройке, 50+ сотрудников]
+
+Если факт ВАЖЕН ДЛЯ ВСЕХ МОДУЛЕЙ (имя/сфера/тон/цели юзера) — добавь
+префикс `global:` — он promoted в Memory Hub агента-владельца:
+  [LEARNED:global:fact: юзер ведёт B2B-стройку]
+  [LEARNED:global:style: предпочитает деловой тон без эмодзи везде]
+
+Не злоупотребляй — макс 2 маркера за ответ. Не дублируй то что уже знаешь.
+Старый формат [LEARNED: текст] тоже работает (= note, scope=module)."""
 
     # PrivacyGuard для модуля: профиль/память юзера в system + сама задача
     # могут содержать PII. Маскируем перед LLM, unmask reply.
@@ -960,21 +972,34 @@ def invoke_module(*, slug: str, task: str, profile: dict,
                 "error": f"LLM error: {e!s:.140}",
                 "model_used": "", "memory_updates": None}
 
-    # Парсим [LEARNED: ...] маркеры (модуль выучил что-то про юзера)
-    learned_notes: list[str] = []
+    # Парсим [LEARNED: ...] маркеры — Adaptive System Prompts.
+    # Поддерживаемые форматы:
+    #   [LEARNED: note]                       — scope=module, type=note (legacy)
+    #   [LEARNED:style: note]                 — type=style
+    #   [LEARNED:preference: note]            — type=preference
+    #   [LEARNED:constraint: note]            — type=constraint
+    #   [LEARNED:fact: note]                  — type=fact
+    #   [LEARNED:global: note]                — scope=global → promoted в profile
+    #   [LEARNED:global:fact: note]           — scope=global, type=fact
+    # Параметры до ":" — флаги (scope/type) в любом порядке.
+    learned_items: list[dict] = []
     try:
-        for match in re.finditer(r"\[LEARNED:\s*([^\]]+)\]", output):
-            note = match.group(1).strip()[:300]
-            if note:
-                learned_notes.append(note)
+        for match in re.finditer(r"\[LEARNED:?\s*([^\]]+)\]", output):
+            raw = match.group(1).strip()
+            if not raw:
+                continue
+            parsed = _parse_learned_marker(raw)
+            if parsed and parsed.get("note"):
+                learned_items.append(parsed)
         # Убираем маркеры из видимого output (показываем чистый ответ юзеру)
-        output_clean = re.sub(r"\[LEARNED:\s*[^\]]+\]", "", output).strip()
+        output_clean = re.sub(r"\[LEARNED:?\s*[^\]]+\]", "", output).strip()
     except Exception:
         output_clean = output
+        learned_items = []
 
     memory_updates = None
-    if learned_notes:
-        memory_updates = {"new_notes": learned_notes}
+    if learned_items:
+        memory_updates = {"items": learned_items}
 
     return {
         "ok": True,
@@ -985,21 +1010,224 @@ def invoke_module(*, slug: str, task: str, profile: dict,
     }
 
 
-def apply_module_memory_updates(memory: dict, updates: dict) -> dict:
-    """Применить memory_updates к module_memory (мутирует dict).
-    Возвращает количество добавленных записей."""
+_LEARNED_TYPES = {"note", "style", "preference", "constraint", "fact"}
+
+# Заголовки для группировки правил в system prompt — emoji + human label.
+# Порядок важен: style сверху (LLM первым делом смотрит как писать), затем
+# preferences (что юзер любит), constraints (что нельзя), facts/notes.
+_RULE_GROUP_HEADERS: list[tuple[str, str]] = [
+    ("style",      "📝 Стиль"),
+    ("preference", "💛 Предпочтения"),
+    ("constraint", "🚫 Ограничения"),
+    ("fact",       "📋 Факты про юзера"),
+    ("note",       "💭 Заметки"),
+]
+
+
+def _format_adaptive_rules(module_memory: dict) -> str:
+    """Сформировать секцию «ВЫУЧЕННЫЕ ПРАВИЛА» для system prompt модуля.
+
+    Группирует learned items по типу, нумерует, отделяет жирным заголовком.
+    Если памяти нет — return friendly placeholder.
+
+    Legacy support: learned items без поля type (старый формат до Adaptive
+    Prompts) попадают в группу 'note'. Старые ключи module_memory{style,
+    preferences, constraints} как один блок остаются для совместимости.
+    """
+    if not isinstance(module_memory, dict):
+        return "  ничего ещё не выучено"
+
+    learned = module_memory.get("learned") or []
+    # Legacy: верхнеуровневые ключи style/preferences/constraints
+    legacy_blocks = []
+    for k in ("style", "preferences", "constraints"):
+        if module_memory.get(k):
+            legacy_blocks.append((k, module_memory[k]))
+
+    if not learned and not legacy_blocks:
+        return "  ничего ещё не выучено (это первый или второй вызов)"
+
+    # Группировка learned по type
+    groups: dict[str, list[dict]] = {t: [] for t, _ in _RULE_GROUP_HEADERS}
+    for L in learned:
+        if not isinstance(L, dict) or not L.get("note"):
+            continue
+        t = (L.get("type") or "note").lower()
+        if t not in groups:
+            t = "note"
+        groups[t].append(L)
+
+    lines: list[str] = [
+        "Эти правила ты вывел из прошлых взаимодействий. ОБЯЗАТЕЛЬНО СОБЛЮДАЙ их"
+        " при ответе — это и есть «прокачка» модуля.",
+        "",
+    ]
+
+    for key, header in _RULE_GROUP_HEADERS:
+        items = groups.get(key) or []
+        if not items:
+            continue
+        lines.append(header + ":")
+        # Сортируем по ts desc — свежие первые
+        items_sorted = sorted(items,
+                              key=lambda L: str(L.get("ts") or ""),
+                              reverse=True)
+        for i, L in enumerate(items_sorted[:10], 1):
+            lines.append(f"  {i}. {L['note']}")
+        lines.append("")
+
+    # Legacy блоки (если ещё есть)
+    if legacy_blocks:
+        lines.append("(legacy memory):")
+        for k, v in legacy_blocks:
+            lines.append(f"  • {k}: {v}")
+
+    return "\n".join(lines).strip() or "  ничего ещё не выучено"
+
+
+def _parse_learned_marker(raw: str) -> dict | None:
+    """Распарсить тело [LEARNED:...] маркера.
+
+    Возвращает {"scope": "module"/"global", "type": "note"/...,
+                 "note": str} или None если не распарсилось.
+
+    Поддерживает формы:
+      "просто текст"                  → {scope:module, type:note, note:"просто текст"}
+      "style: текст"                  → {scope:module, type:style, note:"текст"}
+      "global: текст"                 → {scope:global, type:note, note:"текст"}
+      "global:fact: текст"            → {scope:global, type:fact, note:"текст"}
+      "fact:global: текст"            → {scope:global, type:fact, note:"текст"}
+    """
+    s = raw.strip()
+    if not s:
+        return None
+    scope = "module"
+    type_ = "note"
+    # Префиксы до последнего ":" — это флаги; всё после — note.
+    # Но строка типа "note: текст с двоеточием" — note это first segment.
+    # Парсим жадно: отрезаем сегменты слева, пока они валидные флаги.
+    parts = s.split(":")
+    consumed = 0
+    for p in parts[:-1]:  # последний всегда note (даже если содержит ":")
+        token = p.strip().lower()
+        if token == "global":
+            scope = "global"
+            consumed += 1
+        elif token in _LEARNED_TYPES:
+            type_ = token
+            consumed += 1
+        else:
+            break  # это уже часть note
+    if consumed == len(parts) - 1:
+        # Все префиксы съели, последний сегмент — note
+        note = parts[-1].strip()
+    elif consumed == 0:
+        # Префиксов нет — вся строка note
+        note = s
+    else:
+        # Часть префиксов съели, остаток = consumed:] склеиваем обратно
+        note = ":".join(parts[consumed:]).strip()
+    note = note[:300]
+    if not note:
+        return None
+    return {"scope": scope, "type": type_, "note": note}
+
+
+def _is_duplicate_learned(learned: list[dict], new_item: dict) -> bool:
+    """True если такой же note уже есть в learned (case-insensitive, без пунктуации)."""
+    def _norm(s: str) -> str:
+        return re.sub(r"[^\w\s]", "", (s or "").lower()).strip()
+    new_norm = _norm(new_item.get("note", ""))
+    if not new_norm:
+        return True  # пусто — считаем дублем
+    for L in learned:
+        if isinstance(L, dict) and _norm(L.get("note", "")) == new_norm:
+            return True
+    return False
+
+
+def apply_module_memory_updates(memory: dict, updates: dict,
+                                 *, profile: dict | None = None) -> dict:
+    """Применить memory_updates к module_memory (мутирует dict + optionally profile).
+
+    updates форматы:
+      Новый: {"items": [{"scope","type","note"}, ...]}
+      Legacy: {"new_notes": ["txt", "txt2"]} — backward compat
+
+    Возвращает (мутированный) memory.
+
+    Если profile передан и встречаются items со scope=='global' — они также
+    добавляются в profile.facts (с key=type, value=note). Без profile —
+    global items сохраняются в module_memory как обычные, но не promoted.
+
+    Дедупликация: одинаковые notes (case-insensitive, без пунктуации)
+    не добавляются повторно.
+
+    Лимит на ход: 5 новых items (защита от LLM который пишет 20 LEARNED'ов).
+    Cap общего размера learned: 50 свежих.
+    """
     if not updates or not isinstance(memory, dict):
         return memory
-    new_notes = updates.get("new_notes") or []
-    if not new_notes:
+
+    items: list[dict] = []
+    if isinstance(updates.get("items"), list):
+        items = [x for x in updates["items"] if isinstance(x, dict)]
+    elif isinstance(updates.get("new_notes"), list):
+        # Backward compat: старый формат → конвертируем в items с scope=module/type=note
+        items = [{"scope": "module", "type": "note", "note": str(n)}
+                 for n in updates["new_notes"] if n]
+
+    if not items:
         return memory
+
     learned = memory.setdefault("learned", [])
-    for note in new_notes[:5]:  # лимит на ход
-        learned.append({"note": str(note)[:300],
-                        "ts": datetime.utcnow().isoformat()})
+    added_to_module = 0
+    promoted_to_profile = 0
+
+    for it in items[:5]:  # лимит на ход
+        note = (it.get("note") or "").strip()[:300]
+        if not note:
+            continue
+        scope = (it.get("scope") or "module").lower()
+        type_ = (it.get("type") or "note").lower()
+        if type_ not in _LEARNED_TYPES:
+            type_ = "note"
+        new_entry = {
+            "note": note,
+            "type": type_,
+            "ts": datetime.utcnow().isoformat(),
+        }
+        if _is_duplicate_learned(learned, new_entry):
+            continue
+        learned.append(new_entry)
+        added_to_module += 1
+
+        # Promotion в Memory Hub (profile_json) — если scope=global и
+        # profile dict передан вызывающей стороной.
+        if scope == "global" and isinstance(profile, dict):
+            facts = profile.setdefault("facts", [])
+            if isinstance(facts, list):
+                # Дедуп по value (нормализованному)
+                exists = any(
+                    isinstance(f, dict) and (f.get("value") or "").strip().lower() == note.lower()
+                    for f in facts
+                )
+                if not exists:
+                    facts.append({
+                        "key": type_,
+                        "value": note,
+                        "ts": datetime.utcnow().isoformat(),
+                        "source": "module_learned",
+                    })
+                    # Cap profile.facts до 50
+                    if len(facts) > 50:
+                        profile["facts"] = facts[-50:]
+                    promoted_to_profile += 1
+
     # Держим топ-50 заметок (старые отсекаем)
     if len(learned) > 50:
         memory["learned"] = learned[-50:]
+
     return memory
 
 

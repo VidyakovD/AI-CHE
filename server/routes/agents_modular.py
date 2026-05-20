@@ -528,10 +528,15 @@ def send_message(payload: SendMessagePayload,
                 level_up = False
                 if inv.get("ok"):
                     mod_content = inv["output"]
-                    # Применяем выученное модулем к его памяти
+                    # Применяем выученное модулем к его памяти.
+                    # profile передаётся для Adaptive Prompts promotion:
+                    # LEARNED:global маркеры мигрируют в Memory Hub (profile.facts).
                     if inv.get("memory_updates"):
-                        apply_module_memory_updates(mod_memory, inv["memory_updates"])
+                        apply_module_memory_updates(
+                            mod_memory, inv["memory_updates"], profile=profile
+                        )
                         target_mod.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
+                        a.profile_json = json.dumps(profile, ensure_ascii=False)
                     target_mod.last_used_at = datetime.utcnow()
                     # Прокачка считается только за успешные вызовы.
                     # Атомарный SQL +1 (multi-worker safe — заменяет RMW).
@@ -801,8 +806,12 @@ def invoke_module_now(slug: str,
                     model=f"agents.module:{slug}",
                 ))
         if inv.get("memory_updates"):
-            apply_module_memory_updates(mod_memory, inv["memory_updates"])
+            # Adaptive Prompts: scope=global → promotion в Memory Hub.
+            apply_module_memory_updates(
+                mod_memory, inv["memory_updates"], profile=profile
+            )
             m.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
+            a.profile_json = json.dumps(profile, ensure_ascii=False)
         m.last_used_at = datetime.utcnow()
         # Атомарный SQL +1 (multi-worker safe)
         new_count = increment_module_interaction(db, m)
@@ -1220,8 +1229,12 @@ async def fire_webhook(token: str, request: Request,
                     model=f"agents.module:{target.slug}",
                 ))
         if inv.get("memory_updates"):
-            apply_module_memory_updates(mod_memory, inv["memory_updates"])
+            # Adaptive Prompts: scope=global → promotion в Memory Hub.
+            apply_module_memory_updates(
+                mod_memory, inv["memory_updates"], profile=profile
+            )
             target.module_memory_json = json.dumps(mod_memory, ensure_ascii=False)
+            agent.profile_json = json.dumps(profile, ensure_ascii=False)
         target.last_used_at = datetime.utcnow()
         # Атомарный SQL +1 (multi-worker safe)
         new_count = increment_module_interaction(db, target)
