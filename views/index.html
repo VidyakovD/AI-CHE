@@ -192,6 +192,11 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{
 .ai-img-wrap:hover .ai-img-actions{opacity:1}
 .ai-img-btn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);color:#ffb347;border-radius:8px;border:1px solid rgba(255,179,71,0.25);cursor:pointer;transition:all .15s}
 .ai-img-btn:hover{background:rgba(255,140,66,0.85);color:#1e1a14;border-color:rgba(255,140,66,0.9);transform:scale(1.08)}
+/* Кликабельные ссылки внутри chat-сообщений (см. _linkifyText в JS).
+   Без визуального шума: цвет = primary, подчёркивание только при hover,
+   word-break чтобы длинные URL не раздували ширину пузыря. */
+.ai-link{color:#ffb347;text-decoration:none;border-bottom:1px dashed rgba(255,179,71,0.4);word-break:break-all;transition:all .15s}
+.ai-link:hover{color:#fff;border-bottom-color:#ff8c42;background:rgba(255,140,66,0.08);border-radius:3px;padding:0 2px;margin:0 -2px}
 /* Lightbox */
 /* Lightbox должен перекрывать ВСЁ, включая balance-pill (z:99996)
    и колокольчик-уведомления (z:99997). Иначе крестик «попадает» на
@@ -3676,6 +3681,31 @@ function addUserMsg(text,fileUrl,isImg,ts){
   c.appendChild(w);c.scrollTo({top:c.scrollHeight,behavior:"smooth"});
 }
 
+// Безопасный linkify для chat-сообщений: ESCAPE → детект URL → <a>.
+// Поддерживаем оба формата: markdown [text](url) и bare URL (https://...).
+// XSS-защита: escape ДО подстановки <a> (URL уже escaped внутрь href, target=_blank
+// + rel=noopener noreferrer не позволяют window.opener-атаки).
+function _linkifyText(text){
+  if(text == null) return '';
+  let s = String(text)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  // Сначала markdown-ссылки [label](url) — иначе bare-URL regex съест URL
+  // ИЗ скобок и ломает label.
+  s = s.replace(
+    /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="ai-link">$1</a>'
+  );
+  // Bare URLs — заворачиваем в <a>. Lookbehind через group для совместимости
+  // (без lookbehind в старых браузерах): требуем что перед URL либо начало строки,
+  // либо whitespace, либо НЕ-кавычка-НЕ-стрелка (чтобы не дёрнуть уже обёрнутый href).
+  s = s.replace(
+    /(^|[^"'=>\/])(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g,
+    '$1<a href="$2" target="_blank" rel="noopener noreferrer" class="ai-link">$2</a>'
+  );
+  return s;
+}
+
 function addMsg(content,role,type,ts){
   let text=content,fileUrl=null,isImg=false;
   try{const p=JSON.parse(content);if(p&&"file_url" in p){text=p.text||"";fileUrl=p.file_url;isImg=/\.(png|jpg|jpeg|gif|webp)$/i.test(fileUrl);}}catch{}
@@ -3736,7 +3766,7 @@ function addMsg(content,role,type,ts){
         <span class="text-[10px] uppercase tracking-widest text-primary font-bold">AI Студия Че</span>
       </div>
       <div class="glass ghost px-5 py-4 rounded-2xl rounded-bl-sm shadow-xl ${ebdr}">
-        <p class="text-on-surface text-sm leading-relaxed whitespace-pre-wrap">${esc(text)}</p>
+        <p class="text-on-surface text-sm leading-relaxed whitespace-pre-wrap">${_linkifyText(text)}</p>
       </div>
       <div class="flex items-center gap-3 pl-1">
         <span class="text-[10px] text-on-surface-dim/40">${_fmtTime(ts)}</span>
@@ -3841,7 +3871,7 @@ function buildUserHTML(text,fileUrl,isImg){
         <div class="w-8 h-8 rounded-md bg-primary/15 flex items-center justify-center"><span class="text-[10px] font-bold text-primary">${ext}</span></div>
         <span class="text-xs text-on-surface-dim truncate max-w-[140px]">${esc(n)}</span></div>`;}
   }
-  if(text)h+=`<p class="text-on-surface text-sm leading-relaxed whitespace-pre-wrap">${esc(text)}</p>`;
+  if(text)h+=`<p class="text-on-surface text-sm leading-relaxed whitespace-pre-wrap">${_linkifyText(text)}</p>`;
   return h;
 }
 

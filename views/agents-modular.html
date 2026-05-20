@@ -98,6 +98,12 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 .msg{max-width:78%;padding:11px 16px;border-radius:14px;font-size:14.5px;line-height:1.55;word-wrap:break-word;white-space:pre-wrap;position:relative}
 .msg.user{align-self:flex-end;background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;border-bottom-right-radius:4px}
 .msg.assistant{align-self:flex-start;background:#272018;color:#f0e6d8;border-bottom-left-radius:4px;border:1px solid rgba(74,63,47,0.35)}
+/* Кликабельные ссылки внутри сообщений Че и модулей. Без визуального шума:
+   цвет primary + dashed-underline; на hover полное подчёркивание + фон. */
+.msg .ai-link{color:#ffb347;text-decoration:none;border-bottom:1px dashed rgba(255,179,71,0.4);word-break:break-all;transition:all .15s}
+.msg .ai-link:hover{color:#fff;border-bottom-color:#ff8c42;background:rgba(255,140,66,0.08);border-radius:3px;padding:0 2px;margin:0 -2px}
+.msg.user .ai-link{color:#141210;border-bottom-color:rgba(20,18,16,0.5)}
+.msg.user .ai-link:hover{color:#000;background:rgba(0,0,0,0.1)}
 .msg.system{align-self:center;background:transparent;color:#a89880;font-size:12px;font-style:italic;max-width:100%;padding:4px 8px}
 /* Сообщение от модуля — отдельный стиль */
 .msg.tool{align-self:flex-start;background:#1e1f2a;color:#dde2ff;border-left:3px solid #6ec1ff;border-radius:8px;border-bottom-left-radius:4px;margin-left:10px}
@@ -463,6 +469,25 @@ let _modules = [];
 let _catalog = [];
 
 function _esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+// Безопасный linkify для chat-сообщений (Че + модули). Сначала escape (XSS),
+// потом markdown-ссылки и bare URL'ы → кликабельные <a target="_blank">.
+function _linkifyText(text){
+  if(text == null) return '';
+  let s = _esc(text);
+  // Markdown ссылки [text](url) — сначала, иначе bare-URL regex съест url
+  // из скобок и сломает label.
+  s = s.replace(
+    /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="ai-link">$1</a>'
+  );
+  // Bare URLs (не внутри уже обёрнутого href)
+  s = s.replace(
+    /(^|[^"'=>\/])(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g,
+    '$1<a href="$2" target="_blank" rel="noopener noreferrer" class="ai-link">$2</a>'
+  );
+  return s;
+}
 
 async function loadBalance(){
   try{
@@ -1372,10 +1397,11 @@ function _msgEl(m){
       (levelUp ? ` <span class="levelup">⬆ повышен!</span>` : '');
     div.appendChild(hdr);
     const body = document.createElement('div');
-    body.textContent = m.content || '';
+    // _linkifyText сам делает escape — безопасно использовать innerHTML.
+    body.innerHTML = _linkifyText(m.content || '');
     div.appendChild(body);
   } else {
-    div.textContent = m.content || '';
+    div.innerHTML = _linkifyText(m.content || '');
   }
   return div;
 }
