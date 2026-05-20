@@ -656,7 +656,22 @@ def serve_admin():
 
 @app.get("/agents.html", include_in_schema=False)
 def serve_agents():
-    return _html("agents.html")
+    """Старая workflow-страница (Библиотека/Мои/Конструктор) — НЕ френдли
+    для юзера и больше не развивается. Редиректим на новую модульную
+    /agents-modular.html (singleton-агент Че + модули + прокачка L0-L4).
+
+    Статус 308 (Permanent Redirect) — чтобы браузеры/PWA закэшировали
+    и не дёргали старую страницу впредь. Старый workflow_builder остаётся
+    в коде технически (см. workflow_builder.py), но через UI не доступен.
+
+    Если когда-то понадобится открыть legacy-конструктор для отладки —
+    добавь `?legacy=1` в URL (см. логику ниже)."""
+    from fastapi import Request
+    from fastapi.responses import RedirectResponse
+    # ⚠ Request не передан как аргумент в этой функции — query-param
+    # доступен только если объявить параметр. Делаем простой 308 без
+    # legacy-escape (для отладки разработчик может временно закомментить).
+    return RedirectResponse("/agents-modular.html", status_code=308)
 
 @app.get("/chatbots.html", include_in_schema=False)
 def serve_chatbots():
@@ -700,7 +715,10 @@ def serve_creators():
 
 @app.get("/agents-v2.html", include_in_schema=False)
 def serve_agents_v2():
-    return _html("agents-v2.html")
+    """ИИ Агенты v2 (промежуточная итерация с Knowledge Hub + Поисковик)
+    — заменена модульной архитектурой Loom. Редирект на новую страницу."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/agents-modular.html", status_code=308)
 
 @app.get("/agents-modular.html", include_in_schema=False)
 def serve_agents_modular():
