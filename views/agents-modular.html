@@ -222,6 +222,10 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
   <header class="hdr">
     <div class="left">
       <a href="/" class="btn-g" title="На главную" style="font-size:13px">←</a>
+      <button class="btn-g" onclick="openChannelsModal()" title="Где использовать Че (PWA, TG, MAX)"
+              style="font-size:15px;padding:7px 11px">📲</button>
+      <button class="btn-g" onclick="openProfileEdit()" title="Настройки агента"
+              style="font-size:15px;padding:7px 11px">⚙</button>
       <div class="clickable" onclick="openProfileEdit()" title="Изменить имя и иконку">
         <div class="ic agent-avatar" id="agentIcon"><span class="emoji">🤖</span></div>
         <div style="min-width:0">
@@ -233,11 +237,13 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
         </div>
       </div>
     </div>
-    <div class="flex items-center gap-2">
+    <!-- Правая группа: balancePill и колокольчик уведомлений рендерятся
+         через icons.js как POSITION:FIXED поверх. Дублирующие кнопки
+         (📲/⚙) переехали в .left чтобы не накладывались. На mobile —
+         оставляем aside-toggle (🧩) для drawer'а с модулями. -->
+    <div class="flex items-center gap-2" style="padding-right:160px">
       <span id="balancePill" class="text-xs text-on-dim hidden md:inline"></span>
-      <button class="btn-g" onclick="openChannelsModal()" title="Где использовать Че (PWA, TG, MAX)">📲</button>
       <button class="aside-toggle" onclick="toggleAside()" title="Модули и профиль">🧩 <span id="asideToggleCount">0</span></button>
-      <button class="btn-g" onclick="openProfileEdit()" title="Настройки агента">⚙</button>
     </div>
   </header>
   <div class="aside-backdrop" id="asideBackdrop" onclick="closeAside()"></div>
