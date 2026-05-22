@@ -459,6 +459,143 @@ def prepare_item_endpoint(
     }
 
 
+@router.post("/brands/{brand_id}/bulk-prepare")
+def bulk_prepare_brand(
+    brand_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Подготовить ВСЕ planned-посты бренда одной командой.
+
+    Сценарий: юзер сгенерил контент-план (30-50 постов на месяц), теперь
+    хочет нажать одну кнопку и получить ready posts со всем сгенерированным
+    контентом. Ручной prepare каждого поста — занудно.
+
+    Логика:
+      - Берём ContentItem где status='planned' для этого бренда
+      - Лимит 10 за раз (защита от 30-минутной блокировки воркера + от
+        случайного списания тысячи рублей одним кликом). Если planned > 10
+        — юзер нажмёт снова, остальные подготовим за следующий вызов.
+      - Сначала пытаемся за freemium-credits, потом за деньги. Pre-check
+        общего баланса ДО старта.
+      - Если конкретный пост упал — refund его charge, остальные продолжают.
+      - Не запускаем concurrent (синхронный цикл) — _prepare_item_pipeline
+        дёргает LLM, не хотим N параллельных запросов к Anthropic.
+
+    Returns: {total_planned, prepared, failed_count, total_charged_kop,
+              total_free_used, errors: [{item_id, error}, ...]}
+    """
+    brand = db.query(CreatorBrand).filter_by(id=brand_id, user_id=user.id).first()
+    if not brand:
+        raise HTTPException(404, "Бренд не найден")
+
+    # Все planned-посты бренда (через calendar)
+    items_q = (db.query(ContentItem)
+                 .join(ContentCalendar, ContentItem.calendar_id == ContentCalendar.id)
+                 .filter(ContentCalendar.brand_id == brand_id,
+                         ContentItem.status == "planned")
+                 .order_by(ContentItem.schedule_at.asc()))
+    total_planned = items_q.count()
+    if total_planned == 0:
+        return {"total_planned": 0, "prepared": 0, "failed_count": 0,
+                "total_charged_kop": 0, "total_free_used": 0, "errors": [],
+                "message": "Нет planned-постов для подготовки"}
+
+    BULK_LIMIT = 10
+    items = items_q.limit(BULK_LIMIT).all()
+
+    # Pre-check бюджета: посчитаем максимальную стоимость (без freemium-скидки)
+    # — лучше отказать сейчас, чем потратить половину и упереться в баланс.
+    fs = freemium_status(brand)
+    free_remaining = fs["remaining"]
+    max_paid_count = max(0, len(items) - free_remaining)
+    max_cost_kop = sum(compute_cost_kop(it) for it in items[free_remaining:]) if max_paid_count > 0 else 0
+    if max_cost_kop > 0 and int(user.tokens_balance or 0) < max_cost_kop:
+        raise HTTPException(402,
+            f"Может потребоваться до {max_cost_kop / 100:.2f} ₽ за {max_paid_count} "
+            f"платных постов (после {free_remaining} бесплатных). Пополни баланс "
+            "или подготовь посты по одному.")
+
+    prepared = 0
+    failed_count = 0
+    total_charged_kop = 0
+    total_free_used = 0
+    errors: list[dict] = []
+
+    for item in items:
+        cost_kop = compute_cost_kop(item)
+        # Freemium first
+        used_free = consume_freemium(db, brand.id) if free_remaining > 0 else False
+        charged_kop = 0
+        if not used_free:
+            if not deduct_strict(db, user.id, cost_kop):
+                # Баланс закончился (могла произойти конкурентная трата) — стоп
+                errors.append({"item_id": item.id, "error": "Недостаточно средств"})
+                failed_count += 1
+                continue
+            charged_kop = cost_kop
+            db.add(Transaction(
+                user_id=user.id, type="usage", tokens_delta=-cost_kop,
+                description=f"Creators · bulk-prepare (бренд {brand.id})",
+                model="claude-sonnet-4-6" + (" + sonar-pro" if item.is_news else ""),
+            ))
+        else:
+            total_free_used += 1
+            free_remaining -= 1
+
+        item.status = "preparing"
+        db.commit()
+
+        try:
+            # with_image=False для bulk — слишком дорого/долго на 10 постов.
+            # Юзер может перегенерировать с картинкой отдельно для нужных.
+            result = _prepare_item_pipeline(item, brand, user_id=user.id,
+                                            with_image=False, db=db)
+            item.prepared_content_md = result["text"] or None
+            item.prepared_media_url = result["media_url"]
+            item.status = "ready"
+            item.cost_kop = (item.cost_kop or 0) + charged_kop
+            item.error = None
+            db.commit()
+            db.refresh(item)
+            prepared += 1
+            total_charged_kop += charged_kop
+            log_action(
+                "creator.item_prepared_bulk", user_id=user.id, item_id=item.id,
+                brand_id=brand.id, cost_kop=charged_kop, freemium=used_free,
+            )
+        except Exception as e:
+            log.exception("[creators.bulk-prepare] item=%s failed: %s", item.id, e)
+            # Refund — деньги и freemium
+            if charged_kop > 0:
+                from server.billing import credit_atomic
+                credit_atomic(db, user.id, charged_kop)
+                db.add(Transaction(
+                    user_id=user.id, type="refund", tokens_delta=charged_kop,
+                    description=f"Creators refund · bulk-prepare #{item.id}",
+                ))
+            if used_free:
+                refund_freemium(db, brand.id)
+                free_remaining += 1
+                total_free_used -= 1
+            item.status = "planned"
+            item.error = str(e)[:500]
+            db.commit()
+            errors.append({"item_id": item.id, "error": str(e)[:200]})
+            failed_count += 1
+
+    return {
+        "total_planned": total_planned,
+        "prepared": prepared,
+        "failed_count": failed_count,
+        "total_charged_kop": total_charged_kop,
+        "total_free_used": total_free_used,
+        "errors": errors,
+        "remaining_planned": max(0, total_planned - len(items)),
+        "freemium_after": freemium_status(brand),
+    }
+
+
 @router.delete("/items/{item_id}")
 def delete_item(
     item_id: int,

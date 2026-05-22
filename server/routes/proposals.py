@@ -249,6 +249,9 @@ class ProposalCreateBody(BaseModel):
     client_site_url: str | None = None
     extra_notes: str | None = None
     header_layout: str | None = None  # classic | banner | centered | minimal
+    # Auto-followup cron: если КП открыт не был за 3 дня, шлём напоминание.
+    # Юзер может выключить per-проект через UI (toggle в карточке КП).
+    auto_followup_enabled: bool | None = None
 
 
 def _project_to_dict(p: ProposalProject, full: bool = False, db=None) -> dict:
@@ -270,6 +273,12 @@ def _project_to_dict(p: ProposalProject, full: bool = False, db=None) -> dict:
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }
     base["header_layout"] = getattr(p, "header_layout", None) or "classic"
+    # Auto-followup статус (cron шлёт напоминалки если КП не открыт за 3 дня)
+    base["auto_followup_enabled"] = bool(getattr(p, "auto_followup_enabled", True))
+    base["followup_sent_at"] = (
+        p.followup_sent_at.isoformat()
+        if getattr(p, "followup_sent_at", None) else None
+    )
     # Подпись клиента (если есть)
     if db is not None:
         try:
@@ -437,6 +446,8 @@ def update_project(project_id: int, body: ProposalCreateBody,
         layout = (body.header_layout or "classic").strip().lower()
         if layout in ("classic", "banner", "centered", "minimal"):
             p.header_layout = layout
+    if body.auto_followup_enabled is not None:
+        p.auto_followup_enabled = bool(body.auto_followup_enabled)
     db.commit(); db.refresh(p)
     return _project_to_dict(p, full=True, db=db)
 

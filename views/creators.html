@@ -145,6 +145,10 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
         <button class="btn-p" id="genPlanBtn" onclick="generatePlan()">
           ✨ Сгенерировать
         </button>
+        <button class="btn-g" id="bulkPrepareBtn" onclick="bulkPrepare()" style="display:none"
+                title="Подготовить ВСЕ planned-посты бренда одной командой (до 10 за раз, без картинок)">
+          🚀 Подготовить все planned
+        </button>
       </div>
     </div>
 
@@ -683,8 +687,74 @@ async function loadCalendar(){
     _items = d.items || [];
     renderCalendar();
     renderStats();
+    _updateBulkPrepareBtn();
   }catch(e){
     console.error(e);
+  }
+}
+
+// Показать/спрятать кнопку «Подготовить все planned» в зависимости от
+// наличия planned-постов в текущем календаре бренда. Бессмысленно
+// если все ready / опубликованы.
+function _updateBulkPrepareBtn(){
+  const btn = document.getElementById('bulkPrepareBtn');
+  if(!btn) return;
+  const plannedCount = (_items || []).filter(i => i.status === 'planned').length;
+  if(plannedCount > 0){
+    btn.style.display = 'inline-flex';
+    btn.textContent = `🚀 Подготовить все planned (${plannedCount})`;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+async function bulkPrepare(){
+  const b = currentBrand();
+  if(!b) return;
+  const btn = document.getElementById('bulkPrepareBtn');
+  if(!btn) return;
+  const plannedCount = (_items || []).filter(i => i.status === 'planned').length;
+
+  const ok = await (window.aiConfirm
+    ? window.aiConfirm(
+        `Подготовить до 10 planned-постов бренда «${b.name}» одной командой?\n\n` +
+        `Сначала пойдут бесплатные слоты (3/мес), дальше — платно (15-30 ₽ за пост).\n` +
+        `Без картинок — для скорости. Картинки можно перегенерировать отдельно для нужных.\n\n` +
+        (plannedCount > 10 ? `Сейчас planned: ${plannedCount}. Подготовим 10, остальные останутся в planned — повтори когда захочешь.\n\n` : '') +
+        `Продолжить?`,
+        {okLabel: 'Запустить'})
+    : Promise.resolve(confirm('Подготовить все planned?')));
+  if(!ok) return;
+
+  const oldLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Готовлю...';
+  try{
+    const r = await fetch(`/creators/brands/${b.id}/bulk-prepare`, {
+      method: 'POST', credentials: 'include',
+    });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || 'Ошибка ' + r.status);
+
+    const msg = [];
+    msg.push(`✓ Подготовлено: ${d.prepared} из ${Math.min(10, d.total_planned)}`);
+    if(d.failed_count > 0) msg.push(`✗ Не удалось: ${d.failed_count}`);
+    if(d.total_charged_kop > 0) msg.push(`💸 Списано: ${(d.total_charged_kop / 100).toFixed(2)} ₽`);
+    if(d.total_free_used > 0) msg.push(`🎁 Бесплатных: ${d.total_free_used}`);
+    if(d.remaining_planned > 0) msg.push(`\n⏰ Осталось planned: ${d.remaining_planned} — нажми «Подготовить» ещё раз когда захочешь.`);
+
+    if(window.aiAlert){
+      await window.aiAlert(msg.join('\n'), d.failed_count > 0 ? 'warn' : 'success');
+    }
+    // Перезагружаем календарь чтобы увидеть обновлённые статусы
+    await loadCalendar();
+    await loadFreemium();
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Ошибка: ' + e.message, 'error');
+    else alert('Ошибка: ' + e.message);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = oldLabel;
   }
 }
 

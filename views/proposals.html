@@ -242,6 +242,17 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
         <label>Доп. инструкции (опц.)</label>
         <textarea id="pNotes" rows="2" class="inp resize-none" placeholder="Сделай акцент на скорость поставки. Спецпредложение: -10% при заказе до конца месяца."></textarea>
       </div>
+      <!-- Auto-followup toggle: cron шлёт клиенту напоминалку если КП не открыт за 3 дня -->
+      <div class="field" id="pFollowupWrap" style="display:none">
+        <label class="flex items-center gap-2 cursor-pointer select-none m-0">
+          <input type="checkbox" id="pAutoFollowup" class="accent-[#ff8c42]" style="width:16px;height:16px"/>
+          <span class="text-sm">📧 Авто-напоминание клиенту через 3 дня</span>
+        </label>
+        <p class="text-xs text-on-dim mt-1.5 ml-6">
+          Если клиент не откроет КП за 3 дня — пришлём ему вежливое напоминание в тот же email-thread. Включено по умолчанию.
+          <span id="pFollowupSentInfo" class="text-primary"></span>
+        </p>
+      </div>
     </div>
     <!-- Превью сгенерированного КП -->
     <div id="pResult" class="hidden border-t border-outline/15 bg-surface2/40 p-5">
@@ -958,6 +969,23 @@ async function openProject(id){
   // При редактировании существующего КП шаблоны не нужны
   const tplWrap = document.getElementById('proposalTplWrap');
   if(tplWrap) tplWrap.style.display = 'none';
+  // Toggle auto-followup виден только когда КП уже отправлен (есть смысл)
+  const followupWrap = document.getElementById('pFollowupWrap');
+  if(followupWrap){
+    followupWrap.style.display = p.sent_at ? '' : 'none';
+    const cb = document.getElementById('pAutoFollowup');
+    if(cb) cb.checked = (p.auto_followup_enabled !== false);
+    // Показать инфо если followup уже был отправлен
+    const info = document.getElementById('pFollowupSentInfo');
+    if(info){
+      if(p.followup_sent_at){
+        const dt = new Date(p.followup_sent_at);
+        info.textContent = ` ✓ Напоминание отправлено ${dt.toLocaleDateString('ru-RU')}.`;
+      } else {
+        info.textContent = '';
+      }
+    }
+  }
   document.getElementById('projectModalTitle').textContent = p.name;
   document.getElementById('pNa').value = p.name || '';
   document.getElementById('pClientName').value = p.client_name || '';
@@ -1596,6 +1624,12 @@ async function saveProject(silent){
     extra_notes: document.getElementById('pNotes').value.trim() || null,
     header_layout: document.getElementById('pHeaderLayoutVal').value || 'classic',
   };
+  // Auto-followup toggle (только для существующих КП и если виден)
+  const fwCb = document.getElementById('pAutoFollowup');
+  const fwWrap = document.getElementById('pFollowupWrap');
+  if(currentProjectId && fwCb && fwWrap && fwWrap.style.display !== 'none'){
+    body.auto_followup_enabled = !!fwCb.checked;
+  }
   if(!body.name){ await aiAlert('Введите название КП', 'warn'); return false; }
   const url = currentProjectId
     ? `${API}/proposals/projects/${currentProjectId}`
