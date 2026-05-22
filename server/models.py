@@ -1667,6 +1667,18 @@ class ContentItem(Base):
     published_at    = Column(DateTime, nullable=True)
     error           = Column(Text, nullable=True)
     manual_override = Column(Boolean, default=False)                  # юзер отредактировал руками
+    # ID опубликованного поста на платформе (для последующего fetch'а метрик).
+    # TG: message_id (число, но храним как строку для совместимости).
+    # VK: post_id (число, как строка).
+    # YT/IG: пока пусто (auto-publish не поддерживается).
+    external_post_id  = Column(String, nullable=True)
+    external_chat_id  = Column(String, nullable=True)                 # для TG — куда отправили
+    # Метрики (обновляются cron'ом creators_metrics_loop раз в 6 часов).
+    stats_views     = Column(Integer, default=0)
+    stats_likes     = Column(Integer, default=0)
+    stats_comments  = Column(Integer, default=0)
+    stats_shares    = Column(Integer, default=0)
+    stats_fetched_at = Column(DateTime, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
 
     calendar = relationship("ContentCalendar", backref="items")

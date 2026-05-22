@@ -40,18 +40,33 @@ async def publish_to_tg(conn: CreatorChannelConnection, item: ContentItem) -> di
 
     if media:
         # Caption в TG ограничен 1024 символами — если текст длиннее, отправим
-        # картинку без caption и текст отдельным сообщением
+        # картинку без caption и текст отдельным сообщением. Тогда метрики
+        # cron будет fetcher по ID ТЕКСТОВОГО сообщения (длинный пост виден
+        # сразу при открытии поста — там основные views).
         if len(text) > 1000:
             r1 = await send_telegram_photo(conn.token, conn.channel_id, media, caption="")
             r2 = await send_telegram(conn.token, conn.channel_id, text, parse_mode=None)
             ok = bool(r1.get("ok") and r2.get("ok"))
-            return {"ok": ok, "result": [r1, r2]}
+            msg_id = (r2.get("result") or {}).get("message_id") if ok else None
+            chat = (r2.get("result") or {}).get("chat") or {}
+            return {"ok": ok, "external_post_id": str(msg_id) if msg_id else None,
+                    "external_chat_id": str(chat.get("id") or chat.get("username") or conn.channel_id),
+                    "result": [r1, r2]}
         else:
             r = await send_telegram_photo(conn.token, conn.channel_id, media,
                                            caption=text, parse_mode=None)
+            msg_id = (r.get("result") or {}).get("message_id") if r.get("ok") else None
+            chat = (r.get("result") or {}).get("chat") or {}
+            r["external_post_id"] = str(msg_id) if msg_id else None
+            r["external_chat_id"] = str(chat.get("id") or chat.get("username") or conn.channel_id)
             return r
     else:
-        return await send_telegram(conn.token, conn.channel_id, text, parse_mode=None)
+        r = await send_telegram(conn.token, conn.channel_id, text, parse_mode=None)
+        msg_id = (r.get("result") or {}).get("message_id") if r.get("ok") else None
+        chat = (r.get("result") or {}).get("chat") or {}
+        r["external_post_id"] = str(msg_id) if msg_id else None
+        r["external_chat_id"] = str(chat.get("id") or chat.get("username") or conn.channel_id)
+        return r
 
 
 def _platform_supports_auto_publish(platform: str) -> bool:
@@ -60,13 +75,21 @@ def _platform_supports_auto_publish(platform: str) -> bool:
 
 
 async def publish_to_vk(conn: CreatorChannelConnection, item: ContentItem) -> dict:
-    """Публикация на стену VK-сообщества."""
+    """Публикация на стену VK-сообщества.
+
+    Возвращает {ok, post_id, external_post_id, external_chat_id} —
+    дополнительно external_* для creators_metrics_loop (cron fetch metrics).
+    """
     from server.creators_vk import publish_to_vk_wall
     if not conn.token or not conn.channel_id:
         return {"ok": False, "description": "Не настроен token или community_id"}
     text = (item.prepared_content_md or "").strip()
     media = item.prepared_media_url
-    return await publish_to_vk_wall(conn.token, conn.channel_id, text, media)
+    r = await publish_to_vk_wall(conn.token, conn.channel_id, text, media)
+    if r.get("ok") and r.get("post_id"):
+        r["external_post_id"] = str(r["post_id"])
+        r["external_chat_id"] = str(conn.channel_id)
+    return r
 
 
 async def publish_item(db: Session, item: ContentItem) -> dict:
@@ -110,6 +133,12 @@ async def publish_item(db: Session, item: ContentItem) -> dict:
         item.status = "published"
         item.published_at = datetime.utcnow()
         item.error = None
+        # Сохраняем external_post_id чтобы cron потом fetch'нул метрики
+        # (см. server/cron/creators_metrics.py).
+        if result.get("external_post_id"):
+            item.external_post_id = result["external_post_id"]
+        if result.get("external_chat_id"):
+            item.external_chat_id = result["external_chat_id"]
         conn.fail_count = 0
         db.commit()
 

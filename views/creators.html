@@ -67,6 +67,13 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
 .cal-item.dragging{opacity:.4}
 .cal-item[draggable="true"]{cursor:grab}
 .cal-item[draggable="true"]:active{cursor:grabbing}
+/* Метрики опубликованного поста (im_metrics_box) */
+.metrics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.metric-card{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#272018;border:1px solid rgba(74,63,47,.4);border-radius:10px}
+.metric-em{font-size:22px;line-height:1;flex-shrink:0}
+.metric-num{font-size:18px;font-weight:700;color:#ffb347;font-variant-numeric:tabular-nums;line-height:1.1}
+.metric-lbl{font-size:10.5px;color:#a89880;text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
+.metric-card.hidden{display:none}
 .cal-cell-date{font-weight:600;color:#f0e6d8;font-size:12px;display:flex;justify-content:space-between;align-items:center}
 .cal-cell-date .cnt{font-size:10px;color:#a89880;font-weight:500}
 .cal-cell-items{display:flex;flex-direction:column;gap:3px;overflow:hidden}
@@ -361,6 +368,31 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
       <div id="im_prepared_image_wrap" class="mt-2" style="display:none">
         <img id="im_prepared_image" alt="" style="max-width:100%;border-radius:8px;border:1px solid rgba(74,63,47,.4)"/>
       </div>
+    </div>
+    <!-- Метрики опубликованного поста (TG views, VK views/likes/comments/reposts) -->
+    <div id="im_metrics_box" class="mt-4" style="display:none">
+      <div class="flex items-center justify-between mb-2">
+        <label class="lbl m-0">📊 Метрики поста</label>
+        <button class="btn-g" id="im_refresh_metrics_btn" onclick="refreshMetrics()"
+                style="font-size:11px;padding:4px 10px" title="Получить свежие цифры с платформы">
+          ↻ Обновить
+        </button>
+      </div>
+      <div class="metrics-grid">
+        <div class="metric-card"><span class="metric-em">👁</span>
+          <div><div class="metric-num" id="im_views">—</div><div class="metric-lbl">Просмотры</div></div>
+        </div>
+        <div class="metric-card" id="im_likes_card"><span class="metric-em">❤</span>
+          <div><div class="metric-num" id="im_likes">—</div><div class="metric-lbl">Лайки</div></div>
+        </div>
+        <div class="metric-card" id="im_comments_card"><span class="metric-em">💬</span>
+          <div><div class="metric-num" id="im_comments">—</div><div class="metric-lbl">Комменты</div></div>
+        </div>
+        <div class="metric-card" id="im_shares_card"><span class="metric-em">🔁</span>
+          <div><div class="metric-num" id="im_shares">—</div><div class="metric-lbl">Репосты</div></div>
+        </div>
+      </div>
+      <p class="text-xs text-on-dim mt-2" id="im_metrics_freshness"></p>
     </div>
 
     <div class="flex items-center justify-between gap-3 mt-6 flex-wrap">
@@ -1400,6 +1432,25 @@ function openItemModal(item){
     prepBox.style.display = 'none';
   }
 
+  // Метрики published-поста
+  const metricsBox = document.getElementById('im_metrics_box');
+  if(item.status === 'published' && item.external_post_id){
+    metricsBox.style.display = 'block';
+    _renderItemMetrics(item);
+  } else if(item.status === 'published' && !item.external_post_id){
+    metricsBox.style.display = 'block';
+    // Старый пост без tracking — показать заглушку
+    document.getElementById('im_views').textContent = '—';
+    document.getElementById('im_likes').textContent = '—';
+    document.getElementById('im_comments').textContent = '—';
+    document.getElementById('im_shares').textContent = '—';
+    document.getElementById('im_metrics_freshness').textContent =
+      '⚠ Этот пост был опубликован до добавления tracking — метрик нет';
+    document.getElementById('im_refresh_metrics_btn').style.display = 'none';
+  } else {
+    metricsBox.style.display = 'none';
+  }
+
   // Prepare button + freemium hint
   const prepBtn = document.getElementById('im_prep_btn');
   const pubBtn = document.getElementById('im_pub_btn');
@@ -1418,6 +1469,70 @@ function openItemModal(item){
   updatePrepHint(item);
 
   document.getElementById('itemModal').classList.add('show');
+}
+
+// ── Metrics ──────────────────────────────────────────────────────────────────
+// Рендер метрик в im_metrics_box. Скрываем counters которых нет (TG: только
+// views, comments/reposts через preview не получаем).
+function _renderItemMetrics(item){
+  const fmt = (n) => {
+    n = Number(n) || 0;
+    if(n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace('.0','') + 'M';
+    if(n >= 1000) return (n / 1000).toFixed(1).replace('.0','') + 'K';
+    return String(n);
+  };
+  document.getElementById('im_views').textContent = fmt(item.stats_views);
+  document.getElementById('im_likes').textContent = fmt(item.stats_likes);
+  document.getElementById('im_comments').textContent = fmt(item.stats_comments);
+  document.getElementById('im_shares').textContent = fmt(item.stats_shares);
+  // Для TG скрываем лайки/комменты/репосты — там нет этих метрик в preview
+  const isTg = item.platform === 'tg';
+  document.getElementById('im_likes_card').classList.toggle('hidden', isTg);
+  document.getElementById('im_comments_card').classList.toggle('hidden', isTg);
+  document.getElementById('im_shares_card').classList.toggle('hidden', isTg);
+  // Свежесть данных
+  const fresh = document.getElementById('im_metrics_freshness');
+  document.getElementById('im_refresh_metrics_btn').style.display = '';
+  if(item.stats_fetched_at){
+    const dt = new Date(item.stats_fetched_at);
+    const ageMin = Math.floor((Date.now() - dt.getTime()) / 60000);
+    let ageText;
+    if(ageMin < 1) ageText = 'только что';
+    else if(ageMin < 60) ageText = `${ageMin} мин назад`;
+    else if(ageMin < 1440) ageText = `${Math.floor(ageMin / 60)} ч назад`;
+    else ageText = `${Math.floor(ageMin / 1440)} дн назад`;
+    fresh.textContent = `Обновлено ${ageText}. Автоматический refresh раз в 6 часов (свежие посты — приоритет).`;
+  } else {
+    fresh.textContent = 'Метрики ещё не загружены. Нажми «Обновить» или дождись авто-fetch через ~6 часов.';
+  }
+}
+
+async function refreshMetrics(){
+  if(!_editingItemId) return;
+  const btn = document.getElementById('im_refresh_metrics_btn');
+  if(!btn) return;
+  const oldLbl = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  try{
+    const r = await fetch(`/creators/items/${_editingItemId}/refresh-metrics`, {
+      method: 'POST', credentials: 'include',
+    });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || 'HTTP '+r.status);
+    if(d.item){
+      _renderItemMetrics(d.item);
+      // Обновим item в _items чтобы при переоткрытии модалки была свежая
+      const idx = _items.findIndex(x => x.id === d.item.id);
+      if(idx >= 0) _items[idx] = d.item;
+    }
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Не удалось получить метрики: '+e.message, 'error');
+    else alert(e.message);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = oldLbl;
+  }
 }
 
 function updatePrepHint(item){

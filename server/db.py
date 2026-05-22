@@ -198,6 +198,14 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # Auto-followup для КП: cron шлёт напоминалку клиенту если КП открыт не был
     ("proposal_projects", "auto_followup_enabled", "BOOLEAN DEFAULT 1"),
     ("proposal_projects", "followup_sent_at", "DATETIME"),
+    # Аналитика опубликованных постов Креаторов (TG/VK metrics, 2026-05-22)
+    ("content_items", "external_post_id", "VARCHAR"),
+    ("content_items", "external_chat_id", "VARCHAR"),
+    ("content_items", "stats_views", "INTEGER DEFAULT 0"),
+    ("content_items", "stats_likes", "INTEGER DEFAULT 0"),
+    ("content_items", "stats_comments", "INTEGER DEFAULT 0"),
+    ("content_items", "stats_shares", "INTEGER DEFAULT 0"),
+    ("content_items", "stats_fetched_at", "DATETIME"),
     # Презентации — переработанный модуль (см. server/presentation_builder.py)
     ("presentation_projects", "topic", "VARCHAR"),
     ("presentation_projects", "audience", "VARCHAR"),

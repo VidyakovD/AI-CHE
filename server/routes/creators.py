@@ -658,6 +658,58 @@ def bulk_prepare_brand(
     }
 
 
+@router.post("/items/{item_id}/refresh-metrics")
+async def refresh_item_metrics(
+    item_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Manual fetch метрик одного поста (юзер нажал «Обновить» в UI).
+
+    Cron делает это раз в 6 часов автоматически. Endpoint — для UX
+    «хочу посмотреть прямо сейчас». Без биллинга (трафик копеечный).
+    """
+    item = (db.query(ContentItem)
+              .join(ContentCalendar, ContentItem.calendar_id == ContentCalendar.id)
+              .join(CreatorBrand, ContentCalendar.brand_id == CreatorBrand.id)
+              .filter(ContentItem.id == item_id,
+                      CreatorBrand.user_id == user.id)
+              .first())
+    if not item:
+        raise HTTPException(404, "Пост не найден")
+    if item.status != "published":
+        raise HTTPException(400, "Метрики доступны только для опубликованных постов")
+    if not item.external_post_id:
+        raise HTTPException(400, "external_post_id не записан (старый пост без tracking)")
+
+    # Pre-load токен бренда
+    cal = db.query(ContentCalendar).filter_by(id=item.calendar_id).first()
+    conn = (db.query(CreatorChannelConnection)
+              .filter_by(brand_id=cal.brand_id, platform=item.platform, is_active=True)
+              .first())
+    token = conn.token if conn else None
+    if item.platform == "vk" and not token:
+        raise HTTPException(400, "Нет активного VK-канала бренда (нужен токен для wall.getById)")
+
+    from server.creators_metrics import fetch_item_stats
+    try:
+        stats = await fetch_item_stats(item, token or "")
+    except Exception as e:
+        raise HTTPException(500, f"Не удалось получить метрики: {e!s:.140}")
+    if stats is None:
+        raise HTTPException(502, "API платформы не вернул данных")
+
+    item.stats_views = int(stats.get("views") or 0)
+    item.stats_likes = int(stats.get("likes") or 0)
+    item.stats_comments = int(stats.get("comments") or 0)
+    item.stats_shares = int(stats.get("shares") or 0)
+    item.stats_fetched_at = datetime.utcnow()
+    db.commit()
+    db.refresh(item)
+
+    return {"ok": True, "item": _item_dict(item)}
+
+
 @router.delete("/items/{item_id}")
 def delete_item(
     item_id: int,
@@ -986,6 +1038,14 @@ def _item_dict(i: ContentItem) -> dict:
         "cost_kop": int(i.cost_kop or 0),
         "published_at": i.published_at.isoformat() if i.published_at else None,
         "manual_override": bool(i.manual_override),
+        # Метрики опубликованного поста (cron creators_metrics_loop обновляет)
+        "external_post_id": i.external_post_id,
+        "stats_views":    int(getattr(i, "stats_views", 0) or 0),
+        "stats_likes":    int(getattr(i, "stats_likes", 0) or 0),
+        "stats_comments": int(getattr(i, "stats_comments", 0) or 0),
+        "stats_shares":   int(getattr(i, "stats_shares", 0) or 0),
+        "stats_fetched_at": (i.stats_fetched_at.isoformat()
+                             if getattr(i, "stats_fetched_at", None) else None),
     }
 
 
