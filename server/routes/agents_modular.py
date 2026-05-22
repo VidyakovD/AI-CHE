@@ -1305,6 +1305,7 @@ _CATEGORY_MAP = {
     "bot_tg": "automation", "bot_site": "automation", "bot_vk": "automation",
     # Личные ассистенты (для самого юзера, а не для его клиентов)
     "mail": "personal", "finance": "personal",
+    "nutrition": "personal", "notes": "personal",
     # Разработка
     "developer": "dev",
 }
