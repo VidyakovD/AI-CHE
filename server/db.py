@@ -182,6 +182,19 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("users", "max_username", "VARCHAR"),
     ("users", "max_link_code", "VARCHAR"),
     ("users", "max_link_expires", "DATETIME"),
+    # Personal-боты юзеров (2026-05-22): каждый юзер подключает свой
+    # TG/MAX-бот через @BotFather, токен шифруется EncryptedString.
+    # Webhook routing по sha256-хэшу токена (для нахождения юзера).
+    ("users", "personal_tg_bot_token", "VARCHAR"),
+    ("users", "personal_tg_bot_username", "VARCHAR"),
+    ("users", "personal_tg_bot_token_hash", "VARCHAR"),
+    ("users", "personal_tg_chat_id", "VARCHAR"),
+    ("users", "personal_tg_webhook_set", "BOOLEAN DEFAULT 0"),
+    ("users", "personal_max_bot_token", "VARCHAR"),
+    ("users", "personal_max_bot_username", "VARCHAR"),
+    ("users", "personal_max_bot_token_hash", "VARCHAR"),
+    ("users", "personal_max_user_id", "VARCHAR"),
+    ("users", "personal_max_webhook_set", "BOOLEAN DEFAULT 0"),
     # Auto-followup для КП: cron шлёт напоминалку клиенту если КП открыт не был
     ("proposal_projects", "auto_followup_enabled", "BOOLEAN DEFAULT 1"),
     ("proposal_projects", "followup_sent_at", "DATETIME"),

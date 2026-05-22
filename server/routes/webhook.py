@@ -524,6 +524,72 @@ async def max_mgmt_webhook(path_secret: str, request: Request):
     return await _max_mgmt_handle(request)
 
 
+# ── Personal-боты юзеров (модель «свой бот», 2026-05-22) ──────────────────
+# Заменяет общие tg-mgmt/max-mgmt. Каждый юзер создаёт свой бот в @BotFather,
+# сохраняет токен через /user/personal-bot/tg/connect → платформа ставит
+# webhook на /webhook/personal-tg/<sha256(JWT+token)[:24]>. При POST'е сюда
+# находим юзера по hash → relay в Че от его имени.
+#
+# Безопасность: hash не обратим в token (нужен JWT_SECRET для проверки).
+# Идемпотентность: дедуп через _is_duplicate_update("personal-tg", user_id,
+# update_id) — защита от re-delivery при 5xx/timeout.
+
+
+@router.post("/personal-tg/{token_hash}")
+async def personal_tg_webhook(token_hash: str, request: Request,
+                               db: Session = Depends(get_db)):
+    """Webhook для personal TG-бота юзера. Routing по token_hash."""
+    from server.personal_bot_relay import find_user_by_tg_token_hash, handle_personal_tg_update
+    user = find_user_by_tg_token_hash(db, token_hash)
+    if not user:
+        # 200 OK без работы — Telegram не должен retry'ить (плохой hash = leak/stale)
+        return {"ok": True}
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": True}
+    update_id = body.get("update_id") if isinstance(body, dict) else None
+    if _is_duplicate_update("personal-tg", user.id, update_id):
+        log.info(f"[personal-tg] duplicate user={user.id} update={update_id}")
+        return {"ok": True}
+    try:
+        await handle_personal_tg_update(body, user.id)
+    except Exception as e:
+        log.error(f"[personal-tg] handler error user={user.id}: {type(e).__name__}: {e}")
+    return {"ok": True}
+
+
+@router.post("/personal-max/{token_hash}")
+async def personal_max_webhook(token_hash: str, request: Request,
+                                db: Session = Depends(get_db)):
+    """Webhook для personal MAX-бота юзера."""
+    from server.personal_bot_relay import find_user_by_max_token_hash, handle_personal_max_update
+    user = find_user_by_max_token_hash(db, token_hash)
+    if not user:
+        return {"ok": True}
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": True}
+    # MAX не присылает update_id — используем (timestamp, sender.user_id)
+    update_id = None
+    if isinstance(body, dict):
+        msg = body.get("message") or {}
+        sender = msg.get("sender") or {}
+        ts = msg.get("timestamp") or msg.get("created_at")
+        uid = sender.get("user_id")
+        if ts and uid:
+            update_id = f"{ts}:{uid}"
+    if update_id and _is_duplicate_update("personal-max", user.id, update_id):
+        log.info(f"[personal-max] duplicate user={user.id} update={update_id}")
+        return {"ok": True}
+    try:
+        await handle_personal_max_update(body, user.id)
+    except Exception as e:
+        log.error(f"[personal-max] handler error user={user.id}: {type(e).__name__}: {e}")
+    return {"ok": True}
+
+
 # ── WhatsApp через Wazzup24 ────────────────────────────────────────────────
 
 

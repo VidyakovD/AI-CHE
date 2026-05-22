@@ -73,6 +73,25 @@ class User(Base):
     max_username     = Column(String, nullable=True)
     max_link_code    = Column(String, nullable=True, index=True)
     max_link_expires = Column(DateTime, nullable=True)
+    # ── Personal mgmt-боты (модель «юзер подключает свой бот», 2026-05-22) ──
+    # Каждый юзер создаёт свой бот в @BotFather → токен сохраняется здесь
+    # (EncryptedString, шифруется HKDF от JWT_SECRET). Webhook идёт на наш
+    # /webhook/personal-tg/<sha256(JWT+token)[:24]> → находим юзера по hash.
+    # Заменяет (постепенно) link-code flow с общим TG_MGMT_BOT_TOKEN.
+    #
+    # personal_tg_chat_id — куда слать ответы Че. Заполняется при первом
+    # /start юзера своему боту (берём `from.id` из update).
+    personal_tg_bot_token    = Column(EncryptedString(1024), nullable=True)
+    personal_tg_bot_username = Column(String, nullable=True)
+    personal_tg_bot_token_hash = Column(String, unique=True, nullable=True, index=True)
+    personal_tg_chat_id      = Column(String, nullable=True)
+    personal_tg_webhook_set  = Column(Boolean, default=False)
+    # MAX-аналог
+    personal_max_bot_token    = Column(EncryptedString(1024), nullable=True)
+    personal_max_bot_username = Column(String, nullable=True)
+    personal_max_bot_token_hash = Column(String, unique=True, nullable=True, index=True)
+    personal_max_user_id      = Column(String, nullable=True)
+    personal_max_webhook_set  = Column(Boolean, default=False)
     # In-app колокольчик уведомлений: всё новее этого таймстампа = непрочитано.
     # Устанавливается клиентом через POST /user/notifications/seen.
     notifications_last_seen_at = Column(DateTime, nullable=True)

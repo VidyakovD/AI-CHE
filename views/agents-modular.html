@@ -377,56 +377,83 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
       </div>
     </div>
 
-    <!-- 3. Telegram -->
+    <!-- 3. Telegram (свой бот юзера) -->
     <div class="channel-card" id="tgCard">
       <div class="ch-head">
         <span class="ch-icon">✈</span>
-        <div class="ch-title">Telegram-бот
+        <div class="ch-title">Свой Telegram-бот
           <span class="ch-badge ok" id="tgLinkedBadge" style="display:none">✓ подключен</span>
           <span class="ch-badge wait" id="tgAvailBadge">доступно</span>
         </div>
       </div>
-      <div class="ch-desc">Пишешь в Telegram → Че отвечает там же, делегирует модулям, история общая с веб. Без установки приложения.</div>
+      <div class="ch-desc">Создай свой бот в @BotFather → вставь токен → пиши Че через Telegram. Свой бренд, свой бот, токен у тебя.</div>
       <div class="ch-actions" id="tgActions">
-        <button class="btn-p" id="tgLinkBtn" onclick="generateTgLinkCode()">📱 Подключить Telegram</button>
-        <button class="btn-g" id="tgUnlinkBtn" onclick="unlinkTg()" style="display:none">Отвязать</button>
+        <button class="btn-p" id="tgConnectBtn" onclick="openPersonalTgForm()">📱 Подключить свой бот</button>
+        <button class="btn-g" id="tgDisconnectBtn" onclick="disconnectPersonalTg()" style="display:none">Отключить</button>
+        <button class="btn-g" id="tgHelpBtn" onclick="toggleTgHelp()">❓ Как создать бота</button>
       </div>
-      <div id="tgLinkInstructions" class="ch-instructions" style="display:none">
-        <div class="ch-instr-os">
-          <b>1.</b> Открой <a id="tgBotLink" href="https://t.me/aiche_bot" target="_blank" style="color:#ffb347">@aiche_bot</a> в Telegram<br>
-          <b>2.</b> Нажми <b>«Start»</b><br>
-          <b>3.</b> Пришли боту код: <code id="tgLinkCode" style="font-size:14px;color:#ff8c42">XXXXXX</code> (или команду <code id="tgLinkCmd">/link XXXXXX</code>)<br>
-          <b>4.</b> После «✅ Привязано» — пиши Че прямо в Telegram-чат, без слэшей
+      <div id="tgConnectForm" class="ch-instructions" style="display:none">
+        <div class="ch-instr-os" style="margin-bottom:8px">
+          Вставь <b>токен бота</b> от @BotFather (вида <code>123456:ABC-DEF...</code>):
         </div>
-        <div class="ch-instr-os" style="opacity:.7;font-size:11px">
-          Код действует 10 минут. После привязки доступны команды /me /stats /menu /unlink.
+        <textarea id="tgTokenInput" class="inp" style="width:100%;font-family:monospace;font-size:12px"
+                  rows="2" placeholder="123456789:ABCdef..."></textarea>
+        <div class="ch-actions" style="margin-top:8px">
+          <button class="btn-p" id="tgConnectSaveBtn" onclick="connectPersonalTg()">Подключить</button>
+          <button class="btn-g" onclick="document.getElementById('tgConnectForm').style.display='none'">Отмена</button>
+        </div>
+      </div>
+      <div id="tgHelpBlock" class="ch-instructions" style="display:none">
+        <div class="ch-instr-os">
+          <b>Как создать своего бота в Telegram:</b><br>
+          1. Открой <a href="https://t.me/BotFather" target="_blank" style="color:#ffb347">@BotFather</a> в TG<br>
+          2. Команда <code>/newbot</code><br>
+          3. Придумай имя бота (например «Че для меня»)<br>
+          4. Придумай username (заканчивается на <code>_bot</code>, например <code>my_che_bot</code>)<br>
+          5. Скопируй <b>токен</b> (длинная строка с двоеточием) → вставь сверху
+        </div>
+        <div class="ch-instr-os" style="opacity:.75;font-size:11px;margin-top:8px">
+          🔒 Токен шифруется в нашей БД (HKDF от JWT_SECRET). В логах не светится.
+          Disconnect — webhook снимается и токен стирается.
+        </div>
+      </div>
+      <div id="tgConnectedInfo" class="ch-instructions" style="display:none">
+        <div class="ch-instr-os">
+          ✓ Бот <b>@<span id="tgBotName">—</span></b> подключен.<br>
+          Открой его в Telegram → напиши <code>/start</code> → дальше пиши Че обычным текстом.
         </div>
       </div>
     </div>
 
-    <!-- 4. MAX -->
+    <!-- 4. MAX (свой бот юзера) -->
     <div class="channel-card" id="maxCard">
       <div class="ch-head">
         <span class="ch-icon">🇷🇺</span>
-        <div class="ch-title">MAX-бот
+        <div class="ch-title">Свой MAX-бот
           <span class="ch-badge ok" id="maxLinkedBadge" style="display:none">✓ подключен</span>
           <span class="ch-badge wait" id="maxAvailBadge">доступно</span>
         </div>
       </div>
-      <div class="ch-desc">Российский мессенджер MAX от VK — для пользователей без VPN. Тот же чат с Че, что и в TG.</div>
+      <div class="ch-desc">Российский мессенджер MAX от VK. Создай свой бот в MasterBot → вставь токен → пиши Че из MAX.</div>
       <div class="ch-actions" id="maxActions">
-        <button class="btn-p" id="maxLinkBtn" onclick="generateMaxLinkCode()">📱 Подключить MAX</button>
-        <button class="btn-g" id="maxUnlinkBtn" onclick="unlinkMax()" style="display:none">Отвязать</button>
+        <button class="btn-p" id="maxConnectBtn" onclick="openPersonalMaxForm()">📱 Подключить свой бот</button>
+        <button class="btn-g" id="maxDisconnectBtn" onclick="disconnectPersonalMax()" style="display:none">Отключить</button>
       </div>
-      <div id="maxLinkInstructions" class="ch-instructions" style="display:none">
-        <div class="ch-instr-os">
-          <b>1.</b> Открой <a id="maxBotLink" href="#" target="_blank" style="color:#ffb347">MAX-бот</a> в приложении MAX<br>
-          <b>2.</b> Напиши <b>Start</b><br>
-          <b>3.</b> Пришли боту: <code id="maxLinkCode" style="font-size:14px;color:#ff8c42">XXXXXX</code> (или команду <code id="maxLinkCmd">/link XXXXXX</code>)<br>
-          <b>4.</b> После «✅ Привязано» — пиши Че прямо в MAX-чат
+      <div id="maxConnectForm" class="ch-instructions" style="display:none">
+        <div class="ch-instr-os" style="margin-bottom:8px">
+          Создай бота на <a href="https://dev.max.ru" target="_blank" style="color:#ffb347">dev.max.ru</a> и вставь его токен:
         </div>
-        <div class="ch-instr-os" style="opacity:.7;font-size:11px">
-          Код действует 10 минут. После привязки доступны команды /me /unlink /help.
+        <textarea id="maxTokenInput" class="inp" style="width:100%;font-family:monospace;font-size:12px"
+                  rows="2" placeholder="MAX bot token..."></textarea>
+        <div class="ch-actions" style="margin-top:8px">
+          <button class="btn-p" id="maxConnectSaveBtn" onclick="connectPersonalMax()">Подключить</button>
+          <button class="btn-g" onclick="document.getElementById('maxConnectForm').style.display='none'">Отмена</button>
+        </div>
+      </div>
+      <div id="maxConnectedInfo" class="ch-instructions" style="display:none">
+        <div class="ch-instr-os">
+          ✓ MAX-бот <b><span id="maxBotName">—</span></b> подключен.<br>
+          Открой его в MAX → напиши /start → пиши Че обычным текстом.
         </div>
       </div>
     </div>
@@ -1655,12 +1682,15 @@ function openChannelsModal() {
   _updateMaxUiState();
 }
 
-// ── Telegram link state ─────────────────────────────────────────────────────
-let _tgStatus = null;  // {bot_configured, linked, tg_username, bot_username}
+// ── Personal TG-бот юзера (модель «свой бот», 2026-05-22) ───────────────────
+// Заменяет старый link-code flow с общим @aiche_bot. Каждый юзер вставляет
+// токен своего бота от @BotFather → платформа валидирует через getMe + ставит
+// webhook + сохраняет токен (шифрованно).
+let _tgStatus = null;
 
 async function _loadTgStatus() {
   try {
-    const r = await fetch(`${API}/user/tg-link/status`, {credentials:'same-origin'});
+    const r = await fetch(`${API}/user/personal-bot/tg/status`, {credentials:'same-origin'});
     if (!r.ok) return null;
     return await r.json();
   } catch(_) { return null; }
@@ -1668,104 +1698,129 @@ async function _loadTgStatus() {
 
 async function _updateTgUiState() {
   _tgStatus = await _loadTgStatus();
-  const linkBtn = document.getElementById('tgLinkBtn');
-  const unlinkBtn = document.getElementById('tgUnlinkBtn');
+  const connectBtn = document.getElementById('tgConnectBtn');
+  const disconnectBtn = document.getElementById('tgDisconnectBtn');
   const linkedBadge = document.getElementById('tgLinkedBadge');
   const availBadge = document.getElementById('tgAvailBadge');
-  const instr = document.getElementById('tgLinkInstructions');
-  if (!linkBtn) return;
+  const connectForm = document.getElementById('tgConnectForm');
+  const connectedInfo = document.getElementById('tgConnectedInfo');
+  const botNameSpan = document.getElementById('tgBotName');
+  if (!connectBtn) return;
 
-  if (!_tgStatus || !_tgStatus.bot_configured) {
-    // Бот не настроен на сервере — оставляем placeholder
-    linkBtn.disabled = true;
-    linkBtn.textContent = '⏳ TG-бот не подключен админом';
-    linkBtn.title = 'Админу: установи TG_MGMT_BOT_TOKEN и TG_MGMT_BOT_USERNAME в .env';
-    if (availBadge) {
-      availBadge.textContent = 'скоро';
-      availBadge.className = 'ch-badge soon';
-    }
-    return;
-  }
-
-  if (_tgStatus.linked) {
-    linkBtn.style.display = 'none';
-    unlinkBtn.style.display = 'inline-flex';
-    unlinkBtn.textContent = `Отвязать @${_tgStatus.tg_username || '—'}`;
+  if (_tgStatus && _tgStatus.connected) {
+    connectBtn.style.display = 'none';
+    disconnectBtn.style.display = 'inline-flex';
+    disconnectBtn.textContent = `Отключить @${_tgStatus.bot_username || '—'}`;
     if (linkedBadge) linkedBadge.style.display = 'inline-block';
     if (availBadge) availBadge.style.display = 'none';
-    if (instr) instr.style.display = 'none';
+    if (connectForm) connectForm.style.display = 'none';
+    if (connectedInfo) connectedInfo.style.display = 'block';
+    if (botNameSpan) botNameSpan.textContent = _tgStatus.bot_username || '—';
   } else {
-    linkBtn.style.display = 'inline-flex';
-    linkBtn.disabled = false;
-    linkBtn.textContent = '📱 Подключить Telegram';
-    unlinkBtn.style.display = 'none';
+    connectBtn.style.display = 'inline-flex';
+    connectBtn.disabled = false;
+    disconnectBtn.style.display = 'none';
     if (linkedBadge) linkedBadge.style.display = 'none';
     if (availBadge) {
       availBadge.style.display = 'inline-block';
       availBadge.textContent = 'доступно';
       availBadge.className = 'ch-badge wait';
     }
+    if (connectedInfo) connectedInfo.style.display = 'none';
   }
 }
 
-async function generateTgLinkCode() {
-  if (!_tgStatus || !_tgStatus.bot_configured) {
-    if (window.aiAlert) await window.aiAlert('TG-бот не настроен на сервере. Попроси админа.', 'warn');
+function openPersonalTgForm() {
+  const form = document.getElementById('tgConnectForm');
+  const help = document.getElementById('tgHelpBlock');
+  if (form) form.style.display = 'block';
+  if (help) help.style.display = 'none';
+  const input = document.getElementById('tgTokenInput');
+  if (input) { input.value = ''; setTimeout(() => input.focus(), 50); }
+}
+
+function toggleTgHelp() {
+  const help = document.getElementById('tgHelpBlock');
+  if (!help) return;
+  help.style.display = (help.style.display === 'none') ? 'block' : 'none';
+}
+
+async function connectPersonalTg() {
+  const input = document.getElementById('tgTokenInput');
+  const btn = document.getElementById('tgConnectSaveBtn');
+  if (!input || !btn) return;
+  const token = (input.value || '').trim();
+  if (!token) {
+    if (window.aiAlert) await window.aiAlert('Вставь токен от @BotFather', 'warn');
     return;
   }
+  btn.disabled = true;
+  btn.textContent = '⏳ Проверяю...';
   try {
-    const r = await fetch(`${API}/user/tg-link/code`, {
-      method:'POST', credentials:'same-origin',
+    const r = await fetch(`${API}/user/personal-bot/tg/connect`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token}),
     });
-    if (!r.ok) {
-      const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail || 'HTTP '+r.status);
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(d.detail || 'HTTP '+r.status);
+
+    // Очистим input (токен в plain text не оставляем в DOM)
+    input.value = '';
+
+    if (d.status === 'connected') {
+      if (window.aiAlert) {
+        await window.aiAlert(
+          `✓ Бот @${d.bot_username} подключен!\n\n` +
+          `Открой его в Telegram → напиши /start → дальше пиши Че обычным текстом.`,
+          'success'
+        );
+      }
+    } else if (d.status === 'connected_partial') {
+      if (window.aiAlert) {
+        await window.aiAlert(
+          `⚠ Токен сохранён, но webhook не встал:\n${d.error}\n\n` +
+          `Попробуй отключить и подключить снова через 1 минуту.`,
+          'warn'
+        );
+      }
     }
-    const d = await r.json();
-    const code = d.code;
-    const botUser = (_tgStatus && _tgStatus.bot_username) || 'aiche_bot';
-    const deepLink = d.deep_link || `https://t.me/${botUser}?start=LINK_${code}`;
-    // Показываем инструкцию + код
-    const instr = document.getElementById('tgLinkInstructions');
-    const codeEl = document.getElementById('tgLinkCode');
-    const cmdEl = document.getElementById('tgLinkCmd');
-    const botLink = document.getElementById('tgBotLink');
-    if (codeEl) codeEl.textContent = code;
-    if (cmdEl) cmdEl.textContent = `/link ${code}`;
-    if (botLink) {
-      botLink.href = deepLink;
-      botLink.textContent = `@${botUser}`;
-    }
-    if (instr) instr.style.display = 'block';
-  } catch(e) {
-    if (window.aiAlert) await window.aiAlert('Не удалось сгенерировать код: '+e.message, 'error');
+    await _updateTgUiState();
+  } catch (e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось подключить: '+e.message, 'error');
+    else alert(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Подключить';
   }
 }
 
-async function unlinkTg() {
+async function disconnectPersonalTg() {
   const ok = await (window.aiConfirm
-    ? window.aiConfirm('Отвязать Telegram? Уведомления и чат через TG перестанут работать.',
-                        {danger:true, okLabel:'Отвязать'})
-    : Promise.resolve(confirm('Отвязать Telegram?')));
+    ? window.aiConfirm(
+        'Отключить свой Telegram-бот? Webhook будет снят, токен удалён из базы. ' +
+        'Чат через TG перестанет работать (на сайте всё останется).',
+        {danger: true, okLabel: 'Отключить'})
+    : Promise.resolve(confirm('Отключить Telegram?')));
   if (!ok) return;
   try {
-    const r = await fetch(`${API}/user/tg-link/unlink`, {
-      method:'POST', credentials:'same-origin',
+    const r = await fetch(`${API}/user/personal-bot/tg/disconnect`, {
+      method: 'POST', credentials: 'same-origin',
     });
     if (!r.ok) throw new Error('HTTP '+r.status);
     await _updateTgUiState();
-    if (window.aiAlert) await window.aiAlert('🔓 Telegram отвязан.', 'success');
-  } catch(e) {
-    if (window.aiAlert) await window.aiAlert('Не удалось отвязать: '+e.message, 'error');
+    if (window.aiAlert) await window.aiAlert('🔓 Telegram-бот отключен.', 'success');
+  } catch (e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось отключить: '+e.message, 'error');
   }
 }
 
-// ── MAX link state (симметрично TG) ──────────────────────────────────────────
+// ── Personal MAX-бот юзера (симметрично TG) ─────────────────────────────────
 let _maxStatus = null;
 
 async function _loadMaxStatus() {
   try {
-    const r = await fetch(`${API}/user/max-link/status`, {credentials:'same-origin'});
+    const r = await fetch(`${API}/user/personal-bot/max/status`, {credentials:'same-origin'});
     if (!r.ok) return null;
     return await r.json();
   } catch(_) { return null; }
@@ -1773,93 +1828,91 @@ async function _loadMaxStatus() {
 
 async function _updateMaxUiState() {
   _maxStatus = await _loadMaxStatus();
-  const linkBtn = document.getElementById('maxLinkBtn');
-  const unlinkBtn = document.getElementById('maxUnlinkBtn');
+  const connectBtn = document.getElementById('maxConnectBtn');
+  const disconnectBtn = document.getElementById('maxDisconnectBtn');
   const linkedBadge = document.getElementById('maxLinkedBadge');
   const availBadge = document.getElementById('maxAvailBadge');
-  const instr = document.getElementById('maxLinkInstructions');
-  if (!linkBtn) return;
+  const connectForm = document.getElementById('maxConnectForm');
+  const connectedInfo = document.getElementById('maxConnectedInfo');
+  const botNameSpan = document.getElementById('maxBotName');
+  if (!connectBtn) return;
 
-  if (!_maxStatus || !_maxStatus.bot_configured) {
-    linkBtn.disabled = true;
-    linkBtn.textContent = '⏳ MAX-бот не подключен админом';
-    linkBtn.title = 'Админу: установи MAX_MGMT_BOT_TOKEN и MAX_MGMT_BOT_USERNAME в .env';
-    if (availBadge) {
-      availBadge.textContent = 'скоро';
-      availBadge.className = 'ch-badge soon';
-    }
-    return;
-  }
-
-  if (_maxStatus.linked) {
-    linkBtn.style.display = 'none';
-    unlinkBtn.style.display = 'inline-flex';
-    unlinkBtn.textContent = `Отвязать @${_maxStatus.max_username || '—'}`;
+  if (_maxStatus && _maxStatus.connected) {
+    connectBtn.style.display = 'none';
+    disconnectBtn.style.display = 'inline-flex';
+    disconnectBtn.textContent = `Отключить ${_maxStatus.bot_username || '—'}`;
     if (linkedBadge) linkedBadge.style.display = 'inline-block';
     if (availBadge) availBadge.style.display = 'none';
-    if (instr) instr.style.display = 'none';
+    if (connectForm) connectForm.style.display = 'none';
+    if (connectedInfo) connectedInfo.style.display = 'block';
+    if (botNameSpan) botNameSpan.textContent = _maxStatus.bot_username || '—';
   } else {
-    linkBtn.style.display = 'inline-flex';
-    linkBtn.disabled = false;
-    linkBtn.textContent = '📱 Подключить MAX';
-    unlinkBtn.style.display = 'none';
+    connectBtn.style.display = 'inline-flex';
+    connectBtn.disabled = false;
+    disconnectBtn.style.display = 'none';
     if (linkedBadge) linkedBadge.style.display = 'none';
     if (availBadge) {
       availBadge.style.display = 'inline-block';
       availBadge.textContent = 'доступно';
       availBadge.className = 'ch-badge wait';
     }
+    if (connectedInfo) connectedInfo.style.display = 'none';
   }
 }
 
-async function generateMaxLinkCode() {
-  if (!_maxStatus || !_maxStatus.bot_configured) {
-    if (window.aiAlert) await window.aiAlert('MAX-бот не настроен на сервере. Попроси админа.', 'warn');
+function openPersonalMaxForm() {
+  const form = document.getElementById('maxConnectForm');
+  if (form) form.style.display = 'block';
+  const input = document.getElementById('maxTokenInput');
+  if (input) { input.value = ''; setTimeout(() => input.focus(), 50); }
+}
+
+async function connectPersonalMax() {
+  const input = document.getElementById('maxTokenInput');
+  const btn = document.getElementById('maxConnectSaveBtn');
+  if (!input || !btn) return;
+  const token = (input.value || '').trim();
+  if (!token) {
+    if (window.aiAlert) await window.aiAlert('Вставь MAX bot token', 'warn');
     return;
   }
+  btn.disabled = true;
+  btn.textContent = '⏳ Проверяю...';
   try {
-    const r = await fetch(`${API}/user/max-link/code`, {
-      method:'POST', credentials:'same-origin',
+    const r = await fetch(`${API}/user/personal-bot/max/connect`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token}),
     });
-    if (!r.ok) {
-      const d = await r.json().catch(()=>({}));
-      throw new Error(d.detail || 'HTTP '+r.status);
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(d.detail || 'HTTP '+r.status);
+    input.value = '';
+    if (window.aiAlert) {
+      await window.aiAlert(`✓ MAX-бот ${d.bot_username || ''} подключен.`, 'success');
     }
-    const d = await r.json();
-    const code = d.code;
-    const botUser = (_maxStatus && _maxStatus.bot_username) || 'aiche_bot';
-    const deepLink = d.deep_link || `https://max.ru/${botUser}?start=LINK_${code}`;
-    const codeEl = document.getElementById('maxLinkCode');
-    const cmdEl = document.getElementById('maxLinkCmd');
-    const botLink = document.getElementById('maxBotLink');
-    const instr = document.getElementById('maxLinkInstructions');
-    if (codeEl) codeEl.textContent = code;
-    if (cmdEl) cmdEl.textContent = `/link ${code}`;
-    if (botLink) {
-      botLink.href = deepLink;
-      botLink.textContent = `@${botUser}`;
-    }
-    if (instr) instr.style.display = 'block';
-  } catch(e) {
-    if (window.aiAlert) await window.aiAlert('Не удалось сгенерировать код: '+e.message, 'error');
+    await _updateMaxUiState();
+  } catch (e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось подключить: '+e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Подключить';
   }
 }
 
-async function unlinkMax() {
+async function disconnectPersonalMax() {
   const ok = await (window.aiConfirm
-    ? window.aiConfirm('Отвязать MAX? Чат через MAX перестанет работать.',
-                        {danger:true, okLabel:'Отвязать'})
-    : Promise.resolve(confirm('Отвязать MAX?')));
+    ? window.aiConfirm('Отключить свой MAX-бот?', {danger: true, okLabel: 'Отключить'})
+    : Promise.resolve(confirm('Отключить MAX?')));
   if (!ok) return;
   try {
-    const r = await fetch(`${API}/user/max-link/unlink`, {
-      method:'POST', credentials:'same-origin',
+    const r = await fetch(`${API}/user/personal-bot/max/disconnect`, {
+      method: 'POST', credentials: 'same-origin',
     });
     if (!r.ok) throw new Error('HTTP '+r.status);
     await _updateMaxUiState();
-    if (window.aiAlert) await window.aiAlert('🔓 MAX отвязан.', 'success');
-  } catch(e) {
-    if (window.aiAlert) await window.aiAlert('Не удалось отвязать: '+e.message, 'error');
+    if (window.aiAlert) await window.aiAlert('🔓 MAX-бот отключен.', 'success');
+  } catch (e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось отключить: '+e.message, 'error');
   }
 }
 function closeChannelsModal() {

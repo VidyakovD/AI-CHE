@@ -427,6 +427,202 @@ def max_link_unlink(user: User = Depends(current_user), db: Session = Depends(ge
     return {"status": "unlinked"}
 
 
+# ── Personal-боты юзеров (модель «каждый юзер свой бот», 2026-05-22) ──────
+
+
+class PersonalBotConnectBody(BaseModel):
+    token: str  # токен от @BotFather (TG) или MAX-эквивалента
+
+
+@router.get("/personal-bot/tg/status")
+def personal_tg_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Статус подключения personal TG-бота юзера."""
+    u = db.query(User).filter_by(id=user.id).first()
+    return {
+        "connected": bool(u and u.personal_tg_bot_token),
+        "bot_username": (u.personal_tg_bot_username if u else None) or None,
+        "webhook_set": bool(u and u.personal_tg_webhook_set),
+        "chat_id_known": bool(u and u.personal_tg_chat_id),
+    }
+
+
+@router.post("/personal-bot/tg/connect")
+async def personal_tg_connect(payload: PersonalBotConnectBody,
+                              user: User = Depends(current_user),
+                              db: Session = Depends(get_db)):
+    """Подключить свой TG-бот: валидируем через getMe, сохраняем токен, ставим webhook."""
+    from server.personal_bot_relay import (
+        tg_validate_token, tg_set_webhook, compute_token_hash,
+    )
+    token = (payload.token or "").strip()
+    if not token:
+        raise HTTPException(400, "Токен не передан")
+    # Валидация через Telegram
+    info = await tg_validate_token(token)
+    if not info.get("ok"):
+        raise HTTPException(400, f"Telegram: {info.get('error', 'unknown')}")
+    if not info.get("is_bot"):
+        raise HTTPException(400, "Это не bot-токен (getMe вернул is_bot=false)")
+    # Проверим что этот hash ещё ни к кому не привязан (anti-collision / anti-steal)
+    token_hash = compute_token_hash(token)
+    existing = (db.query(User)
+                  .filter(User.personal_tg_bot_token_hash == token_hash,
+                          User.id != user.id)
+                  .first())
+    if existing:
+        raise HTTPException(409,
+            "Этот бот уже подключен к другому аккаунту. Отвяжи там сначала.")
+    # Save (token хранится через EncryptedString)
+    u = db.query(User).filter_by(id=user.id).first()
+    u.personal_tg_bot_token = token
+    u.personal_tg_bot_username = (info.get("bot_username") or "").lstrip("@")[:80]
+    u.personal_tg_bot_token_hash = token_hash
+    u.personal_tg_webhook_set = False
+    u.personal_tg_chat_id = None  # сбрасываем — будет заполнен при /start
+    db.commit()
+    # Set webhook
+    wh = await tg_set_webhook(token, token_hash)
+    if not wh.get("ok"):
+        # Сохранили токен, но webhook не встал — юзер может попробовать reconnect
+        log.warning(f"[personal-tg] setWebhook failed user={user.id}: {wh.get('error')}")
+        return {"status": "connected_partial",
+                "bot_username": u.personal_tg_bot_username,
+                "error": f"Бот подключен, но webhook не установился: {wh.get('error')}. Попробуй переподключить."}
+    u.personal_tg_webhook_set = True
+    db.commit()
+
+    try:
+        from server.audit_log import log_action
+        log_action("user.personal_tg_connect", user_id=user.id,
+                   target_type="user", target_id=user.id,
+                   details={"bot_username": u.personal_tg_bot_username})
+    except Exception:
+        pass
+
+    return {"status": "connected",
+            "bot_username": u.personal_tg_bot_username,
+            "webhook_url": wh.get("webhook_url"),
+            "next_step": f"Открой @{u.personal_tg_bot_username} в Telegram и напиши /start"}
+
+
+@router.post("/personal-bot/tg/disconnect")
+async def personal_tg_disconnect(user: User = Depends(current_user),
+                                  db: Session = Depends(get_db)):
+    """Отключить свой TG-бот: снимаем webhook, очищаем токен."""
+    from server.personal_bot_relay import tg_delete_webhook
+    u = db.query(User).filter_by(id=user.id).first()
+    if not u or not u.personal_tg_bot_token:
+        return {"status": "not_connected"}
+    token = u.personal_tg_bot_token
+    prev_bot = u.personal_tg_bot_username
+    try:
+        await tg_delete_webhook(token)
+    except Exception:
+        pass
+    u.personal_tg_bot_token = None
+    u.personal_tg_bot_username = None
+    u.personal_tg_bot_token_hash = None
+    u.personal_tg_chat_id = None
+    u.personal_tg_webhook_set = False
+    db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("user.personal_tg_disconnect", user_id=user.id,
+                   target_type="user", target_id=user.id, level="warn",
+                   details={"prev_bot": prev_bot or ""})
+    except Exception:
+        pass
+    return {"status": "disconnected"}
+
+
+# MAX-аналоги (симметрично)
+
+
+@router.get("/personal-bot/max/status")
+def personal_max_status(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    u = db.query(User).filter_by(id=user.id).first()
+    return {
+        "connected": bool(u and u.personal_max_bot_token),
+        "bot_username": (u.personal_max_bot_username if u else None) or None,
+        "webhook_set": bool(u and u.personal_max_webhook_set),
+        "user_id_known": bool(u and u.personal_max_user_id),
+    }
+
+
+@router.post("/personal-bot/max/connect")
+async def personal_max_connect(payload: PersonalBotConnectBody,
+                                user: User = Depends(current_user),
+                                db: Session = Depends(get_db)):
+    from server.personal_bot_relay import (
+        max_validate_token, max_set_webhook, compute_token_hash,
+    )
+    token = (payload.token or "").strip()
+    if not token:
+        raise HTTPException(400, "Токен не передан")
+    info = await max_validate_token(token)
+    if not info.get("ok"):
+        raise HTTPException(400, f"MAX: {info.get('error', 'unknown')}")
+    token_hash = compute_token_hash(token)
+    existing = (db.query(User)
+                  .filter(User.personal_max_bot_token_hash == token_hash,
+                          User.id != user.id)
+                  .first())
+    if existing:
+        raise HTTPException(409, "Этот бот уже подключен к другому аккаунту.")
+    u = db.query(User).filter_by(id=user.id).first()
+    u.personal_max_bot_token = token
+    u.personal_max_bot_username = (info.get("bot_username") or "")[:80]
+    u.personal_max_bot_token_hash = token_hash
+    u.personal_max_user_id = None
+    u.personal_max_webhook_set = False
+    db.commit()
+    wh = await max_set_webhook(token, token_hash)
+    if not wh.get("ok"):
+        log.warning(f"[personal-max] setWebhook failed user={user.id}: {wh.get('error')}")
+        return {"status": "connected_partial",
+                "bot_username": u.personal_max_bot_username,
+                "error": wh.get("error")}
+    u.personal_max_webhook_set = True
+    db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("user.personal_max_connect", user_id=user.id,
+                   target_type="user", target_id=user.id,
+                   details={"bot_username": u.personal_max_bot_username})
+    except Exception:
+        pass
+    return {"status": "connected", "bot_username": u.personal_max_bot_username}
+
+
+@router.post("/personal-bot/max/disconnect")
+async def personal_max_disconnect(user: User = Depends(current_user),
+                                   db: Session = Depends(get_db)):
+    from server.personal_bot_relay import max_delete_webhook
+    u = db.query(User).filter_by(id=user.id).first()
+    if not u or not u.personal_max_bot_token:
+        return {"status": "not_connected"}
+    token = u.personal_max_bot_token
+    prev_bot = u.personal_max_bot_username
+    try:
+        await max_delete_webhook(token)
+    except Exception:
+        pass
+    u.personal_max_bot_token = None
+    u.personal_max_bot_username = None
+    u.personal_max_bot_token_hash = None
+    u.personal_max_user_id = None
+    u.personal_max_webhook_set = False
+    db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("user.personal_max_disconnect", user_id=user.id,
+                   target_type="user", target_id=user.id, level="warn",
+                   details={"prev_bot": prev_bot or ""})
+    except Exception:
+        pass
+    return {"status": "disconnected"}
+
+
 class TgNotifyToggleBody(BaseModel):
     notify_proposals: bool | None = None
     notify_records: bool | None = None
