@@ -461,6 +461,28 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
     <p class="text-xs text-on-dim mt-3" style="opacity:.7">
       💡 Подключённые TG/MAX будут пушить тебя если Че/модули закончили работу (например cron-расписание сделало пост → ты узнаешь в TG).
     </p>
+
+    <!-- 5. Календари (модуль 📅 Календарь) -->
+    <h4 class="text-sm font-bold mt-5 mb-2" style="color:#ffb347">📅 Календари для модуля «Календарь»</h4>
+    <p class="text-xs text-on-dim mb-3">
+      Подключи свой Google Calendar и/или Yandex Calendar — Че будет видеть ближайшие события и отвечать на «что у меня сегодня?», «когда встреча с клиентом?». Только чтение.
+    </p>
+    <div id="calConnectionsList" class="mb-3"></div>
+    <div class="ch-actions">
+      <button class="btn-p" id="calGoogleBtn" onclick="connectGoogleCalendar()">🌐 Подключить Google</button>
+      <button class="btn-p" id="calYandexBtn" onclick="openYandexCalForm()">🇷🇺 Подключить Yandex</button>
+    </div>
+    <div id="calYandexForm" class="ch-instructions" style="display:none;margin-top:8px">
+      <div class="ch-instr-os" style="margin-bottom:8px">
+        Yandex CalDAV — нужен <b>app-password</b> от <a href="https://id.yandex.ru/security/app-passwords" target="_blank" style="color:#ffb347">id.yandex.ru/security/app-passwords</a> (не основной пароль).
+      </div>
+      <input id="calYandexEmail" type="email" class="inp" placeholder="ivan@yandex.ru" style="margin-bottom:6px"/>
+      <input id="calYandexPwd" type="password" class="inp" placeholder="app-password (16 символов)"/>
+      <div class="ch-actions" style="margin-top:8px">
+        <button class="btn-p" id="calYandexSaveBtn" onclick="connectYandexCalendar()">Подключить</button>
+        <button class="btn-g" onclick="document.getElementById('calYandexForm').style.display='none'">Отмена</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1680,6 +1702,132 @@ function openChannelsModal() {
   _updatePwaUiState();
   _updateTgUiState();
   _updateMaxUiState();
+  _loadCalendarConnections();
+}
+
+// ── Calendar connections (Google OAuth + Yandex CalDAV) ─────────────────────
+
+async function _loadCalendarConnections() {
+  const list = document.getElementById('calConnectionsList');
+  if (!list) return;
+  try {
+    const r = await fetch(`${API}/user/calendar/connections`,
+                           {credentials:'same-origin'});
+    if (!r.ok) {
+      list.innerHTML = '';
+      return;
+    }
+    const d = await r.json();
+    if (!d.connections || !d.connections.length) {
+      list.innerHTML = '<div class="text-xs text-on-dim" style="opacity:.7">Календари не подключены — Че пока без расписания.</div>';
+      return;
+    }
+    list.innerHTML = d.connections.map(c => {
+      const em = c.provider === 'google' ? '🌐'
+               : c.provider === 'yandex' ? '🇷🇺' : '🔗';
+      const labels = {google:'Google', yandex:'Yandex', ics:'ICS'};
+      const status = c.last_error
+        ? `<span style="color:#ff6b6b;font-size:11px">⚠ ${_esc(c.last_error.slice(0,80))}</span>`
+        : (c.last_synced_at
+            ? `<span style="color:#7bd968;font-size:11px">✓ синхронизирован</span>`
+            : `<span style="color:#a89880;font-size:11px">ещё не синхронизировался</span>`);
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#272018;border:1px solid rgba(74,63,47,.4);border-radius:8px;margin-bottom:6px">
+        <span style="font-size:18px">${em}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:#f0e6d8;font-weight:600">${labels[c.provider] || c.provider}</div>
+          <div style="font-size:11px;color:#a89880">${_esc(c.account_email || '')}</div>
+          <div style="margin-top:2px">${status}</div>
+        </div>
+        <button class="btn-g" style="font-size:11px;padding:4px 8px"
+                onclick="disconnectCalendar(${c.id})">✕ Отвязать</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    console.error('[cal] load failed', e);
+  }
+}
+
+async function connectGoogleCalendar() {
+  const btn = document.getElementById('calGoogleBtn');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = '⏳ Перенаправляю...';
+  try {
+    const r = await fetch(`${API}/user/calendar/google/connect`,
+                           {credentials:'same-origin'});
+    if (!r.ok) {
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'HTTP '+r.status);
+    }
+    const d = await r.json();
+    if (d.redirect_url) {
+      // Уходим на Google OAuth consent screen. После согласия Google
+      // редиректит на /user/calendar/google/callback который возвращает
+      // HTML success-card с авто-редиректом обратно в Че через 3 сек.
+      window.location.href = d.redirect_url;
+    } else {
+      throw new Error('Сервер не вернул redirect_url');
+    }
+  } catch(e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось начать OAuth: '+e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = '🌐 Подключить Google';
+  }
+}
+
+function openYandexCalForm() {
+  const form = document.getElementById('calYandexForm');
+  if (form) form.style.display = 'block';
+  const emailEl = document.getElementById('calYandexEmail');
+  if (emailEl) { emailEl.value = ''; setTimeout(()=>emailEl.focus(), 50); }
+  const pwdEl = document.getElementById('calYandexPwd');
+  if (pwdEl) pwdEl.value = '';
+}
+
+async function connectYandexCalendar() {
+  const email = (document.getElementById('calYandexEmail').value || '').trim();
+  const pwd = (document.getElementById('calYandexPwd').value || '').trim();
+  const btn = document.getElementById('calYandexSaveBtn');
+  if (!email || !pwd) {
+    if (window.aiAlert) await window.aiAlert('Введи email и app-password', 'warn');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '⏳ Проверяю...';
+  try {
+    const r = await fetch(`${API}/user/calendar/yandex/connect`, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({email, app_password: pwd}),
+    });
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(d.detail || 'HTTP '+r.status);
+    document.getElementById('calYandexPwd').value = '';
+    document.getElementById('calYandexForm').style.display = 'none';
+    await _loadCalendarConnections();
+    if (window.aiAlert) await window.aiAlert(`✓ Yandex Calendar подключён: ${d.account_email}`, 'success');
+  } catch(e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось: '+e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Подключить';
+  }
+}
+
+async function disconnectCalendar(connId) {
+  const ok = await (window.aiConfirm
+    ? window.aiConfirm('Отвязать этот календарь?', {danger:true, okLabel:'Отвязать'})
+    : Promise.resolve(confirm('Отвязать календарь?')));
+  if (!ok) return;
+  try {
+    const r = await fetch(`${API}/user/calendar/connections/${connId}`, {
+      method:'DELETE', credentials:'same-origin',
+    });
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    await _loadCalendarConnections();
+  } catch(e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось: '+e.message, 'error');
+  }
 }
 
 // ── Personal TG-бот юзера (модель «свой бот», 2026-05-22) ───────────────────
