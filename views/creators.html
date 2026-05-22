@@ -62,6 +62,11 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
 .cal-cell:hover{border-color:rgba(255,140,66,.45)}
 .cal-cell.outside{opacity:.3}
 .cal-cell.today{border-color:#ff8c42}
+/* Drag-n-drop visual feedback */
+.cal-cell.drag-over{border-color:#7bd968;background:rgba(123,217,104,.08);transform:scale(1.02);transition:all .12s}
+.cal-item.dragging{opacity:.4}
+.cal-item[draggable="true"]{cursor:grab}
+.cal-item[draggable="true"]:active{cursor:grabbing}
 .cal-cell-date{font-weight:600;color:#f0e6d8;font-size:12px;display:flex;justify-content:space-between;align-items:center}
 .cal-cell-date .cnt{font-size:10px;color:#a89880;font-weight:500}
 .cal-cell-items{display:flex;flex-direction:column;gap:3px;overflow:hidden}
@@ -1186,6 +1191,15 @@ function renderCalendar(){
 
       const cell = document.createElement('div');
       cell.className = 'cal-cell' + (outside ? ' outside' : '') + (isToday ? ' today' : '');
+      // Drag-n-drop drop target: переносим пост на эту дату.
+      // Запрещаем drop на прошлые даты и на outside-cells (вне периода).
+      const isPast = (d < today);
+      if(!outside && !isPast){
+        cell.dataset.cellDate = key;  // YYYY-MM-DD для drop-handler
+        cell.addEventListener('dragover', _onCellDragOver);
+        cell.addEventListener('dragleave', _onCellDragLeave);
+        cell.addEventListener('drop', _onCellDrop);
+      }
       const dayNum = d.getDate();
       const dayItems = itemsByDay[key] || [];
 
@@ -1228,7 +1242,111 @@ function _renderItemChip(item){
   const title = (item.brief || '— brief пустой —').slice(0, 60);
   el.innerHTML = `<span class="dot ${typeClass}"></span><span class="ttl" title="${esc(item.brief || '')}">${platIcon} ${esc(title)}</span><span class="tim">${hh}:${mm}</span>`;
   el.onclick = () => openItemModal(item);
+  // Drag-n-drop: published посты НЕ перетаскиваются (история).
+  // Остальные — draggable, при старте передаём item.id через dataTransfer.
+  if(item.status !== 'published'){
+    el.draggable = true;
+    el.dataset.itemId = String(item.id);
+    el.addEventListener('dragstart', _onItemDragStart);
+    el.addEventListener('dragend', _onItemDragEnd);
+  } else {
+    el.style.cursor = 'default';
+  }
   return el;
+}
+
+// ── Drag-n-drop: перенос постов между датами ────────────────────────────────
+// HTML5 DnD API. При старте: запоминаем item.id (через dataTransfer).
+// При drop на cell: вычисляем новый schedule_at (сохраняем время дня,
+// меняем только дату) → PATCH /items/{id}/reschedule → перерисовка.
+//
+// UX-детали:
+//   - dragover.preventDefault() обязателен, иначе drop не сработает
+//   - .drag-over подсветка cell для visual feedback
+//   - .dragging opacity на исходном chip
+//   - Запрет drop на прошлые даты (контролируется в renderCalendar — там
+//     listeners просто не вешаются)
+//   - Запрет drag для published-постов (см. _renderItemChip)
+
+function _onItemDragStart(e){
+  const id = e.currentTarget.dataset.itemId;
+  if(!id) return;
+  e.dataTransfer.setData('text/plain', id);
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.classList.add('dragging');
+}
+
+function _onItemDragEnd(e){
+  e.currentTarget.classList.remove('dragging');
+}
+
+function _onCellDragOver(e){
+  // Если у нас есть валидный draggable (внутри браузера-окна) — разрешаем drop
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+
+function _onCellDragLeave(e){
+  e.currentTarget.classList.remove('drag-over');
+}
+
+async function _onCellDrop(e){
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const itemId = parseInt(e.dataTransfer.getData('text/plain'), 10);
+  const targetDate = e.currentTarget.dataset.cellDate;  // YYYY-MM-DD
+  if(!itemId || !targetDate) return;
+
+  const item = _items.find(x => x.id === itemId);
+  if(!item) return;
+
+  // Сохраняем время дня (часы:минуты) исходного schedule_at, меняем только дату.
+  const orig = new Date(item.schedule_at);
+  // Конвертируем orig в МСК (UTC+3) чтобы взять «человеческое» время для дня.
+  // schedule_at хранится как UTC. День пользователь видит в МСК.
+  const mskOrig = new Date(orig.getTime() + 3 * 3600 * 1000);
+  const hh = mskOrig.getUTCHours();
+  const mm = mskOrig.getUTCMinutes();
+  // targetDate — YYYY-MM-DD в МСК. Собираем МСК-datetime → конвертим в UTC.
+  const [yy, mo, dd] = targetDate.split('-').map(Number);
+  // МСК = UTC+3, поэтому UTC = МСК - 3 часа
+  const newUtcDate = new Date(Date.UTC(yy, mo - 1, dd, hh - 3, mm, 0, 0));
+  const newIso = newUtcDate.toISOString();
+
+  // Если перетащили на ту же дату — ничего не делаем
+  if(orig.toISOString() === newIso) return;
+
+  // Optimistic update: меняем item.schedule_at сразу для мгновенного UX,
+  // если server откажет — откатываем.
+  const prevScheduleAt = item.schedule_at;
+  item.schedule_at = newIso;
+  renderCalendar();
+
+  try{
+    const r = await fetch(`/creators/items/${itemId}/reschedule`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({schedule_at: newIso}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || 'Ошибка ' + r.status);
+    }
+    const d = await r.json();
+    // Server-state — берём то что вернулось (на случай truncate/timezone-magic)
+    if(d.item && d.item.schedule_at){
+      item.schedule_at = d.item.schedule_at;
+      renderCalendar();
+    }
+  }catch(err){
+    // Rollback
+    item.schedule_at = prevScheduleAt;
+    renderCalendar();
+    if(window.aiAlert) await window.aiAlert('Не удалось перенести: ' + err.message, 'error');
+    else alert('Не удалось перенести: ' + err.message);
+  }
 }
 
 // ── Item modal ────────────────────────────────────────────────────────────────

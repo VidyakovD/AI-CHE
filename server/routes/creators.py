@@ -459,6 +459,68 @@ def prepare_item_endpoint(
     }
 
 
+class RescheduleIn(BaseModel):
+    schedule_at: str  # ISO-8601 datetime в UTC
+
+
+@router.patch("/items/{item_id}/reschedule")
+def reschedule_item(
+    item_id: int,
+    payload: RescheduleIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Сдвинуть пост на другую дату (drag-n-drop в календарном UI).
+
+    Бесплатно — это только обновление schedule_at, никакой LLM-генерации.
+    Запрещаем:
+      - перенос published-постов (уже опубликован, история неизменна)
+      - дату в прошлом (нельзя «опубликовать вчера» — для тех кто хочет
+        backfill истории есть отдельный flow ручного отмечания)
+      - чужие посты (брат принадлежит юзеру через CreatorBrand.user_id)
+    """
+    item = (db.query(ContentItem)
+              .join(ContentCalendar, ContentItem.calendar_id == ContentCalendar.id)
+              .join(CreatorBrand, ContentCalendar.brand_id == CreatorBrand.id)
+              .filter(ContentItem.id == item_id,
+                      CreatorBrand.user_id == user.id)
+              .first())
+    if not item:
+        raise HTTPException(404, "Пост не найден")
+    if item.status == "published":
+        raise HTTPException(400, "Опубликованный пост перенести нельзя")
+
+    try:
+        from datetime import timezone as _tz
+        new_dt = datetime.fromisoformat(payload.schedule_at.replace("Z", "+00:00"))
+        # Приводим к naive UTC (как и schedule_at в БД)
+        if new_dt.tzinfo is not None:
+            new_dt = new_dt.astimezone(_tz.utc).replace(tzinfo=None)
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "Неверный формат даты — нужен ISO-8601 UTC")
+
+    # Защита от переноса в прошлое (allow 10 мин past — UI clock skew)
+    now = datetime.utcnow()
+    if new_dt < now - timedelta(minutes=10):
+        raise HTTPException(400, "Нельзя перенести пост в прошлое")
+
+    old_dt = item.schedule_at
+    item.schedule_at = new_dt
+    db.commit()
+    db.refresh(item)
+
+    log_action(
+        "creator.item_rescheduled", user_id=user.id,
+        target_type="content_item", target_id=item.id,
+        details={
+            "old_schedule_at": old_dt.isoformat() if old_dt else None,
+            "new_schedule_at": new_dt.isoformat(),
+        },
+    )
+
+    return {"ok": True, "item": _item_dict(item)}
+
+
 @router.post("/brands/{brand_id}/bulk-prepare")
 def bulk_prepare_brand(
     brand_id: int,
