@@ -46,6 +46,43 @@ def _check(key: str, max_calls: int, window_sec: int) -> bool:
         # При сбое БД пропускаем (лучше доступно, чем падать)
         return True
 
+def link_code_attempt_check(channel: str, identifier: str) -> tuple[bool, str]:
+    """Прогрессивная защита от brute-force одноразовых кодов привязки
+    (Telegram/MAX management-боты — /link XXXXXX).
+
+    Двухуровневая sliding-window:
+      - 5 попыток / минуту (защита от быстрого спам-бота)
+      - 30 попыток / час   (защита от медленной атаки)
+
+    При исчерпании лимита возвращает (False, "human-readable причина").
+    При успехе — увеличивает счётчик и возвращает (True, "").
+
+    Args:
+      channel: "tg" | "max" — для namespace ключа.
+      identifier: tg_user_id / max_user_id / IP — кого ограничиваем.
+
+    Также пишет log.warning при срабатывании лимита — для алерта в audit
+    (юзер с >30 fails/час подозрителен, можно мониторить).
+
+    Шифр кода 6 chars из алфавита 27 символов = ~387 млн комбинаций. TTL 10 мин.
+    Без лимитов хватит секунд за 5 минут на пинг 1мс. С лимитом 30/час —
+    практически невозможно вытащить.
+    """
+    import logging as _logging
+    log = _logging.getLogger("rate-limit")
+    # Fast window: 5 попыток / 60 сек
+    if not _check(f"link-fast:{channel}:{identifier}",
+                  max_calls=5, window_sec=60):
+        log.warning(f"[link-fast-limit] {channel}:{identifier}")
+        return False, "Слишком много попыток за минуту. Подожди 60 секунд и попробуй снова."
+    # Slow window: 30 попыток / час
+    if not _check(f"link-slow:{channel}:{identifier}",
+                  max_calls=30, window_sec=3600):
+        log.warning(f"[link-slow-limit] {channel}:{identifier}")
+        return False, "Слишком много попыток за час. Подожди 1 час."
+    return True, ""
+
+
 RULES = {
     # path_prefix: (max_calls, window_seconds)
     "/auth/login":               (10,  300),   # 10 попыток/5мин на IP (анти-брутфорс)
@@ -63,6 +100,12 @@ RULES = {
     "/webhook/vk/":              (120, 60),
     "/webhook/avito/":           (120, 60),
     "/webhook/max/":             (120, 60),
+    # Management-боты (мы один бот на платформу — не сотни клиентских)
+    # 240/мин достаточно: один юзер в чате с Че редко превысит 1 msg/сек,
+    # но при leaked-секрете нужна анти-flood защита. Дублирует per-tg_uid
+    # rate-limit внутри _do_relay_to_che (20/мин на юзера).
+    "/webhook/tg-mgmt":          (240, 60),
+    "/webhook/max-mgmt/":        (240, 60),
     "/payment/webhook":          (60,  60),
     # Платежи — защита от перебора чужих payment_id и от спама создания платежей
     "/payment/buy-tokens":       (20,  60),
@@ -76,6 +119,10 @@ RULES = {
     "/chatbots/ai-build-workflow": (20, 300),
     # Точечная AI-правка блоков сайта — 5 ₽ за вызов, лимит против перебора
     "/sites/projects":           (120, 60),
+    # Привязка TG/MAX — анти-spam регенерации кодов
+    # (юзер может нажимать «Подключить» много раз, но не 100 раз в минуту).
+    "/user/tg-link/code":        (10, 600),
+    "/user/max-link/code":       (10, 600),
     # Кабинет / поддержка / транзакции — защита от scrape
     "/user/cabinet/stats":       (60,  60),
     "/user/transactions.csv":    (10, 300),    # тяжёлый CSV-экспорт

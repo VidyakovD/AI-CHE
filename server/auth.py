@@ -325,6 +325,19 @@ def set_auth_cookies(response: Response, access: str, refresh: str | None = None
     """
     Выставить httpOnly cookies + CSRF-token cookie. Возвращает CSRF-токен
     (его же фронт получит в JSON ответа login и сразу сможет использовать).
+
+    SameSite policy (defense-in-depth):
+      - access_token  → Lax. Нужно для cross-site GET-редиректов:
+          • ЮKassa redirect после оплаты → /?tab=tokens
+          • OAuth callback от Google/VK → /auth/oauth/*/callback
+        В Lax cookie ОТПРАВЛЯЕТСЯ при top-level GET-навигации (включая redirect),
+        но блокируется при cross-site POST/PUT/DELETE → защита от классического CSRF.
+      - refresh_token → Strict. Используется ТОЛЬКО /auth/refresh с нашего фронта
+        (никаких внешних редиректов на этот endpoint). Strict = cookie не уйдёт
+        вообще ни в каком cross-site контексте.
+      - csrf_token    → Strict. Двойной слой к double-submit pattern. Если когда-нибудь
+        double-submit middleware сломается из-за бага — Strict не даст атакеру даже
+        получить cookie на свой XHR через подсунутую ссылку.
     """
     response.set_cookie(
         ACCESS_COOKIE_NAME, access,
@@ -336,17 +349,16 @@ def set_auth_cookies(response: Response, access: str, refresh: str | None = None
         response.set_cookie(
             REFRESH_COOKIE_NAME, refresh,
             max_age=REFRESH_TTL * 60,
-            httponly=True, secure=_COOKIE_SECURE, samesite="lax",
+            httponly=True, secure=_COOKIE_SECURE, samesite="strict",
             path="/", domain=_COOKIE_DOMAIN,
         )
     csrf_value = csrf or _new_csrf_token()
     # CSRF cookie НЕ httpOnly — JS должен его прочитать и положить в header.
-    # Atakker с другого origin не сможет (CORS блокирует cross-origin
-    # чтение cookie через document.cookie).
+    # Strict — defense-in-depth (см. docstring выше).
     response.set_cookie(
         CSRF_COOKIE_NAME, csrf_value,
         max_age=ACCESS_TTL * 60,
-        httponly=False, secure=_COOKIE_SECURE, samesite="lax",
+        httponly=False, secure=_COOKIE_SECURE, samesite="strict",
         path="/", domain=_COOKIE_DOMAIN,
     )
     return csrf_value

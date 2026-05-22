@@ -13,9 +13,20 @@ import pytest
 class TestFormatForMax:
 
     def test_reply_only(self):
+        """Простой текст без markdown-спецсимволов проходит как есть
+        (escape добавляет \\ только перед спецсимволами)."""
         from server.max_management import _format_for_max
-        parts = _format_for_max({"reply": "Привет!"})
-        assert parts == ["Привет!"]
+        # «!» — markdown-спец для MAX (вложенные обращения), экранируется
+        parts = _format_for_max({"reply": "Привет"})
+        assert parts == ["Привет"]
+
+    def test_phish_link_escaped(self):
+        """LLM-output с [phish](url) НЕ должен интерпретироваться MAX как ссылка."""
+        from server.max_management import _format_for_max
+        parts = _format_for_max({"reply": "Жми [тут](https://phish.example)"})
+        assert "[" not in parts[0] or "\\[" in parts[0]
+        assert "\\[тут\\]" in parts[0]
+        assert "\\(https://phish" in parts[0]
 
     def test_with_module(self):
         from server.max_management import _format_for_max
@@ -26,9 +37,12 @@ class TestFormatForMax:
             "new_level": 1,
         })
         assert len(parts) == 2
-        # MAX использует markdown (**bold**), а не HTML (<b>bold</b>)
+        # MAX использует markdown (**bold**) для header, slug экранирован
+        # как defense-in-depth (slug всегда из allowlist enabled modules,
+        # но extra-safety не лишняя)
         assert "**copywriter**" in parts[1]
         assert "<b>" not in parts[1]
+        assert "результат" in parts[1]
 
     def test_level_up_badge(self):
         from server.max_management import _format_for_max
@@ -48,13 +62,23 @@ class TestFormatForMax:
         assert "пустой" in parts[0].lower()
 
     def test_html_not_escaped(self):
-        """Для MAX format=markdown — мы НЕ должны экранировать <> (как для TG).
-        Если юзер пишет код через <code> — пусть приходит как есть."""
+        """Для MAX format=markdown — мы НЕ должны делать HTML-escape (< → &lt;)
+        как для TG. Но markdown-спецсимволы экранируются (с 2026-05-22 fix
+        markdown-injection из LLM-output)."""
         from server.max_management import _format_for_max
-        parts = _format_for_max({"reply": "Используй <div> в коде"})
-        # Не превращаем < > в &lt; &gt;
-        assert "<div>" in parts[0]
+        parts = _format_for_max({"reply": "Используй div в коде"})
+        # Не превращаем буквы в &lt; &gt; — это для TG (HTML), не для MAX
         assert "&lt;" not in parts[0]
+        assert "div" in parts[0]
+
+    def test_markdown_specials_escaped(self):
+        """Звёздочки, скобки, ` ` экранируются — LLM не может пробить разметку."""
+        from server.max_management import _format_for_max
+        parts = _format_for_max({"reply": "**bold** _italic_ `code`"})
+        # ** → \*\*
+        assert "\\*\\*bold\\*\\*" in parts[0]
+        assert "\\_italic\\_" in parts[0]
+        assert "\\`code\\`" in parts[0]
 
 
 class TestIsConfigured:

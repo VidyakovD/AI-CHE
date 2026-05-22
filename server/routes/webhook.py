@@ -406,11 +406,21 @@ async def max_webhook(bot_id: int, request: Request,
 
 
 async def _tg_mgmt_handle(request: Request) -> dict:
-    """Общая логика обработки апдейта от management-бота."""
+    """Общая логика обработки апдейта от management-бота.
+
+    Idempotency: TG re-delivers update при timeout/5xx. process_message
+    списывает токены, создаёт Transaction и AgentMessage — повторная
+    обработка = double-charge. Используем _is_duplicate_update по update_id
+    (bot_id=0 — management-бот один на платформу).
+    """
     from server.tg_management import handle_update
     try:
         body = await request.json()
     except Exception:
+        return {"ok": True}
+    update_id = body.get("update_id") if isinstance(body, dict) else None
+    if _is_duplicate_update("tg-mgmt", 0, update_id):
+        log.info(f"[tg-mgmt] duplicate update_id={update_id} — skipped")
         return {"ok": True}
     try:
         await handle_update(body)
@@ -476,11 +486,29 @@ def _max_mgmt_check_secret(path_secret: str) -> None:
 
 
 async def _max_mgmt_handle(request: Request) -> dict:
-    """Общая логика обработки апдейта от MAX management-бота."""
+    """Общая логика обработки апдейта от MAX management-бота.
+
+    Idempotency: MAX тоже re-deliver'ит. Update_id для MAX —
+    message.timestamp + sender.user_id (MAX-update нет общего ID,
+    используем составной ключ). Если оба отсутствуют — обрабатываем
+    каждый раз (не идемпотентно, но это лучше чем drop legitimate).
+    """
     from server.max_management import handle_update
     try:
         body = await request.json()
     except Exception:
+        return {"ok": True}
+    # Составной id: timestamp + sender.user_id (если message есть)
+    update_id = None
+    if isinstance(body, dict):
+        msg = body.get("message") or {}
+        sender = msg.get("sender") or {}
+        ts = msg.get("timestamp") or msg.get("created_at")
+        uid = sender.get("user_id")
+        if ts and uid:
+            update_id = f"{ts}:{uid}"
+    if update_id and _is_duplicate_update("max-mgmt", 0, update_id):
+        log.info(f"[max-mgmt] duplicate update={update_id} — skipped")
         return {"ok": True}
     try:
         await handle_update(body)

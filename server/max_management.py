@@ -91,11 +91,13 @@ def consume_link_code(db, code: str, max_user_id: str,
                       max_username: str | None) -> int | None:
     """Применить код: найти юзера, привязать max_user_id, сбросить код."""
     from server.models import User
-    from server.security import _check as _rl_check
+    from server.security import link_code_attempt_check
     code = (code or "").strip().upper()
     if not code or len(code) != LINK_CODE_LEN:
         return None
-    if not _rl_check(f"max-link:{max_user_id}", max_calls=10, window_sec=600):
+    # Прогрессивная защита 5/мин + 30/час (см. tg_management.consume_link_code)
+    allowed, _reason = link_code_attempt_check("max", max_user_id)
+    if not allowed:
         log.warning(f"[max-mgmt] consume_link_code rate-limit hit for max_user_id={max_user_id}")
         return None
     u = db.query(User).filter_by(max_link_code=code).first()
@@ -115,14 +117,17 @@ def consume_link_code(db, code: str, max_user_id: str,
     u.max_link_code = None
     u.max_link_expires = None
     db.commit()
-    # Email-уведомление о привязке (security)
+    # Email-уведомление о привязке (security). MAX username NOT constrained
+    # как TG ([A-Za-z0-9_]) — обязательно HTML-escape, иначе injection в email.
+    from html import escape as _html_escape
     try:
         from server.email_service import _send, _base_template
         verb = "перепривязан" if is_relink else "привязан"
+        safe_username = _html_escape((max_username or "—")[:40])
         body = (
             f'<p style="color:rgba(199,196,215,0.8);line-height:1.6">'
             f'К вашему аккаунту {verb} MAX-бот управления.<br/>'
-            f'MAX-юзер: <b>@{(max_username or "—")[:40]}</b><br/>'
+            f'MAX-юзер: <b>@{safe_username}</b><br/>'
             f'Время: {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}</p>'
             f'<p style="color:rgba(199,196,215,0.7);font-size:13px">'
             f'Если это были не вы — отвяжите в кабинете и смените пароль.</p>'
@@ -223,10 +228,11 @@ async def handle_update(update: dict) -> None:
 
 
 async def _do_link(max_uid: str, max_username: str, code: str) -> None:
-    from server.security import _check as _rl_check
-    if not _rl_check(f"max_link:{max_uid}", max_calls=8, window_sec=600):
-        await send_message(max_uid,
-            "🛑 Слишком много попыток. Подожди 10 минут.")
+    # Прогрессивная защита от brute-force (см. tg_management._do_link)
+    from server.security import link_code_attempt_check
+    allowed, reason = link_code_attempt_check("max", max_uid)
+    if not allowed:
+        await send_message(max_uid, f"🛑 {reason}")
         return
     from server.db import db_session
     with db_session() as db:
@@ -337,17 +343,46 @@ async def _do_relay_to_che(max_uid: str, text: str) -> None:
             log.warning(f"[max-mgmt] failed to send part {i} to max_uid={max_uid}")
 
 
+# Markdown-спецсимволы которые экранируются перед отправкой в MAX. LLM-output
+# может содержать `[click](https://phish.example)`, сломанные `**`, fenced code
+# и прочее — без escape MAX интерпретирует это как разметку, что может
+# а) подменить ссылки на фишинг, б) сломать рендер сообщения.
+# Список — те символы что MAX считает значимыми в format=markdown.
+_MAX_MD_ESCAPE_RE = None
+
+
+def _escape_md(text: str) -> str:
+    """Экранировать markdown-спецсимволы для безопасной вставки в MAX-сообщение.
+
+    Прибавляет `\\` перед каждым из: * _ ` [ ] ( ) ~ > # + - = | { } . !
+    Список взят из CommonMark/Telegram MarkdownV2 (MAX наследует похожую
+    грамматику). Не трогает буквы / цифры / пунктуацию-разделители — текст
+    остаётся читаемым.
+    """
+    global _MAX_MD_ESCAPE_RE
+    if _MAX_MD_ESCAPE_RE is None:
+        import re as _re
+        _MAX_MD_ESCAPE_RE = _re.compile(r"([\\\*_`\[\]\(\)~>#+=|{}.!\-])")
+    return _MAX_MD_ESCAPE_RE.sub(r"\\\1", str(text or ""))
+
+
 def _format_for_max(result: dict) -> list[str]:
     """Превратить result в 1-2 MAX-сообщения (markdown-формат).
 
-    Отличие от TG-формата (tg_che_relay.format_for_tg): MAX использует markdown,
-    не HTML. **жирный** вместо <b>, нет escape-нужды.
+    Отличие от TG-формата (tg_che_relay.format_for_tg): MAX использует
+    markdown, не HTML. LLM-output (reply, module_reply) — НЕ доверенный
+    источник: prompt-injection может вернуть [phish](https://evil), сломать
+    разметку или подменить ссылки. Escape ВСЕ спецсимволы.
+
+    Заголовки которые контролирует backend (🧩, level-up бейдж) рендерятся
+    как настоящий markdown — bold через **, и эти ** мы НЕ escape'аем.
     """
     parts: list[str] = []
 
     reply = (result.get("reply") or "").strip()
     if reply:
-        parts.append(reply)
+        # Reply от Che — может содержать prompt-injected markdown
+        parts.append(_escape_md(reply))
 
     mod_reply = (result.get("module_reply") or "").strip()
     mod_slug = result.get("module_slug")
@@ -355,9 +390,13 @@ def _format_for_max(result: dict) -> list[str]:
         level = result.get("new_level", 0)
         level_label = f"L{level}"
         level_up = result.get("level_up", False)
-        header = f"🧩 **{mod_slug}** · {level_label}"
+        # Header — backend-controlled, можем использовать markdown bold (**).
+        # mod_slug — из enabled AgentModule.slug → стандартизированный.
+        # Но всё равно escape, defense-in-depth.
+        header = f"🧩 **{_escape_md(mod_slug)}** · {_escape_md(level_label)}"
         if level_up:
-            header += f" ⬆ прокачался до {level_label}!"
-        parts.append(f"{header}\n\n{mod_reply}")
+            header += f" ⬆ прокачался до {_escape_md(level_label)}\\!"
+        # Module reply — LLM-output, escape всё
+        parts.append(f"{header}\n\n{_escape_md(mod_reply)}")
 
-    return parts or ["(пустой ответ)"]
+    return parts or ["\\(пустой ответ\\)"]

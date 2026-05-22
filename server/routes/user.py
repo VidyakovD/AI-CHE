@@ -345,13 +345,32 @@ def tg_link_code(user: User = Depends(current_user), db: Session = Depends(get_d
     bot_username = os.getenv("TG_MGMT_BOT_USERNAME", "").strip().lstrip("@")
     deep_link = (f"https://t.me/{bot_username}?start=LINK_{code}"
                   if bot_username else None)
+    try:
+        from server.audit_log import log_action
+        log_action("user.tg_link_code_generated", user_id=user.id,
+                   target_type="user", target_id=user.id)
+    except Exception:
+        pass
     return {"code": code, "deep_link": deep_link, "expires_in_minutes": 10}
 
 
 @router.post("/tg-link/unlink")
 def tg_link_unlink(user: User = Depends(current_user), db: Session = Depends(get_db)):
     from server.tg_management import unlink
+    # Запомним до unlink — чтобы в audit-логе остался tg_user_id
+    u = db.query(User).filter_by(id=user.id).first()
+    prev_tg_uid = (u.tg_user_id if u else None) or ""
     unlink(db, user.id)
+    try:
+        from server.audit_log import log_action
+        # Уровень warn — unlink важное событие, после него юзер ПЕРЕСТАНЕТ
+        # получать push-alerts о подозрительной активности. Если атакер
+        # компрометировал сессию — это первое что он сделает.
+        log_action("user.tg_unlink", user_id=user.id,
+                   target_type="user", target_id=user.id, level="warn",
+                   details={"prev_tg_user_id": prev_tg_uid})
+    except Exception:
+        pass
     return {"status": "unlinked"}
 
 
@@ -383,13 +402,28 @@ def max_link_code(user: User = Depends(current_user), db: Session = Depends(get_
     # MAX-эквивалент t.me deep-link — используем max.ru/<username>?start=LINK_<code>
     deep_link = (f"https://max.ru/{bot_username}?start=LINK_{code}"
                   if bot_username else None)
+    try:
+        from server.audit_log import log_action
+        log_action("user.max_link_code_generated", user_id=user.id,
+                   target_type="user", target_id=user.id)
+    except Exception:
+        pass
     return {"code": code, "deep_link": deep_link, "expires_in_minutes": 10}
 
 
 @router.post("/max-link/unlink")
 def max_link_unlink(user: User = Depends(current_user), db: Session = Depends(get_db)):
     from server.max_management import unlink
+    u = db.query(User).filter_by(id=user.id).first()
+    prev_max_uid = (u.max_user_id if u else None) or ""
     unlink(db, user.id)
+    try:
+        from server.audit_log import log_action
+        log_action("user.max_unlink", user_id=user.id,
+                   target_type="user", target_id=user.id, level="warn",
+                   details={"prev_max_user_id": prev_max_uid})
+    except Exception:
+        pass
     return {"status": "unlinked"}
 
 

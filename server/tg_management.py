@@ -138,19 +138,23 @@ def consume_link_code(db, code: str, tg_user_id: str, tg_username: str | None) -
     """Применить код: найти юзера, привязать tg_user_id, сбросить код.
     Возвращает user_id или None если код не валиден/истёк/rate-limit.
 
-    Защита от brute-force: rate-limit на tg_user_id, 10 попыток за 10 мин
-    (TG-юзер вряд ли наберёт 10 неверных кодов вручную).
+    Защита от brute-force: двухуровневая sliding-window через
+    server.security.link_code_attempt_check — 5 попыток/мин + 30 попыток/час
+    на tg_user_id. Раньше было только 10/10мин — этого мало против медленной
+    атаки с распределённого ботнета (TG-боты могут rotate user_id).
+
     Также шлём email-alert владельцу аккаунта при успешном link/relink —
     иначе угнавший аккаунт код атакер привяжет свой TG тихо.
     """
     from server.models import User
-    from server.security import _check as _rl_check
+    from server.security import link_code_attempt_check
     code = (code or "").strip().upper()
     if not code or len(code) != LINK_CODE_LEN:
         return None
-    # Rate-limit по TG-user, чтобы исключить brute-force 6-знач кода
-    # (~28 бит энтропии + 10 мин TTL = в принципе brute-force-able без лимита).
-    if not _rl_check(f"tg-link:{tg_user_id}", max_calls=10, window_sec=600):
+    # Прогрессивная защита от brute-force 6-знач кода
+    # (~28 бит энтропии + 10 мин TTL = brute-force-able без лимита).
+    allowed, _reason = link_code_attempt_check("tg", tg_user_id)
+    if not allowed:
         log.warning(f"[tg-mgmt] consume_link_code rate-limit hit for tg_user_id={tg_user_id}")
         return None
     u = db.query(User).filter_by(tg_link_code=code).first()
@@ -173,13 +177,18 @@ def consume_link_code(db, code: str, tg_user_id: str, tg_username: str | None) -
     db.commit()
     # Email-уведомление об успешной привязке (важная security-операция:
     # TG-бот после этого может управлять подписками и видеть push'и).
+    # tg_username — HTML-escape перед вставкой в email-body. TG username
+    # constrained to [A-Za-z0-9_], но defense-in-depth не лишнее (никогда
+    # не знаешь когда TG расширит формат).
+    from html import escape as _html_escape
     try:
         from server.email_service import _send, _base_template
         verb = "перепривязан" if is_relink else "привязан"
+        safe_username = _html_escape((tg_username or "—")[:40])
         body = (
             f'<p style="color:rgba(199,196,215,0.8);line-height:1.6">'
             f'К вашему аккаунту {verb} Telegram-бот управления.<br/>'
-            f'TG-юзер: <b>@{(tg_username or "—")[:40]}</b><br/>'
+            f'TG-юзер: <b>@{safe_username}</b><br/>'
             f'Время: {datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")}</p>'
             f'<p style="color:rgba(199,196,215,0.7);font-size:13px">'
             f'Если это были не вы — отвяжите в кабинете → Настройки → '
@@ -294,13 +303,14 @@ async def handle_update(update: dict) -> None:
 
 
 async def _do_link(chat_id: str, tg_uid: str, tg_username: str, code: str) -> None:
-    # Rate-limit на TG-юзера: макс 8 попыток /link / 10 мин.
-    # Защита от перебора кодов (хоть алфавит 27 симв × 6 = ~387 млн комбинаций,
-    # но реальные коды актуальны 10 мин — за это время можно перебрать заметно).
-    from server.security import _check as _rl_check
-    if not _rl_check(f"tg_link:{tg_uid}", max_calls=8, window_sec=600):
-        await send_message(chat_id,
-            "🛑 Слишком много попыток. Подожди 10 минут и попробуй снова.")
+    # Прогрессивная защита от brute-force через link_code_attempt_check
+    # (двухуровневая sliding-window: 5/мин + 30/час). Дублируем то же что
+    # делает consume_link_code, чтобы дать юзеру понятную причину отказа
+    # (не silent None как в БД-функции).
+    from server.security import link_code_attempt_check
+    allowed, reason = link_code_attempt_check("tg", tg_uid)
+    if not allowed:
+        await send_message(chat_id, f"🛑 {reason}")
         return
     from server.db import db_session
     with db_session() as db:
