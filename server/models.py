@@ -1684,6 +1684,56 @@ class ContentItem(Base):
     calendar = relationship("ContentCalendar", backref="items")
 
 
+class UserCalendarConnection(Base):
+    """Подключение календаря юзера для модуля «📅 Календарь» (Loom Phase 2).
+
+    Один юзер может подключить несколько календарей разных провайдеров
+    (рабочий Google + личный Yandex) — каждое подключение отдельная строка.
+
+    provider:
+        google  — OAuth 2.0 через GOOGLE_CLIENT_ID + scope calendar.readonly.
+                  Храним refresh_token (EncryptedString), access_token обновляем
+                  по требованию через token endpoint.
+        yandex  — CalDAV через app-password (caldav.yandex.ru). Без OAuth.
+                  Храним email + app-password (EncryptedString).
+        ics     — generic ICS URL (Google public link / Apple iCloud share).
+                  No auth — публичный URL, только чтение.
+
+    calendar_id:
+        Google: id календаря ("primary" или email или unique-id).
+        Yandex: имя календаря в CalDAV (default "events-default").
+        ics:    URL для GET.
+
+    account_email:
+        Для UI отображения «какой аккаунт привязан». Для Google — берётся из
+        userinfo endpoint при OAuth, для Yandex — email который ввёл юзер.
+    """
+    __tablename__ = "user_calendar_connections"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                             nullable=False, index=True)
+    provider        = Column(String, nullable=False)     # google | yandex | ics
+    account_email   = Column(String, nullable=True)
+    calendar_id     = Column(String, nullable=True)
+    # Google: refresh_token (long-lived). Yandex: app-password.
+    access_token    = Column(EncryptedString(2048), nullable=True)
+    refresh_token   = Column(EncryptedString(2048), nullable=True)
+    token_expires_at = Column(DateTime, nullable=True)
+    # Для ICS — публичный URL календаря
+    ics_url         = Column(String, nullable=True)
+    is_active       = Column(Boolean, default=True)
+    last_synced_at  = Column(DateTime, nullable=True)
+    last_error      = Column(Text, nullable=True)
+    fail_count      = Column(Integer, default=0)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "provider", "account_email",
+                          name="uq_user_calendar_account"),
+    )
+
+
 class CreatorChannelConnection(Base):
     """Подключение канала бренда — TG/VK/YouTube/Instagram.
 

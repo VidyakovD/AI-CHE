@@ -623,6 +623,313 @@ async def personal_max_disconnect(user: User = Depends(current_user),
     return {"status": "disconnected"}
 
 
+# ── Calendar connections (Loom Phase 2: модуль 📅 Календарь) ────────────────
+
+
+@router.get("/calendar/connections")
+def list_calendar_connections(user: User = Depends(current_user),
+                               db: Session = Depends(get_db)):
+    """Список подключённых календарей юзера."""
+    from server.models import UserCalendarConnection
+    conns = (db.query(UserCalendarConnection)
+               .filter_by(user_id=user.id)
+               .order_by(UserCalendarConnection.id.asc())
+               .all())
+    return {
+        "connections": [{
+            "id": c.id,
+            "provider": c.provider,
+            "account_email": c.account_email,
+            "is_active": bool(c.is_active),
+            "last_synced_at": c.last_synced_at.isoformat() if c.last_synced_at else None,
+            "last_error": c.last_error,
+        } for c in conns]
+    }
+
+
+@router.delete("/calendar/connections/{conn_id}")
+def disconnect_calendar(conn_id: int,
+                         user: User = Depends(current_user),
+                         db: Session = Depends(get_db)):
+    """Отключить календарь юзера. Refresh-token/app-password стираются."""
+    from server.models import UserCalendarConnection
+    c = (db.query(UserCalendarConnection)
+           .filter_by(id=conn_id, user_id=user.id)
+           .first())
+    if not c:
+        raise HTTPException(404, "Подключение не найдено")
+    prev_provider = c.provider
+    prev_email = c.account_email
+    db.delete(c)
+    db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("user.calendar_disconnect", user_id=user.id,
+                   target_type="user_calendar_connection", target_id=conn_id,
+                   details={"provider": prev_provider, "email": prev_email or ""})
+    except Exception:
+        pass
+    return {"status": "disconnected"}
+
+
+# Google OAuth flow для Calendar (отдельно от login-OAuth)
+
+
+def _google_calendar_redirect_uri() -> str:
+    base = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+    return f"{base}/user/calendar/google/callback"
+
+
+@router.get("/calendar/google/connect")
+async def google_calendar_oauth_start(request: Request,
+                                       user: User = Depends(current_user)):
+    """Сгенерировать redirect URL на Google OAuth consent screen для Calendar.
+
+    Scope: calendar.events.readonly (только чтение, без права создания —
+    более узкий scope = проще пройти Google verification).
+
+    Возвращает JSON {redirect_url} — фронт сам делает window.location =
+    (а не 302 редирект на бэке, чтобы fetch не сломался).
+    """
+    from urllib.parse import urlencode
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(503, "Google OAuth не настроен (GOOGLE_CLIENT_ID пустой)")
+    # State = user.id для линковки в callback (CSRF protection)
+    import secrets as _secrets
+    state = f"{user.id}.{_secrets.token_urlsafe(16)}"
+    # Сохраняем state в БД (или временно в RAM). Для простоты — в RAM cache.
+    _save_oauth_state(user.id, state)
+
+    params = {
+        "client_id": client_id,
+        "redirect_uri": _google_calendar_redirect_uri(),
+        "response_type": "code",
+        "scope": "https://www.googleapis.com/auth/calendar.events.readonly",
+        "access_type": "offline",      # → refresh_token
+        "prompt": "consent",            # форсим refresh_token даже если уже давали разрешение
+        "state": state,
+    }
+    return {"redirect_url": "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)}
+
+
+# RAM-cache для OAuth state (TTL 15 мин). Простое решение для MVP.
+_OAUTH_STATES: dict[str, tuple[int, float]] = {}
+_OAUTH_STATE_TTL = 900  # 15 мин
+
+
+def _save_oauth_state(user_id: int, state: str) -> None:
+    import time as _time
+    now = _time.monotonic()
+    # Cleanup expired
+    expired = [k for k, (_, ts) in _OAUTH_STATES.items()
+                if now - ts > _OAUTH_STATE_TTL]
+    for k in expired:
+        _OAUTH_STATES.pop(k, None)
+    _OAUTH_STATES[state] = (user_id, now)
+
+
+def _consume_oauth_state(state: str) -> int | None:
+    import time as _time
+    item = _OAUTH_STATES.pop(state, None)
+    if not item:
+        return None
+    user_id, ts = item
+    if _time.monotonic() - ts > _OAUTH_STATE_TTL:
+        return None
+    return user_id
+
+
+@router.get("/calendar/google/callback")
+async def google_calendar_oauth_callback(code: str = "", state: str = "",
+                                          error: str = "",
+                                          db: Session = Depends(get_db)):
+    """OAuth callback от Google. Обменивает code на refresh_token, сохраняет.
+
+    Этот endpoint открывается в браузере (юзер пришёл после consent), поэтому
+    возвращаем HTML с сообщением (success/error) и редиректом на /agents-modular.html.
+    """
+    from fastapi.responses import HTMLResponse
+    from server.models import UserCalendarConnection
+    app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+
+    def _html(msg: str, success: bool = False) -> HTMLResponse:
+        icon = "✅" if success else "❌"
+        color = "#7bd968" if success else "#ff6b6b"
+        html = f"""<!DOCTYPE html><html><head>
+<meta charset="utf-8"><title>Google Calendar — AI Студия Че</title>
+<style>body{{background:#1c1c1c;color:#f0e6d8;font:14px/1.5 system-ui;
+text-align:center;padding:60px 20px}}
+.card{{max-width:480px;margin:0 auto;background:#272018;border:1px solid #4a3f2f;
+border-radius:16px;padding:32px}}
+.ic{{font-size:48px;margin-bottom:12px}}
+.msg{{color:{color};font-size:18px;font-weight:600;margin-bottom:12px}}
+.btn{{display:inline-block;margin-top:18px;padding:10px 24px;
+background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;
+border-radius:10px;font-weight:700;text-decoration:none}}</style>
+</head><body><div class="card"><div class="ic">{icon}</div>
+<div class="msg">{msg}</div>
+<a class="btn" href="{app_url}/agents-modular.html">Вернуться в Че</a>
+</div>
+<script>setTimeout(()=>{{location.href='{app_url}/agents-modular.html'}}, 3000)</script>
+</body></html>"""
+        return HTMLResponse(html, status_code=200 if success else 400)
+
+    if error:
+        return _html(f"Google вернул ошибку: {error}")
+    if not code or not state:
+        return _html("Не получен code или state от Google")
+
+    user_id = _consume_oauth_state(state)
+    if not user_id:
+        return _html("Сессия привязки истекла. Попробуй подключить ещё раз.")
+
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+    if not (client_id and client_secret):
+        return _html("Google OAuth не настроен на сервере")
+
+    # Обмен code → tokens
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post("https://oauth2.googleapis.com/token", data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "redirect_uri": _google_calendar_redirect_uri(),
+                "grant_type": "authorization_code",
+            })
+    except Exception as e:
+        log.warning(f"[google-cal-oauth] exchange net err: {type(e).__name__}")
+        return _html(f"Сеть упала при обмене кода: {type(e).__name__}")
+    if r.status_code != 200:
+        log.warning(f"[google-cal-oauth] exchange {r.status_code}: {r.text[:200]}")
+        return _html(f"Google отклонил exchange ({r.status_code})")
+    try:
+        data = r.json()
+    except Exception:
+        return _html("Google вернул не-JSON")
+
+    refresh_token = data.get("refresh_token")
+    access_token = data.get("access_token")
+    expires_in = int(data.get("expires_in") or 3600)
+    if not refresh_token:
+        # Без refresh_token — мы можем сделать первый запрос на access, но
+        # не сможем обновить. Это значит юзер уже даёт разрешение раньше — нам
+        # вернули только access. Не сохраняем — лучше попросить consent заново.
+        return _html("Google не вернул refresh_token (нужно prompt=consent — это баг сервера)")
+
+    # Получим userinfo чтобы узнать email
+    account_email = ""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r2 = await client.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            if r2.status_code == 200:
+                account_email = (r2.json() or {}).get("email", "")
+    except Exception:
+        pass
+
+    # Сохраняем (или обновляем существующее подключение этого аккаунта)
+    existing = (db.query(UserCalendarConnection)
+                  .filter_by(user_id=user_id, provider="google",
+                              account_email=account_email)
+                  .first())
+    if existing:
+        existing.access_token = access_token
+        existing.refresh_token = refresh_token
+        existing.token_expires_at = datetime.utcnow() + timedelta(seconds=expires_in - 60)
+        existing.is_active = True
+        existing.last_error = None
+        existing.fail_count = 0
+    else:
+        existing = UserCalendarConnection(
+            user_id=user_id,
+            provider="google",
+            account_email=account_email,
+            calendar_id="primary",
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_expires_at=datetime.utcnow() + timedelta(seconds=expires_in - 60),
+            is_active=True,
+        )
+        db.add(existing)
+    db.commit()
+
+    try:
+        from server.audit_log import log_action
+        log_action("user.calendar_google_connect", user_id=user_id,
+                   target_type="user_calendar_connection", target_id=existing.id,
+                   details={"email": account_email})
+    except Exception:
+        pass
+
+    return _html(f"Google Calendar подключён: {account_email}", success=True)
+
+
+# Yandex CalDAV — без OAuth, через app-password
+
+
+class YandexCalDavBody(BaseModel):
+    email: str
+    app_password: str
+
+
+@router.post("/calendar/yandex/connect")
+async def yandex_caldav_connect(payload: YandexCalDavBody,
+                                 user: User = Depends(current_user),
+                                 db: Session = Depends(get_db)):
+    """Подключить Yandex Calendar через CalDAV (email + app-password)."""
+    from server.calendar_sync import yandex_caldav_check_creds
+    from server.models import UserCalendarConnection
+
+    email = (payload.email or "").strip().lower()
+    app_pwd = (payload.app_password or "").strip()
+    if not email or "@" not in email:
+        raise HTTPException(400, "Невалидный email")
+    if not app_pwd or len(app_pwd) < 8:
+        raise HTTPException(400, "Слишком короткий app-password (нужен из id.yandex.ru)")
+
+    # Валидация: проверим что Yandex принимает creds (PROPFIND)
+    check = await yandex_caldav_check_creds(email, app_pwd)
+    if not check.get("ok"):
+        raise HTTPException(400, check.get("error", "Yandex отклонил"))
+
+    existing = (db.query(UserCalendarConnection)
+                  .filter_by(user_id=user.id, provider="yandex",
+                              account_email=email)
+                  .first())
+    if existing:
+        existing.access_token = app_pwd  # переиспользуем поле для app-password
+        existing.is_active = True
+        existing.last_error = None
+        existing.fail_count = 0
+    else:
+        existing = UserCalendarConnection(
+            user_id=user.id,
+            provider="yandex",
+            account_email=email,
+            calendar_id="events-default",
+            access_token=app_pwd,
+            is_active=True,
+        )
+        db.add(existing)
+    db.commit()
+
+    try:
+        from server.audit_log import log_action
+        log_action("user.calendar_yandex_connect", user_id=user.id,
+                   target_type="user_calendar_connection", target_id=existing.id,
+                   details={"email": email})
+    except Exception:
+        pass
+
+    return {"status": "connected", "id": existing.id, "account_email": email}
+
+
 class TgNotifyToggleBody(BaseModel):
     notify_proposals: bool | None = None
     notify_records: bool | None = None

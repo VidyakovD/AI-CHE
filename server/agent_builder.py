@@ -731,10 +731,45 @@ def _build_module_extra_context(slug: str, user_id: int | None) -> str:
             return _fetch_mail_context_for_user(user_id)
         if slug == "finance":
             return _fetch_finance_context_for_user(user_id)
+        if slug == "calendar":
+            return _fetch_calendar_context_for_user(user_id)
     except Exception as e:
         log.warning("[module-extra-context] slug=%s user=%s failed: %s",
                     slug, user_id, e)
     return ""
+
+
+def _fetch_calendar_context_for_user(user_id: int) -> str:
+    """Подмешать ближайшие события Calendar (Google/Yandex/ICS) в context.
+
+    Берём события на 14 дней вперёд. Если подключений нет — пустая строка
+    (system_prompt модуля уже описывает что нужно подключить календарь).
+
+    fetch_all_user_events — async, но invoke_module sync. Поэтому
+    run_until_complete через создание нового loop (если активного нет).
+    Аналогично делает _fetch_mail_context_for_user — там IMAP sync.
+    """
+    import asyncio as _asyncio
+    from server.db import db_session
+    from server.calendar_sync import fetch_all_user_events, format_events_for_llm
+
+    async def _run():
+        with db_session() as db:
+            return await fetch_all_user_events(db, user_id, days_ahead=14)
+
+    try:
+        # Если уже есть running loop (никогда не должно в sync invoke_module,
+        # но защита от race) — создаём отдельный thread
+        loop = _asyncio.new_event_loop()
+        try:
+            events = loop.run_until_complete(_run())
+        finally:
+            loop.close()
+    except Exception as e:
+        log.warning("[calendar-context] user=%s fetch failed: %s", user_id, e)
+        return ""
+
+    return "\n" + format_events_for_llm(events)
 
 
 def _fetch_finance_context_for_user(user_id: int) -> str:
