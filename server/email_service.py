@@ -70,7 +70,22 @@ def _open_smtp() -> smtplib.SMTP:
     return s
 
 
-def _send(to: str, subject: str, html: str) -> None:
+def _send(to: str, subject: str, html: str,
+          text_body: str | None = None,
+          in_reply_to: str | None = None) -> None:
+    """Отправить email.
+
+    Args:
+        to: получатель (email)
+        subject: тема
+        html: HTML-тело письма
+        text_body: опц. plain-text fallback (для клиентов которые не рендерят
+            HTML, например текст-only Outlook или поисковые crawler'ы)
+        in_reply_to: опц. Message-ID письма на которое отвечаем — попадёт в
+            заголовок In-Reply-To + References, чтобы клиентский почтовый
+            клиент сгруппировал в один thread. Использует proposals followup
+            (Re: оригинальное письмо с КП).
+    """
     if not SMTP_HOST:
         log.warning(f"[EMAIL STUB] To: {to} | Subject: {subject}")
         # print body so dev can see the link/code
@@ -85,6 +100,16 @@ def _send(to: str, subject: str, html: str) -> None:
     msg["Subject"] = str(Header(subject, "utf-8"))
     msg["From"]    = _encode_address_header(SMTP_FROM)
     msg["To"]      = to
+    if in_reply_to:
+        # Заголовок Message-ID обычно обрамлён <> по RFC 5322. Добавляем
+        # если юзер передал без угловых скобок.
+        ref = in_reply_to if in_reply_to.startswith("<") else f"<{in_reply_to}>"
+        msg["In-Reply-To"] = ref
+        msg["References"]  = ref
+    # MIME-приоритет: первой attach'ится plain-text, потом HTML — email-клиент
+    # покажет HTML если умеет, иначе fallback на plain.
+    if text_body:
+        msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html, "html", "utf-8"))
 
     # MAIL FROM в SMTP-команде — bare email без display name. Yandex (и

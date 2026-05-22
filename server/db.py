@@ -182,6 +182,9 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("users", "max_username", "VARCHAR"),
     ("users", "max_link_code", "VARCHAR"),
     ("users", "max_link_expires", "DATETIME"),
+    # Auto-followup для КП: cron шлёт напоминалку клиенту если КП открыт не был
+    ("proposal_projects", "auto_followup_enabled", "BOOLEAN DEFAULT 1"),
+    ("proposal_projects", "followup_sent_at", "DATETIME"),
     # Презентации — переработанный модуль (см. server/presentation_builder.py)
     ("presentation_projects", "topic", "VARCHAR"),
     ("presentation_projects", "audience", "VARCHAR"),

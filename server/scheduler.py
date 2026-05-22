@@ -340,6 +340,12 @@ from server.cron.agents_modules import (  # noqa: E402, F401
 )
 
 
+# ── Auto-followup для КП без открытия (раз в час) ────────────────────────────
+from server.cron.proposals_followup import (  # noqa: E402, F401
+    _proposals_followup_tick, proposals_followup_loop,
+)
+
+
 def start_scheduler():
     """Фоновые задачи: scheduler / health / cleanup PDF / backup / conv / audit."""
     asyncio.create_task(scheduler_loop())
@@ -356,3 +362,4 @@ def start_scheduler():
     asyncio.create_task(creators_prepare_loop())
     asyncio.create_task(creators_publish_loop())
     asyncio.create_task(agents_modules_cron_loop())
+    asyncio.create_task(proposals_followup_loop())

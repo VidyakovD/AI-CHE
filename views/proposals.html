@@ -47,6 +47,12 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 .card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
 .modal-bg.show{display:flex}
+/* Чипы шаблонов КП в createModal (6 ниш). Аналогично sites.tpl-chip. */
+.proposal-tpl-chip{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:9px 6px;background:#272018;border:1.5px solid rgba(74,63,47,0.4);border-radius:10px;color:#a89880;cursor:pointer;transition:all .15s;font-family:inherit}
+.proposal-tpl-chip:hover{border-color:rgba(255,140,66,0.6);color:#f0e6d8;transform:translateY(-1px)}
+.proposal-tpl-chip.active{border-color:#ff8c42;background:rgba(255,140,66,0.08);color:#ffb347;box-shadow:0 0 0 1px rgba(255,140,66,.25)}
+.proposal-tpl-chip .ptpl-em{font-size:20px;line-height:1}
+.proposal-tpl-chip .ptpl-lbl{font-size:11.5px;font-weight:600;text-align:center;line-height:1.2}
 .proj-card{cursor:pointer;transition:all .15s;background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:14px;padding:16px}
 .proj-card:hover{border-color:rgba(255,140,66,0.4);transform:translateY(-1px)}
 .status-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:9999px}
@@ -156,6 +162,16 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <button onclick="closeProject()" class="btn-g text-xs" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+      <!-- Шаблоны по нише: клик → заполняет extra_notes контекстом ниши -->
+      <div class="field" id="proposalTplWrap">
+        <div class="flex items-center justify-between mb-2">
+          <label class="m-0">⚡ Шаблон по нише <span class="text-on-dim/60 normal-case">— клик и формат готов</span></label>
+          <button type="button" onclick="toggleProposalTplGrid()" id="proposalTplCollapseBtn"
+                  class="text-xs text-on-dim hover:text-primary transition">Скрыть</button>
+        </div>
+        <div id="proposalTplGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
+        <p class="text-[11px] text-on-dim/60 mt-1">Шаблон задаёт формат и структуру КП. Имя клиента и реквизиты — заполни сам.</p>
+      </div>
       <div class="field">
         <label>Название проекта (для вас)</label>
         <input id="pNa" type="text" class="inp" placeholder="КП для ООО Ромашка"/>
@@ -753,10 +769,158 @@ function _restoreProposalDraft(d){
 
 let _proposalDraftDetach = null;
 
+// ── Шаблоны КП по нише ───────────────────────────────────────────────────
+// 6 готовых форматов для популярных B2B-услуг. Клик → extra_notes
+// заполняется специфичными инструкциями AI (структура секций, тон, доп.
+// блоки специфичные для ниши). Имя клиента + email юзер вводит сам.
+const PROPOSAL_TEMPLATES = [
+  {
+    id: 'webdev', emoji: '💻', title: 'Веб-студия / Сайты',
+    name: 'КП — разработка сайта',
+    extra_notes: 'Формат КП: услуги веб-разработки. Структура:\n' +
+      '1) Понимание задачи клиента (1 параграф)\n' +
+      '2) Что мы делаем: дизайн, вёрстка, CMS, тестирование, запуск\n' +
+      '3) Этапы работ с дедлайнами (брифинг → прототип → дизайн → ' +
+      'вёрстка → наполнение → запуск). Если есть прайс — расценки по этапам\n' +
+      '4) Команда (дизайнер, frontend, backend, PM)\n' +
+      '5) Технологический стек кратко\n' +
+      '6) Кейсы 2-3 наших работ с цифрами\n' +
+      '7) Гарантия 6 мес, бесплатные правки в течение месяца\n' +
+      '8) Стоимость общая + что входит\n' +
+      'Тон: экспертный, конкретный, без воды. Можно профессиональные термины.'
+  },
+  {
+    id: 'it', emoji: '⚙', title: 'IT-подряд / Разработка ПО',
+    name: 'КП — разработка ПО',
+    extra_notes: 'Формат КП: заказная разработка ПО (web/mobile/desktop).\n' +
+      '1) Резюме задачи (что строим, какую боль решаем)\n' +
+      '2) Архитектурный подход (микросервисы / монолит, БД, инфра)\n' +
+      '3) Этапы: discovery → MVP → итерации → релиз → поддержка\n' +
+      '4) Команда: tech-lead, разрабы, QA, DevOps, дизайнер\n' +
+      '5) Методология (Agile / Scrum, weekly demo, retrospectives)\n' +
+      '6) Стек технологий (с обоснованием выбора)\n' +
+      '7) Риски и митигация\n' +
+      '8) Кейсы — 2 проекта с метриками (нагрузка, MAU, экономия)\n' +
+      '9) SLA на поддержку\n' +
+      '10) Стоимость: фикс или T&M, как считаем\n' +
+      'Тон: технический, но без снобизма. Цифры важнее красивых слов.'
+  },
+  {
+    id: 'repair', emoji: '🔨', title: 'Ремонт / Стройка',
+    name: 'КП — ремонт под ключ',
+    extra_notes: 'Формат КП: ремонт квартиры/офиса/коммерческого помещения под ключ.\n' +
+      '1) Объём работ из брифа клиента\n' +
+      '2) Виды работ: демонтаж, черновая, чистовая, инженерия, мебель\n' +
+      '3) Этапы с конкретными сроками в днях\n' +
+      '4) Что входит в стоимость, что — нет (отделить материалы клиента/наши)\n' +
+      '5) Команда: прораб, плиточник, электрик, сантехник, маляр\n' +
+      '6) Используемые материалы (бренды, гарантии)\n' +
+      '7) Гарантия: 3 года на работы, 1 год на материалы\n' +
+      '8) Фикс-цена в договоре, без накруток\n' +
+      '9) Кейсы до/после\n' +
+      '10) Стоимость поэтапно с итогом\n' +
+      'Тон: надёжный, конкретный, бытовым языком.'
+  },
+  {
+    id: 'smm', emoji: '📱', title: 'SMM / Контент',
+    name: 'КП — SMM-агентство',
+    extra_notes: 'Формат КП: SMM-сопровождение или контент-маркетинг.\n' +
+      '1) Анализ текущей ситуации клиента (по сайту/соцсетям)\n' +
+      '2) Стратегия: цели на 3 мес (охват, подписчики, заявки)\n' +
+      '3) Объём контента: посты/неделю, сторис/день, рилсы, статьи\n' +
+      '4) Платформы (Telegram, VK, Дзен, Inst-альтернативы)\n' +
+      '5) Команда: SMM-стратег, контент-маркетолог, копирайтер, дизайнер, ' +
+      'видеограф\n' +
+      '6) Метрики и отчётность (weekly dashboard в Google Sheets)\n' +
+      '7) Кейсы: 2-3 клиента с цифрами (рост охвата на N%, ROAS)\n' +
+      '8) Что входит в пакет / что — допуслуги (таргет, инфлюенсеры)\n' +
+      '9) Стоимость месячная + годовая (со скидкой)\n' +
+      'Тон: креативный, с энтузиазмом, цифры для доверия.'
+  },
+  {
+    id: 'legal', emoji: '⚖', title: 'Юридические услуги',
+    name: 'КП — юр.услуги',
+    extra_notes: 'Формат КП: юридическое сопровождение или разовая услуга.\n' +
+      '1) Резюме запроса клиента\n' +
+      '2) Юридический анализ ситуации (риски, перспективы)\n' +
+      '3) Предлагаемый план действий пошагово\n' +
+      '4) Сроки на каждый этап\n' +
+      '5) Команда: ведущий юрист, специалист по нише, паралегал\n' +
+      '6) Гарантии: NDA, конфиденциальность, фикс-стоимость\n' +
+      '7) Кейсы из похожих ситуаций (анонимизированно)\n' +
+      '8) Стоимость: фикс или почасовая (с детализацией)\n' +
+      '9) Дополнительные расходы (госпошлины, экспертизы)\n' +
+      'Тон: солидный, точный, юридически грамотный. Без эмоций.'
+  },
+  {
+    id: 'design', emoji: '🎨', title: 'Дизайн-студия',
+    name: 'КП — дизайн-проект',
+    extra_notes: 'Формат КП: дизайн (айдентика / UI / упаковка / интерьер).\n' +
+      '1) Понимание задачи и целевой аудитории клиента\n' +
+      '2) Этапы: бриф → research → концепция → итерации → финал\n' +
+      '3) Что в результате: набор файлов (AI/Figma/PDF/исходники)\n' +
+      '4) Сроки на каждый этап\n' +
+      '5) Количество правок (например 3 круга бесплатно)\n' +
+      '6) Команда: арт-директор, дизайнер, иллюстратор\n' +
+      '7) Портфолио: 3-4 наших работы с описанием\n' +
+      '8) Авторские права: передача исходников, исключительные права\n' +
+      '9) Стоимость: фикс с детализацией по этапам\n' +
+      'Тон: визуально-эмоциональный, но конкретный.'
+  },
+];
+
+function renderProposalTplGrid(){
+  const grid = document.getElementById('proposalTplGrid');
+  if(!grid) return;
+  grid.innerHTML = PROPOSAL_TEMPLATES.map(t => `
+    <button type="button" class="proposal-tpl-chip" data-tpl="${t.id}">
+      <span class="ptpl-em">${t.emoji}</span>
+      <span class="ptpl-lbl">${t.title}</span>
+    </button>
+  `).join('');
+  grid.querySelectorAll('button[data-tpl]').forEach(btn => {
+    btn.addEventListener('click', () => applyProposalTemplate(btn.dataset.tpl));
+  });
+}
+
+function applyProposalTemplate(tplId){
+  const t = PROPOSAL_TEMPLATES.find(x => x.id === tplId);
+  if(!t) return;
+  document.querySelectorAll('#proposalTplGrid .proposal-tpl-chip').forEach(b =>
+    b.classList.toggle('active', b.dataset.tpl === tplId));
+  const nameEl = document.getElementById('pNa');
+  const notesEl = document.getElementById('pNotes');
+  if(nameEl && !nameEl.value.trim()) nameEl.value = t.name;
+  if(notesEl){
+    if(notesEl.value.trim() && notesEl.value !== t.extra_notes){
+      if(!confirm('У тебя уже что-то введено в «Доп. инструкции». Заменить на шаблон?')) return;
+    }
+    notesEl.value = t.extra_notes;
+  }
+}
+
+function toggleProposalTplGrid(){
+  const grid = document.getElementById('proposalTplGrid');
+  const btn = document.getElementById('proposalTplCollapseBtn');
+  if(!grid || !btn) return;
+  if(grid.style.display === 'none'){
+    grid.style.display = 'grid';
+    btn.textContent = 'Скрыть';
+  } else {
+    grid.style.display = 'none';
+    btn.textContent = 'Показать';
+  }
+}
+
 async function openCreate(){
   currentProjectId = null;
   document.getElementById('projectModalTitle').textContent = 'Новое КП';
   ['pNa','pClientName','pClientEmail','pClientReq','pClientSite','pNotes'].forEach(id => document.getElementById(id).value = '');
+  // Рендерим шаблоны (или сбрасываем активную подсветку если уже отрендерены)
+  renderProposalTplGrid();
+  // Показываем секцию шаблонов только для НОВЫХ КП (не при редактировании)
+  const tplWrap = document.getElementById('proposalTplWrap');
+  if(tplWrap) tplWrap.style.display = '';
   document.getElementById('pBrand').value = '';
   document.getElementById('pBot').value = '';
   if(document.getElementById('pPriceList')) document.getElementById('pPriceList').value = '';
@@ -791,6 +955,9 @@ async function openProject(id){
   if(!r.ok){ await aiAlert('Не удалось загрузить проект (' + r.status + ')', 'error'); return; }
   const p = await r.json();
   currentProjectId = p.id;
+  // При редактировании существующего КП шаблоны не нужны
+  const tplWrap = document.getElementById('proposalTplWrap');
+  if(tplWrap) tplWrap.style.display = 'none';
   document.getElementById('projectModalTitle').textContent = p.name;
   document.getElementById('pNa').value = p.name || '';
   document.getElementById('pClientName').value = p.client_name || '';

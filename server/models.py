@@ -1568,6 +1568,11 @@ class ProposalProject(Base):
     # Стиль шапки PDF/HTML: classic | banner | centered | minimal
     # Юзер выбирает при создании КП. Default — classic (как было раньше).
     header_layout   = Column(String, default="classic")
+    # Auto-followup: cron-задача каждые 6 часов находит КП где sent_at старше
+    # FOLLOWUP_DELAY_DAYS дней + opened_at IS NULL + не было followup → шлёт
+    # клиенту вежливое напоминание. Юзер может отключить per-проект.
+    auto_followup_enabled = Column(Boolean, default=True)
+    followup_sent_at      = Column(DateTime, nullable=True)    # когда мы сами напомнили
     created_at      = Column(DateTime, default=datetime.utcnow)
 
 
