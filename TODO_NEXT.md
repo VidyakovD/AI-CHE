@@ -2,9 +2,45 @@
 
 > Что делать в новых сессиях. **Структура по модулям** — открой нужный `.md` в `docs/modules/` для контекста перед работой.
 
-_Последнее обновление: 2026-05-16 (после большой сессии аудита Фазы 0-1 модульных агентов)._
+_Последнее обновление: 2026-05-22 (после большой сессии — 26 закрытых задач, см. HANDOVER.md)._
 
-> ℹ️ **Pre-launch stage:** база на проде пустая, только админ. Перфоманс/N+1/A-B-тесты/аналитика usage преждевременны. Data-retention включать пока некого чистить. Приоритет — качество фич, UX, security к моменту запуска, новый модуль «Креаторы».
+> ℹ️ **Pre-launch stage:** база на проде пустая, только админ. Перфоманс/N+1/A-B-тесты/аналитика usage преждевременны. Приоритет — security к моменту запуска, оставшиеся блокеры на стороне юзера.
+
+## 🆕 Состояние 2026-05-22
+
+**533 теста проходят. Прод обновлён, `ai-che active`.**
+
+Главные направления Loom (модуль 23) — ✅ Фазы 0 и 1 полностью закрыты,
+✅ Phase 2 закрыта (Calendar, Питание, Заметки). 26 модулей в AGENT_REGISTRY.
+
+Архитектурный сдвиг TG/MAX: модель «общий бот» → **«юзер подключает свой бот»**
+через @BotFather. См. `server/personal_bot_relay.py`. Старый `tg_management.py`
+оставлен для legacy push-уведомлений (`notify_user` через `user.tg_user_id`).
+
+### 🔴 Pre-launch блокеры (только юзер может)
+
+| | Что | Где |
+|---|---|---|
+| 1 | **РКН** — регистрация оператора ПДн (152-ФЗ ст.22) | pd.rkn.gov.ru |
+| 2 | **Ротация Google API key** (скомпрометирован) | aistudio.google.com/apikey |
+| 3 | **Google OAuth Test Users** для Calendar scope | console.cloud.google.com |
+
+✅ Закрыто: ЮKassa+ОФД (Evotor подключен 2026-05-22).
+
+### 🟡 Открытые задачи следующих сессий
+
+| Приоритет | Что |
+|---|---|
+| 🟠 high | **Custom-домен через CNAME** для сайтов + Let's Encrypt automation (B2B value) |
+| 🟢 low | **Миграция `notify_user()`** на `personal_tg_chat_id` (legacy push → новый flow) |
+| 🟢 low | **Удалить legacy endpoints** `/user/tg-link/*` и `/user/max-link/*` (UI больше не вызывает) |
+| 🟢 low | **Удалить** `server/tg_management.py / max_management.py` после миграции notify_user |
+| 🟢 low | **UI настроек модуля** через формы (сейчас `custom_settings_json` только через PATCH API) |
+| 🟢 low | **Скилы модулей** (Итерация 4 roadmap-23) — чекбоксы, price_delta |
+| 🟢 low | **Multi-LLM паттерны** Pipeline/Parallel/Verify из ТЗ ВРЕМЯ-агента |
+| 🟢 low | **Module manifest.yaml** формат (рефакторинг 48 ролей) — для будущего marketplace |
+| 🟢 low | **Тесты на OAuth flow** для Calendar (mock exchange request) |
+| 🟢 low | **Cron sync для Calendar** (раз в час), сейчас fetch on-demand при invoke_module |
 
 ---
 

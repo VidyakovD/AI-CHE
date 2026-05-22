@@ -2,7 +2,162 @@
 
 > История спринтов. **Чтобы понять что было сделано — открой нужный модуль ниже.** Для деталей коммитов — `git log --oneline -100`.
 
-**Свежее состояние:** 2026-05-16. Прод на `193.187.92.147`. **364 тестов проходят.**
+**Свежее состояние:** 2026-05-22. Прод на `193.187.92.147`. **533 теста проходят.**
+
+---
+
+## 🔥 2026-05-20…22 — БОЛЬШАЯ СЕССИЯ: 26 закрытых задач (#1..#26)
+
+Одна из крупнейших сессий проекта. Закрыт почти весь pre-launch polish +
+2 крупные фичи + сильный security pass + начато Phase 2 модулей Loom.
+
+### Закрытые задачи (укрупнённо)
+
+**🔴 Bugfix-ы (4):**
+- Помощник не знал про новые ИИ Агенты — обновлены `assistant_prompts.py` +
+  Ctrl+K command-palette + welcome-hints. Старая `/agents.html` → 308 редирект
+  на `/agents-modular.html`. Также `agents-v2.html` → редирект.
+- Сайты «вылет в раздел кода при скролле» — sticky tab-bar + `!important`
+  для display:none + persist last-viewed-tab в localStorage.
+- «Бот пропал» в /chatbots.html — был дубликат аккаунтов Видякова в БД
+  (id=1 vidyakov@obsidian.ai vs id=3 vidyakovd@gmail.com), бот перенесён
+  через `UPDATE chatbots SET user_id=3 WHERE id=1`. На id=1 ещё лежат
+  2 КП, 6 сайтов, 2 презентации, баланс 27 852 ₽ — оставлены.
+- Кликабельные ссылки в чате — `_linkifyText` (escape + markdown
+  `[text](url)` + bare https://...) в `index.html` и `agents-modular.html`,
+  стили `.ai-link` с dashed-underline.
+
+**🛡 Security pass (8):**
+- SameSite=Strict для refresh+csrf cookies (access остался Lax для
+  совместимости с ЮKassa/OAuth redirects)
+- Brute-force защита `/link-code` — двухуровневая sliding-window
+  (5/мин + 30/час) через `server.security.link_code_attempt_check`.
+- 🔴 Idempotency на `/webhook/tg-mgmt` и `/webhook/max-mgmt` (re-delivery
+  = double-charge → fixed через `_is_duplicate_update`).
+- 🔴 Markdown-injection в MAX через LLM-output — `_escape_md` для всех
+  спецсимволов (`* _ \` [ ] ( ) ~`). Защита от prompt-injected `[phish](url)`.
+- Audit trail + HTML-escape email-alert при link/unlink (TG/MAX).
+- Rate-limit на webhook + `/user/*-link/code` endpoints (новые правила в
+  `server/security.py:RULES`).
+- CSP/HSTS — выяснено что **уже настроено** в nginx (HSTS 2y + preload,
+  CSP с whitelist cdn.tailwindcss.com, X-Frame-Options SAMEORIGIN).
+- Security-review агентом TG/MAX relay — нашёл 2 Critical + 6 Medium,
+  все закрыты. OK: SSRF, token leak, CSRF, webhook secret, brute-force,
+  billing safety.
+
+**🎨 Pre-launch polish (5):**
+- 8 шаблонов сайтов (Кофейня / Юр.услуги / Фотограф / Ремонт / Барбершоп /
+  Фитнес / Курсы / Автосервис) — клик на /sites.html → auto-fill ТЗ.
+- 6 шаблонов КП по нише (Веб-студия / IT-подряд / Ремонт / SMM /
+  Юр.услуги / Дизайн-студия) — auto-fill `extra_notes` инструкциями AI.
+- Cron `proposals_followup_loop` (раз в час) — для КП где `sent_at > 3 дней`
+  и `opened_at IS NULL` шлёт клиенту вежливое напоминание в тот же
+  email-thread (через `In-Reply-To`).
+- UI toggle `auto_followup_enabled` в карточке КП.
+- Bulk-prepare в Креаторах — кнопка «🚀 Подготовить все planned (N)»,
+  до 10 за раз, freemium first + платно, refund per-item на ошибке.
+- Drag-n-drop постов в календаре Креаторов: `PATCH /items/{id}/reschedule`,
+  HTML5 DnD, optimistic update + rollback при ошибке. Запрет drop на
+  published + прошлые даты.
+
+**🤖 ИИ Агенты Phase 1 закрытие + Phase 2 старт (8):**
+- **Bootstrap-импорт постов TG/VK в copywriter (B-4)** — `creators_bootstrap.py`,
+  VK `wall.get` API + парсинг `t.me/s/{username}` HTML preview. UI кнопка
+  «📥 Изучить мои прошлые посты» в карточке copywriter. Сразу даёт L1-L2.
+- **📧 Почта модуль** (Yandex IMAP + Gmail + Mail.ru) — отдельно от прошлой
+  сессии. Подключение через app-password, fetch последних писем в context.
+- **💰 Финансы модуль** — CSV-импорт банковских выписок (Tinkoff/Sber/Alpha/
+  generic), keyword-категоризатор. UI drag-n-drop CSV.
+- **Adaptive System Prompts** — типизированные `[LEARNED:]` маркеры +
+  promotion в Memory Hub (`profile.facts`) когда LEARNED:global.
+- **TG-чат с Че** (двусторонний) — `tg_che_relay.process_message` —
+  любое сообщение в TG → ответ от Че + опционально модуля. Переиспользует
+  всю backend-логику /api/agents/me/messages.
+- **MAX-чат с Че** — симметрично TG, через MAX API. `_format_for_max` с
+  markdown-escape (после security-fix).
+- **Переделка TG/MAX под «свой бот»** — раньше был общий `@aiche_bot` через
+  `TG_MGMT_BOT_TOKEN` админа в .env. Теперь **каждый юзер сам создаёт
+  бот в @BotFather**, вставляет токен в `/agents-modular.html` → платформа
+  валидирует через `getMe`, ставит webhook на `/webhook/personal-tg/<hash>`
+  (hash = sha256(JWT+token)[:24]). Token хранится EncryptedString. Webhook
+  routing по hash. White-label, нет SPoF. Аналогично для MAX.
+- **UX-блок «📲 Где использовать Че»** в шапке `/agents-modular.html` —
+  4 канала одновременно: Веб (current) / PWA install (working) / TG (свой
+  бот) / MAX (свой бот) / Календари (Google+Yandex). PWA-installer через
+  `beforeinstallprompt`.
+
+**🚀 Крупные фичи (3):**
+- **Real-аналитика опубликованных постов** в Креаторах. Cron каждые 6 часов
+  обновляет VK metrics (wall.getById: views/likes/comments/reposts) +
+  TG metrics (парсинг `t.me/<channel>/<msg_id>?embed=1` для views).
+  Schema: `external_post_id/chat_id` + `stats_*` в ContentItem. UI: блок
+  «📊 Метрики поста» в модалке + кнопка «↻ Обновить» (manual fetch).
+- **Модули 🥗 Питание + 📝 Заметки** (Loom Phase 2) — простые AGENT_REGISTRY
+  entries в категории «Личный ассистент». Питание = диетолог-консультант
+  с safety-guardrails, Заметки = архив с kb_search (Knowledge Hub).
+- **📅 Календарь модуль** (Loom Phase 2 завершение). Google OAuth
+  (scope=calendar.events.readonly) + Yandex CalDAV (app-password) + ICS URL.
+  Без зависимостей google-api-client/caldav — всё через httpx + минимальный
+  ICS-парсер (`server/calendar_sync.py`). Context-injection в invoke_module:
+  ближайшие 14 дней событий в system_prompt модуля. UI на agents-modular
+  модалке с кнопками подключения и списком привязок.
+
+### Закрыто блокеров pre-launch
+
+- 🟢 **ЮKassa+ОФД (54-ФЗ)** — юзер сам подключил Evotor через ЛК ЮKassa,
+  режим «Принимать платёж». В нашем backend receipt-данные уже шлются
+  (`server/routes/payments.py:208`), `_send` расширен `text_body`/`in_reply_to`
+  для multipart email + thread support.
+
+### Что ОСТАЛОСЬ pre-launch (на юзера)
+
+- 🔴 **РКН** — регистрация оператора ПДн (152-ФЗ ст.22), 30 дней
+- 🔴 **Ротация Google API key** (был скомпрометирован в `scripts/check_google_keys.py`)
+- 🔴 **Google OAuth verification** для Calendar scope — пока работает только
+  для Test Users, добавь в Google Cloud Console если хочешь публичный.
+
+### Файлы коммитов (укрупнённо)
+
+```
+f3ea976  fix(assistant+sites): 2 UX-бага
+8b80c3f  fix(routing): /agents.html → 308 redirect
+9027c85  feat(agents-modular): UX-блок «📲 Где использовать Че» + PWA
+251f6f0  feat(agents+tg): двусторонний TG-чат с Че
+1ab1349  feat(sites): шаблоны one-click для 8 ниш
+92a6ff3  feat(proposals): cron auto-followup + 6 шаблонов КП
+2988cb1  feat(proposals+creators): UI toggle followup + Bulk-prepare
+a36b562  feat(creators): drag-n-drop постов в календаре
+17aed98  feat(tg+max): переделка под «каждый юзер подключает свой бот»
+0286704  feat(creators): real-аналитика опубликованных постов (TG/VK)
+cdeed50  feat(agents): модули 🥗 Питание + 📝 Заметки
+50b3bc3  feat(calendar): backend Calendar-модуля (Google OAuth + Yandex CalDAV)
+d6266fc  feat(calendar): UI подключения календарей
+```
+
+Плюс security batch: `8603dce`, `5e04cd9` (фикс кнопок), `52ec50c` (linkify),
+ранее в сессии `6078144 / 90fc11f / 483c27a / 1886290` (Bootstrap/Mail/Finance/Adaptive).
+
+### Тесты
+
+299 → **533 passed** (+234 за сессию). 6 skipped. Без регрессий.
+
+### Архитектурные сдвиги
+
+1. **TG/MAX боты** — модель «общий бот» → **«юзер подключает свой»**. Старый
+   `tg_management.py` / `max_management.py` оставлены для `notify_user()` 
+   push-уведомлений (использует legacy `user.tg_user_id`). Новый flow через
+   `server/personal_bot_relay.py` + `users.personal_tg_bot_token` (encrypted)
+   + `_token_hash` для webhook routing.
+
+2. **Новая таблица** `user_calendar_connections` — 1 юзер ↔ N календарей
+   (Google + Yandex + ICS), создаётся через `Base.metadata.create_all`.
+
+3. **Module context injection** — `agent_builder._build_module_extra_context`
+   подмешивает per-slug data в system_prompt модуля: mail → последние письма,
+   finance → сводка транзакций, calendar → ближайшие события.
+
+4. **OAuth state cache** для Google Calendar в RAM (`_OAUTH_STATES` dict),
+   TTL 15 мин. Без persistence — простое решение для MVP.
 
 ---
 

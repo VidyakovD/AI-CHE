@@ -6,20 +6,29 @@
 
 ---
 
-## 🔴 ГЛАВНАЯ ЗАДАЧА — ИИ Агенты (модульные)
+## 🟢 ГЛАВНАЯ ЗАДАЧА — ИИ Агенты (модульные) — Phase 0/1/2 ЗАКРЫТЫ
 
-Переработка раздела «ИИ Агенты» внутри AI Студии Че: дружелюбный оркестратор + каталог подключаемых модулей с прокачкой L0→L4 + LLM Router (Claude/GPT/Grok/Perplexity по силе под задачу) + персонализация через RAG/Adaptive Prompts. **Один продукт** (бренд AI Студия Че остаётся), мобильное — **только PWA** (save-to-home), без native. Юзер прислал ТЗ v0.2 (внутреннее кодовое имя «Project Loom») 2026-05-16, все 10 вопросов закрыты.
+Переработка раздела «ИИ Агенты» внутри AI Студии Че: дружелюбный оркестратор + каталог подключаемых модулей с прокачкой L0→L4 + LLM Router (Claude/GPT/Grok/Perplexity по силе под задачу) + персонализация через RAG/Adaptive Prompts. **Один продукт** (бренд AI Студия Че остаётся), мобильное — **только PWA** (save-to-home), без native. Юзер прислал ТЗ v0.2 (внутреннее кодовое имя «Project Loom») 2026-05-16.
 
 Полная дорожная карта — [docs/modules/23-agents-modular-roadmap.md](docs/modules/23-agents-modular-roadmap.md). **Замещает** [22-agents-v2-roadmap.md](docs/modules/22-agents-v2-roadmap.md).
 
-**В новом чате СНАЧАЛА** прочитай 23 целиком — там фазы, согласованные модули (Почта/Копирайтер/Финансы), и закрытые ответы. Старые AgentRole/agents-v2.html остаются технически, но не развиваются.
+**Состояние 2026-05-22:**
+- ✅ **Phase 0** (фундамент) полностью закрыта
+- ✅ **Phase 1** (Memory Hub, Personality Layer, Module Runtime, прокачка L0→L3, copywriter с per-brand learning + bootstrap-импорт) закрыта
+- ✅ **Phase 2** закрыта: 📧 Почта (Yandex/Gmail/Mail.ru IMAP), 💰 Финансы (CSV выписки), 📅 Календарь (Google OAuth + Yandex CalDAV), 🥗 Питание, 📝 Заметки (kb_search RAG)
+- ✅ **TG/MAX-чат с Че** — каждый юзер подключает свой бот через @BotFather (не общий бот платформы)
+- ✅ **UX-блок «📲 Где использовать Че»** в шапке — 4 канала (Web/PWA/TG/MAX) + календари
+- 🔜 Phase 3 (Bi-Б модули: Яндекс.Директ, CRM, Аналитика) — пока пауза, ждём первых юзеров
 
 ---
 
 ## ✅ Закрытые спринты
 
-- **2026-05-15** — Аудит 40 пилотов Solutions + 2 продакшен-бага (MODEL_REGISTRY / placeholder regex), 14 техдолгов КП/Сайтов закрыто, scheduler.py 1379→349 (split на server/cron/), JWT-strict с авто-активацией 2026-06-10, КП-Jinja public page.
-- **2026-05-13** — Креаторы MVP за 6 итераций. Профиль бренда → AI-план в календарном виде → подготовка постов (freemium 3/мес) → автопостинг TG/VK → анализ соцсетей. [docs/modules/21-creators-roadmap.md](docs/modules/21-creators-roadmap.md).
+- **🆕 2026-05-20…22** — БОЛЬШАЯ СЕССИЯ (26 закрытых задач): Phase 2 модулей Loom (Calendar, Питание, Заметки), real-аналитика постов Креаторов, переделка TG/MAX под «свой бот», 8 шаблонов сайтов + 6 шаблонов КП, cron auto-followup для КП, bulk-prepare + drag-n-drop в Креаторах, security pass (SameSite, brute-force, idempotency, markdown-escape). 364 → **533 теста**. См. HANDOVER.md.
+- **2026-05-18** — Bootstrap-импорт TG/VK в copywriter (B-4), модули 📧 Почта + 💰 Финансы, Adaptive System Prompts, dup-аккаунта Видякова разрулен.
+- **2026-05-16** — Аудит Фазы 0-1 модульных агентов + cron-runtime + webhook-триггер + крупные UX-правки.
+- **2026-05-15** — Аудит 40 пилотов Solutions + 2 продакшен-бага (MODEL_REGISTRY / placeholder regex).
+- **2026-05-13** — Креаторы MVP за 6 итераций. См. [docs/modules/21-creators-roadmap.md](docs/modules/21-creators-roadmap.md).
 
 Следующие крупные направления — см. [TODO_NEXT.md](TODO_NEXT.md).
 

@@ -591,13 +591,36 @@
   - **✍️ Копирайтер с прокачкой** — расширение Креаторов как первый Loom-модуль. Прокачка: tone of voice, аудитория, импорт прошлых постов VK/TG
   - **💰 Финансы личные** — CSV-импорт выписки (любой банк). Прокачка: категории, регулярные платежи. (Tinkoff Open API позже опционально)
 
-### Фаза 2 — Расширение модулей (3-4 недели)
+### ✅ Фаза 2 — Расширение модулей (закрыто 2026-05-22)
 
-- **+3 модуля v1.0** из ТЗ:
-  - **📅 Календарь** — Google Calendar OAuth + Yandex CalDAV
-  - **🥗 Питание** — дневник + советы (без интеграций, ручной ввод + AI)
-  - **📝 Заметки** — личная база знаний, импорт, поиск (расширение существующего Knowledge Hub)
-- **Push через VAPID** (web push — уже есть в проекте, [модуль 17](17-push.md)) для critical-уведомлений модулей
+Все 3 модуля v1.0 из ТЗ реализованы:
+
+- ✅ **📅 Календарь** (`50b3bc3` + `d6266fc`) — Google OAuth (scope
+  calendar.events.readonly) + Yandex CalDAV (app-password) + ICS URL.
+  Без зависимостей google-api-client/caldav — всё через httpx + минимальный
+  ICS-парсер. `server/calendar_sync.py` + `server/routes/user.py` (5 endpoint:
+  status, google/connect, google/callback, yandex/connect, disconnect).
+  Новая таблица `user_calendar_connections` через `Base.metadata.create_all`.
+  Context-injection в invoke_module: ближайшие 14 дней событий → format
+  для LLM. UI на agents-modular: модалка 📲, кнопки 🌐 Google / 🇷🇺 Yandex,
+  список подключений с возможностью отвязать. 18 unit-тестов.
+
+  ⚠ Google scope требует verification от Google Cloud Console. Пока работает
+  только для аккаунтов в Test Users списке. Yandex/ICS — без verification.
+
+- ✅ **🥗 Питание** (`cdeed50`) — диетолог-консультант. Простой
+  AGENT_REGISTRY entry в категории «Личный ассистент». System prompt
+  (1583 chars) с safety-guardrails (НЕ диагностирует, НЕ советует
+  медикаменты/инъекции/голодания >24ч). LEARNED-маркеры для запоминания
+  вес/рост/возраст/цель/диета.
+
+- ✅ **📝 Заметки** (`cdeed50`) — личный архив с семантическим поиском.
+  AGENT_REGISTRY entry, allowed_tools включает `kb_search` (доступ к
+  Knowledge Hub юзера). System prompt (1791 chars) учит LLM записывать
+  с полным контекстом, не выдумывать факты при пустом поиске.
+
+- 🔜 **Push через VAPID** — отложено. Существующая VAPID инфраструктура
+  (модуль 17) пока не подключена к invoke_module / cron-уведомлениям модулей.
 
 ### Фаза 3 — Бизнес-модули + Advanced (4-6 недель)
 
