@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Заметки</title>
+<link rel="stylesheet" href="/fonts.css"/>
+<link rel="stylesheet" href="/styles.css"/>
+<script src="https://cdn.tailwindcss.com/3.4.0"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b","success":"#7bd968"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<style>
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
+*::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;min-height:100vh}
+.sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
+.sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;font-family:inherit}
+.inp:focus{border-color:#ff8c42}
+textarea.inp{resize:vertical;min-height:200px;font-family:inherit;line-height:1.5}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.btn-d{background:rgba(255,107,107,0.1);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-d:hover{background:rgba(255,107,107,0.2)}
+.card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
+.empty{padding:48px 24px;text-align:center;color:#a89880}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
+.modal-bg.show{display:flex}
+.note-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;border:1.5px solid transparent;transition:all .12s;cursor:pointer}
+.note-row:hover{background:#272018;border-color:rgba(74,63,47,.4)}
+.note-icon{width:36px;height:36px;flex-shrink:0;border-radius:9px;background:#322a1e;display:flex;align-items:center;justify-content:center;font-size:18px}
+.note-icon.search{background:linear-gradient(135deg,rgba(255,140,66,.15),rgba(255,179,71,.15));border:1px solid rgba(255,140,66,.3)}
+.note-body{flex:1;min-width:0}
+.note-title{font-size:14px;color:#f0e6d8;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note-snippet{font-size:12px;color:#a89880;margin-top:3px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.note-meta{font-size:11px;color:#a89880;margin-top:4px;display:flex;gap:10px;flex-wrap:wrap}
+.score-pill{background:rgba(123,217,104,.15);color:#7bd968;padding:1px 6px;border-radius:5px;font-size:10px;font-weight:600}
+.cat-pill{padding:1px 7px;border-radius:5px;font-size:10px;background:#322a1e;color:#a89880;font-weight:500}
+</style>
+<script src="/shared.js" defer></script>
+<script src="/icons.js" defer></script>
+</head>
+<body class="dark" data-assistant-section="notes" data-assistant-label="Заметки · общая база агента">
+
+<div class="max-w-4xl mx-auto px-4 py-6">
+
+  <header class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div class="flex items-center gap-3">
+      <a href="/" class="btn-g" title="На главную">← На главную</a>
+      <div>
+        <h1 class="text-2xl font-bold sig-text">📝 Заметки</h1>
+        <p class="text-xs text-on-dim">Общая база знаний агента. Всё что сюда положите — Че использует в чате как контекст.</p>
+      </div>
+    </div>
+    <div id="balancePill" class="text-sm text-on-dim"></div>
+  </header>
+
+  <section class="card p-4 mb-5 flex items-center gap-3 flex-wrap">
+    <input id="searchInput" class="inp" style="flex:1;min-width:240px" placeholder="🔍 Семантический поиск по заметкам..." oninput="onSearchInput()"/>
+    <button class="btn-p" onclick="openCreateModal()">+ Новая заметка</button>
+  </section>
+
+  <div id="emptyState" class="card empty" style="display:none">
+    <div style="font-size:48px;line-height:1;margin-bottom:14px">📝</div>
+    <p style="font-size:16px;color:#f0e6d8;margin-bottom:6px"><b>Заметок ещё нет</b></p>
+    <p style="font-size:13px;max-width:460px;margin:0 auto">Заметки попадают в общую базу — Че видит их когда вы спрашиваете в чате. Можно использовать как «память» агента.</p>
+    <button class="btn-p mt-4" onclick="openCreateModal()">+ Создать первую</button>
+  </div>
+
+  <div id="searchInfo" class="text-xs text-on-dim mb-3" style="display:none"></div>
+  <section id="notesList" class="space-y-2"></section>
+
+</div>
+
+<!-- Create / Edit modal -->
+<div class="modal-bg" id="noteModal">
+  <div class="card p-6" style="max-width:680px;width:100%;max-height:88vh;overflow-y:auto">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-headline font-bold" id="modalTitle">📝 Новая заметка</h3>
+      <button class="btn-g" onclick="closeModal()">×</button>
+    </div>
+    <label class="block text-xs text-on-dim mb-1">Заголовок</label>
+    <input class="inp mb-3" id="noteTitle" placeholder="Например: Идеи для блога на октябрь"/>
+    <label class="block text-xs text-on-dim mb-1">Текст</label>
+    <textarea class="inp mb-3" id="noteText" placeholder="Что хочется запомнить — факты, идеи, контакты, заметки со встречи..."></textarea>
+    <label class="block text-xs text-on-dim mb-1">Теги (через запятую, опц.)</label>
+    <input class="inp mb-4" id="noteTags" placeholder="идеи, маркетинг, q4"/>
+    <div id="noteStatus" class="text-xs text-on-dim mb-3"></div>
+    <div class="flex justify-between gap-2">
+      <button class="btn-d" id="deleteBtn" onclick="deleteNote()" style="display:none">Удалить</button>
+      <div class="flex gap-2 ml-auto">
+        <button class="btn-g" onclick="closeModal()">Отмена</button>
+        <button class="btn-p" id="saveBtn" onclick="saveNote()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const esc = (s) => (s == null ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
+let _mode = 'list';
+let _searchTimer = null;
+let _editingId = null;
+
+async function loadNotes(q) {
+  const url = q ? `/api/agents/me/notes?q=${encodeURIComponent(q)}` : '/api/agents/me/notes';
+  try {
+    const r = await fetch(url, {credentials: 'include'});
+    if (r.status === 401) { location.href = '/'; return; }
+    const data = await r.json();
+    renderNotes(data, q);
+  } catch (e) {
+    console.error('[notes] load', e);
+    (window.aiToast || alert)('Не удалось загрузить заметки');
+  }
+}
+
+function renderNotes(data, q) {
+  const empty = document.getElementById('emptyState');
+  const info = document.getElementById('searchInfo');
+  const list = document.getElementById('notesList');
+  if (data.mode === 'search') {
+    const results = data.results || [];
+    info.style.display = '';
+    info.textContent = `🔍 Найдено: ${results.length} совпадений по «${data.query}»`;
+    if (!results.length) {
+      empty.style.display = 'none';
+      list.innerHTML = '<div class="card empty"><p style="font-size:13px">Ничего не нашлось. Попробуй другую формулировку.</p></div>';
+      return;
+    }
+    empty.style.display = 'none';
+    list.innerHTML = results.map(r => `
+      <div class="note-row" onclick="editNote(${r.file_id})">
+        <div class="note-icon search">🔍</div>
+        <div class="note-body">
+          <div class="note-title">${esc(r.file_name)}</div>
+          <div class="note-snippet">${esc(r.snippet)}</div>
+          <div class="note-meta">
+            <span class="score-pill">match ${Math.round((r.score || 0) * 100)}%</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+    return;
+  }
+  // mode = list
+  info.style.display = 'none';
+  const files = data.files || [];
+  if (!files.length) {
+    empty.style.display = '';
+    list.innerHTML = '';
+    return;
+  }
+  empty.style.display = 'none';
+  list.innerHTML = files.map(f => {
+    const isNote = f.mime === 'text/x-note';
+    return `
+      <div class="note-row" onclick="editNote(${f.id})">
+        <div class="note-icon">${isNote ? '📝' : '📎'}</div>
+        <div class="note-body">
+          <div class="note-title">${esc(f.name)}</div>
+          ${f.summary ? `<div class="note-snippet">${esc(f.summary)}</div>` : ''}
+          <div class="note-meta">
+            ${f.category && f.category !== 'other' ? `<span class="cat-pill">${esc(f.category)}</span>` : ''}
+            ${f.chunk_count ? `<span>${f.chunk_count} фрагментов</span>` : ''}
+            <span>${f.status || 'pending'}</span>
+            ${f.created_at ? `<span>${new Date(f.created_at).toLocaleDateString('ru-RU')}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function onSearchInput() {
+  clearTimeout(_searchTimer);
+  const q = document.getElementById('searchInput').value.trim();
+  _searchTimer = setTimeout(() => loadNotes(q || null), 350);
+}
+
+function openCreateModal() {
+  _editingId = null;
+  document.getElementById('modalTitle').textContent = '📝 Новая заметка';
+  document.getElementById('noteTitle').value = '';
+  document.getElementById('noteText').value = '';
+  document.getElementById('noteTags').value = '';
+  document.getElementById('noteStatus').textContent = '';
+  document.getElementById('deleteBtn').style.display = 'none';
+  document.getElementById('noteModal').classList.add('show');
+  setTimeout(() => document.getElementById('noteTitle').focus(), 50);
+}
+
+async function editNote(id) {
+  try {
+    const r = await fetch(`/api/agents/me/notes/${id}`, {credentials: 'include'});
+    if (!r.ok) throw new Error('not found');
+    const data = await r.json();
+    _editingId = id;
+    document.getElementById('modalTitle').textContent = '📝 ' + (data.name || 'Заметка');
+    document.getElementById('noteTitle').value = data.name || '';
+    document.getElementById('noteText').value = data.content_text || '';
+    document.getElementById('noteTags').value = data.tags || '';
+    document.getElementById('noteStatus').textContent = '';
+    document.getElementById('deleteBtn').style.display = '';
+    document.getElementById('noteModal').classList.add('show');
+  } catch (e) {
+    console.error('[notes] edit', e);
+    (window.aiToast || alert)('Не удалось открыть заметку');
+  }
+}
+
+function closeModal() {
+  document.getElementById('noteModal').classList.remove('show');
+}
+
+async function saveNote() {
+  const title = document.getElementById('noteTitle').value.trim();
+  const text = document.getElementById('noteText').value.trim();
+  const tags = document.getElementById('noteTags').value.trim();
+  if (!title) { (window.aiToast || alert)('Введите заголовок'); return; }
+  if (!text) { (window.aiToast || alert)('Введите текст'); return; }
+  const status = document.getElementById('noteStatus');
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  status.textContent = 'Сохраняем...';
+  try {
+    // Edit = удалить старую + создать новую (минимальная реализация без отдельного PATCH)
+    if (_editingId) {
+      await fetch(`/api/agents/me/notes/${_editingId}`, {
+        method: 'DELETE', credentials: 'include',
+      });
+    }
+    const r = await fetch('/api/agents/me/notes', {
+      method: 'POST', credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title, text, tags}),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+    status.textContent = '✓ Сохранено. Че увидит это в чате как контекст.';
+    setTimeout(() => {
+      closeModal();
+      loadNotes();
+    }, 900);
+  } catch (e) {
+    console.error('[notes] save', e);
+    status.textContent = '✗ Ошибка: ' + (e.message || 'не удалось');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteNote() {
+  if (!_editingId) return;
+  if (!confirm('Удалить заметку? Это действие нельзя отменить.')) return;
+  try {
+    const r = await fetch(`/api/agents/me/notes/${_editingId}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    if (!r.ok) throw new Error('delete failed');
+    closeModal();
+    loadNotes();
+  } catch (e) {
+    console.error('[notes] delete', e);
+    (window.aiToast || alert)('Не удалось удалить');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => loadNotes());
+</script>
+</body>
+</html>

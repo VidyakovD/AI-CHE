@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Календарь</title>
+<link rel="stylesheet" href="/fonts.css"/>
+<link rel="stylesheet" href="/styles.css"/>
+<script src="https://cdn.tailwindcss.com/3.4.0"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b","success":"#7bd968"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<style>
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
+*::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;min-height:100vh}
+.sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
+.sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px}
+.inp:focus{border-color:#ff8c42}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
+.empty{padding:48px 24px;text-align:center;color:#a89880}
+.day-card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:14px;padding:14px 18px;margin-bottom:10px}
+.day-card.today{border-color:#ff8c42;box-shadow:0 0 0 1px rgba(255,140,66,.2)}
+.day-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;border-bottom:1px solid rgba(74,63,47,.3);padding-bottom:8px}
+.day-title{font-size:15px;font-weight:600;color:#f0e6d8}
+.day-title .dow{color:#a89880;font-weight:500;margin-left:8px;font-size:13px}
+.day-count{font-size:12px;color:#a89880}
+.ev{display:grid;grid-template-columns:70px 1fr auto;gap:14px;padding:9px 0;border-bottom:1px dashed rgba(74,63,47,.2);align-items:baseline}
+.ev:last-child{border-bottom:none}
+.ev-time{font-size:13px;color:#ffb347;font-variant-numeric:tabular-nums;font-weight:600}
+.ev-time.all-day{color:#a89880;font-weight:500;font-style:italic;font-size:11px}
+.ev-content{min-width:0}
+.ev-title{font-size:14px;color:#f0e6d8;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev-desc{font-size:12px;color:#a89880;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:520px}
+.ev-loc{font-size:11px;color:#7bd968;margin-top:2px}
+.ev-src{flex-shrink:0;font-size:10px;color:#a89880;padding:2px 7px;border-radius:5px;background:#322a1e;text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+.ev-src.google{background:rgba(77,171,247,.15);color:#4dabf7}
+.ev-src.yandex{background:rgba(255,179,71,.15);color:#ffb347}
+.ev-src.ics{background:rgba(167,139,250,.15);color:#a78bfa}
+</style>
+<script src="/shared.js" defer></script>
+<script src="/icons.js" defer></script>
+</head>
+<body class="dark" data-assistant-section="calendar" data-assistant-label="Календарь · события агента">
+
+<div class="max-w-5xl mx-auto px-4 py-6">
+
+  <header class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div class="flex items-center gap-3">
+      <a href="/" class="btn-g" title="На главную">← На главную</a>
+      <div>
+        <h1 class="text-2xl font-bold sig-text">📅 Календарь</h1>
+        <p class="text-xs text-on-dim">События со всех ваших подключений Google / Yandex / ICS. Спросите у Че «что у меня завтра» — он использует эту базу.</p>
+      </div>
+    </div>
+    <div id="balancePill" class="text-sm text-on-dim"></div>
+  </header>
+
+  <section class="card p-4 mb-5 flex items-center gap-3 flex-wrap">
+    <label class="text-sm text-on-dim">Горизонт:</label>
+    <select class="inp" id="horizonSelect" style="width:auto" onchange="loadEvents()">
+      <option value="7">Неделя</option>
+      <option value="14">2 недели</option>
+      <option value="30" selected>30 дней</option>
+      <option value="60">2 месяца</option>
+      <option value="90">3 месяца</option>
+    </select>
+    <button class="btn-g" onclick="loadEvents()">↻ Обновить</button>
+    <div class="flex-1"></div>
+    <a class="btn-g" href="/agents-modular.html#calendar-connections" title="Управление подключениями календарей">⚙ Подключения</a>
+  </section>
+
+  <div id="loadingState" class="empty" style="display:none">
+    <div style="font-size:32px;margin-bottom:10px">⏳</div>
+    <p style="font-size:13px">Загружаем события…</p>
+  </div>
+
+  <div id="emptyState" class="card empty" style="display:none">
+    <div style="font-size:48px;line-height:1;margin-bottom:14px">📅</div>
+    <p style="font-size:16px;color:#f0e6d8;margin-bottom:6px"><b>Событий не найдено</b></p>
+    <p style="font-size:13px;max-width:480px;margin:0 auto">Либо календари ещё не подключены, либо в горизонте нет событий. Подключите Google или Yandex Calendar в карточке модуля.</p>
+    <a class="btn-p mt-4" href="/agents-modular.html#calendar-connections">⚙ Подключить календарь</a>
+  </div>
+
+  <div id="errState" class="card empty" style="display:none;color:#ff6b6b">
+    <p style="font-size:14px">Не удалось загрузить события. Проверьте подключения и попробуйте обновить.</p>
+  </div>
+
+  <section id="daysBlock" class="space-y-2"></section>
+
+</div>
+
+<script>
+const esc = (s) => (s == null ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
+const DOW = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
+const MON = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+
+function fmtDay(yyyy_mm_dd) {
+  const [y,m,d] = yyyy_mm_dd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  return {
+    title: `${d} ${MON[m-1]}`,
+    dow: DOW[dt.getUTCDay()],
+    isToday: yyyy_mm_dd === new Date().toISOString().slice(0,10),
+  };
+}
+
+function fmtTime(iso) {
+  if (!iso) return '';
+  if (iso.length <= 10) return ''; // all-day
+  try {
+    const dt = new Date(iso);
+    return dt.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+  } catch { return ''; }
+}
+
+async function loadEvents() {
+  const days = document.getElementById('horizonSelect').value || 30;
+  document.getElementById('loadingState').style.display = '';
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('errState').style.display = 'none';
+  document.getElementById('daysBlock').innerHTML = '';
+  try {
+    const r = await fetch(`/api/agents/me/calendar/events?days_ahead=${days}`, {credentials: 'include'});
+    if (r.status === 401) { location.href = '/'; return; }
+    const data = await r.json();
+    document.getElementById('loadingState').style.display = 'none';
+    if (data.error) {
+      document.getElementById('errState').style.display = '';
+      return;
+    }
+    const daysList = data.days || [];
+    if (!daysList.length) {
+      document.getElementById('emptyState').style.display = '';
+      return;
+    }
+    document.getElementById('daysBlock').innerHTML = daysList.map(day => {
+      const f = fmtDay(day.date);
+      return `
+        <div class="day-card ${f.isToday ? 'today' : ''}">
+          <div class="day-head">
+            <div class="day-title">${esc(f.title)} <span class="dow">· ${f.dow}${f.isToday ? ' · сегодня' : ''}</span></div>
+            <div class="day-count">${day.events.length} событий</div>
+          </div>
+          ${day.events.map(ev => {
+            const time = fmtTime(ev.start);
+            return `
+              <div class="ev">
+                <div class="ev-time ${time ? '' : 'all-day'}">${time || 'весь день'}</div>
+                <div class="ev-content">
+                  <div class="ev-title">${esc(ev.title)}</div>
+                  ${ev.description ? `<div class="ev-desc">${esc(ev.description)}</div>` : ''}
+                  ${ev.location ? `<div class="ev-loc">📍 ${esc(ev.location)}</div>` : ''}
+                </div>
+                <div class="ev-src ${esc(ev.source)}">${esc(ev.source || '?')}</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    console.error('[calendar] load', e);
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('errState').style.display = '';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadEvents);
+</script>
+</body>
+</html>

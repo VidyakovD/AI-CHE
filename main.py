@@ -721,6 +721,21 @@ def serve_finance():
     накопленными FinanceTransaction (таблица, агрегаты, импорт CSV)."""
     return _html("finance.html")
 
+@app.get("/calendar.html", include_in_schema=False)
+def serve_calendar():
+    """📅 Календарь — visualization-слой над событиями из подключений
+    Google/Yandex/ICS. Модуль `calendar` остаётся «движком» для оркестратора
+    (юзер в чате говорит «что у меня завтра» — Че зовёт модуль)."""
+    return _html("calendar.html")
+
+@app.get("/notes.html", include_in_schema=False)
+def serve_notes():
+    """📝 Заметки — UI над общей базой знаний юзера (KnowledgeFile с
+    owner_type='user', mime='text/x-note'). Всё что юзер пишет сюда,
+    индексируется в RAG и автоматически попадает в контекст любого
+    агента через retrieve_multi()."""
+    return _html("notes.html")
+
 @app.get("/agents-v2.html", include_in_schema=False)
 def serve_agents_v2():
     """ИИ Агенты v2 (промежуточная итерация с Knowledge Hub + Поисковик)

@@ -1782,3 +1782,171 @@ def list_finance_categories():
     """Список доступных категорий (для select на фронте)."""
     from server.finance_csv import CATEGORIES
     return {"categories": [{"key": k, "label": v} for k, v in CATEGORIES.items()]}
+
+
+# ── Calendar: полноэкранный UI (страница /calendar.html) ────────────────────
+# Модуль `calendar` остаётся «движком» (оркестратор зовёт при «что у меня
+# завтра на встрече»). Эта страница — visualization-слой над событиями
+# из подключённых Google/Yandex/ICS календарей.
+
+@router.get("/me/calendar/events")
+async def list_calendar_events(
+    days_ahead: int = 30,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """События со всех активных подключений календарей юзера.
+
+    days_ahead — горизонт планирования (по умолчанию 30 дней). Жёсткий cap
+    90 — события дальше всё равно неточные (recurrence в Google API).
+    """
+    from server.calendar_sync import fetch_all_user_events
+    days = max(1, min(int(days_ahead or 30), 90))
+    try:
+        events = await fetch_all_user_events(db, user.id, days_ahead=days)
+    except Exception as e:
+        log.warning(f"[calendar] events fetch failed for user={user.id}: {e}")
+        return {"events": [], "error": "fetch_failed"}
+    # Группируем по дате (YYYY-MM-DD) для удобства фронта
+    by_date: dict[str, list] = {}
+    for ev in events:
+        # start приходит как datetime — превращаем в isoformat для JSON
+        start = ev.get("start")
+        end = ev.get("end")
+        if hasattr(start, "isoformat"):
+            start_iso = start.isoformat()
+            day_key = start.strftime("%Y-%m-%d")
+        else:
+            start_iso = str(start) if start else None
+            day_key = (start_iso or "")[:10]
+        end_iso = end.isoformat() if hasattr(end, "isoformat") else (str(end) if end else None)
+        item = {
+            "title": ev.get("title") or "(без названия)",
+            "start": start_iso,
+            "end": end_iso,
+            "description": (ev.get("description") or "")[:500],
+            "location": ev.get("location") or "",
+            "source": ev.get("source") or "",
+            "connection_id": ev.get("connection_id"),
+            "uid": ev.get("uid"),
+        }
+        by_date.setdefault(day_key, []).append(item)
+    days_list = [
+        {"date": d, "events": evs}
+        for d, evs in sorted(by_date.items())
+    ]
+    return {"total": len(events), "days": days_list, "horizon_days": days}
+
+
+# ── Notes: полноэкранный UI (страница /notes.html) ──────────────────────────
+# Заметки — оверлей над KnowledgeFile с owner_type='user'. Используем общую
+# базу юзера (которую я добавил в knowledge.py: owner_type="user"), чтобы
+# заметки автоматически становились доступны всем агентам через retrieve_multi.
+# Это даёт двойную пользу: юзер ведёт заметки в UI, а агент при чате с Че
+# уже видит их в контексте.
+
+@router.get("/me/notes")
+def list_notes(
+    q: str | None = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Список заметок юзера. q — fulltext search через kb retrieve."""
+    from server.knowledge import get_files, retrieve
+    if q and q.strip():
+        # Семантический поиск в общей базе юзера
+        try:
+            results = retrieve(owner_type="user", owner_id=user.id,
+                               query=q.strip(), top=min(int(limit or 50), 50))
+        except Exception as e:
+            log.warning(f"[notes] search failed: {e}")
+            results = []
+        return {"mode": "search", "query": q.strip(), "results": [{
+            "file_id": r["file_id"],
+            "file_name": r["file_name"],
+            "snippet": (r.get("text") or "")[:400],
+            "score": r.get("score", 0),
+        } for r in results]}
+    # Без q — простой список файлов общей базы
+    files = get_files(owner_type="user", owner_id=user.id)
+    return {"mode": "list", "files": files[:int(limit or 50)]}
+
+
+class _NoteCreate(BaseModel):
+    title: str
+    text: str
+    tags: str | None = None
+
+
+@router.post("/me/notes")
+def create_note(
+    body: _NoteCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Создать заметку. Хранится как KnowledgeFile с owner_type='user' и
+    специальным mime 'text/x-note' — заметка попадает в RAG автоматически
+    и видна агентам через retrieve_multi."""
+    from server.knowledge import add_file
+    title = (body.title or "").strip()[:200]
+    text = (body.text or "").strip()
+    if not title:
+        raise HTTPException(400, "Заголовок обязателен")
+    if not text:
+        raise HTTPException(400, "Текст заметки не может быть пустым")
+    if len(text) > 100_000:
+        raise HTTPException(400, "Заметка слишком длинная (макс 100 КБ)")
+    # Заметка хранится как virtual-file без физического файла на диске —
+    # путь nullable=False в модели, поэтому ставим logical path с уникальным id.
+    import secrets as _sec
+    note_id = _sec.token_urlsafe(12)
+    fake_path = f"/uploads/notes/note-{note_id}.txt"  # не существует физически
+    result = add_file(
+        owner_type="user", owner_id=user.id, user_id=user.id,
+        name=title, path=fake_path, mime="text/x-note",
+        size=len(text.encode("utf-8")),
+        content_text=text,
+        tags=(body.tags or "")[:500],
+        skip_embeddings=False,  # эмбеддинги обязательны — иначе агент не найдёт
+    )
+    return {"status": "created", "file_id": result.get("id"), "note": result}
+
+
+@router.delete("/me/notes/{file_id}")
+def delete_note(
+    file_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Удалить заметку. Под капотом — delete KnowledgeFile с проверкой owner."""
+    from server.knowledge import delete_file
+    ok = delete_file(owner_type="user", owner_id=user.id, file_id=file_id)
+    if not ok:
+        raise HTTPException(404, "Заметка не найдена")
+    return {"status": "deleted", "file_id": file_id}
+
+
+@router.get("/me/notes/{file_id}")
+def get_note(
+    file_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Получить полный текст заметки (для редактирования / просмотра)."""
+    from server.models import KnowledgeFile
+    kf = (db.query(KnowledgeFile)
+            .filter_by(id=file_id, owner_type="user", owner_id=user.id)
+            .first())
+    if not kf:
+        raise HTTPException(404, "Заметка не найдена")
+    return {
+        "id": kf.id,
+        "name": kf.name,
+        "content_text": kf.content_text or "",
+        "tags": kf.tags or "",
+        "summary": kf.summary or "",
+        "category": kf.category or "other",
+        "mime": kf.mime,
+        "created_at": kf.created_at.isoformat() if kf.created_at else None,
+    }
