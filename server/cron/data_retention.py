@@ -55,7 +55,8 @@ async def _data_retention_tick():
                 )
                 for u in stale_users:
                     if dry_run:
-                        log.info(f"[data-retention] DRY: would anonymize user={u.id} email={u.email}")
+                        from server.security import mask_email as _mask
+                        log.info(f"[data-retention] DRY: would anonymize user={u.id} email={_mask(u.email)}")
                         anon_count += 1
                         continue
                     # Хеш-токен от оригинального email для бухгалтерии (платежи

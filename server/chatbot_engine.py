@@ -1610,7 +1610,8 @@ async def _execute_node(node: dict, input_text: str, ctx: dict) -> str:
         if keywords:
             haystack = ((subject_in or "") + " " + request_text).lower()
             if not any(kw in haystack for kw in keywords):
-                log.info(f"[auto_proposal] skip — no keywords match for {client_email}")
+                from server.security import mask_email as _mask
+                log.info(f"[auto_proposal] skip — no keywords match for {_mask(client_email)}")
                 return "⚠ Письмо не похоже на запрос КП — пропускаем"
 
         # C.9 Email whitelist (опционально): cfg.email_whitelist=domain1.ru,domain2.com

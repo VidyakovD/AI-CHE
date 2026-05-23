@@ -9,7 +9,7 @@ Flow:
                                                      → редирект назад с code (не токеном)
   POST /auth/oauth/exchange { code }               — фронт обменивает code на access/refresh
 """
-import os, uuid, logging, urllib.parse
+import os, re, uuid, logging, urllib.parse
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -226,7 +226,10 @@ async def vk_callback(code: str | None = None, state: str | None = None,
                       error: str | None = None,
                       db: Session = Depends(get_db)):
     if error or not code:
-        return RedirectResponse(f"{APP_URL}/?oauth_error={error or 'no_code'}")
+        # Санитизируем error из VK — он попадает в query-string фронта,
+        # неосторожный рендер через innerHTML дал бы reflected XSS.
+        safe_err = re.sub(r"[^a-zA-Z0-9_]", "_", str(error or "no_code"))[:64]
+        return RedirectResponse(f"{APP_URL}/?oauth_error={safe_err}")
     state_row = _consume_state(db, "vk", state)
     if state_row is None or not state_row.code_verifier:
         log.warning(f"[VK] invalid state: {state!r}")

@@ -78,8 +78,27 @@ def _validate_image_url(url: str | None, field: str = "image_url") -> str | None
     # http/https — OK
     if low.startswith("http://") or low.startswith("https://"):
         return s
-    # data: разрешаем только image/* mime-type
-    if low.startswith("data:image/") and ";base64," in low[:50]:
+    # data: разрешаем только image/* mime-type — но НЕ SVG.
+    # SVG может содержать <script> и on*-handlers → XSS в публичных /p/{token}.
+    # Также блокируем `data:image/xml`, `data:image/x-...` и любые подозрительные
+    # под-типы. Whitelist: png/jpeg/gif/webp/bmp/avif/heic.
+    if low.startswith("data:image/"):
+        if "svg" in low[:30] or "xml" in low[:30]:
+            raise HTTPException(400, f"{field}: SVG в data:URL запрещён (риск XSS)")
+        # Точный whitelist по MIME-подтипу для defense-in-depth
+        _allowed_mime = ("png", "jpeg", "jpg", "gif", "webp", "bmp", "avif", "heic")
+        # data:image/png;base64,... → "png"
+        try:
+            mime_part = low.split(";", 1)[0].split("/", 1)[1]
+        except Exception:
+            mime_part = ""
+        if mime_part not in _allowed_mime:
+            raise HTTPException(
+                400,
+                f"{field}: разрешены только data:image/{{{','.join(_allowed_mime)}}}",
+            )
+        if ";base64," not in low[:50]:
+            raise HTTPException(400, f"{field}: data:URL должна быть base64-кодированной")
         return s
     raise HTTPException(400,
         f"{field}: ссылка должна быть http://, https://, относительной или data:image/")

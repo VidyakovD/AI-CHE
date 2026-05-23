@@ -96,6 +96,19 @@ def qr_poll(token: str, response: Response, db: Session = Depends(get_db)):
     if sess.consumed:
         # Кто-то уже забрал токены — повторно не отдаём (защита от replay).
         return {"status": "consumed"}
+    # Атомарный compare-and-set: только тот запрос, у которого UPDATE
+    # с rowcount=1, может выдавать токены. Параллельный poll увидит
+    # rowcount=0 → ответит "consumed". Раньше read-modify-write оставлял
+    # окно гонки между `if sess.consumed:` и `sess.consumed = True`.
+    from sqlalchemy import update as _sa_update
+    claim = db.execute(
+        _sa_update(QrLoginSession)
+        .where(QrLoginSession.id == sess.id, QrLoginSession.consumed == False)
+        .values(consumed=True)
+    )
+    if claim.rowcount != 1:
+        db.commit()  # сбросить транзакцию
+        return {"status": "consumed"}
     user = db.query(User).filter_by(id=sess.user_id).first()
     if not user:
         return {"status": "expired"}
@@ -104,7 +117,6 @@ def qr_poll(token: str, response: Response, db: Session = Depends(get_db)):
     refresh = create_refresh_token(user.id, user.email, jti=rt_jti)
     register_refresh_jti(db, user, rt_jti)
     csrf = set_auth_cookies(response, access, refresh)
-    sess.consumed = True
     db.commit()
     try:
         from server.audit_log import log_action
