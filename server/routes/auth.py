@@ -140,6 +140,75 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
             "message": "На ваш email отправлен 6-значный код подтверждения"}
 
 
+def _seed_demo_data(db: Session, user_id: int, user_name: str) -> None:
+    """Создаёт минимальные демо-данные новому юзеру:
+      • welcome-заметку (KnowledgeFile owner_type='user')
+      • событие «познакомиться с Че» на завтра 12:00 (LocalCalendarEvent)
+    Финансы НЕ сидируем — это сильно зависит от валюты юзера и
+    приватные данные нежелательны без явного согласия.
+
+    Best-effort: любые ошибки только логируются, не raise.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    from server.models import LocalCalendarEvent
+    name = (user_name or "").strip() or "друг"
+
+    # 1. Welcome-заметка через knowledge — попадёт в RAG, Че её увидит в чате
+    try:
+        from server.knowledge import add_file
+        import secrets as _sec
+        note_text = (
+            f"Привет, {name}! Это твоя первая заметка — пример того как "
+            "работает Че.\n\n"
+            "💡 Что важно знать:\n"
+            "• Любую заметку из /notes.html я (Че) автоматически вижу в чате — "
+            "можешь спросить «что я записал про X», и я найду.\n"
+            "• В /finance.html импортируешь CSV из банка — я отвечу на "
+            "вопросы про расходы.\n"
+            "• В /calendar.html подключи Google или Яндекс — я буду в курсе "
+            "встреч и напомню.\n"
+            "• Скажи мне «внеси в календарь завтра в 15:00» — я сам создам "
+            "событие.\n\n"
+            "Если эта заметка не нужна — удали её в /notes.html."
+        )
+        add_file(
+            owner_type="user", owner_id=user_id, user_id=user_id,
+            name="👋 Добро пожаловать в Че",
+            path=f"/uploads/notes/welcome-{_sec.token_urlsafe(8)}.txt",
+            mime="text/x-note",
+            size=len(note_text.encode("utf-8")),
+            content_text=note_text,
+            tags="welcome,onboarding",
+            skip_embeddings=False,
+        )
+    except Exception as e:
+        log.warning(f"[seed-demo] note skipped: {e}")
+
+    # 2. Демо-событие в календаре «познакомиться с Че» на завтра 12:00 UTC
+    try:
+        tomorrow = (_dt.utcnow() + _td(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
+        ev = LocalCalendarEvent(
+            user_id=user_id,
+            title="🎯 Познакомиться с возможностями Че",
+            start=tomorrow,
+            end=tomorrow + _td(minutes=30),
+            description=(
+                "30 минут на изучение:\n"
+                "• /agents-modular.html — каталог из 26 модулей ИИ-агентов\n"
+                "• /sites.html — сайт под ключ за 1500 ₽\n"
+                "• /proposals.html — КП с e-подписью\n"
+                "• Главное — начни диалог с Че, скажи «помоги настроить»."
+            ),
+            location="",
+        )
+        db.add(ev)
+        db.commit()
+    except Exception as e:
+        log.warning(f"[seed-demo] event skipped: {e}")
+        try: db.rollback()
+        except Exception: pass
+
+
 @router.post("/verify-email")
 def verify_email(req: VerifyEmailRequest, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter_by(id=req.user_id).first()
@@ -168,6 +237,14 @@ def verify_email(req: VerifyEmailRequest, response: Response, db: Session = Depe
         send_welcome(user.email, user.name or "")
     except Exception as e:
         log.error(f"Welcome email error: {e}")
+    # Демо-данные для онбординга: одна welcome-заметка + одно событие
+    # «познакомиться с Че» в календаре. Без них новый юзер видит пустые
+    # экраны (/notes.html, /calendar.html, /finance.html) и не понимает
+    # как использовать. Best-effort — никогда не блокируем regular flow.
+    try:
+        _seed_demo_data(db, user.id, user.name or "")
+    except Exception as e:
+        log.warning(f"[verify-email] demo data seed skipped: {type(e).__name__}: {e}")
     access = create_token(user.id, user.email)
     rt_jti = _new_jti()
     refresh = create_refresh_token(user.id, user.email, jti=rt_jti)
