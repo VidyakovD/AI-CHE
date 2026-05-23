@@ -1681,3 +1681,104 @@ def clear_finance_transactions(db: Session = Depends(get_db),
     except Exception:
         pass
     return {"status": "cleared", "deleted": n}
+
+
+# ── Finance: полноэкранный UI (страница /finance.html) ──────────────────────
+# Эти эндпоинты — для отдельной страницы, аналогично creators.html. Модуль
+# finance остаётся «движком», которым оркестратор пользуется при чате;
+# страница — visualization layer для накопленного состояния транзакций.
+
+@router.get("/me/finance/transactions")
+def list_finance_transactions(
+    limit: int = 50, offset: int = 0,
+    category: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Пагинированный список транзакций с фильтрами по категории/дате."""
+    from datetime import datetime as _dt
+    from server.finance_csv import CATEGORIES
+    limit = max(1, min(int(limit or 50), 200))
+    offset = max(0, int(offset or 0))
+    q = db.query(FinanceTransaction).filter(FinanceTransaction.user_id == user.id)
+    if category:
+        q = q.filter(FinanceTransaction.category == category)
+    for raw, op in ((date_from, ">="), (date_to, "<=")):
+        if not raw:
+            continue
+        try:
+            dt = _dt.fromisoformat(raw)
+        except Exception:
+            continue
+        if op == ">=":
+            q = q.filter(FinanceTransaction.date >= dt)
+        else:
+            q = q.filter(FinanceTransaction.date <= dt)
+    total = q.count()
+    rows = q.order_by(FinanceTransaction.date.desc()).offset(offset).limit(limit).all()
+    return {
+        "total": total, "limit": limit, "offset": offset,
+        "items": [{
+            "id": r.id,
+            "date": r.date.isoformat() if r.date else None,
+            "amount_kop": r.amount_kop,
+            "currency": r.currency or "RUB",
+            "category": r.category,
+            "category_label": CATEGORIES.get(r.category or "other", r.category),
+            "description": r.description or "",
+            "merchant": r.merchant,
+            "source": r.source,
+        } for r in rows],
+    }
+
+
+class _FinanceTxPatch(BaseModel):
+    category: str | None = None
+    description: str | None = None
+
+
+@router.patch("/me/finance/transactions/{tx_id}")
+def patch_finance_transaction(
+    tx_id: int, body: _FinanceTxPatch,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Ручное изменение категории / описания транзакции. Auto-классификатор
+    может ошибиться — юзер исправляет."""
+    from server.finance_csv import CATEGORIES
+    tx = (db.query(FinanceTransaction)
+            .filter_by(id=tx_id, user_id=user.id).first())
+    if not tx:
+        raise HTTPException(404, "Транзакция не найдена")
+    if body.category is not None:
+        if body.category not in CATEGORIES:
+            raise HTTPException(400, f"Неизвестная категория: {body.category}")
+        tx.category = body.category
+    if body.description is not None:
+        tx.description = body.description[:1000]
+    db.commit()
+    return {"status": "ok", "id": tx.id, "category": tx.category}
+
+
+@router.delete("/me/finance/transactions/{tx_id}")
+def delete_finance_transaction(
+    tx_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Удалить одну транзакцию (например явный дубликат после CSV-импорта)."""
+    tx = (db.query(FinanceTransaction)
+            .filter_by(id=tx_id, user_id=user.id).first())
+    if not tx:
+        raise HTTPException(404, "Транзакция не найдена")
+    db.delete(tx); db.commit()
+    return {"status": "deleted", "id": tx_id}
+
+
+@router.get("/me/finance/categories")
+def list_finance_categories():
+    """Список доступных категорий (для select на фронте)."""
+    from server.finance_csv import CATEGORIES
+    return {"categories": [{"key": k, "label": v} for k, v in CATEGORIES.items()]}

@@ -713,6 +713,14 @@ def serve_api_docs():
 def serve_creators():
     return _html("creators.html")
 
+@app.get("/finance.html", include_in_schema=False)
+def serve_finance():
+    """💰 Финансы — отдельная страница UI для модуля finance.
+    Сам модуль (агент) остаётся в agents_modular — оркестратор обращается
+    к нему через чат с Че. Эта страница — visualization-слой над
+    накопленными FinanceTransaction (таблица, агрегаты, импорт CSV)."""
+    return _html("finance.html")
+
 @app.get("/agents-v2.html", include_in_schema=False)
 def serve_agents_v2():
     """ИИ Агенты v2 (промежуточная итерация с Knowledge Hub + Поисковик)

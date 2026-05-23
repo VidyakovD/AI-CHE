@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Финансы</title>
+<link rel="stylesheet" href="/fonts.css"/>
+<link rel="stylesheet" href="/styles.css"/>
+<script src="https://cdn.tailwindcss.com/3.4.0"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b","success":"#7bd968"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<style>
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
+*::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;min-height:100vh}
+.sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
+.sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;font-family:inherit;transition:border-color .2s}
+.inp:focus{border-color:#ff8c42}.inp::placeholder{color:#a89880}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.btn-d{background:rgba(255,107,107,0.1);color:#ff6b6b;border:1px solid rgba(255,107,107,0.25);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-d:hover{background:rgba(255,107,107,0.2)}
+.card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
+.empty{padding:48px 24px;text-align:center;color:#a89880}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:50;overflow-y:auto;padding:24px}
+.modal-bg.show{display:flex}
+.stat-num{font-size:22px;font-weight:700;color:#ffb347;font-variant-numeric:tabular-nums;line-height:1.1}
+.stat-num.pos{color:#7bd968}.stat-num.neg{color:#ff6b6b}
+.stat-lbl{font-size:11px;color:#a89880;text-transform:uppercase;letter-spacing:.4px;margin-top:6px}
+.tx-row{display:grid;grid-template-columns:90px 1fr 130px 110px 28px;gap:10px;padding:10px 12px;border-radius:9px;border:1px solid transparent;align-items:center;font-size:13px;transition:all .12s}
+.tx-row:hover{background:#272018;border-color:rgba(74,63,47,.4)}
+.tx-date{color:#a89880;font-size:12px;font-variant-numeric:tabular-nums}
+.tx-desc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f0e6d8}
+.tx-amount{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.tx-amount.pos{color:#7bd968}.tx-amount.neg{color:#ff6b6b}
+.tx-cat-select{background:#322a1e;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);border-radius:6px;padding:4px 6px;font-size:12px;outline:none;cursor:pointer;width:100%}
+.tx-cat-select:focus{border-color:#ff8c42}
+.cat-bar{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:#272018}
+.cat-bar-label{flex:0 0 180px;font-size:13px;color:#f0e6d8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cat-bar-track{flex:1;height:6px;background:#322a1e;border-radius:999px;overflow:hidden}
+.cat-bar-fill{height:100%;background:linear-gradient(90deg,#ff8c42,#ffb347);border-radius:999px;transition:width .25s}
+.cat-bar-amount{flex:0 0 110px;text-align:right;font-variant-numeric:tabular-nums;font-size:13px;color:#ffb347;font-weight:600}
+</style>
+<script src="/shared.js" defer></script>
+<script src="/icons.js" defer></script>
+</head>
+<body class="dark" data-assistant-section="finance" data-assistant-label="Финансы · личный учёт">
+
+<div class="max-w-6xl mx-auto px-4 py-6">
+
+  <!-- Header -->
+  <header class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div class="flex items-center gap-3">
+      <a href="/" class="btn-g" title="На главную">← На главную</a>
+      <div>
+        <h1 class="text-2xl font-bold sig-text">💰 Финансы</h1>
+        <p class="text-xs text-on-dim">Учёт личных доходов и расходов. Модуль агента — оркестратор спрашивает у этой базы в чате с Че.</p>
+      </div>
+    </div>
+    <div id="balancePill" class="text-sm text-on-dim"></div>
+  </header>
+
+  <!-- Action bar -->
+  <section class="card p-4 mb-5 flex items-center gap-3 flex-wrap">
+    <button class="btn-p" onclick="openImportModal()">📥 Импорт CSV банка</button>
+    <button class="btn-g" onclick="loadAll()">↻ Обновить</button>
+    <div class="flex-1"></div>
+    <button class="btn-d" onclick="clearAll()" id="clearAllBtn" style="display:none">Очистить всё</button>
+  </section>
+
+  <!-- Empty state -->
+  <div id="emptyState" class="card empty" style="display:none">
+    <div style="font-size:48px;line-height:1;margin-bottom:14px">💰</div>
+    <p style="font-size:16px;color:#f0e6d8;margin-bottom:6px"><b>Транзакций пока нет</b></p>
+    <p style="font-size:13px">Загрузи CSV-выписку из банка (Тинькофф / Сбер / Альфа / generic). Категории определятся автоматически.</p>
+    <button class="btn-p mt-4" onclick="openImportModal()">📥 Загрузить CSV</button>
+  </div>
+
+  <!-- Stats cards -->
+  <section id="statsBlock" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5" style="display:none">
+    <div class="card p-4"><div class="stat-num pos" id="statIn">— ₽</div><div class="stat-lbl">Доходы</div></div>
+    <div class="card p-4"><div class="stat-num neg" id="statOut">— ₽</div><div class="stat-lbl">Расходы</div></div>
+    <div class="card p-4"><div class="stat-num" id="statBalance">— ₽</div><div class="stat-lbl">Баланс</div></div>
+    <div class="card p-4"><div class="stat-num" id="statCount" style="color:#f0e6d8">—</div><div class="stat-lbl">Транзакций</div></div>
+  </section>
+
+  <!-- Categories breakdown -->
+  <section id="catBlock" class="card p-5 mb-5" style="display:none">
+    <h2 class="text-sm font-headline font-bold text-on-dim uppercase tracking-wider mb-3">Расходы по категориям</h2>
+    <div id="catList" class="space-y-2"></div>
+  </section>
+
+  <!-- Filters + table -->
+  <section id="txBlock" class="card p-5" style="display:none">
+    <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+      <h2 class="text-sm font-headline font-bold text-on-dim uppercase tracking-wider">Транзакции</h2>
+      <div class="flex items-center gap-2 flex-wrap">
+        <select id="filterCat" class="inp" style="width:auto;min-width:160px" onchange="applyFilters()">
+          <option value="">— все категории —</option>
+        </select>
+        <input type="date" class="inp" style="width:auto" id="filterFrom" onchange="applyFilters()"/>
+        <input type="date" class="inp" style="width:auto" id="filterTo" onchange="applyFilters()"/>
+        <button class="btn-g" onclick="resetFilters()" title="Сбросить фильтры">×</button>
+      </div>
+    </div>
+
+    <div id="txHeader" class="tx-row" style="font-size:11px;color:#a89880;text-transform:uppercase;letter-spacing:.4px;font-weight:600;padding:6px 12px;border-bottom:1px solid rgba(74,63,47,.3);border-radius:0">
+      <div>Дата</div><div>Описание</div><div>Категория</div><div style="text-align:right">Сумма</div><div></div>
+    </div>
+    <div id="txList" class="space-y-1 mt-2"></div>
+
+    <div class="flex items-center justify-between mt-4 pt-3 border-t border-outline/20">
+      <div class="text-xs text-on-dim" id="txPagInfo">—</div>
+      <div class="flex gap-2">
+        <button class="btn-g" id="txPrev" onclick="pageDelta(-1)">← Раньше</button>
+        <button class="btn-g" id="txNext" onclick="pageDelta(1)">Позже →</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Import CSV modal -->
+<div class="modal-bg" id="importModal">
+  <div class="card p-6" style="max-width:520px;width:100%">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-headline font-bold">📥 Импорт CSV банковской выписки</h3>
+      <button class="btn-g" onclick="closeImportModal()">×</button>
+    </div>
+    <p class="text-sm text-on-dim mb-3">Загрузи CSV-файл выписки. Поддерживаются: Тинькофф, Сбер, Альфа-Банк, generic CSV (date / amount / description).</p>
+    <input type="file" id="csvFile" accept=".csv,text/csv" class="inp mb-3"/>
+    <label class="block text-xs text-on-dim mb-1">Банк (опционально, иначе авто-определение)</label>
+    <select id="csvBank" class="inp mb-4">
+      <option value="">Авто-определение</option>
+      <option value="tinkoff">Тинькофф</option>
+      <option value="sber">Сбер</option>
+      <option value="alfa">Альфа-Банк</option>
+      <option value="generic">Generic CSV</option>
+    </select>
+    <div id="importStatus" class="text-xs text-on-dim mb-3"></div>
+    <div class="flex justify-end gap-2">
+      <button class="btn-g" onclick="closeImportModal()">Отмена</button>
+      <button class="btn-p" id="importBtn" onclick="submitImport()">Загрузить</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const fmtRub = (kop) => {
+  const r = Math.abs(kop / 100);
+  const str = r.toLocaleString('ru-RU', {maximumFractionDigits: 0});
+  return (kop < 0 ? '−' : '') + str + ' ₽';
+};
+const esc = (s) => (s == null ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
+
+let _cats = [];
+let _txPage = {offset: 0, limit: 50, total: 0};
+let _filters = {category: '', date_from: '', date_to: ''};
+
+async function loadCategories() {
+  try {
+    const r = await fetch('/api/agents/me/finance/categories', {credentials: 'include'});
+    if (r.status === 401) { location.href = '/'; return; }
+    const data = await r.json();
+    _cats = data.categories || [];
+    const sel = document.getElementById('filterCat');
+    sel.innerHTML = '<option value="">— все категории —</option>' +
+      _cats.map(c => `<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('');
+  } catch (e) { console.error('[finance] cats', e); }
+}
+
+async function loadSummary() {
+  try {
+    const r = await fetch('/api/agents/me/finance/summary', {credentials: 'include'});
+    if (r.status === 401) { location.href = '/'; return; }
+    const data = await r.json();
+    const has = (data.total || 0) > 0;
+    document.getElementById('emptyState').style.display = has ? 'none' : '';
+    document.getElementById('statsBlock').style.display = has ? '' : 'none';
+    document.getElementById('catBlock').style.display = has ? '' : 'none';
+    document.getElementById('txBlock').style.display = has ? '' : 'none';
+    document.getElementById('clearAllBtn').style.display = has ? '' : 'none';
+    if (!has) return;
+    document.getElementById('statIn').textContent = fmtRub(data.in_kop || 0);
+    document.getElementById('statOut').textContent = fmtRub(-(data.out_kop || 0));
+    const bal = data.balance_kop || 0;
+    const balEl = document.getElementById('statBalance');
+    balEl.textContent = fmtRub(bal);
+    balEl.classList.remove('pos', 'neg');
+    balEl.classList.add(bal >= 0 ? 'pos' : 'neg');
+    document.getElementById('statCount').textContent = (data.total || 0).toLocaleString('ru-RU');
+    // Categories breakdown
+    const max = Math.max(1, ...(data.by_category || []).map(c => c.amount_kop));
+    const catList = document.getElementById('catList');
+    catList.innerHTML = (data.by_category || []).slice(0, 12).map(c => `
+      <div class="cat-bar">
+        <div class="cat-bar-label">${esc(c.label || c.key)}</div>
+        <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${Math.round(c.amount_kop / max * 100)}%"></div></div>
+        <div class="cat-bar-amount">${fmtRub(c.amount_kop)}</div>
+      </div>
+    `).join('') || '<div class="text-xs text-on-dim">Расходов ещё нет.</div>';
+  } catch (e) { console.error('[finance] summary', e); }
+}
+
+async function loadTransactions() {
+  try {
+    const params = new URLSearchParams({
+      limit: _txPage.limit,
+      offset: _txPage.offset,
+    });
+    if (_filters.category) params.set('category', _filters.category);
+    if (_filters.date_from) params.set('date_from', _filters.date_from);
+    if (_filters.date_to) params.set('date_to', _filters.date_to);
+    const r = await fetch('/api/agents/me/finance/transactions?' + params, {credentials: 'include'});
+    if (r.status === 401) { location.href = '/'; return; }
+    const data = await r.json();
+    _txPage.total = data.total || 0;
+    const items = data.items || [];
+    const list = document.getElementById('txList');
+    if (!items.length) {
+      list.innerHTML = '<div class="empty" style="padding:24px">Нет транзакций под текущие фильтры</div>';
+    } else {
+      list.innerHTML = items.map(t => {
+        const pos = t.amount_kop > 0;
+        const d = t.date ? new Date(t.date).toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit'}) : '—';
+        const catOpts = _cats.map(c => `<option value="${esc(c.key)}" ${c.key === t.category ? 'selected' : ''}>${esc(c.label)}</option>`).join('');
+        return `
+          <div class="tx-row" data-id="${t.id}">
+            <div class="tx-date">${d}</div>
+            <div class="tx-desc" title="${esc(t.description || '')}">${esc(t.description || '—')}</div>
+            <div><select class="tx-cat-select" onchange="changeCat(${t.id}, this.value)">${catOpts}</select></div>
+            <div class="tx-amount ${pos ? 'pos' : 'neg'}">${pos ? '+' : ''}${fmtRub(t.amount_kop)}</div>
+            <div><button class="btn-d" style="padding:3px 6px;font-size:11px" onclick="deleteTx(${t.id})" title="Удалить">×</button></div>
+          </div>
+        `;
+      }).join('');
+    }
+    // Pagination info
+    const from = _txPage.offset + 1;
+    const to = Math.min(_txPage.offset + _txPage.limit, _txPage.total);
+    document.getElementById('txPagInfo').textContent = _txPage.total
+      ? `${from}–${to} из ${_txPage.total.toLocaleString('ru-RU')}`
+      : '0 из 0';
+    document.getElementById('txPrev').disabled = _txPage.offset === 0;
+    document.getElementById('txNext').disabled = _txPage.offset + _txPage.limit >= _txPage.total;
+  } catch (e) { console.error('[finance] tx', e); }
+}
+
+async function changeCat(id, key) {
+  try {
+    const r = await fetch(`/api/agents/me/finance/transactions/${id}`, {
+      method: 'PATCH', credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({category: key}),
+    });
+    if (!r.ok) throw new Error('PATCH failed: ' + r.status);
+    await loadSummary();
+  } catch (e) {
+    console.error('[finance] changeCat', e);
+    (window.aiToast || alert)('Не удалось изменить категорию');
+  }
+}
+
+async function deleteTx(id) {
+  if (!confirm('Удалить транзакцию? Это действие нельзя отменить.')) return;
+  try {
+    const r = await fetch(`/api/agents/me/finance/transactions/${id}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    if (!r.ok) throw new Error('DELETE failed: ' + r.status);
+    await loadAll();
+  } catch (e) {
+    console.error('[finance] delete', e);
+    (window.aiToast || alert)('Не удалось удалить');
+  }
+}
+
+async function clearAll() {
+  if (!confirm('Удалить ВСЕ транзакции? Это действие нельзя отменить.')) return;
+  try {
+    const r = await fetch('/api/agents/me/finance/transactions', {
+      method: 'DELETE', credentials: 'include',
+    });
+    if (!r.ok) throw new Error('clear failed: ' + r.status);
+    await loadAll();
+  } catch (e) {
+    console.error('[finance] clearAll', e);
+    (window.aiToast || alert)('Не удалось очистить');
+  }
+}
+
+function applyFilters() {
+  _filters.category = document.getElementById('filterCat').value;
+  _filters.date_from = document.getElementById('filterFrom').value;
+  _filters.date_to = document.getElementById('filterTo').value;
+  _txPage.offset = 0;
+  loadTransactions();
+}
+
+function resetFilters() {
+  document.getElementById('filterCat').value = '';
+  document.getElementById('filterFrom').value = '';
+  document.getElementById('filterTo').value = '';
+  applyFilters();
+}
+
+function pageDelta(d) {
+  _txPage.offset = Math.max(0, _txPage.offset + d * _txPage.limit);
+  loadTransactions();
+}
+
+function openImportModal() {
+  document.getElementById('importModal').classList.add('show');
+  document.getElementById('csvFile').value = '';
+  document.getElementById('importStatus').textContent = '';
+}
+function closeImportModal() {
+  document.getElementById('importModal').classList.remove('show');
+}
+
+async function submitImport() {
+  const f = document.getElementById('csvFile').files[0];
+  if (!f) { (window.aiToast || alert)('Выбери CSV-файл'); return; }
+  const bank = document.getElementById('csvBank').value;
+  const status = document.getElementById('importStatus');
+  const btn = document.getElementById('importBtn');
+  btn.disabled = true;
+  status.textContent = 'Загрузка...';
+  try {
+    const fd = new FormData();
+    fd.append('file', f);
+    if (bank) fd.append('bank', bank);
+    const r = await fetch('/api/agents/me/modules/finance/import-csv', {
+      method: 'POST', credentials: 'include', body: fd,
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+    status.textContent = `✓ Импортировано: ${data.imported || 0}, пропущено дублей: ${data.skipped || 0}`;
+    setTimeout(() => { closeImportModal(); loadAll(); }, 1200);
+  } catch (e) {
+    console.error('[finance] import', e);
+    status.textContent = '✗ Ошибка: ' + (e.message || 'не удалось загрузить');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadAll() {
+  await loadSummary();
+  await loadTransactions();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadCategories();
+  await loadAll();
+});
+</script>
+</body>
+</html>
