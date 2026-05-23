@@ -46,7 +46,9 @@ def _create_token(client, db_session, user_email: str = None) -> tuple[str, int]
             name="mcp-test",
             prefix=prefix,
             secret_hash=_hash_secret(secret),
-            scopes="proposals,solutions",
+            # bots добавлен для list_chatbots/recent_records MCP tools после
+            # включения per-tool scope-check (см. _TOOL_REQUIRED_SCOPE в mcp.py)
+            scopes="proposals,solutions,bots",
             is_active=True,
         )
         db.add(t)

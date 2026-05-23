@@ -90,6 +90,7 @@ def _rpc_error(req_id: Any, code: int, message: str, data: Any = None) -> dict:
 TOOLS: list[dict] = [
     {
         "name": "get_balance",
+        "required_scope": None,  # любой токен может узнать баланс юзера
         "description": "Получить текущий баланс пользователя AI Студия Че (в копейках и рублях).",
         "inputSchema": {
             "type": "object",
@@ -553,6 +554,24 @@ _TOOL_HANDLERS = {
     "recent_records": _tool_recent_records,
 }
 
+# Scope required для каждого MCP tool. None означает «доступно всем токенам»
+# (минимум balance/info-уровень). Применяется в `_handle_tools_call` если у
+# токена явный CSV-scopes — иначе (scopes=NULL) tool разрешён.
+# Это закрывает scope-escalation: токен с scope=solutions не сможет вызвать
+# list_chatbots или create_proposal.
+_TOOL_REQUIRED_SCOPE: dict[str, str | None] = {
+    "get_balance":         None,         # любой токен видит свой баланс
+    "list_solutions":      "solutions",
+    "run_solution":        "solutions",
+    "get_solution_status": "solutions",
+    "list_proposals":      "proposals",
+    "get_proposal":        "proposals",
+    "create_proposal":     "proposals",
+    "generate_proposal":   "proposals",
+    "list_chatbots":       "bots",
+    "recent_records":      "bots",
+}
+
 
 # ── MCP Resources ─────────────────────────────────────────────────────────
 # Resources — статичные/полу-статичные данные которые Claude может прочитать
@@ -683,12 +702,22 @@ def _handle_tools_list(req_id: Any, params: dict) -> dict:
     return _rpc_result(req_id, {"tools": TOOLS})
 
 
-def _handle_tools_call(req_id: Any, params: dict, user: User, db: Session) -> dict:
+def _handle_tools_call(req_id: Any, params: dict, user: User, db: Session,
+                       token_scopes: set[str] | None = None) -> dict:
     name = (params or {}).get("name") or ""
     args = (params or {}).get("arguments") or {}
     handler = _TOOL_HANDLERS.get(name)
     if not handler:
         return _rpc_error(req_id, JSON_RPC_METHOD_NOT_FOUND, f"Unknown tool: {name}")
+    # Per-tool scope check. token_scopes is None означает «все scope разрешены»
+    # (legacy токен или scopes=NULL в БД). Если scopes явные — должны включать
+    # required_scope для этого tool.
+    required = _TOOL_REQUIRED_SCOPE.get(name)
+    if required and token_scopes is not None and required not in token_scopes:
+        return _rpc_error(
+            req_id, JSON_RPC_INVALID_REQUEST,
+            f"Token has no scope '{required}' required by tool '{name}'"
+        )
     try:
         result = handler(user, db, args)
     except ValueError as e:
@@ -711,7 +740,8 @@ def _handle_tools_call(req_id: Any, params: dict, user: User, db: Session) -> di
     })
 
 
-def _dispatch(req: dict, user: User, db: Session) -> dict:
+def _dispatch(req: dict, user: User, db: Session,
+              token_scopes: set[str] | None = None) -> dict:
     """Один JSON-RPC request → response."""
     req_id = req.get("id")
     method = req.get("method")
@@ -730,7 +760,7 @@ def _dispatch(req: dict, user: User, db: Session) -> dict:
     if method == "tools/list":
         return _handle_tools_list(req_id, params)
     if method == "tools/call":
-        return _handle_tools_call(req_id, params, user, db)
+        return _handle_tools_call(req_id, params, user, db, token_scopes)
     if method == "resources/list":
         return _handle_resources_list(req_id, params)
     if method == "resources/read":
@@ -749,6 +779,9 @@ async def mcp_endpoint(request: Request, db: Session = Depends(get_db)):
     Поддерживается одиночный request и batch-array (по JSON-RPC spec).
     """
     user = authenticate_token(request, db)
+    # authenticate_token проставляет request.state.token_scopes (None если
+    # токен без CSV-scope = все scope). Используем для per-tool check.
+    token_scopes = getattr(request.state, "token_scopes", None)
 
     try:
         body = await request.json()
@@ -763,7 +796,7 @@ async def mcp_endpoint(request: Request, db: Session = Depends(get_db)):
                 out.append(_rpc_error(None, JSON_RPC_INVALID_REQUEST,
                                       "Batch item must be object"))
                 continue
-            resp = _dispatch(req, user, db)
+            resp = _dispatch(req, user, db, token_scopes)
             if resp is not None:
                 out.append(resp)
         return out
@@ -771,7 +804,7 @@ async def mcp_endpoint(request: Request, db: Session = Depends(get_db)):
     # Single
     if not isinstance(body, dict):
         return _rpc_error(None, JSON_RPC_INVALID_REQUEST, "Body must be object or array")
-    resp = _dispatch(body, user, db)
+    resp = _dispatch(body, user, db, token_scopes)
     return resp if resp is not None else {"jsonrpc": "2.0"}
 
 

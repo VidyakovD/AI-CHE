@@ -273,6 +273,16 @@ def authenticate_token(request: Request, db: Session,
         scopes = set(t.scopes.split(","))
         if required_scope not in scopes:
             raise HTTPException(403, f"Token has no scope '{required_scope}'")
+    # Сохраняем scopes в request.state для последующего scope-check внутри
+    # endpoint (например, MCP tools/call где scope зависит от tool name —
+    # см. server/routes/mcp.py:_handle_tools_call).
+    # None означает «все scope разрешены» (legacy токены без CSV).
+    try:
+        request.state.token_scopes = (
+            set(t.scopes.split(",")) if t.scopes else None
+        )
+    except Exception:
+        pass
     user = db.query(User).filter_by(id=t.user_id, is_active=True).first()
     if not user or user.is_banned:
         raise HTTPException(403, "User account inactive")

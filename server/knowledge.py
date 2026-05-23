@@ -129,7 +129,15 @@ def _extract_pdf(path: str) -> str:
     from PyPDF2 import PdfReader
     reader = PdfReader(path)
     parts = []
+    # Лимит страниц: защита от DoS через 10000-page PDF (PyPDF2 загружает
+    # каждую страницу в RAM при extract_text). 500 страниц ≈ 50-100 МБ текста,
+    # дальше MAX_TOTAL_TEXT_CHARS обрежет всё равно.
+    MAX_PAGES = 500
     for i, page in enumerate(reader.pages):
+        if i >= MAX_PAGES:
+            parts.append(f"\n[Усечено: PDF имеет более {MAX_PAGES} страниц, "
+                         f"индексированы только первые {MAX_PAGES}]")
+            break
         try:
             t = page.extract_text() or ""
         except Exception:
@@ -141,12 +149,17 @@ def _extract_pdf(path: str) -> str:
 
 def _extract_docx(path: str) -> str:
     import zipfile
+    # defusedxml ЗАКРЫТО pin'ом в requirements.txt (0.7.1). Если по какой-то
+    # причине импорт не удался — fail-CLOSED. Раньше был fallback на стандартный
+    # xml.etree.ElementTree, который НЕ защищён от billion-laughs / external
+    # entity expansion → DoS-вектор. Лучше отказать в загрузке чем тихо открыть.
     try:
         from defusedxml.ElementTree import parse as _safe_parse  # type: ignore
-    except ImportError:
-        import xml.etree.ElementTree as ET
-        def _safe_parse(f):
-            return ET.parse(f)
+    except ImportError as e:
+        raise RuntimeError(
+            "defusedxml не установлен — DOCX-парсинг отключён "
+            "(защита от XML billion-laughs). Установите: pip install defusedxml"
+        ) from e
     parts = []
     with zipfile.ZipFile(path) as z:
         with z.open("word/document.xml") as f:
