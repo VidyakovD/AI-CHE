@@ -40,7 +40,8 @@ _ALLOWED_EXT = {".pdf", ".docx", ".xlsx", ".xlsm", ".csv", ".tsv",
 
 
 def _check_owner(db: Session, user: User, owner_type: str, owner_id: int):
-    """Проверяет, что юзер владеет указанным агентом/ботом."""
+    """Проверяет, что юзер владеет указанным агентом/ботом, либо что
+    owner_type='user' и owner_id == user.id (общая база юзера)."""
     if owner_type == "bot":
         bot = db.query(ChatBot).filter_by(id=owner_id, user_id=user.id).first()
         if not bot:
@@ -51,7 +52,13 @@ def _check_owner(db: Session, user: User, owner_type: str, owner_id: int):
         if not cfg:
             raise HTTPException(404, "Агент не найден")
         return cfg
-    raise HTTPException(400, "owner_type должен быть 'bot' или 'agent'")
+    if owner_type == "user":
+        # Общая база юзера — owner_id обязан совпадать с user.id
+        # (защита от попытки заливать в чужую базу под видом своей).
+        if owner_id != user.id:
+            raise HTTPException(403, "Можно загружать только в свою общую базу")
+        return user
+    raise HTTPException(400, "owner_type должен быть 'bot', 'agent' или 'user'")
 
 
 def _safe_kb_path(rel: str) -> Path | None:

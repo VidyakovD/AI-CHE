@@ -1074,20 +1074,33 @@ async def agent_worker(queue: asyncio.PriorityQueue):
                             + "\n\nЭти настройки приоритетны. Используй их при выполнении всех шагов."
                         )
 
-                # RAG: подмешиваем релевантные чанки из базы знаний агента, если
-                # в context передан agent_config_id. Найденное добавляется в
-                # system prompt — модель учитывает «факты пользователя» при
-                # выполнении шагов.
+                # RAG: подмешиваем релевантные чанки из:
+                #   1. базы знаний КОНКРЕТНОГО агента (если agent_config_id есть)
+                #   2. ОБЩЕЙ базы юзера (если user_id есть)
+                # Это позволяет юзеру загрузить PDF/DOCX «в общую кучу» один раз,
+                # и затем ВСЕ его агенты автоматически используют релевантные
+                # фрагменты в зависимости от задачи. Экономит токены: вместо
+                # дублирования файла на каждого агента — один файл, multi-source
+                # retrieve с дедупом.
                 ag_cfg_id = pt.context.get("agent_config_id")
-                if ag_cfg_id:
+                kb_user_id = pt.context.get("user_id")
+                if ag_cfg_id or kb_user_id:
                     try:
-                        from server.knowledge import retrieve, build_context_block
-                        results = retrieve(owner_type="agent", owner_id=int(ag_cfg_id),
-                                           query=pt.goal, top=5)
+                        from server.knowledge import retrieve_multi, build_context_block
+                        results = retrieve_multi(
+                            user_id=int(kb_user_id) if kb_user_id else 0,
+                            agent_owner_id=int(ag_cfg_id) if ag_cfg_id else None,
+                            query=pt.goal,
+                            top_per_source=5,
+                            top_total=8,
+                        )
                         if results:
                             kb_block = build_context_block(results, max_chars=6000)
                             base_prompt = (base_prompt or "") + "\n\n" + kb_block
-                            log.info(f"[Worker] KB: добавлено {len(results)} чанков для agent_config={ag_cfg_id}")
+                            src_counts: dict[str, int] = {}
+                            for r in results:
+                                src_counts[r.get("source", "?")] = src_counts.get(r.get("source", "?"), 0) + 1
+                            log.info(f"[Worker] KB: {len(results)} чанков из {src_counts}")
                     except Exception as e:
                         log.warning(f"[Worker] KB retrieve failed: {type(e).__name__}: {e}")
 

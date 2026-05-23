@@ -346,8 +346,16 @@ def add_file(*,
     skip_embeddings=True — для тестов / fallback при недоступном OpenAI.
 
     Возвращает dict с метаданными созданного KnowledgeFile.
+
+    owner_type:
+      - "bot"    — база конкретного чат-бота
+      - "agent"  — база конкретного ИИ-агента (модуля)
+      - "user"   — общая база юзера. Доступна ВСЕМ его агентам/модулям через
+                   retrieve_multi(). Используется когда хочется один раз
+                   загрузить PDF/DOCX и пусть «умное» распределение по агентам
+                   делается на лету через классификатор категорий.
     """
-    assert owner_type in ("bot", "agent"), f"unknown owner_type: {owner_type}"
+    assert owner_type in ("bot", "agent", "user"), f"unknown owner_type: {owner_type}"
 
     # Извлечение текста
     if content_text is None:
@@ -573,6 +581,67 @@ def _tf_fallback(owner_type: str, owner_id: int,
         "chunk_index": c.chunk_index, "text": c.text,
         "score": float(s),
     } for s, c, kf in out[:top]]
+
+
+def retrieve_multi(*, user_id: int, query: str,
+                   agent_owner_id: int | None = None,
+                   bot_owner_id: int | None = None,
+                   categories: List[str] | None = None,
+                   top_per_source: int = 5,
+                   top_total: int = 8) -> List[Dict]:
+    """Семантический поиск по нескольким источникам сразу:
+      • Общая база юзера (owner_type='user', owner_id=user_id)
+      • База конкретного агента/бота если указан
+    Чанки сортируются по score, режутся до top_total после дедупа.
+
+    `categories` — фильтр по Knowledge Hub категориям (pricing/legal/finance/...).
+    Когда конкретный модуль (например финансы) знает свои категории — он
+    запрашивает только их. Это экономит токены в промпте.
+
+    Эта функция — точка интеграции «один файл → все агенты видят» из запроса
+    пользователя. Юзер загружает PDF в общую базу через owner_type='user', а
+    каждая задача агента подмешивает релевантные чанки автоматически.
+    """
+    sources: list[tuple[str, int]] = []
+    if user_id:
+        sources.append(("user", user_id))
+    if agent_owner_id:
+        sources.append(("agent", agent_owner_id))
+    if bot_owner_id:
+        sources.append(("bot", bot_owner_id))
+
+    all_results: list[Dict] = []
+    for owner_type, owner_id in sources:
+        try:
+            file_ids = None
+            if categories:
+                # Сначала ограничиваем поиск файлами нужных категорий — иначе
+                # cosine считается по всем 2000 чанков впустую.
+                kfs = get_files(owner_type, owner_id, categories=categories)
+                if not kfs:
+                    continue
+                file_ids = [kf["id"] for kf in kfs]
+            res = retrieve(owner_type=owner_type, owner_id=owner_id,
+                           query=query, top=top_per_source, file_ids=file_ids)
+            for r in res:
+                r["source"] = owner_type
+            all_results.extend(res)
+        except Exception as e:
+            log.warning(f"[KB] retrieve_multi {owner_type}={owner_id} failed: {e}")
+            continue
+
+    # Дедуп по (file_id, chunk_index) — если файл случайно есть в обеих базах
+    seen: set[tuple[int, int]] = set()
+    deduped: list[Dict] = []
+    for r in sorted(all_results, key=lambda x: -x.get("score", 0)):
+        key = (r.get("file_id"), r.get("chunk_index"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(r)
+        if len(deduped) >= top_total:
+            break
+    return deduped
 
 
 def build_context_block(results: List[Dict], max_chars: int = 8000) -> str:
