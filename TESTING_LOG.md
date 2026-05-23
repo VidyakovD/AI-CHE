@@ -26,6 +26,45 @@ _(пусто)_
 
 ## ✅ Fixed
 
+### 2026-05-23 — wave 2 deep audit (HEAD `cb36d08`)
+
+После того как закрыли P0/P1 первой волны, прогнали ещё 3 explore-агента
+по schedules/mcp/voice, knowledge/sites/marketplace, proposals/public_api.
+
+**Закатанные фиксы (cb36d08):**
+- **PDF DoS** (knowledge.py:_extract_pdf) — лимит 500 страниц. Защита от
+  10000-страничного PDF съедающего RAM (MAX_TOTAL_TEXT_CHARS обрезал текст
+  только ПОСЛЕ парсинга всех страниц).
+- **DOCX XXE fail-closed** (knowledge.py:_extract_docx) — раньше при
+  отсутствии defusedxml fallback на unsafe `xml.etree.ElementTree`. Теперь
+  RuntimeError. defusedxml уже в requirements, но защита defence-in-depth.
+- **MCP per-tool scope** (mcp.py + public_api.py) — токен с scope=solutions
+  больше НЕ может вызвать list_chatbots/create_proposal через MCP.
+  `_TOOL_REQUIRED_SCOPE` карта; legacy токены без CSV-scopes не затронуты.
+
+**Закатано в 69cf76b (этой же сессии):**
+- SDK bump: openai 1.30→1.109, anthropic 0.26→0.104, httpx 0.27→0.28
+- CI-страж `tools/check_worker_locks.py` — фейлит pipeline при регрессии
+  TTL-паттерна (ловит синтетический race ttl=55 vs sleep=60).
+
+**False positives (агенты ошиблись):**
+- HMAC compare_digest — все 6 точек сравнения secret используют timing-safe
+- ProposalSignature replay — `proposal_id UNIQUE` уже на месте
+- Sites /iterate patch whitelist — schema де-факто только find/replace
+- ApiWebhook.secret plaintext — уже закатан в 5c7176e
+- /me API scope bypass — work-as-designed, нет sensitive data
+- Orchestra schedule race — `worker_lock("orchestra_schedules")` защищает
+- public_token guessable — 144 bit entropy, не bruteforce'able
+
+**Отложено (требует продуктового решения):**
+- Embedding billing bypass: knowledge upload не списывает оценочный embedding-cost.
+  Юзер может загрузить 50 файлов × 2MB = 100MB → ~$2 на наши деньги, бесплатно.
+  Нужен cost-estimator + UX «спишется N коп за индексацию».
+- Cron parser DoS `*/1 * * * *`: every-minute fire на per-user cron. Low-risk
+  pre-launch (4 юзера). Стоит добавить MIN_INTERVAL_MINUTES=5 в server/scheduler.py.
+- XLSX cell count unbounded: 100 листов × 5000 строк допустимо, но без cap
+  на cell content. Low-risk.
+
 ### 2026-05-23 — auto-test после коммита 5c7176e
 
 Прогнан Claude'ом сразу после деплоя. Проверено что доступно без login/payment-credentials.
@@ -69,12 +108,12 @@ _(пусто)_
   или dev на Py3.12 / Py3.13.
 - **Документировано** в memory project_state_may23.md.
 
-### API-key health-check видит 1 сломанный ключ
-- При старте каждого worker'а лог: «API-key health-check: 1 ключей уже
-  отмечены как сломанные в БД, повторно не алертим».
-- Это означает один из ключей в таблице `api_keys` помечен `is_active=False`.
-  Pre-existing, не регрессия. Стоит зайти в /admin/apikeys и посмотреть какой,
-  возможно ротировать.
+### API-key health-check: Google (Imagen+Veo) — credits depleted
+- **Идентифицирован**: `api_keys.id=7, provider='google', label='Imagen + Veo (prod)'`
+- **Status**: `error`, `last_error = "HTTP 429: Your prepayment credits are depleted"`
+- **Влияние**: модели Imagen/Veo (генерация картинок/видео) не работают на проде
+- **Что делать тебе**: пополнить Google Cloud билинг и дождаться restore квоты
+  ИЛИ удалить запись из api_keys если Imagen больше не используешь.
 
 ### Frontend redirect unauth юзеров на главную
 - При попытке открыть `/finance.html`, `/calendar.html` etc без auth-cookie
