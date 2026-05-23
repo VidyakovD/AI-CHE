@@ -101,8 +101,13 @@ async def _creators_prepare_tick():
                 item.error = None
                 db.commit()
                 log_action(
-                    "creator.item_prepared_auto", user_id=user_id, item_id=item.id,
-                    brand_id=brand.id, cost_kop=charged_kop, freemium=use_free,
+                    "creator.item_prepared_auto", user_id=user_id,
+                    target_type="content_item", target_id=str(item.id),
+                    details={
+                        "brand_id": brand.id,
+                        "cost_kop": charged_kop,
+                        "freemium": use_free,
+                    },
                 )
                 if items:
                     log.info(f"[creators.prep_auto] item={item.id} ready (free={use_free}, charged={charged_kop})")
@@ -151,8 +156,11 @@ async def _creators_publish_tick():
                     res = await publish_item(db, item)
                     log_action(
                         "creator.item_published_auto", user_id=None,
-                        item_id=item.id, ok=bool(res.get("ok")),
-                        description=res.get("description"),
+                        target_type="content_item", target_id=str(item.id),
+                        details={
+                            "ok": bool(res.get("ok")),
+                            "description": res.get("description"),
+                        },
                     )
                 except Exception as e:
                     log.exception(f"[creators.publish] item={item.id} exception: {e}")

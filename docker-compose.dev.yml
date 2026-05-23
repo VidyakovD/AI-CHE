@@ -1,0 +1,60 @@
+# Локальная разработка с PostgreSQL вместо SQLite.
+#
+# Зачем: SQLite на проде с 4 uvicorn workers + WAL держит ~30-50 RPS.
+# При росте до 100+ активных юзеров — блокировки на CONNECT/COMMIT.
+# Postgres решает это (плюс параллельные RW, нормальные ALTER, и т.д.).
+#
+# Этот compose ТОЛЬКО для DEV. На проде используется managed PG или
+# отдельная postgres-инсталляция — не контейнер.
+#
+# Запуск:
+#   docker compose -f docker-compose.dev.yml up -d
+#   export DATABASE_URL="postgresql+psycopg://aiche:dev@localhost:5433/aiche_dev"
+#   python -m alembic upgrade head
+#   python main.py  # или uvicorn
+#
+# Порт 5433 (не дефолтный 5432) — чтобы не конфликтовать с локальным PG
+# если есть. Если порт занят — поменяй на 5434/5435/etc.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aiche_pg_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aiche
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: aiche_dev
+      # Принудительная UTF-8 локаль — иначе на Windows-хосте могут
+      # быть проблемы с сортировкой кириллицы в LIKE.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5433:5432"
+    volumes:
+      - aiche_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiche -d aiche_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Опциональный pgAdmin для GUI-доступа к БД во время отладки.
+  # Запуск: docker compose -f docker-compose.dev.yml --profile gui up -d
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: aiche_pgadmin_dev
+    restart: unless-stopped
+    profiles: ["gui"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@local
+      PGADMIN_DEFAULT_PASSWORD: dev
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5434:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  aiche_pg_data:
+    name: aiche_pg_data_dev
