@@ -122,7 +122,9 @@ async def creators_prepare_loop():
     await asyncio.sleep(180)  # 3 мин после старта чтобы миграции/seed успели
     while True:
         try:
-            with worker_lock("creators_prepare", ttl_sec=280) as acquired:
+            # ttl_sec > sleep чтобы лок не истёк, пока tick ещё выполняется
+            # (prepare = AI-вызовы для 50 контент-айтемов, может занять несколько мин).
+            with worker_lock("creators_prepare", ttl_sec=900) as acquired:
                 if acquired:
                     await _creators_prepare_tick()
         except Exception as e:
@@ -174,7 +176,10 @@ async def creators_publish_loop():
     await asyncio.sleep(240)  # старт через 4 мин (после prepare_loop)
     while True:
         try:
-            with worker_lock("creators_publish", ttl_sec=55) as acquired:
+            # ttl_sec > sleep — TG/VK сетевые вызовы могут затянуться.
+            # Atomic claim 'ready'→'publishing' в creators_publisher всё равно
+            # защищает от дубля, но держим TTL правильно для consistency.
+            with worker_lock("creators_publish", ttl_sec=180) as acquired:
                 if acquired:
                     await _creators_publish_tick()
         except Exception as e:

@@ -49,7 +49,7 @@ async def pdf_cleanup_loop():
     await asyncio.sleep(600)  # подождать 10 мин после старта
     while True:
         try:
-            with worker_lock("pdf_cleanup", ttl_sec=3600 * 23) as acquired:
+            with worker_lock("pdf_cleanup", ttl_sec=86400 + 300) as acquired:
                 if acquired:
                     await _cleanup_old_pdfs_tick()
         except Exception as e:
@@ -108,7 +108,7 @@ async def audit_cleanup_loop():
     await asyncio.sleep(1200)  # 20 мин после старта
     while True:
         try:
-            with worker_lock("audit_cleanup", ttl_sec=3600 * 23) as acquired:
+            with worker_lock("audit_cleanup", ttl_sec=86400 + 300) as acquired:
                 if acquired:
                     await _cleanup_old_action_logs_tick()
         except Exception as e:
@@ -142,7 +142,7 @@ async def conv_cleanup_loop():
     await asyncio.sleep(900)  # 15 мин после старта
     while True:
         try:
-            with worker_lock("conv_cleanup", ttl_sec=3600 * 23) as acquired:
+            with worker_lock("conv_cleanup", ttl_sec=86400 + 300) as acquired:
                 if acquired:
                     await _cleanup_old_conversations_tick()
         except Exception as e:
@@ -159,7 +159,7 @@ async def llm_cache_cleanup_loop():
     await asyncio.sleep(1200)  # 20 мин после старта
     while True:
         try:
-            with worker_lock("llm_cache_cleanup", ttl_sec=3600 * 23) as acquired:
+            with worker_lock("llm_cache_cleanup", ttl_sec=86400 + 300) as acquired:
                 if acquired:
                     from server.llm_cache import cleanup_expired
                     cleanup_expired()

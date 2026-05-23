@@ -965,7 +965,9 @@ def admin_reencrypt_secrets(request: Request,
     """
     require_admin(user)
     _require_totp_code(user, header_code=x_totp_code)  # TOTP — неотменимая операция
-    from server.models import ImapCredential, ChatBot as _CB, ApiKey as _AK, User as _U
+    from server.models import (ImapCredential, ChatBot as _CB, ApiKey as _AK,
+                                User as _U, ApiWebhook as _AW,
+                                PushSubscription as _PS)
     from server.secrets_crypto import reencrypt
 
     # ── 1. ImapCredential.password (raw enc:-строки) ──────────────────────
@@ -990,6 +992,8 @@ def admin_reencrypt_secrets(request: Request,
                "max_token", "wazzup_api_key", "widget_secret"]),
         (_AK, ["api_key"]),
         (_U, ["totp_secret"]),
+        (_AW, ["secret"]),       # HMAC-secret юзерских public-webhook'ов
+        (_PS, ["auth"]),         # Web Push auth secret
     ]
     enc_summary: dict[str, dict[str, int]] = {}
     enc_total_done = 0

@@ -719,6 +719,8 @@ class PatchModulePayload(BaseModel):
 def patch_module(slug: str, payload: PatchModulePayload,
                  db: Session = Depends(get_db),
                  user: User = Depends(current_user)):
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
     a = get_or_create_agent(user, db)
     m = db.query(AgentModule).filter_by(agent_id=a.id, slug=slug).first()
     if not m:
@@ -871,6 +873,8 @@ def disconnect_module(slug: str,
                       db: Session = Depends(get_db),
                       user: User = Depends(current_user)):
     """Отключить модуль (удалить). Память модуля стирается."""
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
     a = get_or_create_agent(user, db)
     m = db.query(AgentModule).filter_by(agent_id=a.id, slug=slug).first()
     if not m:

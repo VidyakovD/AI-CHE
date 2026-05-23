@@ -214,7 +214,7 @@ async def storage_billing_loop():
     await asyncio.sleep(1800)  # 30 мин после старта (после миграций)
     while True:
         try:
-            with worker_lock("storage_billing", ttl_sec=3600 * 23) as acquired:
+            with worker_lock("storage_billing", ttl_sec=86400 + 300) as acquired:
                 if acquired:
                     await _storage_billing_tick()
         except Exception as e:

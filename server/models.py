@@ -647,7 +647,11 @@ class ApiWebhook(Base):
     user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
                             nullable=False, index=True)
     url           = Column(String, nullable=False)            # https://your.com/hook
-    secret        = Column(String, nullable=False)            # 32-hex для HMAC
+    # HMAC-секрет — шифруем через EncryptedString (HKDF от JWT_SECRET).
+    # decrypt() handles legacy plaintext: новые записи enc:v1:..., старые
+    # читаются как есть. Запустить /admin/reencrypt-secrets чтобы зашифровать
+    # существующие plaintext-значения.
+    secret        = Column(EncryptedString, nullable=False)   # 32-hex для HMAC
     events        = Column(String, nullable=False)            # CSV событий
     description   = Column(String, nullable=True)             # «my-bitrix-sync»
     is_active     = Column(Boolean, default=True, index=True)
@@ -675,8 +679,10 @@ class PushSubscription(Base):
     user_id   = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
                        nullable=False, index=True)
     endpoint  = Column(String, nullable=False, unique=True)
-    p256dh    = Column(String, nullable=False)   # auth ECDH
-    auth      = Column(String, nullable=False)   # auth secret
+    p256dh    = Column(String, nullable=False)   # ECDH public key (не секрет, для шифрования push)
+    # auth secret — общий ключ браузера и сервера для аутентификации push.
+    # Шифруется через EncryptedString. Legacy plaintext продолжит читаться.
+    auth      = Column(EncryptedString, nullable=False)
     user_agent = Column(String, nullable=True)   # для UI «удалить с этого устройства»
     created_at = Column(DateTime, default=datetime.utcnow)
 

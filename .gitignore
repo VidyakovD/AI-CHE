@@ -15,3 +15,13 @@ server/.jwt_secret
 node_modules/
 # package-lock.json коммитим — гарантирует reproducible build на проде
 # views/styles.css генерируется через `npm run build:css` и коммитится в репо
+
+# Personal dev scripts (Windows)
+kill_*.bat
+
+# Cloned third-party for reference reading (Dolibarr ERP source ~276MB)
+dolibarr-develop/
+
+# Claude Code worktree + state (local agent files)
+.claude/worktrees/
+.claude/scheduled_tasks.lock

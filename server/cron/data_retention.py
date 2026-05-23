@@ -131,7 +131,7 @@ async def data_retention_loop():
     await asyncio.sleep(1800)  # 30 мин после старта — чтобы не нагружать первый run
     while True:
         try:
-            with worker_lock("data_retention", ttl_sec=3600 * 23) as acquired:
+            with worker_lock("data_retention", ttl_sec=86400 + 300) as acquired:
                 if acquired:
                     await _data_retention_tick()
         except Exception as e:

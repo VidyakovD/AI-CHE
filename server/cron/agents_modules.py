@@ -268,7 +268,8 @@ async def agents_modules_cron_loop():
     await asyncio.sleep(90)
     while True:
         try:
-            with worker_lock("agents_modules_cron", ttl_sec=55) as acquired:
+            # ttl_sec > sleep — invoke_module может затянуться на LLM-вызовах
+            with worker_lock("agents_modules_cron", ttl_sec=300) as acquired:
                 if acquired:
                     await _agents_modules_cron_tick()
         except Exception as e:

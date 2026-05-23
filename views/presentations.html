@@ -246,7 +246,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
         </div>
       </div>
       <div id="pResultIframeWrap" class="rounded-lg overflow-hidden bg-black" style="height:55vh">
-        <iframe id="pResultIframe" sandbox="allow-same-origin allow-scripts" class="w-full h-full border-0"></iframe>
+        <!-- allow-same-origin УБРАН: AI-сгенерированный HTML презентаций может содержать
+             prompt-injection-скрипт; без allow-same-origin он не получит доступ к cookies/storage
+             parent-домена. allow-scripts оставлен — нужен для анимаций слайдов. -->
+        <iframe id="pResultIframe" sandbox="allow-scripts" class="w-full h-full border-0"></iframe>
       </div>
       <p id="pCostInfo" class="text-xs text-on-dim/70 mt-2"></p>
     </div>

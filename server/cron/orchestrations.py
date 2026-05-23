@@ -106,7 +106,8 @@ async def orchestra_schedules_loop():
     await asyncio.sleep(60)  # ждём минуту после старта (миграции)
     while True:
         try:
-            with worker_lock("orchestra_schedules", ttl_sec=55) as acquired:
+            # ttl_sec > sleep — оркестра может выполнять долгий run
+            with worker_lock("orchestra_schedules", ttl_sec=180) as acquired:
                 if acquired:
                     await _orchestra_schedules_tick()
         except Exception as e:
@@ -140,7 +141,7 @@ async def idempotency_cleanup_loop():
     await asyncio.sleep(120)  # 2 мин после старта
     while True:
         try:
-            with worker_lock("idempotency_cleanup", ttl_sec=55) as acquired:
+            with worker_lock("idempotency_cleanup", ttl_sec=120) as acquired:
                 if acquired:
                     await _idempotency_cleanup_tick()
         except Exception as e:
