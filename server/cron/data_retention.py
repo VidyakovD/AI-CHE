@@ -45,11 +45,15 @@ async def _data_retention_tick():
                 # Не трогаем юзеров без last_login_at (= не успели залогиниться,
                 # но создан недавно). И не трогаем уже анонимизированных
                 # (по префиксу email).
+                # LIKE "anon\_%" с escape, потому что `_` в SQL LIKE — wildcard.
+                # Без escape запрос «не похож на anon_*» отфильтровал бы записи
+                # типа «anonX...», что не наша анонимизация. Используем
+                # startswith — он не интерпретирует подчёркивание как wildcard.
                 stale_users = (
                     db.query(User)
                     .filter(User.last_login_at.isnot(None))
                     .filter(User.last_login_at < cutoff_user)
-                    .filter(~User.email.like("anon_%"))
+                    .filter(~User.email.startswith("anon_"))
                     .limit(100)  # batch-лимит на тик, чтоб не блокировать БД
                     .all()
                 )

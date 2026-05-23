@@ -15,7 +15,7 @@ import os
 import json
 import logging
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -226,14 +226,27 @@ def voice_parse(req: VoiceParseReq,
 
 
 @router.post("/voice/transcribe")
-async def voice_transcribe(audio: UploadFile = File(...),
+async def voice_transcribe(request: Request,
+                           audio: UploadFile = File(...),
                            db: Session = Depends(get_db),
                            user: User = Depends(current_user)):
     """Принимает аудио (webm/m4a/wav/ogg, ≤15 МБ) и возвращает текст через Whisper.
     Используется как fallback на iOS Safari, где Web Speech API ограничен.
-    Стоимость ~5 ₽ / вызов (фикс)."""
-    contents = await audio.read(15 * 1024 * 1024 + 1)
-    if len(contents) > 15 * 1024 * 1024:
+    Стоимость ~5 ₽ / вызов (фикс).
+
+    DOS-защита:
+    1. Сначала смотрим Content-Length из header'а — если уже > 15МБ, режект
+       до чтения тела. Иначе атакующий 100МБ-файлом съест RAM 4 воркеров
+       (100МБ × 4 × 10 одновременных = 4 ГБ swap).
+    2. Дополнительно проверяем актуальный размер после чтения (Content-Length
+       может быть подделан).
+    """
+    _LIMIT = 15 * 1024 * 1024
+    cl = request.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > _LIMIT + 4096:  # +4КБ на multipart envelope
+        raise HTTPException(413, "Аудио больше 15 МБ")
+    contents = await audio.read(_LIMIT + 1)
+    if len(contents) > _LIMIT:
         raise HTTPException(413, "Аудио больше 15 МБ")
 
     try:

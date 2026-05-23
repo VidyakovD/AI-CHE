@@ -321,12 +321,18 @@ async def _db_backup_tick():
 
 
 async def db_backup_loop():
-    """Раз в 24ч hot-backup БД (с advisory lock — не дублируется)."""
+    """Раз в 24ч hot-backup БД (с advisory lock — не дублируется).
+
+    Лок: TTL = 86700 (24ч + 5 мин буфера). Раньше было 23ч и race-окно
+    3-мин при крэше — второй воркер мог стартовать второй бэкап до того
+    как истинный TTL закроется. С TTL > sleep лок гарантированно жив до
+    следующего тика этого же воркера.
+    """
     from server.worker_lock import worker_lock
     await asyncio.sleep(120)  # подождать 2 мин после старта (миграции должны успеть)
     while True:
         try:
-            with worker_lock("db_backup", ttl_sec=3600 * 23) as acquired:
+            with worker_lock("db_backup", ttl_sec=86400 + 300) as acquired:
                 if acquired:
                     await _db_backup_tick()
         except Exception as e:

@@ -331,11 +331,28 @@ async def yandex_caldav_check_creds(email: str, app_password: str,
 
 
 async def fetch_ics_events(ics_url: str, days_ahead: int = 14) -> list[dict]:
-    """Просто GET по URL → парсинг ICS."""
+    """GET ICS-календаря по публичному URL.
+
+    SSRF-защита: ics_url приходит от юзера через UI («подключи Apple iCloud /
+    Google public link»). Без валидации юзер мог бы вписать
+    http://127.0.0.1:6379/ (Redis), http://169.254.169.254/ (AWS metadata),
+    http://192.168.x.x/ (внутрисетевые) — мы бы тянули и отдавали content
+    или error с раскрытием реакции внутреннего сервиса. validate_external_url
+    блокирует private/loopback/link-local/multicast.
+    """
     if not ics_url:
         return []
     try:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        from server.security import validate_external_url
+        validate_external_url(ics_url)
+    except Exception as e:
+        log.warning(f"[ics] url rejected by SSRF guard: {type(e).__name__}: {e}")
+        return []
+    try:
+        # follow_redirects=False — 30x могут увести на private-IP даже если
+        # исходный URL был публичным. Лучше отказать чем выпустить SSRF
+        # через open-redirect.
+        async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
             r = await client.get(ics_url, headers={
                 "User-Agent": "AIche-Calendar/1.0",
             })
@@ -344,6 +361,11 @@ async def fetch_ics_events(ics_url: str, days_ahead: int = 14) -> list[dict]:
         return []
     if r.status_code != 200:
         log.warning(f"[ics] fetch {r.status_code}")
+        return []
+    # Ограничиваем размер ответа — ICS обычно <500КБ, 5МБ это safety cap
+    # против юзера который специально подложил гигабайт.
+    if len(r.content) > 5 * 1024 * 1024:
+        log.warning(f"[ics] response too large: {len(r.content)} bytes")
         return []
     now = datetime.utcnow()
     return parse_ics_events(r.text, limit=50, from_dt=now)
