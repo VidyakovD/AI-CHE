@@ -138,7 +138,11 @@ class OAuthState(Base):
     id            = Column(Integer, primary_key=True, index=True)
     state         = Column(String, unique=True, index=True, nullable=False)
     provider      = Column(String, nullable=False)   # "google" | "vk"
-    code_verifier = Column(String, nullable=True)
+    # EncryptedString: PKCE verifier — секрет, если БД утечёт во время активной
+    # OAuth-сессии (~5 мин), атакующий мог бы перехватить token-exchange.
+    # Старые plain-text записи остаются читаемыми (secrets_crypto.decrypt
+    # пропускает значения без `enc:`-префикса).
+    code_verifier = Column(EncryptedString(256), nullable=True)
     used          = Column(Boolean, default=False)
     expires_at    = Column(DateTime, nullable=False)
     created_at    = Column(DateTime, default=datetime.utcnow)
@@ -269,8 +273,12 @@ class Transaction(Base):
     tokens_delta        = Column(Integer, nullable=False)
     description         = Column(String, nullable=True)
     model               = Column(String, nullable=True)
-    # Индекс для быстрой проверки «этот payment уже зачислен?» в webhook
-    yookassa_payment_id = Column(String, nullable=True, index=True)
+    # UNIQUE — защита от двойного зачисления при гонке webhook + confirm-tokens.
+    # На SQLite/PG индекс уже создаётся через LIGHTWEIGHT_INDEXES
+    # (uq_transactions_yookassa_id, partial WHERE NOT NULL). Здесь
+    # `unique=True` отражает реальный constraint и делает поведение
+    # SQLAlchemy предсказуемым (IntegrityError на дубле).
+    yookassa_payment_id = Column(String, nullable=True, unique=True)
     created_at          = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="transactions")
@@ -801,9 +809,16 @@ class PromoUse(Base):
     __tablename__ = "promo_uses"
 
     id         = Column(Integer, primary_key=True)
-    code_id    = Column(Integer, nullable=False)
-    user_id    = Column(Integer, nullable=False)
+    # FK с CASCADE — orphan'ы при удалении промокода/юзера не остаются.
+    # Существующая БД через LIGHTWEIGHT_INDEXES уже имеет uq_promo_uses_code_user
+    # UNIQUE constraint — Column-уровень здесь только декларация для ORM.
+    code_id    = Column(Integer, ForeignKey("promo_codes.id", ondelete="CASCADE"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     used_at    = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("code_id", "user_id", name="uq_promo_uses_code_user_model"),
+    )
 
 
 # ── Exchange rate cache ───────────────────────────────────────────────────────

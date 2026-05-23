@@ -256,6 +256,7 @@ def brief_assist(body: BriefAssistBody, db: Session = Depends(get_db),
 def download_pdf(project_id: int, db: Session = Depends(get_db),
                   user=Depends(current_user)):
     from fastapi.responses import FileResponse
+    from pathlib import Path as _Path
     p = db.query(PresentationProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
@@ -263,11 +264,18 @@ def download_pdf(project_id: int, db: Session = Depends(get_db),
         raise HTTPException(404, "PDF не сгенерирован")
     import os as _os, re as _re
     base = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-    abs_path = _os.path.join(base, p.pdf_path.lstrip("/"))
-    if not _os.path.exists(abs_path):
+    # Defense-in-depth: pdf_path в БД мог быть скомпрометирован → защищаем от
+    # обхода каталога uploads через resolve() + relative_to().
+    base_real = _Path(base).resolve()
+    try:
+        abs_path = (base_real / p.pdf_path.lstrip("/")).resolve()
+        abs_path.relative_to(base_real)   # бросит ValueError если вне base
+    except (ValueError, OSError):
+        raise HTTPException(403, "Недопустимый путь файла")
+    if not abs_path.is_file():
         raise HTTPException(404, "PDF файл недоступен")
     safe = _re.sub(r"[^\w\-]", "_", p.name or "presentation")[:40]
-    return FileResponse(abs_path, media_type="application/pdf",
+    return FileResponse(str(abs_path), media_type="application/pdf",
                          filename=f"{safe}.pdf")
 
 

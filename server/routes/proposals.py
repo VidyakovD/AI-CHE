@@ -487,10 +487,13 @@ def delete_project(project_id: int, db: Session = Depends(get_db),
     # Удалить PDF на диске если есть
     if p.generated_pdf:
         try:
+            from pathlib import Path as _Path
             base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            pdf_path = os.path.join(base, p.generated_pdf.lstrip("/"))
-            if os.path.exists(pdf_path):
-                os.unlink(pdf_path)
+            base_real = _Path(base).resolve()
+            pdf_path = (base_real / p.generated_pdf.lstrip("/")).resolve()
+            pdf_path.relative_to(base_real)   # бросит если вне base
+            if pdf_path.is_file():
+                pdf_path.unlink()
         except Exception:
             pass
     db.delete(p); db.commit()
@@ -632,9 +635,18 @@ def download_pdf(project_id: int, db: Session = Depends(get_db),
         raise HTTPException(404, "Проект не найден")
     if not p.generated_pdf:
         raise HTTPException(404, "PDF ещё не сгенерирован — нажмите «Сгенерировать»")
+    from pathlib import Path as _Path
     base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    abs_path = os.path.join(base, p.generated_pdf.lstrip("/"))
-    if not os.path.exists(abs_path):
+    # Defense-in-depth: generated_pdf в БД мог быть скомпрометирован → защищаем
+    # от выхода за пределы uploads/ через resolve() + relative_to().
+    base_real = _Path(base).resolve()
+    try:
+        abs_path_p = (base_real / p.generated_pdf.lstrip("/")).resolve()
+        abs_path_p.relative_to(base_real)
+    except (ValueError, OSError):
+        raise HTTPException(403, "Недопустимый путь файла")
+    abs_path = str(abs_path_p)
+    if not abs_path_p.is_file():
         raise HTTPException(404, "PDF файл удалён или перемещён — пересоздайте КП")
     # RFC 5987: filename для legacy-браузеров (ASCII), filename* для UTF-8
     # (кириллица в имени КП показывается клиенту нормально).
@@ -736,8 +748,12 @@ def save_proposal_html(project_id: int, body: SaveHtmlBody,
         # Удаляем старый PDF (если был)
         if p.generated_pdf and p.generated_pdf != new_pdf_path:
             try:
+                from pathlib import Path as _Path
                 base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                old = os.path.join(base, p.generated_pdf.lstrip("/"))
+                base_real = _Path(base).resolve()
+                old_p = (base_real / p.generated_pdf.lstrip("/")).resolve()
+                old_p.relative_to(base_real)   # бросит если вне base
+                old = str(old_p)
                 if os.path.exists(old):
                     os.unlink(old)
             except Exception:

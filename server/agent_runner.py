@@ -397,6 +397,21 @@ def subscribe_task(tid: str, ws) -> None:
     task_subscribers.setdefault(tid, []).append(ws)
 
 
+def unsubscribe_task(tid: str, ws) -> None:
+    """Снять подписку при разрыве WebSocket. Без этого task_subscribers рос
+    бы безгранично — каждое обрывание соединения оставляло dead ws в списке,
+    long-running uvicorn накапливал бы memory leak."""
+    subs = task_subscribers.get(tid)
+    if not subs:
+        return
+    try:
+        subs.remove(ws)
+    except ValueError:
+        pass
+    if not subs:
+        task_subscribers.pop(tid, None)
+
+
 def _notify_task(tid: str) -> None:
     t   = tasks.get(tid)
     if not t:
@@ -614,9 +629,16 @@ async def tool_perplexity_research(params: dict, context: dict) -> str:
 
     text = (body.get("choices") or [{}])[0].get("message", {}).get("content") or ""
     usage = body.get("usage") or {}
-    cost_usd = float((usage.get("cost") or {}).get("total_cost") or 0)
-    # Курс 95 ₽/$ как в solutions_orchestra._USD_TO_KOP_RATE для консистентности
-    real_cost_kop = int(cost_usd * 95 * 100)
+    cost_usd_raw = (usage.get("cost") or {}).get("total_cost") or 0
+    # Курс 95 ₽/$ как в solutions_orchestra._USD_TO_KOP_RATE для консистентности.
+    # Decimal вместо float — иначе $0.001 → 0 копеек из-за округления,
+    # за тысячу запросов теряются реальные деньги.
+    from decimal import Decimal as _D, ROUND_HALF_UP as _RHU
+    try:
+        cost_usd = _D(str(cost_usd_raw))
+    except Exception:
+        cost_usd = _D(0)
+    real_cost_kop = int((cost_usd * _D(9500)).quantize(_D("1"), rounding=_RHU))
 
     # Биллинг: real_cost × margin (по умолчанию × 5).
     # context.user_id передаётся run_agent'ом из task context.

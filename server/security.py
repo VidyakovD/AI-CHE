@@ -180,13 +180,37 @@ def _get_client_ip(request: Request) -> str:
     return direct_ip
 
 
+def _rl_user_id(request: Request) -> str | None:
+    """Извлечь user_id из cookie access_token либо Authorization header.
+    Используется как rate-limit ключ для аутентифицированных запросов —
+    иначе все юзеры за NAT/CGNAT/корпоративным IP делят один лимит, а
+    атакующий с пулом IP тривиально обходит per-IP rate-limit.
+    """
+    try:
+        from server.auth import extract_token, decode_token
+        tok = extract_token(request)
+        if not tok:
+            return None
+        payload = decode_token(tok, require_type="access")
+        if payload and payload.get("sub"):
+            return str(payload["sub"])
+    except Exception:
+        pass
+    return None
+
+
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path
     ip = _get_client_ip(request)
 
     for prefix, (max_c, win) in RULES.items():
         if path.startswith(prefix):
-            key = f"{ip}:{prefix}"
+            # Для аутентифицированных запросов ключ = user_id, для анонимных = IP.
+            # Это убирает unfairness за NAT/CGNAT и одновременно блокирует
+            # IP-pool атаки на дорогие эндпоинты юзера.
+            uid = _rl_user_id(request)
+            actor = f"u:{uid}" if uid else f"ip:{ip}"
+            key = f"{actor}:{prefix}"
             if not _check(key, max_c, win):
                 return JSONResponse(
                     status_code=429,

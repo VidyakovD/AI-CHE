@@ -1096,11 +1096,37 @@ def admin_audit_log(limit: int = 100, user: User = Depends(current_user),
     } for r in rows]
 
 
+def _require_totp_code(user: User, body: dict) -> None:
+    """Защита critical-операций: требуется свежий TOTP-код в body['totp_code'].
+
+    Угнан access-токен админа ≠ доступ к балансам и бану юзеров. Атакующему
+    нужен ещё физический доступ к Authenticator-приложению админа.
+
+    - Если у админа 2FA не включён → 412 (надо сначала включить).
+    - Если код отсутствует / неверен / не 6 цифр → 401.
+
+    Опционально можно расширить до «свежей TOTP-сессии» (last_totp_at в БД +
+    окно 5 мин) — UX-friendlier, но сейчас критично закрыть саму дыру.
+    """
+    import pyotp
+    if not user.totp_enabled or not user.totp_secret:
+        raise HTTPException(
+            412,
+            "Для critical-операций сначала включите 2FA: /admin/2fa/setup",
+        )
+    code = str(body.get("totp_code", "")).strip().replace(" ", "")
+    if not code.isdigit() or len(code) != 6:
+        raise HTTPException(401, "Требуется 6-значный код 2FA в поле totp_code")
+    if not pyotp.TOTP(user.totp_secret).verify(code, valid_window=1):
+        raise HTTPException(401, "Неверный код 2FA")
+
+
 @router.post("/users/{user_id}/adjust-balance")
 def admin_adjust_balance(user_id: int, body: dict, request: Request,
                          user: User = Depends(current_user),
                          db: Session = Depends(get_db)):
     require_admin(user)
+    _require_totp_code(user, body)   # TOTP обязателен для критичной операции
     delta = int(body.get("delta", 0))
     reason = body.get("reason", "Ручная корректировка")
     target = db.query(User).filter_by(id=user_id).first()
@@ -1130,6 +1156,7 @@ def admin_toggle_ban(user_id: int, body: dict, request: Request,
                      db: Session = Depends(get_db)):
     """Бан / разбан пользователя (п. 10.1 оферты)."""
     require_admin(user)
+    _require_totp_code(user, body)   # TOTP обязателен — бан = серьёзное действие
     target = db.query(User).filter_by(id=user_id).first()
     if not target:
         raise HTTPException(404)
@@ -1426,14 +1453,38 @@ class _TotpVerifyBody(BaseModel):
     code: str
 
 
+class _TotpSetupBody(BaseModel):
+    password: str                    # текущий пароль админа — re-auth для setup
+    current_code: str | None = None  # текущий TOTP-код, если 2FA уже включён
+
+
 @router.post("/2fa/setup")
-def admin_2fa_setup(user: User = Depends(current_user),
+def admin_2fa_setup(body: _TotpSetupBody, user: User = Depends(current_user),
                      db: Session = Depends(get_db)):
     """Сгенерить новый TOTP secret + provisioning URI.
     Юзер сканирует QR в Authenticator-приложении, потом подтверждает кодом
     через /2fa/enable. До /enable secret НЕ сохраняется как enabled — его
-    можно регенерировать повторным /setup."""
+    можно регенерировать повторным /setup.
+
+    Защита от перевыпуска TOTP при угоне access-токена:
+      - Требуется текущий пароль (re-auth).
+      - Если 2FA уже включён — требуется и текущий TOTP-код.
+    Без этого атакующий с украденной сессией мог бы выпустить TOTP на свой
+    Authenticator и обойти require_totp_code на /adjust-balance, /toggle-ban.
+    """
     require_admin(user)
+    from server.auth import verify_password
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(401, "Неверный пароль")
+    if user.totp_enabled and user.totp_secret:
+        import pyotp as _pyotp
+        code = (body.current_code or "").strip().replace(" ", "")
+        if not code.isdigit() or len(code) != 6 \
+           or not _pyotp.TOTP(user.totp_secret).verify(code, valid_window=1):
+            raise HTTPException(
+                401,
+                "Для пере-выпуска TOTP введите текущий 2FA-код в current_code"
+            )
     import pyotp
     secret = pyotp.random_base32()
     # Сохраняем секрет (EncryptedString автоматически шифрует), но НЕ

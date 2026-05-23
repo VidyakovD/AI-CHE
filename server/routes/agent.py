@@ -12,7 +12,7 @@ from server.models import User, Transaction, UserApiKey
 from server.billing import deduct_strict
 from server.agent_runner import (
     create_task, submit_task, tasks as agent_tasks,
-    init_agent_queue, TOOL_SCHEMAS, subscribe_task,
+    init_agent_queue, TOOL_SCHEMAS, subscribe_task, unsubscribe_task,
     PRIORITY_NORMAL, PRIORITY_HIGH,
 )
 
@@ -175,7 +175,7 @@ async def agent_websocket(websocket: WebSocket, task_id: str):
     # Subscribe to future updates
     subscribe_task(task_id, websocket)
 
-    try:
+    try:  # noqa: E722 — финальный cleanup в finally ниже
         # Send current state immediately
         await websocket.send_json({
             "type": "update",
@@ -220,6 +220,10 @@ async def agent_websocket(websocket: WebSocket, task_id: str):
             await websocket.send_json({"type": "error", "message": str(e)})
         except Exception:
             pass
+    finally:
+        # Снимаем подписку при любом исходе — иначе task_subscribers
+        # копит мёртвые ws и течёт по памяти на long-running uvicorn.
+        unsubscribe_task(task_id, websocket)
 
 
 @router.get("/{task_id}/stream")

@@ -1455,10 +1455,12 @@ def _privacy_mask_messages(messages: list, guard: PrivacyGuard) -> list:
     masked_big = guard.mask(big)
     parts = masked_big.split(_PG_SEP)
     if len(parts) != len(texts):
-        # Маскировщик случайно сломал разделитель — fail-safe возвращаем оригинал
-        log.warning("[Privacy] separator broken, sending original (parts=%d, expected=%d)",
-                    len(parts), len(texts))
-        return messages
+        # Маскировщик сломал разделитель — это аномалия (NUL-байт в PII не ожидается).
+        # Поднимаем исключение → внешний caller сделает fail-closed (152-ФЗ),
+        # вместо тихого fallback на отправку оригинала в LLM.
+        raise RuntimeError(
+            f"[Privacy] separator broken (parts={len(parts)}, expected={len(texts)})"
+        )
     out = list(messages)
     for path, masked in zip(paths, parts):
         if path[0] == "str":
@@ -1520,7 +1522,16 @@ def generate_response(model: str, messages: list, extra: dict = None,
     real = cfg["real_model"]
     start_ms = int(time.time() * 1000)
 
-    # PII маскировка перед LLM (skip для image/video и явного opt-out)
+    # PII маскировка перед LLM (skip для image/video и явного opt-out).
+    #
+    # Fail-CLOSED: при ошибке маскировки запрос ОТКЛОНЯЕТСЯ, а не уходит в
+    # LLM с реальной PII. Это требование 152-ФЗ — нельзя «деградировать»
+    # до утечки персональных данных во внешние провайдеры (OpenAI, Anthropic,
+    # Google) из-за бага/исключения в guard.
+    #
+    # Аварийный escape-hatch: ENV PRIVACY_FAIL_OPEN=1 переключает обратно
+    # в fail-open (старое поведение). Использовать ТОЛЬКО если найден баг в
+    # PrivacyGuard который блокирует всё, и нужно временно вернуть сервис.
     _skip_privacy = bool(_extra.get("_privacy_skip")) or cfg["provider"] in ("kling", "veo")
     _guard: PrivacyGuard | None = None
     if not _skip_privacy:
@@ -1528,7 +1539,22 @@ def generate_response(model: str, messages: list, extra: dict = None,
             _guard = PrivacyGuard()
             messages = _privacy_mask_messages(messages, _guard)
         except Exception as _pe:
-            log.warning(f"[Privacy] mask failed, sending unmasked: {_pe}")
+            _fail_open = os.getenv("PRIVACY_FAIL_OPEN", "").lower() in ("1", "true", "yes")
+            log.error(
+                "[Privacy] mask FAILED — %s: %s (fail_open=%s)",
+                type(_pe).__name__, _pe, _fail_open,
+            )
+            if not _fail_open:
+                # Не отправляем PII в LLM. Возвращаем graceful error.
+                return {
+                    "type": "text",
+                    "content": (
+                        "Сервис временно недоступен (защита персональных "
+                        "данных). Попробуйте через пару минут или обратитесь "
+                        "в поддержку, если ошибка повторяется."
+                    ),
+                    "error": "privacy_guard_failure",
+                }
             _guard = None
 
     try:
