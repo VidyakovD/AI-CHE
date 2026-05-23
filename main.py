@@ -1118,8 +1118,39 @@ async def deploy_endpoint(authorization: str = Header(None)):
 # ── Startup ────────────────────────────────────────────────────────────────────
 from fastapi import Depends  # noqa: E402
 
+def _jwt_strict_preflight():
+    """Pre-flight для авто-активации strict aud/iss в JWT (2026-06-10).
+
+    Если до этой даты осталось < 14 дней — проверяем:
+      • JWT_SECRET задан → ок (иначе secrets_crypto и так бы упал)
+      • LEGACY_JWT_SECRETS задан, ИЛИ нет признаков что был rotate
+    Если есть риск что часть пользователей разлогинится — пишем WARNING
+    в логи. Не блокируем старт.
+    """
+    from datetime import datetime as _dt, date as _date
+    strict_date = _date(2026, 6, 10)
+    today = _dt.utcnow().date()
+    days_until = (strict_date - today).days
+    if days_until > 14 or days_until < 0:
+        return
+    forced = os.getenv("JWT_STRICT_AUD_ISS", "").strip().lower()
+    if forced in ("0", "false", "no", "off"):
+        log.info(f"[JWT-pre-flight] strict mode disabled by env. days_until={days_until}")
+        return
+    legacy = os.getenv("LEGACY_JWT_SECRETS", "").strip()
+    if not legacy:
+        log.warning(
+            "[JWT-pre-flight] strict aud/iss активируется через %d дней (%s). "
+            "LEGACY_JWT_SECRETS не задан — если ты ротировал JWT_SECRET без "
+            "сохранения старого, после 2026-06-10 ВСЕ живые сессии разлогинятся. "
+            "Установи JWT_STRICT_AUD_ISS=false для отсрочки или LEGACY_JWT_SECRETS=<old>.",
+            days_until, strict_date.isoformat(),
+        )
+
+
 @app.on_event("startup")
 async def startup():
+    _jwt_strict_preflight()
     db = SessionLocal()
     try:
         # Seed default pricing, features, and start exchange-rate updater

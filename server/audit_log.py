@@ -63,7 +63,7 @@ def log_action(
                 details=json.dumps(details, ensure_ascii=False, default=str)[:8000] if details else None,
                 ip=(ip or None) and str(ip)[:64],
                 request_id=(request_id or None) and str(request_id)[:64],
-                error=(error or None) and str(error)[:2000],
+                error=(error or None) and str(error)[:8000],
             )
             db.add(row)
             db.commit()
