@@ -18,8 +18,8 @@ bcrypt<5.0
 # PYSEC-2024-232 / 233 (algo-confusion / DoS) fixed in 3.4.0
 python-jose[cryptography]==3.4.0
 yookassa==2.3.0
-# CVE-2024-53981 / 2026-24486 / 2026-40347 — DoS на multipart parsing
-python-multipart==0.0.26
+# CVE-2024-53981 / 2026-24486 / 2026-40347 / 2026-42561 — DoS на multipart parsing
+python-multipart>=0.0.27
 defusedxml==0.7.1
 bleach==6.1.0
 # PPTX-генерация (для модуля презентаций)
@@ -42,8 +42,29 @@ qrcode==8.2
 pyotp==2.9.0
 # RAG: извлечение текста из XLSX (knowledge base)
 openpyxl==3.1.5
-# Извлечение текста из PDF
+# Извлечение текста из PDF.
+# CVE-2026-40260/41168/41312/41313/41314 в pypdf <6.10.2 (DoS, infinite loop
+# через malicious PDF). pypdf приходит транзитивно от xhtml2pdf — пиним минимум.
 PyPDF2==3.0.1
+pypdf>=6.10.2
+
+# ── Security constraints на транзитивные зависимости ────────────────────────
+# Эти пакеты приходят транзитивно (от requests, httpx, fastapi, alembic),
+# pip-audit нашёл в них CVE. Прибиваем минимумы здесь чтобы pip не выбрал
+# уязвимую версию при свежей установке. Не трогаем major-bumps (starlette
+# требует FastAPI upgrade — отдельная задача).
+
+# CVE-2026-... в cryptography <46.0.7
+cryptography>=46.0.7
+# CVE-2026-45409 в idna <3.15
+idna>=3.15
+# PYSEC-2026-141/142 в urllib3 <2.7.0
+urllib3>=2.7.0
+
+# KNOWN ISSUE: starlette 0.37.2 имеет CVE-2024-47874 / CVE-2025-54121 /
+# PYSEC-2026-161 — fix в 0.40+/1.0.1. Pinned транзитивно через fastapi==0.111
+# (требует starlette<0.38). Апгрейд = FastAPI bump до 0.115+, отдельная
+# задача с тестированием совместимости.
 # Опциональный мониторинг ошибок: ставится только если SENTRY_DSN задан
 # (init guarded в main.py); без DSN импорт не происходит, но колесо в env есть.
 sentry-sdk[fastapi]==2.15.0

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import TypeDecorator
 from server.db import Base
@@ -1746,6 +1746,36 @@ class UserCalendarConnection(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "provider", "account_email",
                           name="uq_user_calendar_account"),
+    )
+
+
+class LocalCalendarEvent(Base):
+    """Локальное событие календаря — создаётся юзером с /calendar.html
+    или оркестратором при «внеси в календарь на 12 мая в 12:00».
+
+    Это «наш» источник, в отличие от Google/Yandex/ICS — пишется в БД
+    без OAuth-токенов. Видно в `fetch_all_user_events` как source='local'.
+    Сейчас НЕ синхронизируется обратно в Google (нужен write-scope) —
+    отдельная задача после большого теста.
+
+    all_day=True означает событие без времени (только дата).
+    """
+    __tablename__ = "local_calendar_events"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    title       = Column(String, nullable=False)
+    start       = Column(DateTime, nullable=False, index=True)
+    end         = Column(DateTime, nullable=True)
+    all_day     = Column(Boolean, default=False)
+    description = Column(Text, nullable=True)
+    location    = Column(String, nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_local_calendar_user_start", "user_id", "start"),
     )
 
 

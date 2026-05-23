@@ -354,18 +354,47 @@ async def fetch_ics_events(ics_url: str, days_ahead: int = 14) -> list[dict]:
 
 async def fetch_all_user_events(db, user_id: int,
                                 days_ahead: int = 14) -> list[dict]:
-    """Все события юзера со всех его активных подключений календарей.
+    """Все события юзера со всех его источников.
 
-    Объединяет из Google + Yandex + ICS, сортирует по start, ограничивает 50.
+    Объединяет:
+      • LocalCalendarEvent (наша БД — events созданные в /calendar.html
+        или оркестратором при «внеси в календарь...»)
+      • Google + Yandex + ICS (через _fetch_for_connection)
 
-    Возвращает [{title, start, end, description, location, source, uid}, ...]
-    где source = provider'у (google/yandex/ics) — для UI отображения.
+    Сортирует по start, ограничивает 50.
+    Возвращает [{title, start, end, description, location, source, ...}, ...]
+    где source = local|google|yandex|ics.
     """
-    from server.models import UserCalendarConnection
+    from server.models import UserCalendarConnection, LocalCalendarEvent
+    from datetime import timedelta as _td
+    all_events: list[dict] = []
+
+    # 1. Локальные события из БД — всегда грузим, даже если нет подключений.
+    now = datetime.utcnow()
+    horizon = now + _td(days=days_ahead)
+    local_rows = (db.query(LocalCalendarEvent)
+                    .filter(LocalCalendarEvent.user_id == user_id,
+                            LocalCalendarEvent.start >= now - _td(days=1),
+                            LocalCalendarEvent.start <= horizon)
+                    .order_by(LocalCalendarEvent.start)
+                    .all())
+    for r in local_rows:
+        all_events.append({
+            "title": r.title,
+            "start": r.start,
+            "end": r.end,
+            "description": r.description or "",
+            "location": r.location or "",
+            "all_day": bool(r.all_day),
+            "source": "local",
+            "local_id": r.id,
+            "uid": f"local-{r.id}",
+        })
+
+    # 2. Внешние подключения
     conns = (db.query(UserCalendarConnection)
                .filter_by(user_id=user_id, is_active=True)
                .all())
-    all_events: list[dict] = []
     for conn in conns:
         try:
             events = await _fetch_for_connection(db, conn, days_ahead)

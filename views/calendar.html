@@ -60,6 +60,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
   </header>
 
   <section class="card p-4 mb-5 flex items-center gap-3 flex-wrap">
+    <button class="btn-p" onclick="openCreateModal()">+ Новое событие</button>
     <label class="text-sm text-on-dim">Горизонт:</label>
     <select class="inp" id="horizonSelect" style="width:auto" onchange="loadEvents()">
       <option value="7">Неделя</option>
@@ -70,7 +71,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
     </select>
     <button class="btn-g" onclick="loadEvents()">↻ Обновить</button>
     <div class="flex-1"></div>
-    <a class="btn-g" href="/agents-modular.html#calendar-connections" title="Управление подключениями календарей">⚙ Подключения</a>
+    <a class="btn-g" href="/agents-modular.html#calendar-connections" title="Управление подключениями календарей Google/Yandex/ICS">⚙ Подключения</a>
   </section>
 
   <div id="loadingState" class="empty" style="display:none">
@@ -91,6 +92,40 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 
   <section id="daysBlock" class="space-y-2"></section>
 
+</div>
+
+<!-- Create event modal -->
+<div class="modal-bg" id="evModal" style="position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:50;overflow-y:auto;padding:24px">
+  <div class="card p-6" style="max-width:520px;width:100%">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-headline font-bold">📅 Новое событие</h3>
+      <button class="btn-g" onclick="closeCreateModal()">×</button>
+    </div>
+    <label class="block text-xs text-on-dim mb-1">Название</label>
+    <input class="inp mb-3" id="evTitle" placeholder="Например: Встреча с клиентом"/>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div>
+        <label class="block text-xs text-on-dim mb-1">Дата</label>
+        <input class="inp" type="date" id="evDate"/>
+      </div>
+      <div>
+        <label class="block text-xs text-on-dim mb-1">Время</label>
+        <input class="inp" type="time" id="evTime" value="12:00"/>
+      </div>
+    </div>
+    <label class="block text-xs text-on-dim mb-1">Место (опц.)</label>
+    <input class="inp mb-3" id="evLocation" placeholder="Адрес / Zoom / комната"/>
+    <label class="block text-xs text-on-dim mb-1">Описание (опц.)</label>
+    <textarea class="inp mb-3" id="evDesc" style="min-height:80px" placeholder="Детали, повестка, ссылка..."></textarea>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#a89880;cursor:pointer;margin-bottom:14px">
+      <input type="checkbox" id="evAllDay" onchange="toggleAllDay()"/> Весь день (без времени)
+    </label>
+    <div id="evStatus" class="text-xs text-on-dim mb-3"></div>
+    <div class="flex justify-end gap-2">
+      <button class="btn-g" onclick="closeCreateModal()">Отмена</button>
+      <button class="btn-p" id="evSaveBtn" onclick="submitCreateEvent()">Создать</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -146,7 +181,8 @@ async function loadEvents() {
             <div class="day-count">${day.events.length} событий</div>
           </div>
           ${day.events.map(ev => {
-            const time = fmtTime(ev.start);
+            const time = ev.all_day ? '' : fmtTime(ev.start);
+            const canDelete = ev.source === 'local' && ev.local_id;
             return `
               <div class="ev">
                 <div class="ev-time ${time ? '' : 'all-day'}">${time || 'весь день'}</div>
@@ -155,7 +191,10 @@ async function loadEvents() {
                   ${ev.description ? `<div class="ev-desc">${esc(ev.description)}</div>` : ''}
                   ${ev.location ? `<div class="ev-loc">📍 ${esc(ev.location)}</div>` : ''}
                 </div>
-                <div class="ev-src ${esc(ev.source)}">${esc(ev.source || '?')}</div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span class="ev-src ${esc(ev.source)}">${esc(ev.source || '?')}</span>
+                  ${canDelete ? `<button class="btn-d" style="padding:3px 7px;font-size:11px" title="Удалить" onclick="deleteEvent(${ev.local_id})">×</button>` : ''}
+                </div>
               </div>
             `;
           }).join('')}
@@ -166,6 +205,75 @@ async function loadEvents() {
     console.error('[calendar] load', e);
     document.getElementById('loadingState').style.display = 'none';
     document.getElementById('errState').style.display = '';
+  }
+}
+
+// ── Create / delete local events ────────────────────────────────────────────
+
+function openCreateModal() {
+  document.getElementById('evTitle').value = '';
+  document.getElementById('evDate').value = new Date().toISOString().slice(0,10);
+  document.getElementById('evTime').value = '12:00';
+  document.getElementById('evLocation').value = '';
+  document.getElementById('evDesc').value = '';
+  document.getElementById('evAllDay').checked = false;
+  document.getElementById('evStatus').textContent = '';
+  toggleAllDay();
+  document.getElementById('evModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('evTitle').focus(), 50);
+}
+function closeCreateModal() {
+  document.getElementById('evModal').style.display = 'none';
+}
+function toggleAllDay() {
+  const checked = document.getElementById('evAllDay').checked;
+  document.getElementById('evTime').disabled = checked;
+  document.getElementById('evTime').style.opacity = checked ? '.4' : '1';
+}
+
+async function submitCreateEvent() {
+  const title = document.getElementById('evTitle').value.trim();
+  const date = document.getElementById('evDate').value;
+  const time = document.getElementById('evTime').value || '00:00';
+  const loc = document.getElementById('evLocation').value.trim();
+  const desc = document.getElementById('evDesc').value.trim();
+  const allDay = document.getElementById('evAllDay').checked;
+  const status = document.getElementById('evStatus');
+  const btn = document.getElementById('evSaveBtn');
+  if (!title) { (window.aiToast || alert)('Введите название'); return; }
+  if (!date) { (window.aiToast || alert)('Укажите дату'); return; }
+  btn.disabled = true;
+  status.textContent = 'Сохраняем...';
+  try {
+    const startIso = allDay ? `${date}T00:00:00` : `${date}T${time}:00`;
+    const r = await fetch('/api/agents/me/calendar/events', {
+      method: 'POST', credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({title, start: startIso, all_day: allDay, location: loc, description: desc}),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+    status.textContent = '✓ Создано. Че увидит это событие при чате.';
+    setTimeout(() => { closeCreateModal(); loadEvents(); }, 700);
+  } catch (e) {
+    console.error('[calendar] create', e);
+    status.textContent = '✗ ' + (e.message || 'не удалось создать');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteEvent(id) {
+  if (!confirm('Удалить событие?')) return;
+  try {
+    const r = await fetch(`/api/agents/me/calendar/events/${id}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    if (!r.ok) throw new Error('delete failed');
+    loadEvents();
+  } catch (e) {
+    console.error('[calendar] delete', e);
+    (window.aiToast || alert)('Не удалось удалить');
   }
 }
 

@@ -1789,6 +1789,83 @@ def list_finance_categories():
 # завтра на встрече»). Эта страница — visualization-слой над событиями
 # из подключённых Google/Yandex/ICS календарей.
 
+class _LocalEventIn(BaseModel):
+    title: str
+    start: str   # ISO format
+    end: str | None = None
+    description: str | None = None
+    location: str | None = None
+    all_day: bool = False
+
+
+@router.post("/me/calendar/events")
+def create_local_event(
+    body: _LocalEventIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Создать локальное событие. Используется как UI на /calendar.html,
+    так и оркестратором при «внеси в календарь на 12 мая в 12:00»."""
+    from server.models import LocalCalendarEvent
+    from datetime import datetime as _dt
+    title = (body.title or "").strip()[:200]
+    if not title:
+        raise HTTPException(400, "Заголовок обязателен")
+    try:
+        start = _dt.fromisoformat(body.start.replace("Z", "+00:00"))
+        # храним наивно в UTC
+        if start.tzinfo is not None:
+            start = start.astimezone().replace(tzinfo=None)
+    except Exception:
+        raise HTTPException(400, "Некорректный start (нужен ISO 8601)")
+    end = None
+    if body.end:
+        try:
+            end = _dt.fromisoformat(body.end.replace("Z", "+00:00"))
+            if end.tzinfo is not None:
+                end = end.astimezone().replace(tzinfo=None)
+        except Exception:
+            raise HTTPException(400, "Некорректный end (нужен ISO 8601)")
+    ev = LocalCalendarEvent(
+        user_id=user.id, title=title,
+        start=start, end=end,
+        all_day=bool(body.all_day),
+        description=(body.description or "")[:2000] or None,
+        location=(body.location or "")[:300] or None,
+    )
+    db.add(ev); db.commit(); db.refresh(ev)
+    try:
+        from server.audit_log import log_action
+        log_action("calendar.event_created", user_id=user.id,
+                   target_type="event", target_id=str(ev.id),
+                   details={"title": title[:80], "start": start.isoformat()})
+    except Exception:
+        pass
+    return {
+        "id": ev.id, "title": ev.title,
+        "start": ev.start.isoformat(),
+        "end": ev.end.isoformat() if ev.end else None,
+        "all_day": ev.all_day,
+        "description": ev.description, "location": ev.location,
+    }
+
+
+@router.delete("/me/calendar/events/{event_id}")
+def delete_local_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """Удалить локальное событие (только своё)."""
+    from server.models import LocalCalendarEvent
+    ev = (db.query(LocalCalendarEvent)
+            .filter_by(id=event_id, user_id=user.id).first())
+    if not ev:
+        raise HTTPException(404, "Событие не найдено")
+    db.delete(ev); db.commit()
+    return {"status": "deleted", "id": event_id}
+
+
 @router.get("/me/calendar/events")
 async def list_calendar_events(
     days_ahead: int = 30,
@@ -1828,6 +1905,8 @@ async def list_calendar_events(
             "location": ev.get("location") or "",
             "source": ev.get("source") or "",
             "connection_id": ev.get("connection_id"),
+            "local_id": ev.get("local_id"),       # для удаления local-событий
+            "all_day": bool(ev.get("all_day")),
             "uid": ev.get("uid"),
         }
         by_date.setdefault(day_key, []).append(item)

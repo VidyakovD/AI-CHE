@@ -96,11 +96,27 @@ async def publish_item(db: Session, item: ContentItem) -> dict:
     """Опубликовать готовый пост в канал бренда.
 
     Возвращает {"ok": bool, "channel_id": int|None, "description": str|None}.
+
+    Атомарный claim: status 'ready' → 'publishing' через UPDATE WHERE.
+    Только первый вызов получает rowcount=1 и публикует; параллельный
+    вызов увидит rowcount=0 → вернёт «уже публикуется» и не отправит
+    второй пост в канал. Раньше read-modify-write `if status==ready;
+    ...; status=published` мог дать двойной post при race с cron'ом.
     """
-    if item.status != "ready":
-        return {"ok": False, "description": f"item.status={item.status}, требуется ready"}
     if not item.prepared_content_md:
         return {"ok": False, "description": "prepared_content_md пустой"}
+
+    from sqlalchemy import update as _sa_update
+    claim = db.execute(
+        _sa_update(ContentItem)
+        .where(ContentItem.id == item.id, ContentItem.status == "ready")
+        .values(status="publishing")
+    )
+    db.commit()
+    if claim.rowcount != 1:
+        return {"ok": False, "description": f"item.status={item.status}, требуется ready (или уже publishing)"}
+    # Обновляем in-memory объект чтобы дальнейшая логика видела актуальный status
+    db.refresh(item)
 
     cal = db.query(ContentCalendar).filter_by(id=item.calendar_id).first()
     if not cal:
@@ -127,7 +143,8 @@ async def publish_item(db: Session, item: ContentItem) -> dict:
             result = {"ok": False, "description": f"платформа {item.platform} не поддерживается"}
     except Exception as e:
         log.exception("[creators.publish] %s send exception: %s", item.platform, e)
-        result = {"ok": False, "description": str(e)}
+        result = {"ok": False, "description": str(e)[:300]}
+        # status вернётся в 'ready' в else-ветке ниже — не теряем атомарность.
 
     if result.get("ok"):
         item.status = "published"
@@ -169,6 +186,9 @@ async def publish_item(db: Session, item: ContentItem) -> dict:
                         conn.id, MAX_FAIL_BEFORE_DISABLE)
         desc = result.get("description") or str(result)[:200]
         item.error = f"publish: {desc[:400]}"
+        # Возвращаем status обратно в 'ready' — иначе после atomic claim'а
+        # выше item застрянет в 'publishing' и cron retry никогда не сработает.
+        item.status = "ready"
         db.commit()
         return {"ok": False, "channel_id": conn.id, "description": desc}
 
