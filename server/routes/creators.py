@@ -116,7 +116,9 @@ def create_brand(
     db.add(b)
     db.commit()
     db.refresh(b)
-    log_action("creator.brand_created", user_id=user.id, brand_id=b.id, name=b.name)
+    log_action("creator.brand_created", user_id=user.id,
+               target_type="brand", target_id=str(b.id),
+               details={"name": b.name})
     return _brand_dict(b)
 
 
@@ -151,7 +153,8 @@ def update_brand(
     b.logo_url = payload.logo_url
     db.commit()
     db.refresh(b)
-    log_action("creator.brand_updated", user_id=user.id, brand_id=b.id)
+    log_action("creator.brand_updated", user_id=user.id,
+               target_type="brand", target_id=str(b.id))
     return _brand_dict(b)
 
 
@@ -162,7 +165,8 @@ def delete_brand(brand_id: int, user: User = Depends(current_user), db: Session 
         raise HTTPException(404, "Бренд не найден")
     db.delete(b)  # cascade удалит календари / items / channels / analysis_runs
     db.commit()
-    log_action("creator.brand_deleted", user_id=user.id, brand_id=brand_id)
+    log_action("creator.brand_deleted", user_id=user.id,
+               target_type="brand", target_id=str(brand_id))
     return {"ok": True}
 
 
@@ -262,10 +266,15 @@ def generate_calendar(
     db.refresh(cal)
 
     log_action(
-        "creator.calendar_generated", user_id=user.id, brand_id=brand_id,
-        calendar_id=cal.id, items_count=len(plan["items"]),
-        days=payload.days, platforms=",".join(platforms or sorted(VALID_PLATFORMS_PLANNER)),
-        brief_filled=plan["raw_brief_count"],
+        "creator.calendar_generated", user_id=user.id,
+        target_type="calendar", target_id=str(cal.id),
+        details={
+            "brand_id": brand_id,
+            "items_count": len(plan["items"]),
+            "days": payload.days,
+            "platforms": ",".join(platforms or sorted(VALID_PLATFORMS_PLANNER)),
+            "brief_filled": plan["raw_brief_count"],
+        },
     )
 
     items = db.query(ContentItem).filter_by(calendar_id=cal.id).order_by(ContentItem.schedule_at).all()
@@ -346,7 +355,8 @@ def update_item(
 
     db.commit()
     db.refresh(item)
-    log_action("creator.item_updated", user_id=user.id, item_id=item.id)
+    log_action("creator.item_updated", user_id=user.id,
+               target_type="content_item", target_id=str(item.id))
     return _item_dict(item)
 
 
@@ -445,10 +455,15 @@ def prepare_item_endpoint(
     db.refresh(item)
 
     log_action(
-        "creator.item_prepared", user_id=user.id, item_id=item.id,
-        brand_id=brand.id, cost_kop=charged_kop, freemium=use_free,
-        with_image=bool(result["media_url"]),
-        models=",".join(result.get("model_chain") or []),
+        "creator.item_prepared", user_id=user.id,
+        target_type="content_item", target_id=str(item.id),
+        details={
+            "brand_id": brand.id,
+            "cost_kop": charged_kop,
+            "freemium": use_free,
+            "with_image": bool(result["media_url"]),
+            "models": ",".join(result.get("model_chain") or []),
+        },
     )
 
     return {
@@ -623,8 +638,13 @@ def bulk_prepare_brand(
             prepared += 1
             total_charged_kop += charged_kop
             log_action(
-                "creator.item_prepared_bulk", user_id=user.id, item_id=item.id,
-                brand_id=brand.id, cost_kop=charged_kop, freemium=used_free,
+                "creator.item_prepared_bulk", user_id=user.id,
+                target_type="content_item", target_id=str(item.id),
+                details={
+                    "brand_id": brand.id,
+                    "cost_kop": charged_kop,
+                    "freemium": used_free,
+                },
             )
         except Exception as e:
             log.exception("[creators.bulk-prepare] item=%s failed: %s", item.id, e)
@@ -726,7 +746,8 @@ def delete_item(
         raise HTTPException(400, "Опубликованный пост удалить нельзя")
     db.delete(item)
     db.commit()
-    log_action("creator.item_deleted", user_id=user.id, item_id=item_id)
+    log_action("creator.item_deleted", user_id=user.id,
+               target_type="content_item", target_id=str(item_id))
     return {"ok": True}
 
 
@@ -747,7 +768,9 @@ async def publish_item_endpoint(
     if not item:
         raise HTTPException(404, "Пост не найден")
     result = await _publish(db, item)
-    log_action("creator.item_published_manual", user_id=user.id, item_id=item.id, ok=result.get("ok"))
+    log_action("creator.item_published_manual", user_id=user.id,
+               target_type="content_item", target_id=str(item.id),
+               details={"ok": bool(result.get("ok"))})
     if not result.get("ok"):
         raise HTTPException(400, result.get("description") or "Не удалось опубликовать")
     db.refresh(item)
@@ -834,8 +857,13 @@ async def add_channel(
     db.add(c)
     db.commit()
     db.refresh(c)
-    log_action("creator.channel_added", user_id=user.id, brand_id=brand_id,
-               platform=payload.platform, channel_id=payload.channel_id)
+    log_action("creator.channel_added", user_id=user.id,
+               target_type="channel", target_id=str(c.id),
+               details={
+                   "brand_id": brand_id,
+                   "platform": payload.platform,
+                   "external_channel_id": payload.channel_id,
+               })
     return _channel_dict(c)
 
 
@@ -863,7 +891,8 @@ def delete_channel(channel_id: int, user: User = Depends(current_user), db: Sess
         raise HTTPException(404, "Канал не найден")
     db.delete(c)
     db.commit()
-    log_action("creator.channel_deleted", user_id=user.id, channel_id=channel_id)
+    log_action("creator.channel_deleted", user_id=user.id,
+               target_type="channel", target_id=str(channel_id))
     return {"ok": True}
 
 
@@ -956,8 +985,13 @@ def run_brand_analysis(
     db.commit()
     db.refresh(run)
 
-    log_action("creator.analysis_completed", user_id=user.id, brand_id=brand_id,
-               run_id=run.id, target_type=payload.target_type, cost_kop=price_kop)
+    log_action("creator.analysis_completed", user_id=user.id,
+               target_type="analysis", target_id=str(run.id),
+               details={
+                   "brand_id": brand_id,
+                   "scope_target_type": payload.target_type,
+                   "cost_kop": price_kop,
+               })
     return _analysis_dict(run)
 
 

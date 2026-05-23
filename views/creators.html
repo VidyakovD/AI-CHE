@@ -1734,7 +1734,14 @@ document.addEventListener('keydown', e =>{
 });
 
 // Хелперы
-function esc(s){ return (window.esc ? window.esc(s) : String(s || '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))); }
+// ВАЖНО: function esc(){...} в global scope автоматически становится window.esc.
+// Раньше тут был `(window.esc ? window.esc(s) : ...)` — это вызывало RangeError
+// (Maximum call stack size exceeded) из-за того что window.esc === сама функция,
+// бесконечная рекурсия. Без window.esc fallback — просто реализация.
+function esc(s){
+  if (s == null) return '';
+  return String(s).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+}
 function nicheLabel(n){
   return ({ecommerce:'e-commerce',services:'услуги',it:'IT/SaaS',manufacturing:'производство',food:'еда',medicine:'медицина',beauty:'красота',education:'образование',realestate:'недвижимость',other:'другое'})[n] || n;
 }
