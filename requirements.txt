@@ -13,9 +13,15 @@ sqlalchemy==2.0.30
 alembic==1.13.2
 # CVE-2026-28684 fixed in 1.2.2
 python-dotenv==1.2.2
-openai==1.30.1
-anthropic==0.26.0
-httpx==0.27.0
+# OpenAI SDK: 1.x line (2.x — MAJOR breaking, требует отдельной миграции
+# response models / type adjustments). 1.51+ закрывает несколько minor bugs
+# в timeout handling и tool_calls.
+openai>=1.51.0,<2.0
+# Anthropic SDK: 0.42 mid-line — стабильная, поддерживает claude-sonnet-4-6
+# и cache_control headers. Скачок 0.26→0.42 в основном bug-fixes + новые модели.
+anthropic>=0.42.0,<1.0
+# httpx 0.28.1 — minor bump с CVE-фиксом для cookie-handling.
+httpx>=0.28.0,<0.30
 passlib[bcrypt]==1.7.4
 # bcrypt 5.x несовместим с passlib 1.7.4 — passlib делает detect_wrap_bug
 # с >72-byte паролем, а новый bcrypt отказывает (ValueError). Pin до 4.x

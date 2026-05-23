@@ -58,6 +58,13 @@ jobs:
           python -m alembic current
           rm -f ci_alembic_check.db
 
+      - name: Check worker_lock TTL races
+        # Защита от регрессии паттерна который массово закрыли 2026-05-23
+        # (коммит 5c7176e): ttl_sec в worker_lock(...) должен быть БОЛЬШЕ
+        # последующего asyncio.sleep(N), иначе при долгом tick'е лок истечёт
+        # и другие воркеры дубль-выполнят (биллинг, autopost, и т.д.).
+        run: python tools/check_worker_locks.py
+
       - name: Pytest
         env:
           DEV_MODE: "true"
