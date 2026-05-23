@@ -65,12 +65,51 @@ def cabinet_stats(user=Depends(current_user), db: Session = Depends(get_db)):
         Transaction.created_at >= since,
     ).order_by(Transaction.tokens_delta.asc()).limit(5).all()
 
+    # Активность по модулям с UI (Креаторы / Финансы / Календарь / Заметки).
+    # Считаем кол-во записей юзера в каждом — позволяет ему / админу видеть
+    # какие модули реально используются (новый юзер увидит 0 и поймёт куда
+    # ткнуть, опытный — где у него «много» и есть ли смысл чистить).
+    modules_activity: dict[str, dict] = {}
+    try:
+        from server.models import (
+            CreatorBrand, ContentItem, FinanceTransaction,
+            LocalCalendarEvent, KnowledgeFile, AgentTask,
+        )
+        brands_cnt = db.query(CreatorBrand).filter_by(user_id=user.id).count()
+        # ContentItem напрямую — кол-во контент-планов любого бренда юзера
+        posts_cnt = (db.query(ContentItem)
+                       .join(CreatorBrand, ContentItem.calendar_id == CreatorBrand.id, isouter=True)
+                       .filter(CreatorBrand.user_id == user.id).count()) if brands_cnt else 0
+        fin_cnt = db.query(FinanceTransaction).filter_by(user_id=user.id).count()
+        cal_cnt = db.query(LocalCalendarEvent).filter_by(user_id=user.id).count()
+        notes_cnt = (db.query(KnowledgeFile)
+                       .filter_by(user_id=user.id, owner_type="user", mime="text/x-note")
+                       .count())
+        kb_files_cnt = (db.query(KnowledgeFile)
+                          .filter(KnowledgeFile.user_id == user.id,
+                                  KnowledgeFile.mime != "text/x-note")
+                          .count())
+        tasks_30d = db.query(AgentTask).filter(
+            AgentTask.user_id == user.id,
+            AgentTask.created_at >= since,
+        ).count() if hasattr(AgentTask, "created_at") else 0
+        modules_activity = {
+            "creators":     {"brands": brands_cnt, "posts": posts_cnt, "label": "📅 Креаторы", "url": "/creators.html"},
+            "finance":      {"transactions": fin_cnt, "label": "💰 Финансы", "url": "/finance.html"},
+            "calendar":     {"events": cal_cnt, "label": "📅 Календарь", "url": "/calendar.html"},
+            "notes":        {"notes": notes_cnt, "kb_files": kb_files_cnt, "label": "📝 Заметки", "url": "/notes.html"},
+            "agents_tasks_30d": {"count": tasks_30d, "label": "🧠 Задачи агентов (30д)"},
+        }
+    except Exception as _e:
+        log.warning(f"[cabinet/stats] modules_activity skipped: {_e}")
+
     return {"user": u,
             "transactions": [_tx_dict(t) for t in txs],
             "model_usage": model_usage,
             "token_usage": token_usage,
             "spend_by_module": spend,
-            "top_expensive": [_tx_dict(t) for t in top_spend]}
+            "top_expensive": [_tx_dict(t) for t in top_spend],
+            "modules_activity": modules_activity}
 
 
 MODULE_LABELS = {

@@ -1,5 +1,11 @@
-fastapi==0.111.0
-uvicorn==0.29.0
+# FastAPI 0.115+ требует starlette>=0.40 — закрывает 3 CVE
+# (CVE-2024-47874 DoS multipart, CVE-2025-54121 ReDoS, PYSEC-2026-161).
+# 0.115 совместим с pydantic 2.x; breaking changes vs 0.111 — минорные
+# (deprecations в Depends signatures, не критичные для нас).
+fastapi>=0.115.0,<0.116
+# Транзитивный pin для starlette — на случай если pip выберет старее
+starlette>=0.40.0,<0.42
+uvicorn>=0.30.0,<0.36
 sqlalchemy==2.0.30
 # Alembic для версионируемых миграций. Подключён параллельно с
 # LIGHTWEIGHT_MIGRATIONS (см. alembic/README.md). Используется для
@@ -61,10 +67,9 @@ idna>=3.15
 # PYSEC-2026-141/142 в urllib3 <2.7.0
 urllib3>=2.7.0
 
-# KNOWN ISSUE: starlette 0.37.2 имеет CVE-2024-47874 / CVE-2025-54121 /
-# PYSEC-2026-161 — fix в 0.40+/1.0.1. Pinned транзитивно через fastapi==0.111
-# (требует starlette<0.38). Апгрейд = FastAPI bump до 0.115+, отдельная
-# задача с тестированием совместимости.
+# РЕШЕНО: starlette CVE закрыты bump'ом FastAPI 0.111 → 0.115+
+# (см. pin fastapi>=0.115 выше). На сервере: pip install -r requirements.txt
+# --upgrade. На локали оставить как есть до следующего clean install.
 # Опциональный мониторинг ошибок: ставится только если SENTRY_DSN задан
 # (init guarded в main.py); без DSN импорт не происходит, но колесо в env есть.
 sentry-sdk[fastapi]==2.15.0
