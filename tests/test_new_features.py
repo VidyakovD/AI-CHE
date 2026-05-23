@@ -22,21 +22,38 @@ from server.db import SessionLocal
 _FAKE_BCRYPT = "$2b$12$abcdefghijklmnopqrstuvCxyz0123456789ABCDEFGHIJKLMNOPQRSTU"
 
 
-def _user(db, email, balance=10000, is_admin=False):
+def _user(db, email, balance=10000, is_admin=False, password=None):
     """Создать тестового юзера. balance в копейках. Возвращает (id, email)
     как кортеж — чтобы избежать DetachedInstanceError при использовании
-    user-объекта после закрытия сессии."""
+    user-объекта после закрытия сессии.
+
+    Если password передан — хешируется bcrypt'ом (нужно для тестов которые
+    делают re-auth, например /admin/2fa/setup после security-фикса требует
+    password). Иначе ставится _FAKE_BCRYPT — verify_password вернёт False,
+    что ок для большинства тестов которые не проверяют пароль.
+    """
     from server.models import User
     import uuid
+    if password:
+        # Прямо через bcrypt — passlib падает на Python 3.14 с bcrypt 4.x
+        # (AttributeError: module 'bcrypt' has no attribute '__about__').
+        # На проде Python 3.10 + passlib работает, тут — обходим.
+        import bcrypt as _bcrypt
+        pwd_hash = _bcrypt.hashpw(password.encode("utf-8"),
+                                   _bcrypt.gensalt(rounds=4)).decode("utf-8")
+    else:
+        pwd_hash = _FAKE_BCRYPT
     u = db.query(User).filter_by(email=email).first()
     if u:
         u.tokens_balance = balance
         u.is_verified = True
+        if password:
+            u.password_hash = pwd_hash
         db.commit()
         return (u.id, u.email)
     u = User(
         email=email,
-        password_hash=_FAKE_BCRYPT,
+        password_hash=pwd_hash,
         name=email.split("@")[0],
         tokens_balance=balance,
         is_verified=True,
@@ -286,11 +303,14 @@ class TestAdmin2FA:
         # Reload security module чтобы подхватить новый email
         from server import security as _sec
         _sec.ADMIN_EMAILS = {"totp-admin@example.com"}
+        _pwd = "TestPass123!"
         with SessionLocal() as db:
-            uid, uemail = _user(db, "totp-admin@example.com")
+            uid, uemail = _user(db, "totp-admin@example.com", password=_pwd)
         client = _client_for((uid, uemail))
-        r = client.post("/admin/2fa/setup")
-        assert r.status_code == 200
+        # /2fa/setup теперь требует re-auth через password (security fix
+        # против перевыпуска TOTP при угоне access-токена)
+        r = client.post("/admin/2fa/setup", json={"password": _pwd})
+        assert r.status_code == 200, r.text
         data = r.json()
         assert data["secret"]
         assert len(data["secret"]) == 32  # base32 32-char
@@ -300,11 +320,12 @@ class TestAdmin2FA:
         os.environ["ADMIN_EMAILS"] = "totp-en@example.com"
         from server import security as _sec
         _sec.ADMIN_EMAILS = {"totp-en@example.com"}
+        _pwd = "TestPass123!"
         with SessionLocal() as db:
-            uid, uemail = _user(db, "totp-en@example.com")
+            uid, uemail = _user(db, "totp-en@example.com", password=_pwd)
         client = _client_for((uid, uemail))
-        # Setup
-        setup = client.post("/admin/2fa/setup").json()
+        # Setup — c password (re-auth)
+        setup = client.post("/admin/2fa/setup", json={"password": _pwd}).json()
         # Сгенерим валидный код
         import pyotp
         code = pyotp.TOTP(setup["secret"]).now()

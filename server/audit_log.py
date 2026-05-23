@@ -41,13 +41,31 @@ def log_action(
     ip: str | None = None,
     request_id: str | None = None,
     error: str | None = None,
+    **extra: Any,
 ) -> None:
     """Запись действия в action_logs. Никогда не raise'ит — fail-safe.
 
     action: dot-notation, лучше `category.event` (auth.login, site.generate_done)
     level: info | warn | error | critical
     success: для быстрого SQL «покажи все error за сутки»
+
+    `**extra` — поглощает любые лишние kwargs (типа brand_id=1, item_id=2 и т.д.)
+    которые caller передал случайно. До добавления **extra такие kwargs давали
+    TypeError на уровне call-resolution → 500 на endpoint'е (см. историю с
+    13 багами в creators.py). Теперь они уходят в details + warning в лог,
+    чтобы разраб увидел проблему раньше прод-инцидента.
     """
+    if extra:
+        # Объединяем с details — caller всё равно хотел положить эти поля куда-то
+        merged_details = dict(details or {})
+        for k, v in extra.items():
+            merged_details.setdefault(k, v)
+        details = merged_details
+        log.warning(
+            "[audit_log] action=%r получил unknown kwargs %s — "
+            "положены в details. Используй details={...} явно.",
+            action, sorted(extra.keys()),
+        )
     try:
         from server.db import db_session
         from server.models import ActionLog

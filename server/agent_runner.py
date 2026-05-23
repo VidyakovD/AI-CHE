@@ -293,6 +293,45 @@ TOOL_SCHEMAS = [
         }
     },
     {
+        "name": "create_calendar_event",
+        "description": "Создать событие в личном календаре юзера (отобразится в /calendar.html). Используй когда юзер просит «внеси в календарь», «запланируй на дату».",
+        "parameters": {
+            "title":       "Название события",
+            "start":       "Дата+время начала в ISO 8601: 2026-05-12T12:00:00",
+            "end":         "Дата+время окончания ISO 8601 (опц.)",
+            "all_day":     "true если событие на весь день без времени",
+            "location":    "Место (опц.) — адрес, Zoom-ссылка, кабинет",
+            "description": "Подробности события (опц.)"
+        }
+    },
+    {
+        "name": "add_finance_transaction",
+        "description": "Записать финансовую транзакцию (доход или расход). Используй когда юзер говорит «потратил X на Y» или «получил зарплату».",
+        "parameters": {
+            "amount_kop":  "Сумма в копейках. Отрицательная для расхода (-150000 = трата 1500 ₽), положительная для дохода.",
+            "category":    "food | cafe | transport | fuel | shopping | clothing | health | entertain | subscript | utility | travel | education | transfer | p2p | income | tax | fees | atm | other",
+            "date":        "Дата ISO 8601 (опц., по умолчанию сейчас)",
+            "description": "Описание (например «АЗС Лукойл» или «зарплата за май»)"
+        }
+    },
+    {
+        "name": "create_note",
+        "description": "Создать заметку в общей базе юзера. Заметка автоматически индексируется в RAG — Че будет её видеть в дальнейших чатах как контекст. Используй для запоминания фактов о юзере, важных встреч, идей.",
+        "parameters": {
+            "title": "Краткий заголовок заметки",
+            "text":  "Полный текст заметки",
+            "tags":  "Теги через запятую (опц.)"
+        }
+    },
+    {
+        "name": "search_notes",
+        "description": "Семантический поиск по заметкам и общей базе знаний юзера. Используй когда юзер спрашивает «помнишь, я говорил про X», «как звали того клиента», «когда у меня встреча с Y».",
+        "parameters": {
+            "query": "Поисковый запрос",
+            "top":   "Сколько результатов вернуть (1-10, по умолчанию 5)"
+        }
+    },
+    {
         "name": "write_output",
         "description": "Сохранить промежуточный или финальный результат. Используй для длинных текстов.",
         "parameters": {
@@ -865,6 +904,153 @@ async def tool_finish(params: dict, context: dict) -> str:
     return params.get("answer", "Задача выполнена")
 
 
+# ── Tools для модулей с UI: оркестратор пишет в LocalCalendarEvent /
+#    FinanceTransaction / Note (KnowledgeFile owner_type='user')
+#    Это закрывает архитектурное обещание: юзер в чате с Че «внеси в
+#    календарь на 12 мая в 12:00» → оркестратор зовёт create_calendar_event.
+
+async def tool_create_calendar_event(params: dict, context: dict) -> str:
+    """Создать локальное событие в календаре юзера (LocalCalendarEvent).
+    Не пишет в Google — пишет в нашу БД, отображается в /calendar.html."""
+    from datetime import datetime as _dt
+    from server.models import LocalCalendarEvent
+    from server.db import SessionLocal
+    user_id = context.get("user_id")
+    if not user_id:
+        return "Ошибка: нет user_id в context"
+    title = (params.get("title") or "").strip()[:200]
+    if not title:
+        return "Ошибка: title обязателен"
+    try:
+        start_raw = params.get("start") or ""
+        start = _dt.fromisoformat(str(start_raw).replace("Z", "+00:00"))
+        if start.tzinfo is not None:
+            start = start.astimezone().replace(tzinfo=None)
+    except Exception:
+        return f"Ошибка: некорректный start '{params.get('start')}' (нужен ISO 8601, например 2026-05-12T12:00:00)"
+    end = None
+    if params.get("end"):
+        try:
+            end = _dt.fromisoformat(str(params["end"]).replace("Z", "+00:00"))
+            if end.tzinfo is not None:
+                end = end.astimezone().replace(tzinfo=None)
+        except Exception:
+            pass
+    db = SessionLocal()
+    try:
+        ev = LocalCalendarEvent(
+            user_id=int(user_id), title=title,
+            start=start, end=end,
+            all_day=bool(params.get("all_day")),
+            description=(params.get("description") or "")[:2000] or None,
+            location=(params.get("location") or "")[:300] or None,
+        )
+        db.add(ev); db.commit(); db.refresh(ev)
+        return f"✅ Событие создано: «{title}» на {start.isoformat()} (id={ev.id})"
+    finally:
+        db.close()
+
+
+async def tool_add_finance_transaction(params: dict, context: dict) -> str:
+    """Добавить ручную финансовую транзакцию (FinanceTransaction).
+    Положительная amount_kop = доход, отрицательная = расход.
+    Используется когда юзер диктует Че «запиши, я потратил 1500 руб на бензин»."""
+    from datetime import datetime as _dt
+    from server.models import FinanceTransaction
+    from server.db import SessionLocal
+    user_id = context.get("user_id")
+    if not user_id:
+        return "Ошибка: нет user_id в context"
+    try:
+        amount_kop = int(params.get("amount_kop") or 0)
+    except Exception:
+        return "Ошибка: amount_kop должно быть целым числом (копейки, отрицательное для расхода)"
+    if amount_kop == 0:
+        return "Ошибка: amount_kop=0"
+    try:
+        date_raw = params.get("date") or _dt.utcnow().isoformat()
+        date = _dt.fromisoformat(str(date_raw).replace("Z", "+00:00"))
+        if date.tzinfo is not None:
+            date = date.astimezone().replace(tzinfo=None)
+    except Exception:
+        date = _dt.utcnow()
+    from server.finance_csv import CATEGORIES
+    category = params.get("category") or "other"
+    if category not in CATEGORIES:
+        category = "other"
+    db = SessionLocal()
+    try:
+        tx = FinanceTransaction(
+            user_id=int(user_id),
+            source="manual",
+            date=date,
+            amount_kop=amount_kop,
+            currency="RUB",
+            description=(params.get("description") or "")[:500] or None,
+            category=category,
+        )
+        db.add(tx); db.commit(); db.refresh(tx)
+        sign = "+" if amount_kop > 0 else "−"
+        return f"✅ Транзакция записана: {sign}{abs(amount_kop)/100:.2f} ₽ ({CATEGORIES.get(category, category)}, id={tx.id})"
+    finally:
+        db.close()
+
+
+async def tool_create_note(params: dict, context: dict) -> str:
+    """Создать заметку в общей базе юзера (KnowledgeFile с mime='text/x-note').
+    Автоматически индексируется в RAG — будет доступна всем агентам через
+    retrieve_multi при выполнении задач."""
+    from server.knowledge import add_file
+    import secrets as _sec
+    user_id = context.get("user_id")
+    if not user_id:
+        return "Ошибка: нет user_id в context"
+    title = (params.get("title") or "").strip()[:200]
+    text = (params.get("text") or "").strip()
+    if not title or not text:
+        return "Ошибка: title и text обязательны"
+    if len(text) > 100_000:
+        return "Ошибка: text слишком длинный (макс 100 КБ)"
+    try:
+        note_id = _sec.token_urlsafe(12)
+        fake_path = f"/uploads/notes/note-{note_id}.txt"
+        result = add_file(
+            owner_type="user", owner_id=int(user_id), user_id=int(user_id),
+            name=title, path=fake_path, mime="text/x-note",
+            size=len(text.encode("utf-8")),
+            content_text=text,
+            tags=(params.get("tags") or "")[:500],
+            skip_embeddings=False,
+        )
+        return f"✅ Заметка создана: «{title}» (id={result.get('id')}). Че будет видеть её в чате как контекст."
+    except Exception as e:
+        return f"Ошибка создания заметки: {type(e).__name__}: {str(e)[:200]}"
+
+
+async def tool_search_notes(params: dict, context: dict) -> str:
+    """Семантический поиск по заметкам и общей базе юзера.
+    Возвращает топ-N совпадений с превью текста."""
+    from server.knowledge import retrieve
+    user_id = context.get("user_id")
+    if not user_id:
+        return "Ошибка: нет user_id в context"
+    query = (params.get("query") or "").strip()
+    if not query:
+        return "Ошибка: query обязательно"
+    try:
+        results = retrieve(owner_type="user", owner_id=int(user_id),
+                           query=query, top=int(params.get("top") or 5))
+    except Exception as e:
+        return f"Ошибка поиска: {type(e).__name__}: {str(e)[:200]}"
+    if not results:
+        return f"Ничего не найдено по запросу «{query}»"
+    out = [f"Найдено {len(results)} результатов по «{query}»:"]
+    for i, r in enumerate(results, 1):
+        snippet = (r.get("text") or "")[:200].replace("\n", " ")
+        out.append(f"\n{i}. {r.get('file_name', '?')} (score={r.get('score', 0):.2f})\n   {snippet}…")
+    return "\n".join(out)
+
+
 TOOLS = {
     "web_search":          tool_web_search,
     "browse_url":          tool_browse_url,
@@ -878,8 +1064,16 @@ TOOLS = {
     "generate_video":      tool_generate_video,
     "send_vk_post":        tool_send_vk_post,
     "send_tg_message":     tool_send_tg_message,
-    "write_output":        tool_write_output,
-    "finish":              tool_finish,
+    # Tools для модулей с UI: оркестратор пишет в БД юзера.
+    # Модули calendar/finance/notes имеют свои страницы (/calendar.html,
+    # /finance.html, /notes.html). Через эти tools Че в чате создаёт
+    # события / транзакции / заметки — они появляются на страницах.
+    "create_calendar_event":   tool_create_calendar_event,
+    "add_finance_transaction": tool_add_finance_transaction,
+    "create_note":             tool_create_note,
+    "search_notes":            tool_search_notes,
+    "write_output":            tool_write_output,
+    "finish":                  tool_finish,
 }
 
 # ── REACT LOOP ────────────────────────────────────────────────────────────────
