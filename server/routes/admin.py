@@ -1,7 +1,7 @@
 """Admin endpoints — extracted from main.py."""
 import os, json, logging
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func, Integer
@@ -690,8 +690,10 @@ def admin_get_keys(user: User = Depends(current_user), db: Session = Depends(get
 
 @router.post("/apikeys")
 def admin_add_key(body: ApiKeyBody, user: User = Depends(current_user),
-                  db: Session = Depends(get_db)):
+                  db: Session = Depends(get_db),
+                  x_totp_code: str | None = Header(default=None)):
     require_admin(user)
+    _require_totp_code(user, header_code=x_totp_code)  # TOTP — вставка API-ключа сервиса
     if body.provider not in PROVIDERS_LIST:
         raise HTTPException(400, f"Неизвестный провайдер: {body.provider}")
     key = ApiKey(provider=body.provider, key_value=body.key_value.strip(),
@@ -704,8 +706,10 @@ def admin_add_key(body: ApiKeyBody, user: User = Depends(current_user),
 
 @router.delete("/apikeys/{key_id}")
 def admin_delete_key(key_id: int, user: User = Depends(current_user),
-                     db: Session = Depends(get_db)):
+                     db: Session = Depends(get_db),
+                     x_totp_code: str | None = Header(default=None)):
     require_admin(user)
+    _require_totp_code(user, header_code=x_totp_code)  # TOTP — удаление API-ключа сервиса
     key = db.query(ApiKey).filter_by(id=key_id).first()
     if not key:
         raise HTTPException(404)
@@ -937,7 +941,8 @@ def admin_users_full(limit: int = 200, offset: int = 0,
 @router.post("/reencrypt-secrets")
 def admin_reencrypt_secrets(request: Request,
                             user: User = Depends(current_user),
-                            db: Session = Depends(get_db)):
+                            db: Session = Depends(get_db),
+                            x_totp_code: str | None = Header(default=None)):
     """
     Пере-шифровывает все секреты в БД на текущий JWT_SECRET. Используется
     после ротации JWT_SECRET (старый кладётся в JWT_SECRETS_LEGACY).
@@ -959,6 +964,7 @@ def admin_reencrypt_secrets(request: Request,
       JWT_SECRETS_LEGACY=<старый1>,<старый2>   # csv до 5 ключей
     """
     require_admin(user)
+    _require_totp_code(user, header_code=x_totp_code)  # TOTP — неотменимая операция
     from server.models import ImapCredential, ChatBot as _CB, ApiKey as _AK, User as _U
     from server.secrets_crypto import reencrypt
 
@@ -1096,17 +1102,21 @@ def admin_audit_log(limit: int = 100, user: User = Depends(current_user),
     } for r in rows]
 
 
-def _require_totp_code(user: User, body: dict) -> None:
-    """Защита critical-операций: требуется свежий TOTP-код в body['totp_code'].
+def _require_totp_code(user: User, body: dict | None = None,
+                       header_code: str | None = None) -> None:
+    """Защита critical-операций: требуется свежий TOTP-код.
 
-    Угнан access-токен админа ≠ доступ к балансам и бану юзеров. Атакующему
-    нужен ещё физический доступ к Authenticator-приложению админа.
+    Источник кода (по приоритету):
+      1. HTTP-header `X-TOTP-Code` (универсально для любых endpoints — body
+         не нужно перепроектировать под TOTP)
+      2. body['totp_code'] — для совместимости там, где админка уже шлёт
+         в JSON-теле
+
+    Угнан access-токен админа ≠ доступ к балансам/банам/API-ключам.
+    Атакующему нужен ещё физический Authenticator админа.
 
     - Если у админа 2FA не включён → 412 (надо сначала включить).
     - Если код отсутствует / неверен / не 6 цифр → 401.
-
-    Опционально можно расширить до «свежей TOTP-сессии» (last_totp_at в БД +
-    окно 5 мин) — UX-friendlier, но сейчас критично закрыть саму дыру.
     """
     import pyotp
     if not user.totp_enabled or not user.totp_secret:
@@ -1114,9 +1124,11 @@ def _require_totp_code(user: User, body: dict) -> None:
             412,
             "Для critical-операций сначала включите 2FA: /admin/2fa/setup",
         )
-    code = str(body.get("totp_code", "")).strip().replace(" ", "")
+    code = (header_code or "").strip().replace(" ", "")
+    if not code and isinstance(body, dict):
+        code = str(body.get("totp_code", "")).strip().replace(" ", "")
     if not code.isdigit() or len(code) != 6:
-        raise HTTPException(401, "Требуется 6-значный код 2FA в поле totp_code")
+        raise HTTPException(401, "Требуется 6-значный код 2FA (header X-TOTP-Code или body.totp_code)")
     if not pyotp.TOTP(user.totp_secret).verify(code, valid_window=1):
         raise HTTPException(401, "Неверный код 2FA")
 
@@ -1340,8 +1352,10 @@ def admin_get_promos(user: User = Depends(current_user), db: Session = Depends(g
 
 @router.post("/promos")
 def admin_create_promo(body: PromoBody, user: User = Depends(current_user),
-                        db: Session = Depends(get_db)):
+                        db: Session = Depends(get_db),
+                        x_totp_code: str | None = Header(default=None)):
     require_admin(user)
+    _require_totp_code(user, header_code=x_totp_code)  # TOTP — выдача бонусных токенов
     p = PromoCode(code=body.code.upper(), discount_pct=body.discount_pct,
                   bonus_tokens=body.bonus_tokens, max_uses=body.max_uses,
                   is_active=body.is_active)
@@ -1352,8 +1366,10 @@ def admin_create_promo(body: PromoBody, user: User = Depends(current_user),
 @router.put("/promos/{pid}")
 def admin_update_promo(pid: int, body: PromoBody,
                         user: User = Depends(current_user),
-                        db: Session = Depends(get_db)):
+                        db: Session = Depends(get_db),
+                        x_totp_code: str | None = Header(default=None)):
     require_admin(user)
+    _require_totp_code(user, header_code=x_totp_code)  # TOTP — изменение бонусов
     p = db.query(PromoCode).filter_by(id=pid).first()
     if not p:
         raise HTTPException(404)
@@ -1366,8 +1382,10 @@ def admin_update_promo(pid: int, body: PromoBody,
 
 @router.delete("/promos/{pid}")
 def admin_delete_promo(pid: int, user: User = Depends(current_user),
-                        db: Session = Depends(get_db)):
+                        db: Session = Depends(get_db),
+                        x_totp_code: str | None = Header(default=None)):
     require_admin(user)
+    _require_totp_code(user, header_code=x_totp_code)  # TOTP — удаление промо
     p = db.query(PromoCode).filter_by(id=pid).first()
     if not p:
         raise HTTPException(404)

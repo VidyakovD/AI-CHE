@@ -365,6 +365,7 @@ task_subscribers: dict[str, list] = {}
 
 def create_task(user_id, goal: str, context: dict = None) -> str:
     tid = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
     tasks[tid] = {
         "id":         tid,
         "user_id":    user_id,
@@ -374,8 +375,9 @@ def create_task(user_id, goal: str, context: dict = None) -> str:
         "steps":      [],
         "outputs":    [],
         "result":     None,
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
+        "created_at": now,
+        "updated_at": now,
+        "_created_ts": time.time(),   # для TTL-cleanup
     }
     return tid
 
@@ -384,7 +386,44 @@ def update_task(tid: str, **kwargs):
     if tid in tasks:
         tasks[tid].update(kwargs)
         tasks[tid]["updated_at"] = datetime.utcnow().isoformat()
+        # При завершении задачи фиксируем момент окончания для TTL-cleanup
+        if kwargs.get("status") in ("done", "error", "cancelled", "interrupted"):
+            tasks[tid].setdefault("_finished_ts", time.time())
         _notify_task(tid)
+
+
+# ── Background GC: чистка завершённых задач из memory-кеша ──────────────────
+# tasks dict живёт в памяти uvicorn. Без TTL он растёт неограниченно: за месяц
+# работы 1000 задач/день = 30k записей с steps/outputs (могут быть мегабайты).
+# История задач сохраняется в БД через _db_finish_task — memory-кеш нужен
+# только для активной WebSocket-подписки и быстрого GET /agent/{tid}/status.
+
+_TASKS_TTL_SECONDS = int(os.getenv("AGENT_TASKS_TTL", str(7 * 24 * 3600)))   # 7 дней
+_TASKS_GC_INTERVAL = 600                                                     # 10 минут
+
+
+async def tasks_gc_loop():
+    """Чистит memory-кеш `tasks` от завершённых задач старше TTL."""
+    while True:
+        try:
+            await asyncio.sleep(_TASKS_GC_INTERVAL)
+            now = time.time()
+            to_drop = []
+            for tid, t in list(tasks.items()):
+                if t.get("status") not in ("done", "error", "cancelled", "interrupted"):
+                    continue
+                finished_at = t.get("_finished_ts") or t.get("_created_ts") or now
+                if now - finished_at > _TASKS_TTL_SECONDS:
+                    to_drop.append(tid)
+            for tid in to_drop:
+                tasks.pop(tid, None)
+                # task_subscribers тоже подчищаем — на случай если ws не успел
+                # сделать unsubscribe (умер вместе с задачей).
+                task_subscribers.pop(tid, None)
+            if to_drop:
+                log.info(f"[tasks_gc] dropped {len(to_drop)} stale entries; live={len(tasks)}")
+        except Exception as e:
+            log.warning(f"[tasks_gc] error: {e}")
 
 
 def add_step(tid: str, step: dict):

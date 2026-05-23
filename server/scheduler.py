@@ -354,8 +354,10 @@ from server.cron.creators_metrics import (  # noqa: E402, F401
 
 def start_scheduler():
     """Фоновые задачи: scheduler / health / cleanup PDF / backup / conv / audit."""
+    from server.agent_runner import tasks_gc_loop
     asyncio.create_task(scheduler_loop())
     asyncio.create_task(apikey_check_loop())
+    asyncio.create_task(tasks_gc_loop())
     asyncio.create_task(pdf_cleanup_loop())
     asyncio.create_task(db_backup_loop())
     asyncio.create_task(conv_cleanup_loop())
