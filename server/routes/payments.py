@@ -67,9 +67,16 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
     # HARD FAIL без секрета: иначе webhook становится unauthenticated и
     # любой может зачислить себе баланс (нужно знать только user_id).
     # Исключение — DEV_MODE / явный ALLOW_UNVERIFIED_WEBHOOK для тестов.
+    #
+    # SAFETY: на production (APP_ENV=production) DEV_MODE НЕ позволяет обход —
+    # это защита от случайного утечки DEV_MODE=1 в прод .env (что превратило бы
+    # webhook в дыру для произвольного зачисления баланса).
+    _is_prod = os.getenv("APP_ENV", "").strip().lower() == "production"
     _allow_unverified = (
-        os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
-        or os.getenv("ALLOW_UNVERIFIED_WEBHOOK", "").lower() in ("1", "true", "yes")
+        not _is_prod and (
+            os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
+            or os.getenv("ALLOW_UNVERIFIED_WEBHOOK", "").lower() in ("1", "true", "yes")
+        )
     )
     if not secret:
         if not _allow_unverified:
@@ -103,8 +110,19 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
         return {"status": "not_yet_paid"}
 
     yk_meta = p.metadata or {}
-    amount_rub = float(p.amount.value) if p.amount else 0
-    amount_kop = int(round(amount_rub * 100))
+    # Decimal-парсинг: float-арифметика теряет точность (`0.01 * 100 != 1` в
+    # бинарной плавающей точке) — при оплате 99.99₽ может списаться 10000 коп
+    # вместо 9999. Decimal обеспечивает точность до копейки.
+    from decimal import Decimal as _Decimal, ROUND_HALF_UP
+    if p.amount:
+        try:
+            _amt_dec = _Decimal(str(p.amount.value))
+        except Exception:
+            _amt_dec = _Decimal(0)
+    else:
+        _amt_dec = _Decimal(0)
+    amount_rub = float(_amt_dec)  # для логов/совместимости
+    amount_kop = int((_amt_dec * 100).quantize(_Decimal("1"), rounding=ROUND_HALF_UP))
 
     user_id = yk_meta.get("user_id")
     if not user_id:

@@ -108,7 +108,8 @@ def _extract_body(msg) -> str:
 def _verify_sync(host: str, port: int, username: str, password: str) -> dict:
     """Попытка login + select INBOX. Возвращает {"ok", "messages_total", "error"}."""
     try:
-        M = imaplib.IMAP4_SSL(host, port)
+        from server.email_imap import _imap_ssl_context
+        M = imaplib.IMAP4_SSL(host, port, ssl_context=_imap_ssl_context())
         M.login(username, password)
         typ, data = M.select("INBOX", readonly=True)
         if typ != "OK":
@@ -150,7 +151,8 @@ def _fetch_recent_sync(host: str, port: int, username: str,
     """
     out: list[dict] = []
     try:
-        M = imaplib.IMAP4_SSL(host, port)
+        from server.email_imap import _imap_ssl_context
+        M = imaplib.IMAP4_SSL(host, port, ssl_context=_imap_ssl_context())
         M.login(username, password)
         M.select("INBOX", readonly=True)
         typ, data = M.uid("search", None, "ALL")

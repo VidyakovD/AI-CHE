@@ -61,6 +61,27 @@ def _validate_hex(c: str | None, default: str) -> str:
     return s
 
 
+# Поля бренда попадают в HTML/PDF КП. proposal_builder последовательно
+# использует _html_escape, но defence-in-depth: запрещаем явные HTML-теги
+# и javascript: URI на уровне validation, чтобы случайная регрессия в
+# рендере не вылилась в stored XSS.
+_DANGEROUS_PATTERNS = (
+    "<script", "</script", "<iframe", "<object", "<embed",
+    "javascript:", "vbscript:", "data:text/html",
+    "onerror=", "onclick=", "onload=", "onmouseover=",
+)
+
+
+def _no_dangerous_html(s: str | None, field: str = "field") -> str | None:
+    if not s:
+        return s
+    low = s.lower()
+    for pat in _DANGEROUS_PATTERNS:
+        if pat in low:
+            raise HTTPException(400, f"{field}: запрещённый HTML/JS-паттерн '{pat}'")
+    return s
+
+
 # Защита от XSS-векторов через image-поля. Принимаем только http/https/data:image/.
 # javascript:/vbscript:/file:/blob: — отбрасываем.
 def _validate_image_url(url: str | None, field: str = "image_url") -> str | None:
@@ -176,6 +197,14 @@ def create_brand(body: BrandBody, db: Session = Depends(get_db),
 
     if body.tone and body.tone not in _TONE_WHITELIST:
         raise HTTPException(400, f"Tone должен быть из {_TONE_WHITELIST}")
+    # Defence-in-depth: блокируем HTML/JS-инъекции в полях которые попадут в КП.
+    for fld, val in (("name", body.name), ("company_name", body.company_name),
+                      ("contacts", body.contacts), ("address", body.address),
+                      ("tagline", body.tagline), ("usp_list", body.usp_list),
+                      ("guarantees", body.guarantees), ("intro_phrase", body.intro_phrase),
+                      ("cta_phrase", body.cta_phrase)):
+        _no_dangerous_html(val, fld)
+
     b = ProposalBrand(
         user_id=user.id,
         name=body.name.strip()[:100],
@@ -214,6 +243,13 @@ def update_brand(brand_id: int, body: BrandBody,
         raise HTTPException(400, f"Шрифт '{body.font_family}' не в whitelist'е")
     if body.style_preset and body.style_preset not in _PRESET_WHITELIST:
         raise HTTPException(400, f"Preset должен быть из {_PRESET_WHITELIST}")
+    # Defence-in-depth: те же проверки что и при create.
+    for fld, val in (("name", body.name), ("company_name", body.company_name),
+                      ("contacts", body.contacts), ("address", body.address),
+                      ("tagline", body.tagline), ("usp_list", body.usp_list),
+                      ("guarantees", body.guarantees), ("intro_phrase", body.intro_phrase),
+                      ("cta_phrase", body.cta_phrase)):
+        _no_dangerous_html(val, fld)
     b.name = body.name.strip()[:100] if body.name else b.name
     b.company_name = (body.company_name or "").strip()[:200] or None
     b.logo_url = _validate_image_url(body.logo_url, "logo_url")
@@ -431,6 +467,30 @@ def update_project(project_id: int, body: ProposalCreateBody,
     p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
+    # SECURITY: после клиентской подписи нельзя менять контент-критичные поля
+    # КП — иначе клиент окажется подписавшим один документ, а на бумаге будет
+    # другой (юр.риск). Разрешаем только не-контентные изменения
+    # (auto_followup_enabled, header_layout — визуал, не текст обязательств).
+    from server.models import ProposalSignature
+    sig_exists = db.query(ProposalSignature).filter_by(proposal_id=p.id).first()
+    if sig_exists:
+        _content_fields = []
+        if body.name is not None and body.name != (p.name or ""): _content_fields.append("name")
+        if body.client_name is not None and (body.client_name or "") != (p.client_name or ""): _content_fields.append("client_name")
+        if body.client_email is not None and (body.client_email or "") != (p.client_email or ""): _content_fields.append("client_email")
+        if body.client_request is not None and (body.client_request or "") != (p.client_request or ""): _content_fields.append("client_request")
+        if body.client_site_url is not None and (body.client_site_url or "") != (p.client_site_url or ""): _content_fields.append("client_site_url")
+        if body.extra_notes is not None and (body.extra_notes or "") != (p.extra_notes or ""): _content_fields.append("extra_notes")
+        if body.brand_id and body.brand_id != p.brand_id: _content_fields.append("brand_id")
+        if body.price_list_id is not None and (body.price_list_id or None) != (p.price_list_id or None): _content_fields.append("price_list_id")
+        if _content_fields:
+            raise HTTPException(
+                409,
+                f"КП уже подписано клиентом ({sig_exists.signer_name}, "
+                f"{sig_exists.signed_at.strftime('%d.%m.%Y') if sig_exists.signed_at else ''}). "
+                f"Менять контент-критичные поля нельзя ({', '.join(_content_fields)}) — "
+                f"подпись потеряет валидность. Создайте дубликат КП для новой редакции."
+            )
     if body.brand_id:
         b = db.query(ProposalBrand).filter_by(id=body.brand_id, user_id=user.id).first()
         if not b:

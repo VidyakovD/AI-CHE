@@ -98,6 +98,7 @@ def _post_to_crm(conn_id: int, record: dict) -> dict:
             return {"status": "error", "error": "connection gone", "delivered": False}
         url = conn.webhook_url
         provider = conn.provider
+        webhook_secret = conn.webhook_secret  # type: ignore[attr-defined]
         mapping = None
         if conn.field_mapping_json:
             try:
@@ -106,15 +107,27 @@ def _post_to_crm(conn_id: int, record: dict) -> dict:
                 mapping = None
 
     payload = _build_payload(provider, record, mapping)
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "AI-Studio-Che-CRM/1.0",
+    }
+    # HMAC-подпись для generic webhook (Bitrix24/amoCRM имеют свою auth).
+    # Receiver юзера должен валидировать X-CRM-Signature чтобы убедиться что
+    # запрос пришёл от нас, а не от подделывателя знающего URL.
+    if webhook_secret and provider in ("webhook", "generic"):
+        try:
+            import hmac as _hmac, hashlib as _hl
+            body_bytes = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            sig = _hmac.new(webhook_secret.encode("utf-8"), body_bytes, _hl.sha256).hexdigest()
+            headers["X-CRM-Signature"] = f"sha256={sig}"
+        except Exception as e:
+            log.warning(f"[crm {conn_id}] HMAC sign failed: {e}")
     result = dispatch_outbound(
         model_cls=CrmConnection,
         row_id=conn_id,
         url=url,
         json_body=payload,
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": "AI-Studio-Che-CRM/1.0",
-        },
+        headers=headers,
         timeout_sec=CRM_TIMEOUT_SEC,
         max_fail=MAX_FAIL_BEFORE_DISABLE,
         log_prefix=f"crm {conn_id}",
@@ -126,9 +139,30 @@ def _post_to_crm(conn_id: int, record: dict) -> dict:
     }
 
 
+def _post_to_crm_with_retry(conn_id: int, record: dict) -> None:
+    """Wrapper для _post_to_crm с 3 попытками + exponential backoff (1s, 5s, 30s).
+    Не идеальная замена persistent queue, но защищает от транзитных 5xx/timeout."""
+    import time as _t
+    backoff = [1, 5, 30]
+    for attempt in range(3):
+        try:
+            res = _post_to_crm(conn_id, record)
+            if res.get("delivered"):
+                return
+            # Если delivered=False, _post_to_crm уже логирует ошибку.
+            # Retry имеет смысл при HTTP 5xx / timeout, не при 4xx.
+            status = res.get("status")
+            if isinstance(status, int) and 400 <= status < 500:
+                return  # client-error — retry не поможет
+        except Exception as e:
+            log.warning(f"[crm {conn_id}] retry {attempt+1}/3 exception: {e}")
+        if attempt < 2:
+            _t.sleep(backoff[attempt])
+
+
 def dispatch_record_to_crm(user_id: int, record: dict) -> int:
     """Найти все active CrmConnection юзера → отправить record.
-    Fire-and-forget (через threading) — не блокирует caller'а.
+    Fire-and-forget (через threading) с retry/backoff внутри.
     Возвращает количество соединений в которые отправили.
     """
     if not user_id or not isinstance(record, dict):
@@ -141,10 +175,10 @@ def dispatch_record_to_crm(user_id: int, record: dict) -> int:
             ids = [c.id for c in rows]
         for cid in ids:
             try:
-                # Fire-and-forget через thread (httpx sync)
+                # Fire-and-forget через thread (httpx sync) с retry inside
                 import threading
                 threading.Thread(
-                    target=_post_to_crm, args=(cid, record), daemon=True
+                    target=_post_to_crm_with_retry, args=(cid, record), daemon=True
                 ).start()
                 sent += 1
             except Exception as e:

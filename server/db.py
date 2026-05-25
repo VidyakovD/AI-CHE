@@ -299,6 +299,20 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # (text/textarea/select/multiselect), бэкенд подставляет значения через
     # {field_name} в промптах. Заменяет хрупкий парсер хинта.
     ("solutions", "input_schema_json", "TEXT"),
+    # CRM generic webhook outbound — HMAC-secret для подписи payload.
+    # Без неё receiver юзера не может верифицировать, что POST пришёл от нас
+    # (Bitrix24/amoCRM имеют свою auth, generic — нет).
+    ("crm_connections", "webhook_secret", "VARCHAR"),
+    # ProposalSignature: content_hash — sha256 от HTML/PDF КП на момент подписи.
+    # Защита от post-signature mutation: владелец не должен менять текст КП
+    # после того как клиент подписал (юр.риск). Сравнение этого hash с
+    # текущим content при показе подписи + GET /p/{token}.
+    ("proposal_signatures", "content_hash", "VARCHAR"),
+    # ContentItem: exponential backoff для creators publish. Если TG/VK API
+    # дают ошибки, ставим next_retry_at в будущее (1мин → 5мин → 30мин → 2ч).
+    # Без этого cron каждую минуту молотил неработающее API.
+    ("content_items", "publish_fail_count", "INTEGER DEFAULT 0"),
+    ("content_items", "publish_next_retry_at", "DATETIME"),
 ]
 
 # Note: push_subscriptions / solution_run_templates создаются Base.metadata.create_all

@@ -73,6 +73,7 @@ def admin_actions(limit: int = 200, since_hours: int = 24,
 def admin_actions_text(limit: int = 500, since_hours: int = 24,
                        action_prefix: str | None = None,
                        only_errors: bool = False,
+                       request: Request = None,
                        user: User = Depends(current_user),
                        db: Session = Depends(get_db)):
     """Текстовый дамп логов — удобно скинуть в чат AI-ассистенту.
@@ -80,11 +81,20 @@ def admin_actions_text(limit: int = 500, since_hours: int = 24,
     Формат: одна строка на событие, plain text для копирования в Claude/GPT.
     Пример вывода:
         2026-04-26T16:23 INFO user=42 site.generate_done site_project:7 details={tier:premium,size_kb:47}
+
+    Audit-лог содержит чувствительные details (user_id, target IDs, etc.). Если у
+    админа включена 2FA — требуем TOTP-код через X-TOTP-Code header (для защиты
+    от утечки логов с угнанным access-токеном). Если 2FA не включена — работает
+    как раньше (require_admin gate).
     """
     from server.models import ActionLog
     from datetime import timedelta
     from fastapi.responses import PlainTextResponse
     require_admin(user)
+    # TOTP gate (опционально — только если у админа уже включена 2FA).
+    if user.totp_enabled and user.totp_secret:
+        _require_totp_code(user, body=None,
+                            header_code=request.headers.get("X-TOTP-Code") if request else None)
     q = db.query(ActionLog).filter(
         ActionLog.ts >= datetime.utcnow() - timedelta(hours=max(1, int(since_hours or 24)))
     )
@@ -117,6 +127,7 @@ def admin_actions_text(limit: int = 500, since_hours: int = 24,
 
 @router.get("/actions.jsonl", include_in_schema=False)
 def admin_actions_jsonl(since_hours: int = 24, limit: int = 5000,
+                        request: Request = None,
                         user: User = Depends(current_user),
                         db: Session = Depends(get_db)):
     """JSONL для машинной обработки (по 1 события на строку)."""
@@ -124,6 +135,9 @@ def admin_actions_jsonl(since_hours: int = 24, limit: int = 5000,
     from datetime import timedelta
     from fastapi.responses import PlainTextResponse
     require_admin(user)
+    if user.totp_enabled and user.totp_secret:
+        _require_totp_code(user, body=None,
+                            header_code=request.headers.get("X-TOTP-Code") if request else None)
     rows = db.query(ActionLog).filter(
         ActionLog.ts >= datetime.utcnow() - timedelta(hours=max(1, int(since_hours or 24)))
     ).order_by(ActionLog.id.desc()).limit(min(int(limit or 5000), 50000)).all()

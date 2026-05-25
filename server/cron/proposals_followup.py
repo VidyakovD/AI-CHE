@@ -19,6 +19,7 @@ outbox_message_id для In-Reply-To, чтобы письмо легло в ту
 """
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
 
 log = logging.getLogger("scheduler")
@@ -39,6 +40,17 @@ async def _proposals_followup_tick():
     cutoff = now - timedelta(days=FOLLOWUP_DELAY_DAYS)
     sent = 0
     errors = 0
+
+    # Quiet hours: не отправляем followup в МСК-ночь (UTC 18:00–05:00 ≈ МСК 21:00–08:00).
+    # Юзеры из других ТЗ могут перенастроить через ENV (PROD: МСК).
+    # Простой и безопасный default — пока нет user.timezone.
+    _QH_START_UTC = int(os.getenv("FOLLOWUP_QUIET_START_UTC", "18"))  # 18:00 UTC = 21:00 МСК
+    _QH_END_UTC = int(os.getenv("FOLLOWUP_QUIET_END_UTC", "5"))       # 05:00 UTC = 08:00 МСК
+    _hr = now.hour
+    in_quiet = (_QH_START_UTC <= _hr) or (_hr < _QH_END_UTC)
+    if in_quiet:
+        log.info(f"[proposals.followup] quiet hours (UTC {_hr}h) — пропускаем тик")
+        return
 
     try:
         with db_session() as db:

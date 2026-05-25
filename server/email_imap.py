@@ -2,11 +2,21 @@
 IMAP Email Trigger — периодически проверяет inbox по заданным credentials,
 при появлении новых писем запускает воркфлоу бота.
 """
-import asyncio, logging, json, imaplib, email as _email
+import asyncio, logging, json, imaplib, email as _email, ssl, re
 from email.header import decode_header
 from datetime import datetime
 
 log = logging.getLogger("imap")
+
+
+def _strip_crlf(s: str) -> str:
+    """Удаляет CR/LF из header-значения. Защита от header-injection:
+    злоумышленник в From/To/Subject мог бы вставить `\\r\\nBcc: leak@evil.com`
+    которое затем в наш outbound SMTP попало бы как extra-recipient. Также
+    защита от prompt-injection через newlines."""
+    if not s:
+        return ""
+    return re.sub(r"[\r\n]+", " ", s).strip()
 
 
 def _decode_mime(s: str) -> str:
@@ -19,9 +29,19 @@ def _decode_mime(s: str) -> str:
                 result.append(text.decode(charset or "utf-8", errors="ignore"))
             else:
                 result.append(text)
-        return "".join(result)
+        return _strip_crlf("".join(result))
     except Exception:
-        return s
+        return _strip_crlf(s)
+
+
+def _imap_ssl_context() -> ssl.SSLContext:
+    """Explicit SSL context: check_hostname=True, default trust store. Без
+    этого imaplib.IMAP4_SSL может на некоторых системах использовать слабый
+    дефолт — MITM на внутренней сети мог бы перехватить credentials."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = True
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    return ctx
 
 
 def _extract_body(msg) -> str:
@@ -48,7 +68,10 @@ def _fetch_new_emails_sync(host, port, user, password, use_ssl, last_uid, limit=
     emails = []
     new_last_uid = last_uid
     try:
-        M = imaplib.IMAP4_SSL(host, port) if use_ssl else imaplib.IMAP4(host, port)
+        if use_ssl:
+            M = imaplib.IMAP4_SSL(host, port, ssl_context=_imap_ssl_context())
+        else:
+            M = imaplib.IMAP4(host, port)
         M.login(user, password)
         M.select("INBOX")
         # UID SEARCH: (UID last_uid+1:*)

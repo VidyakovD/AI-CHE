@@ -50,20 +50,26 @@ DEFAULT_TTL_SEC = 3600  # 1 час
 
 def _make_cache_key(model: str, messages: list, extra: dict | None) -> str:
     """SHA256 от model + canonical-JSON(messages) + JSON(filtered extra).
-    Для _purpose из _PER_USER_PURPOSES — подмешиваем _user_id в namespace."""
+
+    Politika: по умолчанию ВСЕГДА используем _user_id в namespace если он есть —
+    защита от cross-user leak (юзер А спросил «что в моих заметках» через RAG,
+    юзер Б с похожим промптом мог бы получить чужой контент из кэша).
+
+    Опционально через `_cache_scope='global'` можно явно указать что промпт
+    точно не содержит user-specific данных (типа «переведи слово 'cat'»).
+    """
     extra_filtered = {}
     namespace = ""
     if extra:
         # Только content-keys (max_tokens, temperature, etc.)
         extra_filtered = {k: v for k, v in extra.items()
-                          if k not in _EXTRA_NON_CONTENT_KEYS}
-        purpose = str(extra.get("_purpose", ""))
-        # purpose может содержать "module:smm" — берём корневую часть
-        purpose_root = purpose.split(":", 1)[0]
-        if purpose_root in _PER_USER_PURPOSES or purpose in _PER_USER_PURPOSES:
-            uid = extra.get("_user_id")
-            if uid is not None:
-                namespace = f"u{uid}"
+                          if k not in _EXTRA_NON_CONTENT_KEYS
+                              and k != "_cache_scope"}
+        # Default: per-user если есть _user_id. Опт-аут через _cache_scope='global'.
+        uid = extra.get("_user_id")
+        scope = str(extra.get("_cache_scope", "")).lower()
+        if uid is not None and scope != "global":
+            namespace = f"u{uid}"
     payload = {
         "m": model,
         "msg": messages or [],

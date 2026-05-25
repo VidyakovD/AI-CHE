@@ -380,6 +380,12 @@ def markdown_to_pdf(md_text: str, title: str = "Бизнес-отчёт",
     """Конвертирует Markdown в PDF с фирменным стилем.
     Возвращает absolute path сохранённого файла или None при ошибке.
     """
+    # OOM-protection: КП на 1000 страниц ≈ 500КБ markdown'а съест >GB памяти
+    # в xhtml2pdf. Лимит 300КБ markdown = ~50-80 страниц A4 — реалистичный максимум.
+    _MAX_MD_CHARS = 300_000
+    if md_text and len(md_text) > _MAX_MD_CHARS:
+        log.warning(f"markdown_to_pdf: md truncated {len(md_text)}→{_MAX_MD_CHARS}")
+        md_text = md_text[:_MAX_MD_CHARS] + "\n\n_(содержимое обрезано из-за лимита размера)_"
     try:
         import markdown as _md
         from xhtml2pdf import pisa

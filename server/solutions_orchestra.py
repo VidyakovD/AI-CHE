@@ -657,16 +657,27 @@ async def _run_llm_streaming(stage: dict, ctx: dict, default_model: str,
     return text, cost
 
 
+_MAX_TOKENS_PER_CALL = 1_000_000  # Защита от bogus usage от провайдера
+
+
 def _calc_cost_kop(usage: dict | None, margin_pct: int) -> int:
     """Простая модель: real ≈ in*0.08 + out*0.30 коп за 1k токенов (Sonnet),
     margin берётся из ai.improve_margin_pct (default 500 = ×5).
 
     Возвращает 0 если нет токенов (web_search / пустой usage). Иначе минимум 1.
+
+    CAP: если провайдер вернул битый usage с заоблачным числом токенов
+    (1млрд вместо 1k), без cap'а юзер потерял бы весь баланс за один вызов.
+    Превышение _MAX_TOKENS_PER_CALL — клемпим и пишем warning для Sentry.
     """
     if not isinstance(usage, dict):
         return 0
-    inp = int(usage.get("input_tokens", 0) or 0)
-    out = int(usage.get("output_tokens", 0) or 0)
+    inp_raw = int(usage.get("input_tokens", 0) or 0)
+    out_raw = int(usage.get("output_tokens", 0) or 0)
+    inp = min(inp_raw, _MAX_TOKENS_PER_CALL) if inp_raw > 0 else 0
+    out = min(out_raw, _MAX_TOKENS_PER_CALL) if out_raw > 0 else 0
+    if inp != inp_raw or out != out_raw:
+        log.warning(f"[cost] usage clamped: in={inp_raw}→{inp}, out={out_raw}→{out}")
     if inp <= 0 and out <= 0:
         return 0
     real = inp / 1000 * 8 + out / 1000 * 30  # копейки
@@ -714,7 +725,15 @@ async def _run_parallel_llm(stage: dict, ctx: dict, default_model: str,
                 branches.append({"input": line, "label": line[:80]})
     if not branches:
         return [], 0
-    max_branches = int(stage.get("max_branches", 8))
+    # HARD CAP: max_branches задаётся в Solution.orchestra_json (т.е. админом),
+    # но при ошибочной конфигурации (skopированный шаблон с max_branches=100)
+    # один stage мог бы стоить юзеру 50000 коп. Жёсткий потолок _HARD_BRANCH_CAP
+    # защищает от runaway-cost — если действительно нужно >8 веток, расширяй
+    # cap осознанно после ревью.
+    _HARD_BRANCH_CAP = 8
+    max_branches = min(int(stage.get("max_branches", 8)), _HARD_BRANCH_CAP)
+    if len(branches) > max_branches:
+        log.warning(f"[parallel_llm] truncated branches {len(branches)}→{max_branches}")
     branches = branches[:max_branches]
     model = stage.get("model", default_model)
     system_prompt = _render_template(stage.get("system_prompt", ""), ctx)
@@ -1039,7 +1058,36 @@ async def run_orchestra(run_id: int) -> dict:
     _persist(run_id, ctx)
     total_cost = 0
 
+    # Global timeout: после 30 мин orchestra прерывается с refund'ом. Защита от
+    # runaway-computation если stage зависает на API timeout / retry-loop.
+    _MAX_ORCHESTRATION_SECONDS = 1800
+    _orchestration_started = time.monotonic()
+
     for stage in stages:
+        if time.monotonic() - _orchestration_started > _MAX_ORCHESTRATION_SECONDS:
+            log.warning(f"[orchestra] run={run_id} global timeout {_MAX_ORCHESTRATION_SECONDS}s exceeded")
+            ctx["status"] = "error"
+            # Refund total_cost (как в exception-ветке ниже)
+            refunded_kop = 0
+            if user_id and total_cost > 0:
+                try:
+                    from server.billing import credit_atomic
+                    with db_session() as db:
+                        credit_atomic(db, user_id, total_cost)
+                        db.add(Transaction(
+                            user_id=user_id, type="refund",
+                            tokens_delta=total_cost,
+                            description=f"Возврат: orchestra timeout ({_MAX_ORCHESTRATION_SECONDS}s)",
+                        ))
+                        db.commit()
+                    refunded_kop = total_cost
+                except Exception as _e:
+                    log.error(f"[orchestra] timeout refund failed: {_e}")
+            ctx["refunded_kop"] = refunded_kop
+            _persist(run_id, ctx)
+            return {"status": "error",
+                    "error": f"Orchestration timeout ({_MAX_ORCHESTRATION_SECONDS}s)",
+                    "total_cost_kop": total_cost, "refunded_kop": refunded_kop}
         sid = stage["id"]
         st = ctx["stages"][sid]
         st["status"] = "running"
@@ -1140,9 +1188,32 @@ async def run_orchestra(run_id: int) -> dict:
             st["error"] = f"{type(e).__name__}: {str(e)[:200]}"
             st["finished_at"] = datetime.utcnow().isoformat()
             ctx["status"] = "error"
+            # REFUND: возвращаем юзеру стоимость всех успешно выполненных stages.
+            # Логика: если pipeline упал mid-way, юзер не получил итоговый
+            # результат — нечестно списывать за частично выполненную работу.
+            refunded_kop = 0
+            if user_id and total_cost > 0:
+                try:
+                    from server.billing import credit_atomic
+                    with db_session() as db:
+                        credit_atomic(db, user_id, total_cost)
+                        db.add(Transaction(
+                            user_id=user_id, type="refund",
+                            tokens_delta=total_cost,
+                            description=(f"Возврат за неполный запуск решения "
+                                         f"«{(solution.title or 'Решение')[:60]}» "
+                                         f"(упал stage '{sid}')"),
+                        ))
+                        db.commit()
+                    refunded_kop = total_cost
+                    log.info(f"[orchestra] run={run_id} refunded {refunded_kop} коп на user={user_id}")
+                except Exception as refund_err:
+                    log.error(f"[orchestra] run={run_id} refund failed: {refund_err}")
+            ctx["refunded_kop"] = refunded_kop
             _persist(run_id, ctx)
             return {"status": "error", "error": st["error"],
-                    "total_cost_kop": total_cost}
+                    "total_cost_kop": total_cost,
+                    "refunded_kop": refunded_kop}
 
         _persist(run_id, ctx)
 

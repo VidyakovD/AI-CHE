@@ -82,15 +82,26 @@ class TestLLMCache:
                                {"_purpose": "module:smm", "_user_id": 2})
         assert k_u1 != k_u2
 
-    def test_make_key_chat_purpose_NOT_per_user(self):
-        """Обычный chat-purpose — общий ключ, кэш shared между юзерами."""
+    def test_make_key_default_per_user_now(self):
+        """SECURITY: с фиксом #29 по дефолту все вызовы с _user_id —
+        per-user namespace. Защита от cross-user leak через кэшированный
+        RAG-ответ. Опт-аут — явный _cache_scope='global'."""
         from server.llm_cache import _make_cache_key
         msgs = [{"role": "user", "content": "сколько будет 2+2"}]
+        # По умолчанию — per-user
         k_u1 = _make_cache_key("claude-sonnet", msgs,
                                {"_purpose": "chat", "_user_id": 1})
         k_u2 = _make_cache_key("claude-sonnet", msgs,
                                {"_purpose": "chat", "_user_id": 2})
-        assert k_u1 == k_u2  # Старое поведение для обычного chat
+        assert k_u1 != k_u2
+        # Явный global scope — снова shared
+        k_g1 = _make_cache_key("claude-sonnet", msgs,
+                               {"_purpose": "chat", "_user_id": 1,
+                                "_cache_scope": "global"})
+        k_g2 = _make_cache_key("claude-sonnet", msgs,
+                               {"_purpose": "chat", "_user_id": 2,
+                                "_cache_scope": "global"})
+        assert k_g1 == k_g2
 
     def test_should_not_cache_time_sensitive(self):
         from server.llm_cache import _should_cache

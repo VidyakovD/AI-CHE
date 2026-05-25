@@ -77,21 +77,44 @@ async def _upload_photo_to_wall(token: str, group_id: int, photo_path_or_url: st
         return None
 
     # 2. POST file
+    # Защита: SSRF на http(s) URL (нельзя fetch'нуть localhost / 169.254.169.254 / private),
+    # path traversal на локальный путь (нельзя `/uploads/../../etc/passwd`).
+    _MAX_IMG_BYTES = 15 * 1024 * 1024  # 15 MB cap
     try:
         if photo_path_or_url.startswith(("http://", "https://")):
-            img_r = await HTTP.get(photo_path_or_url)
+            try:
+                from server.security import validate_external_url
+                validate_external_url(photo_path_or_url)
+            except Exception as e:
+                log.warning(f"[VK] SSRF blocked photo URL {photo_path_or_url[:80]}: {e}")
+                return None
+            img_r = await HTTP.get(photo_path_or_url, follow_redirects=False)
+            if img_r.status_code != 200:
+                log.warning(f"[VK] photo fetch HTTP {img_r.status_code}")
+                return None
             img_bytes = img_r.content
+            if len(img_bytes) > _MAX_IMG_BYTES:
+                log.warning(f"[VK] photo too big: {len(img_bytes)} bytes")
+                return None
             filename = "image.jpg"
         else:
-            # /uploads/... — локальный
+            # /uploads/... — локальный. ВАЖНО: проверяем realpath чтобы '..' не
+            # вырвался из base/uploads (иначе LFI на любой файл проекта).
             base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            abs_path = os.path.join(base, photo_path_or_url.lstrip("/"))
-            if not os.path.exists(abs_path):
-                log.error(f"[VK] local photo not found: {abs_path}")
+            uploads_root = os.path.realpath(os.path.join(base, "uploads"))
+            candidate = os.path.realpath(os.path.join(base, photo_path_or_url.lstrip("/")))
+            if not (candidate == uploads_root or candidate.startswith(uploads_root + os.sep)):
+                log.warning(f"[VK] path traversal blocked: {photo_path_or_url}")
                 return None
-            with open(abs_path, "rb") as f:
+            if not os.path.exists(candidate):
+                log.error(f"[VK] local photo not found: {candidate}")
+                return None
+            if os.path.getsize(candidate) > _MAX_IMG_BYTES:
+                log.warning(f"[VK] local photo too big: {candidate}")
+                return None
+            with open(candidate, "rb") as f:
                 img_bytes = f.read()
-            filename = os.path.basename(abs_path)
+            filename = os.path.basename(candidate)
 
         upload_r = await HTTP.post(upload_url, files={"photo": (filename, img_bytes, "image/jpeg")})
         upload_data = upload_r.json()

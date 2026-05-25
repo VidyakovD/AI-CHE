@@ -13,6 +13,31 @@ from server.security import tg_webhook_secret
 log = logging.getLogger("webhook")
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 
+# Cap размера webhook-payload. TG/VK/MAX/Avito реальные обновления — единицы КБ.
+# Без cap'а атакующий может прислать 100MB JSON → OOM воркера. На уровне
+# nginx стоит client_max_body_size, но defence-in-depth.
+_WEBHOOK_MAX_BYTES = 1_000_000  # 1 MB
+
+
+async def _safe_json(request: Request, max_bytes: int = _WEBHOOK_MAX_BYTES):
+    """Прочитать JSON из request с cap'ом на размер. Бросает HTTPException
+    413 если превышен. Возвращает dict или {} при ошибке парсинга."""
+    # Content-Length проверка — fast-path, если клиент честный.
+    cl = request.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > max_bytes:
+        raise HTTPException(413, "Payload too large")
+    # Реальное чтение с cap'ом на случай chunked-transfer без CL
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > max_bytes:
+            raise HTTPException(413, "Payload too large")
+    try:
+        import json as _json
+        return _json.loads(body) if body else {}
+    except Exception:
+        return {}
+
 
 def _get_active_bot(bot_id: int, db: Session) -> ChatBot | None:
     bot = db.query(ChatBot).filter_by(id=bot_id).first()
@@ -77,7 +102,7 @@ async def telegram_webhook(bot_id: int, request: Request,
             raise HTTPException(401, "Invalid secret")
 
     try:
-        body = await request.json()
+        body = await _safe_json(request)
     except Exception:
         return {"ok": True}
 
@@ -88,6 +113,10 @@ async def telegram_webhook(bot_id: int, request: Request,
         chat_id = str(cb.get("message", {}).get("chat", {}).get("id", ""))
         user_name = cb.get("from", {}).get("first_name", "")
         cb_id = cb.get("id")
+        # Idempotency: TG может ретрайнуть тот же callback при slow ACK —
+        # без дедупа второй worker пройдёт обработку и спишет деньги ещё раз.
+        if cb_id and _is_duplicate_update("tg-cb", bot.id, cb_id):
+            return {"ok": True}
         # ACK callback чтобы кнопка перестала крутиться
         try:
             import httpx as _hx
@@ -112,6 +141,12 @@ async def telegram_webhook(bot_id: int, request: Request,
     user_name = msg.get("from", {}).get("first_name", "")
     msg_id = msg.get("message_id")
     extra_ctx = {}
+
+    # Idempotency: TG ретрайнет одно и то же message_id при slow-ACK или таймауте.
+    # На 4 worker'ах in-memory дедуп per-process, поэтому ретрай на другой worker
+    # пропустит — приходится мириться, но в пределах одного worker'а спам блокируется.
+    if msg_id is not None and _is_duplicate_update("tg", bot.id, msg_id):
+        return {"ok": True}
 
     # Voice / audio сообщение
     text = msg.get("text", "")
@@ -179,7 +214,7 @@ async def vk_webhook(bot_id: int, request: Request,
         raise HTTPException(404)
 
     try:
-        body = await request.json()
+        body = await _safe_json(request)
     except Exception:
         raise HTTPException(400)
 
@@ -218,6 +253,12 @@ async def vk_webhook(bot_id: int, request: Request,
         if not text or not user_id:
             return "ok"
 
+        # Idempotency: VK ретрайнет тот же event_id (или conversation_message_id)
+        # при не-200 ответе или таймауте. Без дедупа — двойное списание баланса.
+        update_id = body.get("event_id") or msg.get("conversation_message_id") or msg.get("id")
+        if update_id and _is_duplicate_update("vk", bot.id, update_id):
+            return "ok"
+
         answer = await handle_message(bot, user_id, text, "vk", user_id)
         if answer and bot.vk_token:
             await send_vk(bot.vk_token, user_id, answer)
@@ -250,7 +291,7 @@ async def avito_webhook(bot_id: int, request: Request,
             raise HTTPException(401, "Invalid or missing secret")
 
     try:
-        body = await request.json()
+        body = await _safe_json(request)
     except Exception:
         return {"ok": True}
 
@@ -279,6 +320,11 @@ async def avito_webhook(bot_id: int, request: Request,
         return {"ok": True}
 
     if not text or not chat_id:
+        return {"ok": True}
+
+    # Idempotency — Avito может ретрайнуть тот же webhook при таймауте.
+    msg_id = value.get("id") or (content.get("id") if isinstance(content, dict) else None)
+    if msg_id and _is_duplicate_update("avito", bot.id, msg_id):
         return {"ok": True}
 
     answer = await handle_message(bot, chat_id, text, "avito", user_id,
@@ -319,7 +365,7 @@ async def max_webhook(bot_id: int, request: Request,
             raise HTTPException(401, "Invalid or missing secret")
 
     try:
-        body = await request.json()
+        body = await _safe_json(request)
     except Exception:
         return {"ok": True}
 
@@ -415,7 +461,7 @@ async def _tg_mgmt_handle(request: Request) -> dict:
     """
     from server.tg_management import handle_update
     try:
-        body = await request.json()
+        body = await _safe_json(request)
     except Exception:
         return {"ok": True}
     update_id = body.get("update_id") if isinstance(body, dict) else None
@@ -495,7 +541,7 @@ async def _max_mgmt_handle(request: Request) -> dict:
     """
     from server.max_management import handle_update
     try:
-        body = await request.json()
+        body = await _safe_json(request)
     except Exception:
         return {"ok": True}
     # Составной id: timestamp + sender.user_id (если message есть)
@@ -545,7 +591,7 @@ async def personal_tg_webhook(token_hash: str, request: Request,
         # 200 OK без работы — Telegram не должен retry'ить (плохой hash = leak/stale)
         return {"ok": True}
     try:
-        body = await request.json()
+        body = await _safe_json(request)
     except Exception:
         return {"ok": True}
     update_id = body.get("update_id") if isinstance(body, dict) else None
@@ -568,7 +614,7 @@ async def personal_max_webhook(token_hash: str, request: Request,
     if not user:
         return {"ok": True}
     try:
-        body = await request.json()
+        body = await _safe_json(request)
     except Exception:
         return {"ok": True}
     # MAX не присылает update_id — используем (timestamp, sender.user_id)
@@ -633,7 +679,7 @@ async def wazzup_webhook(bot_id: int, request: Request,
     if bot.status != "active":
         return {"ok": True}
     try:
-        body = await request.json()
+        body = await _safe_json(request)
     except Exception:
         return {"ok": True}
     msgs = body.get("messages") or []

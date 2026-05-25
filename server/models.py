@@ -543,6 +543,10 @@ class CrmConnection(Base):
     provider     = Column(String, nullable=False)  # bitrix24 / amocrm / webhook
     name         = Column(String, nullable=True)   # «Главная воронка»
     webhook_url  = Column(EncryptedString, nullable=False)
+    # HMAC secret для подписи outbound payload — генерируется при создании
+    # generic-webhook и показывается юзеру 1 раз, чтобы он мог настроить
+    # receiver-валидацию. NULL допустим (legacy без подписи).
+    webhook_secret = Column(EncryptedString, nullable=True)
     field_mapping_json = Column(Text, nullable=True)
     is_active    = Column(Boolean, default=True, index=True)
     last_status  = Column(Integer, nullable=True)
@@ -1102,7 +1106,19 @@ class AdminAuditLog(Base):
 
 
 class ImapCredential(Base):
-    """Credentials для IMAP (email trigger)."""
+    """Credentials для IMAP (email trigger).
+
+    ⚠️  SECURITY NOTE — password handling:
+    Поле `password` — обычный String, НЕ EncryptedString. Шифрование
+    выполняется ВРУЧНУЮ в routes/user.py (через server.secrets_crypto.encrypt)
+    при сохранении и в email_imap.py / mailbox_runtime.py (через decrypt) при
+    чтении. ЗНАЧЕНИЕ В БД УЖЕ В ФОРМАТЕ `enc:v1:<base64>`.
+
+    НЕ МЕНЯТЬ на `Column(EncryptedString)` без миграции данных — TypeDecorator
+    зашифрует уже зашифрованное значение, и расшифровка вернёт мусор → юзеры
+    потеряют доступ к IMAP. План миграции: backup → bulk decrypt → change
+    column type → bulk save (TypeDecorator зашифрует) → verify roundtrip.
+    """
     __tablename__ = "imap_credentials"
 
     id         = Column(Integer, primary_key=True)
@@ -1111,7 +1127,7 @@ class ImapCredential(Base):
     host       = Column(String, nullable=False)      # imap.yandex.ru
     port       = Column(Integer, default=993)
     username   = Column(String, nullable=False)
-    password   = Column(String, nullable=False)      # шифруется через server.secrets_crypto
+    password   = Column(String, nullable=False)      # ⚠️ manual encrypt — see class docstring
     use_ssl    = Column(Boolean, default=True)
     last_uid   = Column(Integer, default=0)          # последний обработанный UID
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -1520,6 +1536,11 @@ class ProposalSignature(Base):
     ip              = Column(String, nullable=True)
     user_agent      = Column(String, nullable=True)
     sig_hash        = Column(String, nullable=False, index=True) # sha256 hex для верификации
+    # SHA-256 от generated_pdf (или generated_html) на момент подписи.
+    # Защита от post-signature mutation: если владелец поменял текст КП после
+    # подписи, current content_hash != stored → подпись считается «отозвана»
+    # для нового документа, юзер видит уведомление.
+    content_hash    = Column(String, nullable=True, index=True)
     signed_at       = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -1694,6 +1715,10 @@ class ContentItem(Base):
     # YT/IG: пока пусто (auto-publish не поддерживается).
     external_post_id  = Column(String, nullable=True)
     external_chat_id  = Column(String, nullable=True)                 # для TG — куда отправили
+    # Exponential backoff при ошибках публикации: 1мин → 5мин → 30мин → 2ч → 6ч.
+    # После 5 неудач — оставляем в error до ручного вмешательства.
+    publish_fail_count   = Column(Integer, default=0)
+    publish_next_retry_at = Column(DateTime, nullable=True)
     # Метрики (обновляются cron'ом creators_metrics_loop раз в 6 часов).
     stats_views     = Column(Integer, default=0)
     stats_likes     = Column(Integer, default=0)

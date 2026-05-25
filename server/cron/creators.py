@@ -146,9 +146,17 @@ async def _creators_publish_tick():
     now = datetime.utcnow()
     try:
         with db_session() as db:
+            # Exponential backoff: пропускаем items с publish_next_retry_at > now
+            # (запланированный backoff после прошлых неудач). После 5 фейлов
+            # item.publish_fail_count >= 5 → next_retry_at стоит far in the future
+            # из-за len(_BACKOFF_MINUTES)=5 — item фактически замораживается.
+            from sqlalchemy import or_ as _or
             items = (db.query(ContentItem)
                        .filter(ContentItem.status == "ready",
-                               ContentItem.schedule_at <= now)
+                               ContentItem.schedule_at <= now,
+                               _or(ContentItem.publish_next_retry_at.is_(None),
+                                   ContentItem.publish_next_retry_at <= now),
+                               ContentItem.publish_fail_count < 5)
                        .order_by(ContentItem.schedule_at)
                        .limit(10).all())
             for item in items:

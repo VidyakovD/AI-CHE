@@ -152,6 +152,10 @@ RULES = {
     "/knowledge/upload":          (15,  300),
     "/knowledge/search":          (60,  60),
     "/knowledge":                 (60,  60),
+    # MCP JSON-RPC: per-tool scope check уже есть. Дополнительно — общий
+    # rate-limit чтобы один Bearer-токен не мог spam'ить 1000 calls/sec и
+    # забивать систему. 100/мин достаточно для нормального Claude Desktop usage.
+    "/mcp":                       (100, 60),
     # Публичные КП: /p/{token}, /p/{token}/pdf, /p/{token}/sign — анти-спам.
     # Защищает от: 1) брутфорса токенов (хоть и 16 chars = ~95 bit, минимизируем
     # noise в логах), 2) спама подписей с раздутым data:image body (2MB).

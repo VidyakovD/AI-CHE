@@ -242,6 +242,41 @@ def _validate(g: dict) -> dict:
         kept_ids = {n["id"] for n in pruned}
         norm_edges = [e for e in norm_edges if e["from"] in kept_ids and e["to"] in kept_ids]
 
+    # Cycle detection: LLM иногда выдаёт edges типа n1→n2→n3→n2 (петля).
+    # chatbot_engine._topo_sort на runtime поймает, но юзер увидит ошибку только
+    # при первом сообщении боту. Лучше отклонить сразу при создании workflow.
+    _ids = {n["id"] for n in pruned}
+    _adj: dict[str, list[str]] = {nid: [] for nid in _ids}
+    for e in norm_edges:
+        _adj.setdefault(e["from"], []).append(e["to"])
+    _WHITE, _GRAY, _BLACK = 0, 1, 2
+    _color = {nid: _WHITE for nid in _ids}
+
+    def _has_cycle(start: str) -> bool:
+        stack = [(start, iter(_adj.get(start, [])))]
+        _color[start] = _GRAY
+        while stack:
+            node, it = stack[-1]
+            try:
+                nxt = next(it)
+            except StopIteration:
+                _color[node] = _BLACK
+                stack.pop()
+                continue
+            if _color.get(nxt) == _GRAY:
+                return True
+            if _color.get(nxt) == _WHITE:
+                _color[nxt] = _GRAY
+                stack.append((nxt, iter(_adj.get(nxt, []))))
+        return False
+
+    for nid in list(_ids):
+        if _color[nid] == _WHITE and _has_cycle(nid):
+            raise ValueError(
+                f"Граф содержит цикл (узел '{nid}' попадает на сам себя). "
+                "Перестройте логику — workflow должен быть DAG."
+            )
+
     return {
         "name": (g.get("name") or "AI-воркфлоу")[:60],
         "explanation": (g.get("explanation") or "").strip()[:500],

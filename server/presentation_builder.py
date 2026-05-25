@@ -400,11 +400,18 @@ def _render_html_preview(data: dict, scheme: str) -> str:
     return _render_html_preview_inner(data, _resolve_colors(scheme))
 
 
+_MAX_SLIDES = 100  # OOM-protection: 500 слайдов с картинками = многогигабайтный PPTX
+
+
 def _render_html_preview_inner(data: dict, c: dict) -> str:
     """Карусель слайдов для превью на сайте (с навигацией стрелками + точками)."""
     title = data.get("title", "Презентация")
     subtitle = data.get("subtitle", "")
     slides = data.get("slides") or []
+    # Cap на число слайдов перед рендером — защита от OOM.
+    if len(slides) > _MAX_SLIDES:
+        log.warning(f"presentation: slides truncated {len(slides)}→{_MAX_SLIDES}")
+        slides = slides[:_MAX_SLIDES]
 
     body_parts = []
     for idx, s in enumerate(slides):

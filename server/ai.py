@@ -1023,7 +1023,10 @@ def anthropic_response(model: str, messages: list, extra: dict = None,
                 # Non-streaming request (проще и надёжнее)
                 headers = {"x-api-key": key, "anthropic-version": "2023-06-01",
                            "content-type": "application/json"}
-                _max_tok = int((extra or {}).get("max_tokens", 8192))
+                # CAP: Sonnet hard-max = 64k output, реально нужно ≤16k для UI/КП.
+                # Клиент с max_tokens=100000 заставил бы модель генерить долго
+                # и оплачивать в копейках выше реальной потребности.
+                _max_tok = min(int((extra or {}).get("max_tokens", 8192)), 16384)
                 r = httpx.post(
                     f"{base_url.rstrip('/')}/v1/messages",
                     json={"model": model, "max_tokens": _max_tok,
@@ -1034,7 +1037,7 @@ def anthropic_response(model: str, messages: list, extra: dict = None,
                     timeout=180,
                 )
                 if r.status_code != 200:
-                    raise RuntimeError(f"proxy HTTP {r.status_code}: {r.text[:200]}")
+                    raise RuntimeError(_sanitize_error(f"proxy HTTP {r.status_code}: {r.text[:200]}"))
                 data = r.json()
                 text_parts = []
                 for block in data.get("content", []):
@@ -1070,10 +1073,13 @@ def anthropic_response(model: str, messages: list, extra: dict = None,
                             "input_tokens": usage2.get("input_tokens", 0),
                             "output_tokens": usage2.get("output_tokens", 0),
                         }
-                raise RuntimeError(f"Empty response from proxy. Raw: {json.dumps(data)[:300]}")
+                raise RuntimeError(_sanitize_error(f"Empty response from proxy. Raw: {json.dumps(data)[:300]}"))
             else:
                 import anthropic as _ant
-                _max_tok = int((extra or {}).get("max_tokens", 8192))
+                # CAP: Sonnet hard-max = 64k output, реально нужно ≤16k для UI/КП.
+                # Клиент с max_tokens=100000 заставил бы модель генерить долго
+                # и оплачивать в копейках выше реальной потребности.
+                _max_tok = min(int((extra or {}).get("max_tokens", 8192)), 16384)
                 # timeout=600s — для генерации сайтов (Sonnet с 16k max_tokens
                 # часто думает 90-180 сек, а с auto-continue ещё дольше).
                 resp = _ant.Anthropic(api_key=key, timeout=_ANTHROPIC_TIMEOUT,

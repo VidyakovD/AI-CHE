@@ -134,6 +134,7 @@ async def publish_item(db: Session, item: ContentItem) -> dict:
     if not conn:
         return {"ok": False, "description": f"нет подключённого канала {item.platform}"}
 
+    network_exception: Exception | None = None
     try:
         if item.platform == "tg":
             result = await publish_to_tg(conn, item)
@@ -144,12 +145,20 @@ async def publish_item(db: Session, item: ContentItem) -> dict:
     except Exception as e:
         log.exception("[creators.publish] %s send exception: %s", item.platform, e)
         result = {"ok": False, "description": str(e)[:300]}
-        # status вернётся в 'ready' в else-ветке ниже — не теряем атомарность.
+        network_exception = e
+        # IDEMPOTENCY: при сетевом сбое мы НЕ знаем, дошло ли сообщение до
+        # TG/VK. Если откатим status→ready, cron повторит и при удачной
+        # первой попытке (просто потеряли ответ) опубликует ДУБЛЬ в канал.
+        # Поэтому при exception оставляем item в 'publishing' с error,
+        # юзер увидит в UI и решит вручную ("повторить" или "уже отправлено").
 
     if result.get("ok"):
         item.status = "published"
         item.published_at = datetime.utcnow()
         item.error = None
+        # Сбрасываем backoff-счётчик после успешной публикации
+        item.publish_fail_count = 0
+        item.publish_next_retry_at = None
         # Сохраняем external_post_id чтобы cron потом fetch'нул метрики
         # (см. server/cron/creators_metrics.py).
         if result.get("external_post_id"):
@@ -186,11 +195,26 @@ async def publish_item(db: Session, item: ContentItem) -> dict:
                         conn.id, MAX_FAIL_BEFORE_DISABLE)
         desc = result.get("description") or str(result)[:200]
         item.error = f"publish: {desc[:400]}"
-        # Возвращаем status обратно в 'ready' — иначе после atomic claim'а
-        # выше item застрянет в 'publishing' и cron retry никогда не сработает.
-        item.status = "ready"
+        # Exponential backoff: 1мин → 5мин → 30мин → 2ч → 6ч. После 5 фейлов
+        # перестаём retry'ить (item.publish_fail_count=5 → cron его игнорит).
+        item.publish_fail_count = (item.publish_fail_count or 0) + 1
+        _BACKOFF_MINUTES = [1, 5, 30, 120, 360]
+        if item.publish_fail_count <= len(_BACKOFF_MINUTES):
+            from datetime import timedelta as _td
+            item.publish_next_retry_at = datetime.utcnow() + _td(
+                minutes=_BACKOFF_MINUTES[item.publish_fail_count - 1])
+        # IDEMPOTENCY: при сетевом исключении (publish_to_tg/vk бросил) НЕ откатываем
+        # в 'ready' — мы не знаем дошёл ли пост. Оставляем в 'publishing' с error
+        # → юзер увидит "требует ручной проверки" и решит сам. При ЛОГИЧЕСКОЙ
+        # ошибке от API (token invalid, chat not found, etc. — exception НЕ был
+        # брошен, просто result.ok=False) откатываем для retry'я (но cron подберёт
+        # только когда publish_next_retry_at <= now).
+        if network_exception is None:
+            item.status = "ready"
+        # иначе item остаётся в 'publishing' — cron не подберёт, дубль исключён
         db.commit()
-        return {"ok": False, "channel_id": conn.id, "description": desc}
+        return {"ok": False, "channel_id": conn.id, "description": desc,
+                "needs_manual_review": network_exception is not None}
 
 
 # Sync wrapper для использования из не-async кода (если понадобится)

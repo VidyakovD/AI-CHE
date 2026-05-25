@@ -2006,9 +2006,15 @@ def _deduct_bot_usage(bot, usage: dict):
     from server.db import db_session
     from server.billing import deduct_atomic
     from server.pricing import get_price
-    input_tokens = usage.get("input", 0)
-    output_tokens = usage.get("output", 0)
-    cached_tokens = usage.get("cached", 0)
+    _USAGE_CAP = 1_000_000  # Защита от bogus usage от провайдера
+    _raw_in = int(usage.get("input", 0) or 0)
+    _raw_out = int(usage.get("output", 0) or 0)
+    _raw_cached = int(usage.get("cached", 0) or 0)
+    input_tokens = min(_raw_in, _USAGE_CAP) if _raw_in > 0 else 0
+    output_tokens = min(_raw_out, _USAGE_CAP) if _raw_out > 0 else 0
+    cached_tokens = min(_raw_cached, _USAGE_CAP) if _raw_cached > 0 else 0
+    if (input_tokens, output_tokens) != (_raw_in, _raw_out):
+        log.warning(f"[bot.cost] usage clamped: in={_raw_in}→{input_tokens}, out={_raw_out}→{output_tokens}")
     model = usage.get("model", bot.model or "gpt")
 
     with db_session() as db:

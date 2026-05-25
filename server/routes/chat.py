@@ -48,9 +48,9 @@ def _idempotency_get(db, user_id: int, key: str) -> dict | None:
 
 
 def _idempotency_put(db, user_id: int, key: str, value: dict) -> bool:
-    """Сохранить response. Возвращает True если успешно, False если уже есть
-    запись (race condition: другой воркер положил первым). Caller должен в
-    случае False прочитать существующую запись и вернуть её.
+    """Сохранить response. UPDATE'ит существующую запись (которая была создана
+    атомарно при reservation в endpoint /message). Возвращает True если
+    успешно, False если запись не нашлась или сериализация слишком большая.
 
     Защита от больших responses: если сериализация >50 КБ — не сохраняем.
     """
@@ -64,15 +64,19 @@ def _idempotency_put(db, user_id: int, key: str, value: dict) -> bool:
     if len(payload) > 50_000:
         return False
     try:
-        rec = IdempotencyRecord(
-            user_id=user_id, key=key,
-            response_json=payload,
-        )
-        db.add(rec)
+        rec = (db.query(IdempotencyRecord)
+                 .filter(IdempotencyRecord.user_id == user_id,
+                         IdempotencyRecord.key == key)
+                 .first())
+        if rec is None:
+            # Reservation не был сделан (legacy/internal call) — INSERT новой
+            rec = IdempotencyRecord(user_id=user_id, key=key, response_json=payload)
+            db.add(rec)
+        else:
+            rec.response_json = payload
         db.commit()
         return True
     except Exception:
-        # IntegrityError (UNIQUE violation) — race с другим воркером
         db.rollback()
         return False
 
@@ -223,6 +227,27 @@ def send_message(req: MessageRequest,
     if cached is not None:
         return cached
 
+    # RESERVATION: пытаемся atomic-вставить пустую запись для key. Если
+    # удалось — мы «первый», продолжаем. Если IntegrityError (UNIQUE conflict) —
+    # параллельный воркер уже взял в работу: ждём до 30 сек его ответ, после
+    # таймаута возвращаем 409. Это закрывает race: раньше двое воркеров оба
+    # делали LLM-вызов и оба списывали деньги, проигравший только потом видел
+    # raced cache. Теперь только один проходит дальше.
+    from server.models import IdempotencyRecord as _IR
+    try:
+        db.add(_IR(user_id=user.id, key=_idem_key, response_json=None))
+        db.commit()
+    except Exception:
+        db.rollback()
+        # Конкурентный воркер взял в работу. Ждём его ответ.
+        _wait_started = time.monotonic()
+        while time.monotonic() - _wait_started < 30:
+            cached2 = _idempotency_get(db, user.id, _idem_key)
+            if cached2 is not None:
+                return cached2
+            time.sleep(0.5)
+        raise HTTPException(409, "Параллельный запрос уже в обработке. Попробуйте позже.")
+
     # Предварительная блокировка: списываем минимум, чтобы отсечь пустые балансы
     min_cost = 1
     pricing = db.query(ModelPricing).filter_by(model_id=real_model).first()
@@ -273,8 +298,15 @@ def send_message(req: MessageRequest,
 
     content   = answer.get("content", "") if isinstance(answer, dict) else answer
     resp_type = answer.get("type", "text") if isinstance(answer, dict) else "text"
-    input_tokens  = answer.get("input_tokens", 0) if isinstance(answer, dict) else 0
-    output_tokens = answer.get("output_tokens", 0) if isinstance(answer, dict) else 0
+    _raw_in  = answer.get("input_tokens", 0) if isinstance(answer, dict) else 0
+    _raw_out = answer.get("output_tokens", 0) if isinstance(answer, dict) else 0
+    # CAP против битого usage от провайдера (если вернёт 1млрд токенов — юзер
+    # не должен потерять весь баланс за один запрос).
+    _USAGE_CAP = 1_000_000
+    input_tokens  = min(int(_raw_in or 0), _USAGE_CAP) if _raw_in else 0
+    output_tokens = min(int(_raw_out or 0), _USAGE_CAP) if _raw_out else 0
+    if input_tokens != (_raw_in or 0) or output_tokens != (_raw_out or 0):
+        log.warning(f"[chat] usage clamped: in={_raw_in}→{input_tokens}, out={_raw_out}→{output_tokens}, model={req.model}")
 
     # Если провайдер вернул реально использованную модель (Imagen variant,
     # Veo fallback к более дешёвой версии и т.п.) — списываем по ней.

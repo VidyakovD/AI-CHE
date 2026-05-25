@@ -368,10 +368,12 @@ class TestIdempotency:
             assert cached is not None
             assert cached["response"] == "hello"
 
-    def test_duplicate_put_returns_false(self):
-        """Race condition: второй воркер пытается записать — UNIQUE-violation
-        → возвращаем False, caller может прочитать существующую запись."""
-        from server.routes.chat import _idempotency_put
+    def test_duplicate_put_updates_record(self):
+        """С security-фиксом #30: _idempotency_put теперь UPDATE'ит существующую
+        запись (которая создаётся eager-reservation'ом в endpoint /message),
+        а не пытается INSERT. Повторный вызов с тем же key возвращает True и
+        обновляет response_json (это последняя запись от worker'а после LLM)."""
+        from server.routes.chat import _idempotency_put, _idempotency_get
         with SessionLocal() as db:
             uid, uemail = _user(db, "idem-race@example.com")
         key = "race-key-" + _secrets.token_hex(8)
@@ -380,7 +382,10 @@ class TestIdempotency:
             assert ok1 is True
         with SessionLocal() as db:
             ok2 = _idempotency_put(db, uid, key, {"v": 2})
-            assert ok2 is False  # UNIQUE-violation, возвращаем False
+            assert ok2 is True  # UPDATE существующей записи
+        with SessionLocal() as db:
+            cached = _idempotency_get(db, uid, key)
+            assert cached == {"v": 2}
 
     def test_empty_key_returns_none(self):
         from server.routes.chat import _idempotency_get, _idempotency_put

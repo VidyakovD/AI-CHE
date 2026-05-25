@@ -90,7 +90,8 @@ class TestVerify:
     def test_success(self, monkeypatch):
         from server import mailbox_runtime as mr
         fake = _make_fake_imap(login_ok=True, select_ok=True, msg_count=10)
-        monkeypatch.setattr(mr.imaplib, "IMAP4_SSL", lambda h, p: fake)
+        # Принимаем **kwargs т.к. mailbox_runtime теперь передаёт ssl_context=
+        monkeypatch.setattr(mr.imaplib, "IMAP4_SSL", lambda *a, **kw: fake)
 
         result = self._run(mr.verify_mailbox_connection(
             "imap.yandex.ru", 993, "me@yandex.ru", "appp-asss-word"
@@ -101,7 +102,7 @@ class TestVerify:
     def test_login_fail_friendly_error(self, monkeypatch):
         from server import mailbox_runtime as mr
         fake = _make_fake_imap(login_ok=False)
-        monkeypatch.setattr(mr.imaplib, "IMAP4_SSL", lambda h, p: fake)
+        monkeypatch.setattr(mr.imaplib, "IMAP4_SSL", lambda *a, **kw: fake)
 
         result = self._run(mr.verify_mailbox_connection(
             "imap.yandex.ru", 993, "me@yandex.ru", "wrong"
@@ -112,7 +113,7 @@ class TestVerify:
     def test_connect_fail(self, monkeypatch):
         from server import mailbox_runtime as mr
 
-        def bad_connect(host, port):
+        def bad_connect(host, port, **kw):
             raise OSError("Network unreachable")
         monkeypatch.setattr(mr.imaplib, "IMAP4_SSL", bad_connect)
 

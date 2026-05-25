@@ -82,6 +82,7 @@ class ChangeEmailRequest(BaseModel):
 
 class ConfirmChangeEmailRequest(BaseModel):
     code: str
+    totp_code: str | None = None  # Требуется только если у юзера 2FA включена
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -92,8 +93,32 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(400, "Необходимо принять оферту")
     email = validate_email(req.email)
     validate_password(req.password)
-    if db.query(User).filter_by(email=email).first():
-        raise HTTPException(400, "Email уже зарегистрирован")
+    existing_user = db.query(User).filter_by(email=email).first()
+    if existing_user:
+        # ANTI-ENUMERATION: возвращаем тот же status что и при успешной регистрации,
+        # чтобы атакующий не мог через перебор API выяснить какие email зарегистрированы.
+        # Самому юзеру по email отправляем уведомление «попытка регистрации с
+        # вашим email — если это вы, войдите или восстановите пароль».
+        try:
+            from server.email_service import send_email
+            send_email(
+                to=email,
+                subject="AI Студия Че — попытка повторной регистрации",
+                body=(
+                    "Здравствуйте.\n\n"
+                    "Кто-то (возможно, вы) пытался зарегистрироваться с этим email. "
+                    "У вас уже есть аккаунт.\n\n"
+                    "Если это вы — войдите: https://aiche.ru/login.html\n"
+                    "Забыли пароль — восстановите: https://aiche.ru/forgot.html\n\n"
+                    "Если это не вы — просто проигнорируйте письмо."
+                ),
+            )
+        except Exception as _e:
+            log.warning(f"[register] failed to notify existing email: {_e}")
+        # Тот же response что для успешной регистрации — не утечка.
+        return {"status": "pending_verification",
+                "user_id": None,
+                "message": "Если email свободен, код подтверждения отправлен."}
 
     ref_code = uuid.uuid4().hex[:8].upper()
     referrer_id = None
@@ -459,6 +484,17 @@ def change_email(req: ChangeEmailRequest, user: User = Depends(current_user),
 @router.post("/change-email/confirm")
 def change_email_confirm(req: ConfirmChangeEmailRequest, user: User = Depends(current_user),
                          db: Session = Depends(get_db)):
+    # Если 2FA включена — требуем TOTP при смене email. Иначе угнанная сессия
+    # (без TOTP-кода) могла бы сменить почту на атакующего и захватить аккаунт.
+    if user.totp_enabled and user.totp_secret:
+        import pyotp as _pyotp
+        totp_code = (getattr(req, "totp_code", None) or "").strip()
+        if not totp_code:
+            raise HTTPException(403, "TOTP-код требуется для смены email")
+        totp = _pyotp.TOTP(user.totp_secret)
+        if not totp.verify(totp_code, valid_window=1):
+            raise HTTPException(401, "Неверный TOTP-код")
+
     vt = db.query(VerifyToken).filter(
         VerifyToken.user_id == user.id, VerifyToken.token == req.code,
         VerifyToken.purpose.like("change_email:%"), VerifyToken.used == False,
@@ -468,12 +504,31 @@ def change_email_confirm(req: ConfirmChangeEmailRequest, user: User = Depends(cu
     new_email = vt.purpose.split(":", 1)[1]
     vt.used = True
     db_user = db.query(User).filter_by(id=user.id).first()
+    old_email = db_user.email
     db_user.email = new_email
     # Email — часто канал восстановления пароля. После смены ревокаем все
     # refresh-сессии: если старый email скомпрометирован, атакер не сможет
     # дальше использовать стянутый refresh-токен.
     revoke_all_refresh_jtis(db, db_user)
     db.commit()
+    # Security-notification на СТАРЫЙ email — даже если он скомпрометирован,
+    # пользователь увидит уведомление в своей почте и сможет реагировать
+    # (сменить пароль, обратиться в поддержку, и т.д.).
+    if old_email and old_email != new_email:
+        try:
+            from server.email_service import send_email
+            send_email(
+                to=old_email,
+                subject="AI Студия Че — email вашего аккаунта был изменён",
+                body=(f"Здравствуйте.\n\n"
+                      f"Email аккаунта изменён с {old_email} на {new_email}.\n"
+                      f"Все сессии отозваны.\n\n"
+                      f"Если это не вы — срочно обратитесь в поддержку и "
+                      f"смените пароль через /forgot-password (с прошлого email "
+                      f"восстановление больше не работает, только через поддержку)."),
+            )
+        except Exception as e:
+            log.warning(f"change-email: failed to notify old email {old_email}: {e}")
     try:
         from server.audit_log import log_action
         log_action("auth.email_changed", user_id=user.id,

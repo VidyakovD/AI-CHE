@@ -111,11 +111,20 @@ def crm_create(body: _CrmCreateBody, db: Session = Depends(get_db),
             raise HTTPException(413, "field_mapping слишком большой")
         mapping_json = json.dumps(body.field_mapping, ensure_ascii=False)
 
+    # Для generic webhook генерируем HMAC-secret. Receiver юзера должен
+    # валидировать X-CRM-Signature, иначе подделыватель знающий URL отправит
+    # фейк-лиды. Bitrix24/amoCRM имеют свою auth — там secret не нужен.
+    webhook_secret = None
+    if provider in ("webhook", "generic"):
+        import secrets as _secrets
+        webhook_secret = _secrets.token_urlsafe(32)
+
     c = CrmConnection(
         user_id=user.id,
         provider=provider,
         name=(body.name or VALID_PROVIDERS[provider])[:100],
         webhook_url=url,
+        webhook_secret=webhook_secret,
         field_mapping_json=mapping_json,
         is_active=True,
     )
@@ -127,7 +136,17 @@ def crm_create(body: _CrmCreateBody, db: Session = Depends(get_db),
                    details={"provider": provider})
     except Exception:
         pass
-    return _serialize(c)
+    out = _serialize(c)
+    # Secret показываем ТОЛЬКО при создании, чтобы юзер настроил receiver-валидацию.
+    # Потом /connections (list) не отдаёт его, только preview.
+    if webhook_secret:
+        out["webhook_secret"] = webhook_secret
+        out["signing_note"] = (
+            "Каждый POST подписан HMAC-SHA256 от тела (sorted keys) с этим secret. "
+            "Header: X-CRM-Signature: sha256=<hex>. Валидируй у себя — secret видишь "
+            "только сейчас, в /connections (list) он скрыт."
+        )
+    return out
 
 
 @router.get("/connections")

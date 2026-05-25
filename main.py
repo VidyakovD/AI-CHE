@@ -857,6 +857,10 @@ def serve_public_proposal(public_token: str, request: "Request"):
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
+    # CORS lock-down: публичная страница — HTML-only, не API. Запрещаем
+    # cross-origin XHR чтобы атакующий с bruteforce'ом токенов не мог
+    # script'ом сграбать содержимое /p/{token} с третьего домена.
+    response.headers["Access-Control-Allow-Origin"] = "null"
     return response
 
 
@@ -945,10 +949,33 @@ async def sign_public_proposal(public_token: str, request: "Request"):
                 "signed_at": existing.signed_at.isoformat() + "Z" if existing.signed_at else None,
             }, status_code=409)
         signed_at = _dt.utcnow()
-        # Hash для верификации: невозможно подменить без обнаружения
+        # Hash для верификации: ПОЛНЫЙ signature_data (раньше брали [:200] —
+        # потенциально две canvas-подписи с одинаковыми первыми 200 байт могли
+        # дать одинаковый hash). Плюс purpose+content_hash покрывают post-sign
+        # mutation: если КП меняли после подписи — content_hash расходится.
+        full_sig_digest = _hashlib.sha256(sig_data.encode("utf-8")).hexdigest()
+        # content_hash от текущего PDF (если уже сгенерирован) или HTML.
+        content_hash = ""
+        try:
+            if p.generated_pdf:
+                _abs = p.generated_pdf
+                if not _abs.startswith("/"):
+                    _abs = "/" + _abs
+                # generated_pdf хранится как /uploads/... — читаем напрямую
+                import os as _os
+                base = _os.path.dirname(_os.path.abspath(__file__))
+                pdf_path = _os.path.realpath(_os.path.join(base, _abs.lstrip("/")))
+                uploads_root = _os.path.realpath(_os.path.join(base, "uploads"))
+                if pdf_path.startswith(uploads_root) and _os.path.exists(pdf_path):
+                    with open(pdf_path, "rb") as _pf:
+                        content_hash = _hashlib.sha256(_pf.read()).hexdigest()
+            elif getattr(p, "generated_html", None):
+                content_hash = _hashlib.sha256((p.generated_html or "").encode("utf-8")).hexdigest()
+        except Exception as _e:
+            logging.getLogger("proposals").warning(f"content_hash failed: {_e}")
         hash_src = "|".join([
             str(p.id), name, email or "", str(signed_at.timestamp()),
-            sig_data[:200], ip,
+            full_sig_digest, ip, content_hash or "",
         ])
         sig_hash = _hashlib.sha256(hash_src.encode("utf-8")).hexdigest()
         sig = ProposalSignature(
@@ -961,6 +988,7 @@ async def sign_public_proposal(public_token: str, request: "Request"):
             ip=ip,
             user_agent=ua,
             sig_hash=sig_hash,
+            content_hash=content_hash or None,
             signed_at=signed_at,
         )
         _db.add(sig)

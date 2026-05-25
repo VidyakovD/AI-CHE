@@ -185,12 +185,43 @@ def delete_site_project(project_id: int, db: Session = Depends(get_db),
     p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
-    # Remove hosted files if any
+    base = os.path.dirname(os.path.abspath(__file__))
+    uploads_root = os.path.realpath(os.path.join(base, "..", "..", "uploads"))
+    # Remove hosted files (директория проекта)
     if p.hosted_path:
         import shutil
-        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "uploads", "sites", str(project_id))
+        d = os.path.join(base, "..", "..", "uploads", "sites", str(project_id))
         if os.path.exists(d):
             shutil.rmtree(d, ignore_errors=True)
+    # Cleanup orphan images: image_paths ссылается на файлы в общем /uploads/
+    # которые не попадают под shutil.rmtree выше. Без чистки они копятся годами.
+    # Защита: проверяем что путь не за пределами uploads_root + что файл не
+    # используется в других SiteProject юзера (могут использовать общий asset).
+    if p.image_paths:
+        try:
+            imgs = json.loads(p.image_paths) or []
+            for img in imgs:
+                if not isinstance(img, str) or not img.startswith("/uploads/"):
+                    continue
+                cand = os.path.realpath(os.path.join(base, "..", "..", img.lstrip("/")))
+                if not cand.startswith(uploads_root + os.sep):
+                    continue
+                if not os.path.exists(cand):
+                    continue
+                # Файл используется в других проектах юзера? Тогда не удаляем.
+                _used = (db.query(SiteProject)
+                           .filter(SiteProject.user_id == user.id,
+                                   SiteProject.id != p.id,
+                                   SiteProject.image_paths.like(f'%"{img}"%'))
+                           .first())
+                if _used:
+                    continue
+                try:
+                    os.unlink(cand)
+                except Exception as _e:
+                    log.warning(f"[sites.delete] orphan cleanup failed for {img}: {_e}")
+        except Exception as _e:
+            log.warning(f"[sites.delete] image_paths parse failed: {_e}")
     db.delete(p); db.commit()
     return {"status": "deleted"}
 
@@ -1289,6 +1320,27 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
                 f"Попробуйте уточнить запрос или использовать «Переделать через AI» по конкретному блоку. "
                 f"Деньги возвращены.")
 
+        # Защита от XSS через AI-generated replace: блокируем patches которые
+        # вставляют <script>, on*-handlers, javascript:-URL и подобное.
+        # Сайт публикуется на /sites/hosted/{token} → любой такой код выполнится
+        # у посетителя. Validation на ВСТАВЛЯЕМОМ контенте — если такой паттерн
+        # уже был в исходном HTML, мы его не удаляем (find/replace симметричен).
+        _XSS_PATTERNS = (
+            "<script", "</script", "<iframe ", "<iframe>",
+            "javascript:", "vbscript:", "data:text/html",
+            " onerror=", " onclick=", " onload=", " onmouseover=",
+            " onfocus=", " onblur=", " onchange=",
+        )
+
+        def _patch_replace_safe(repl: str) -> bool:
+            if not repl:
+                return True
+            low = repl.lower()
+            for pat in _XSS_PATTERNS:
+                if pat in low:
+                    return False
+            return True
+
         new_code = p.code_html
         applied = 0
         skipped = []
@@ -1298,6 +1350,10 @@ def site_project_iterate(project_id: int, body: dict, db: Session = Depends(get_
             find = pt.get("find")
             replace = pt.get("replace")
             if not isinstance(find, str) or not isinstance(replace, str) or not find:
+                continue
+            if not _patch_replace_safe(replace):
+                skipped.append(f"[XSS blocked] {replace[:60]}")
+                log.warning(f"[sites.iterate] XSS pattern blocked in replace: {replace[:120]!r}")
                 continue
             if find not in new_code:
                 skipped.append(find[:80])

@@ -921,11 +921,17 @@ async def tool_create_calendar_event(params: dict, context: dict) -> str:
     title = (params.get("title") or "").strip()[:200]
     if not title:
         return "Ошибка: title обязателен"
+    # Sanity bounds на дату: разумный диапазон [сегодня - 5 лет, +10 лет].
+    # LLM может вернуть year=999999 → DB upset / отображение поломается.
+    _MIN_YEAR = _dt.utcnow().year - 5
+    _MAX_YEAR = _dt.utcnow().year + 10
     try:
         start_raw = params.get("start") or ""
         start = _dt.fromisoformat(str(start_raw).replace("Z", "+00:00"))
         if start.tzinfo is not None:
             start = start.astimezone().replace(tzinfo=None)
+        if not (_MIN_YEAR <= start.year <= _MAX_YEAR):
+            return f"Ошибка: год {start.year} вне допустимого диапазона [{_MIN_YEAR}, {_MAX_YEAR}]"
     except Exception:
         return f"Ошибка: некорректный start '{params.get('start')}' (нужен ISO 8601, например 2026-05-12T12:00:00)"
     end = None
@@ -934,6 +940,10 @@ async def tool_create_calendar_event(params: dict, context: dict) -> str:
             end = _dt.fromisoformat(str(params["end"]).replace("Z", "+00:00"))
             if end.tzinfo is not None:
                 end = end.astimezone().replace(tzinfo=None)
+            if not (_MIN_YEAR <= end.year <= _MAX_YEAR):
+                end = None  # silently drop вместо ошибки
+            elif end < start:
+                return f"Ошибка: end ({end.isoformat()}) раньше start ({start.isoformat()})"
         except Exception:
             pass
     db = SessionLocal()
@@ -967,6 +977,11 @@ async def tool_add_finance_transaction(params: dict, context: dict) -> str:
         return "Ошибка: amount_kop должно быть целым числом (копейки, отрицательное для расхода)"
     if amount_kop == 0:
         return "Ошибка: amount_kop=0"
+    # Sanity bound: ±1 млрд рублей одной транзакцией явно ошибка LLM.
+    # Без cap'a — overflow в Postgres int4 / странные суммы.
+    _AMOUNT_HARD_CAP_KOP = 100_000_000_000  # 1 млрд рублей в копейках
+    if abs(amount_kop) > _AMOUNT_HARD_CAP_KOP:
+        return f"Ошибка: amount_kop={amount_kop} превышает разумный лимит. Проверь данные."
     try:
         date_raw = params.get("date") or _dt.utcnow().isoformat()
         date = _dt.fromisoformat(str(date_raw).replace("Z", "+00:00"))
@@ -1102,6 +1117,11 @@ async def run_agent(
     history      = []
     outputs      = []
     final_answer = None
+    # No-progress detector: если LLM повторяет ту же пару (action, params)
+    # ≥3 раз подряд — значит зациклился. Прерываем чтобы не сжигать баланс.
+    _NO_PROGRESS_LIMIT = 3
+    _last_action_key: str | None = None
+    _action_repeat_count = 0
 
     for step_num in range(1, max_steps + 1):
         log.info(f"[{task_id}] Step {step_num}/{max_steps}")
@@ -1191,10 +1211,44 @@ async def run_agent(
         log.info(f"[{task_id}] Thought: {thought[:80]}")
         log.info(f"[{task_id}] Action:  {action}({json.dumps(params, ensure_ascii=False)[:100]})")
 
+        # ── No-progress detector ──────────────────────────────────────────
+        # Защита от зацикливания: одна и та же пара (action, params) 3+ раз
+        # подряд → принудительный finish с уведомлением, чтобы юзер не платил
+        # за бесконечный loop.
+        try:
+            _action_key = action + "|" + json.dumps(params, ensure_ascii=False, sort_keys=True)[:500]
+        except Exception:
+            _action_key = action + "|<unserializable>"
+        if _action_key == _last_action_key and action != "finish":
+            _action_repeat_count += 1
+        else:
+            _action_repeat_count = 1
+            _last_action_key = _action_key
+        if _action_repeat_count >= _NO_PROGRESS_LIMIT:
+            log.warning(f"[{task_id}] no-progress: action '{action}' повторён {_action_repeat_count} раз — auto-finish")
+            update_task(
+                task_id, status="done",
+                result=(f"Агент зациклился (одно и то же действие '{action}' "
+                        f"{_action_repeat_count} раз подряд). Прерываю чтобы не списывать баланс."),
+                outputs=outputs, steps_count=step_num,
+            )
+            return
+
         # ── Execute tool ──────────────────────────────────────────────────
-        tool_fn = active_tools.get(action) or TOOLS.get(action)
+        # SECURITY: НЕ откатываемся на полный TOOLS реестр через `or TOOLS.get(action)` —
+        # это раньше делало tools_whitelist полностью bypassable (модуль с
+        # allowed_tools=["search_notes"] мог через prompt injection вызвать
+        # add_finance_transaction). Только tools из whitelist (active_tools).
+        tool_fn = active_tools.get(action)
         if not tool_fn:
-            observation = f"Инструмент '{action}' не найден. Доступные: {', '.join(TOOLS.keys())}"
+            allowed = ", ".join(sorted(active_tools.keys())) or "(нет)"
+            if action in TOOLS:
+                observation = (
+                    f"Инструмент '{action}' существует, но НЕ разрешён для этого агента. "
+                    f"Разрешённые: {allowed}"
+                )
+            else:
+                observation = f"Инструмент '{action}' не найден. Разрешённые: {allowed}"
         else:
             try:
                 observation = await tool_fn(params, context)
