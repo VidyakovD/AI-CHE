@@ -1613,7 +1613,21 @@ chatTa.addEventListener('input', () => {
   chatTa.style.height = Math.min(chatTa.scrollHeight, 160) + 'px';
 });
 chatTa.addEventListener('keydown', e => {
-  if(e.key==='Enter' && !e.shiftKey){e.preventDefault();sendMessage();}
+  if(e.key !== 'Enter') return;
+  // Shift+Enter — перенос строки (стандарт).
+  if(e.shiftKey) return;
+  // Любой Enter без Shift (включая Ctrl+Enter, Cmd+Enter, Alt+Enter) —
+  // отправка. preventDefault важен ДО setTimeout — иначе браузер вставит \n.
+  e.preventDefault();
+  sendMessage();
+});
+// keypress подстраховывает: некоторые браузеры с активной кириллической
+// раскладкой ловят Ctrl+Enter тут, а не в keydown. preventDefault блокирует
+// вставку newline character.
+chatTa.addEventListener('keypress', e => {
+  if(e.key === 'Enter' && !e.shiftKey){
+    e.preventDefault();
+  }
 });
 
 // ── Profile edit ─────────────────────────────────────────────────────────

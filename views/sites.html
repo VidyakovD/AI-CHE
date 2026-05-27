@@ -95,14 +95,14 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 .img-thumb{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid rgba(74,63,47,0.3);cursor:pointer;transition:opacity .15s}
 .img-thumb:hover{opacity:.7}
 /* Preview iframe */
-.preview-frame{width:100%;height:550px;border:none;border-radius:12px;background:#fff}
+.preview-frame{width:100%;border:none;border-radius:12px;background:#fff}
 /* Адаптивные ширины превью для проверки на разных устройствах.
-   ВАЖНО: явный min-height:70vh — flex:1 цепочка через .tab-pane не всегда
-   работает (если родитель сам не получил высоту), iframe сжимался до
-   ~150px. min-height гарантирует адекватный размер превью независимо
-   от flex-context. */
-.preview-wrap{display:flex;justify-content:center;width:100%;flex:1 1 auto;min-height:70vh;overflow:auto}
-.preview-wrap .preview-frame{width:100%;height:100%;min-height:70vh;transition:width .25s ease;margin:0 auto}
+   ВАЖНО: flex:1 + min-height:0 — растягивается под доступную высоту tab-pane
+   (родитель — flex column с flex-1). 70vh давал переполнение когда модалка
+   маленькая (превью наезжало на bottom-bar). min-height:400px гарантирует
+   минимум полезной высоты на маленьких экранах. */
+.preview-wrap{display:flex;justify-content:center;width:100%;flex:1 1 auto;min-height:400px;overflow:auto}
+.preview-wrap .preview-frame{width:100%;height:100%;min-height:400px;transition:width .25s ease;margin:0 auto}
 .preview-wrap.vp-mobile  .preview-frame{width:375px}
 .preview-wrap.vp-tablet  .preview-frame{width:768px}
 .preview-wrap.vp-desktop .preview-frame{width:100%}
@@ -1766,9 +1766,21 @@ function refreshPreview(){
   // Решение: пересоздать iframe-элемент. КРИТИЧНО: сначала attach в DOM,
   // потом srcdoc — иначе в Chrome detached iframe не имеет browsing context
   // и srcdoc не загружается / JS не выполняется.
+  //
+  // Дополнительно: если frame был display:none (юзер был на «Код» табе и
+  // вернулся обратно), браузер мог отгрузить contentDocument. Reassign'ить
+  // srcdoc на «потерянный» frame работает не во всех браузерах — поэтому
+  // force-recreate если контент пустой ИЛИ sandbox менялся.
   const sandboxChanged = oldFrame.getAttribute('sandbox') !== sandboxAttr;
+  let frameLooksEmpty = false;
+  try {
+    const doc = oldFrame.contentDocument;
+    frameLooksEmpty = !doc || !doc.body || !doc.body.innerHTML.trim();
+  } catch (_) {
+    frameLooksEmpty = false;
+  }
   let frame = oldFrame;
-  if (sandboxChanged) {
+  if (sandboxChanged || frameLooksEmpty) {
     frame = document.createElement('iframe');
     frame.id = 'previewFrame';
     frame.className = oldFrame.className;
@@ -2720,7 +2732,40 @@ async function replaceSelectedImage(){
       // Сохраняем ДО refresh — чтобы при перезагрузке вкладки картинка
       // не потерялась. Затем перерисовываем превью с новым blob URL.
       await saveCode({silent: true});
-      refreshPreview();
+      // В edit-режиме НЕ делаем refreshPreview — он пересоздаёт iframe и
+      // теряет contenteditable state. Вместо этого подменяем src напрямую
+      // в живом DOM iframe. При полной перерисовке (выход из edit) код уже
+      // обновлён в codeEditor — следующий refreshPreview покажет новые картинки.
+      const frame = document.getElementById('previewFrame');
+      const inEdit = !!(editMode || aiBlockMode);
+      let domSwapped = false;
+      if (inEdit && frame && frame.contentDocument) {
+        try {
+          const doc = frame.contentDocument;
+          // selectedImg — абсолютный URL из iframe (el.src). Совпадает с
+          // тем что в DOM. Меняем все совпадающие <img> + background-image.
+          const matches = doc.querySelectorAll('img');
+          let n = 0;
+          matches.forEach(img => {
+            if (img.src === selectedImg || img.getAttribute('src') === selectedImg) {
+              img.src = newAbs;
+              n++;
+            }
+          });
+          // CSS background-image — реже, но встречается. Best-effort.
+          doc.querySelectorAll('[style*="background"]').forEach(el => {
+            const s = el.getAttribute('style') || '';
+            if (s.includes(selectedImg)) {
+              el.setAttribute('style', s.split(selectedImg).join(newAbs));
+              n++;
+            }
+          });
+          domSwapped = n > 0;
+        } catch (e) {
+          console.warn('[replaceImage] DOM swap failed:', e);
+        }
+      }
+      if (!domSwapped) refreshPreview();
       selectedImg = null;
     }catch(e){ await aiAlert('Ошибка загрузки: '+e.message, 'error'); }
   };

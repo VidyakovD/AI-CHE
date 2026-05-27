@@ -36,6 +36,50 @@ TG_API_BASE = "https://api.telegram.org/bot"
 MAX_API_BASE = "https://botapi.max.ru"
 
 
+def _tg_proxy() -> str | None:
+    """Прокси для api.telegram.org если задан. На РФ-проде сеть к TG нестабильна,
+    через Xray (AI_HTTPS_PROXY) идёт надёжнее. Если переменная не задана —
+    идём напрямую."""
+    return (os.getenv("TG_HTTPS_PROXY") or os.getenv("AI_HTTPS_PROXY") or "").strip() or None
+
+
+async def _tg_request(method: str, url: str, *, data=None, json_body=None,
+                      timeout: float = 30.0, retries: int = 3) -> tuple[int, dict | None, str | None]:
+    """HTTP-запрос к TG API с retry + опциональным прокси.
+
+    Returns: (status_code, json_or_none, error_or_none).
+    Делает retries попытки с экспоненциальной паузой при ConnectError / Timeout.
+    """
+    import asyncio
+    proxy = _tg_proxy()
+    last_err: str | None = None
+    for attempt in range(retries):
+        try:
+            kwargs: dict = {"timeout": timeout}
+            if proxy:
+                kwargs["proxy"] = proxy
+            async with httpx.AsyncClient(**kwargs) as client:
+                if method.upper() == "GET":
+                    r = await client.get(url)
+                else:
+                    r = await client.post(url, data=data, json=json_body)
+            try:
+                body = r.json() if r.content else None
+            except Exception:
+                body = None
+            return r.status_code, body, None
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as e:
+            last_err = f"{type(e).__name__}"
+            log.warning(f"[tg] {method} {url[:60]}… attempt {attempt+1}/{retries}: {last_err}")
+            if attempt < retries - 1:
+                await asyncio.sleep(1.5 ** attempt)  # 1s, 1.5s, 2.25s
+                continue
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {str(e)[:80]}"
+            break
+    return 0, None, last_err or "unknown"
+
+
 # ── Token hashing for webhook routing ────────────────────────────────────────
 
 
@@ -66,19 +110,13 @@ async def tg_validate_token(token: str) -> dict:
     if not token or not re.match(r"^[0-9]+:[A-Za-z0-9_\-]+$", token.strip()):
         return {"ok": False, "error": "Невалидный формат токена. Должен быть вида '123456:ABC-DEF...'"}
     url = f"{TG_API_BASE}{token.strip()}/getMe"
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(url)
-    except Exception as e:
-        return {"ok": False, "error": f"Сеть: {type(e).__name__}"}
-    if r.status_code == 401:
+    status, data, err = await _tg_request("GET", url, timeout=15, retries=3)
+    if err:
+        return {"ok": False, "error": f"Сеть: {err}"}
+    if status == 401:
         return {"ok": False, "error": "Telegram отклонил токен (401). Проверь правильность копирования."}
-    if r.status_code != 200:
-        return {"ok": False, "error": f"Telegram вернул {r.status_code}"}
-    try:
-        data = r.json() or {}
-    except Exception:
-        return {"ok": False, "error": "Telegram вернул не-JSON ответ"}
+    if status != 200 or not data:
+        return {"ok": False, "error": f"Telegram вернул {status}"}
     if not data.get("ok"):
         return {"ok": False, "error": data.get("description", "unknown")}
     result = data.get("result") or {}
@@ -126,17 +164,15 @@ async def tg_set_webhook(token: str, token_hash: str) -> dict:
         return {"ok": False, "error": "no token"}
     webhook_url = f"{_app_url()}/webhook/personal-tg/{token_hash}"
     url = f"{TG_API_BASE}{token.strip()}/setWebhook"
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.post(url, data={
-                "url": webhook_url,
-                "allowed_updates": '["message","callback_query"]',
-            })
-            data = r.json() if r.content else {}
-    except Exception as e:
-        return {"ok": False, "error": f"Сеть: {type(e).__name__}"}
-    if r.status_code != 200 or not data.get("ok"):
-        return {"ok": False, "error": data.get("description", f"HTTP {r.status_code}")}
+    status, data, err = await _tg_request("POST", url, data={
+        "url": webhook_url,
+        "allowed_updates": '["message","callback_query"]',
+    }, timeout=30, retries=3)
+    if err:
+        return {"ok": False, "error": f"Сеть: {err}"}
+    data = data or {}
+    if status != 200 or not data.get("ok"):
+        return {"ok": False, "error": data.get("description", f"HTTP {status}")}
     return {"ok": True, "webhook_url": webhook_url}
 
 
@@ -145,12 +181,10 @@ async def tg_delete_webhook(token: str) -> dict:
     if not token:
         return {"ok": False, "error": "no token"}
     url = f"{TG_API_BASE}{token.strip()}/deleteWebhook"
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(url)
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-    return {"ok": r.status_code == 200}
+    status, _data, err = await _tg_request("POST", url, timeout=15, retries=2)
+    if err:
+        return {"ok": False, "error": err}
+    return {"ok": status == 200}
 
 
 async def max_set_webhook(token: str, token_hash: str) -> dict:
@@ -199,16 +233,15 @@ async def tg_send_message(token: str, chat_id: str, text: str,
         "parse_mode": parse_mode,
         "disable_web_page_preview": True,
     }
-    try:
-        async with httpx.AsyncClient(timeout=12) as client:
-            r = await client.post(url, json=payload)
-            if r.status_code != 200:
-                log.warning(f"[personal-tg] send failed: {r.status_code} {r.text[:200]}")
-                return False
-        return True
-    except Exception as e:
-        log.warning(f"[personal-tg] send exception: {type(e).__name__}")
+    status, _data, err = await _tg_request("POST", url, json_body=payload,
+                                            timeout=20, retries=2)
+    if err:
+        log.warning(f"[personal-tg] send exception: {err}")
         return False
+    if status != 200:
+        log.warning(f"[personal-tg] send failed: {status}")
+        return False
+    return True
 
 
 async def max_send_message(token: str, user_id: str, text: str) -> bool:

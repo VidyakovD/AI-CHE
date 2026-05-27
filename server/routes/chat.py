@@ -88,18 +88,36 @@ def _start_idempotency_sweeper():
     pass
 
 
-def calculate_cost(model_id: str, input_tokens: int, output_tokens: int, db: Session) -> int:
+def calculate_cost(model_id: str, input_tokens: int, output_tokens: int,
+                   db: Session, alt_model_id: str | None = None) -> int:
     """Посчитать стоимость в копейках за реальное использование токенов.
-    Поля ModelPricing.ch_per_1k_* теперь хранят копейки/1k токенов."""
-    pricing = db.query(ModelPricing).filter_by(model_id=model_id).first()
-    if pricing and (pricing.ch_per_1k_input > 0 or pricing.ch_per_1k_output > 0):
-        cost = (input_tokens / 1000.0) * pricing.ch_per_1k_input + \
-               (output_tokens / 1000.0) * pricing.ch_per_1k_output
-        cost = max(int(round(cost)), pricing.min_ch_per_req or 1)
+    Поля ModelPricing.ch_per_1k_* теперь хранят копейки/1k токенов.
+
+    alt_model_id: alias-имя (req.model вроде "perplexity") если основной
+    real_model ("sonar") не найден в ModelPricing. Защита от баги, когда
+    биллинг скатывался в фикс-цену TOKEN_COST 300 коп вместо per-token.
+    """
+    def _lookup(mid: str) -> int | None:
+        if not mid:
+            return None
+        p = db.query(ModelPricing).filter_by(model_id=mid).first()
+        if not p:
+            return None
+        if p.ch_per_1k_input > 0 or p.ch_per_1k_output > 0:
+            c = (input_tokens / 1000.0) * p.ch_per_1k_input + \
+                (output_tokens / 1000.0) * p.ch_per_1k_output
+            return max(int(round(c)), p.min_ch_per_req or 1)
+        if p.cost_per_req:
+            return p.cost_per_req
+        return None  # запись пустая — провалимся ниже
+
+    cost = _lookup(model_id)
+    if cost is None and alt_model_id and alt_model_id != model_id:
+        # Provider вернул real_model (sonar), а pricing записан под alias (perplexity).
+        # Без этого fallback — TOKEN_COST даёт фикс 300 коп независимо от объёма.
+        cost = _lookup(alt_model_id)
+    if cost is not None:
         return cost
-    # Fallback — старая per-request схема (значение тоже теперь в копейках)
-    if pricing and pricing.cost_per_req:
-        return pricing.cost_per_req
     return get_token_cost(model_id)
 
 log = logging.getLogger(__name__)
@@ -345,7 +363,8 @@ def send_message(req: MessageRequest,
             _idempotency_put(db, user.id, _idem_key, refunded)
         return refunded
 
-    cost = calculate_cost(cost_model, input_tokens, output_tokens, db)
+    cost = calculate_cost(cost_model, input_tokens, output_tokens, db,
+                          alt_model_id=req.model)
 
     # Атомарное списание (защита от race condition при параллельных запросах)
     if cost > 0:
