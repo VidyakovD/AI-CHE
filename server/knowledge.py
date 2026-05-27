@@ -172,20 +172,40 @@ def _extract_docx(path: str) -> str:
 
 
 def _extract_xlsx(path: str) -> str:
-    """Excel → плоский текст. Каждый лист → таблица: 'Лист | Колонка1 | Колонка2 | ...'."""
+    """Excel → плоский текст. Каждый лист → таблица: 'Лист | Колонка1 | Колонка2 | ...'.
+
+    Защита от bloat:
+      - макс 100 листов (защита от 10K-листной книги съедающей RAM)
+      - макс 5000 строк на лист
+      - макс 10K символов на ячейку (защита от ячейки с 100МБ текста)
+      - финальный текст обрезается до MAX_TOTAL_TEXT_CHARS
+    """
     try:
         from openpyxl import load_workbook
     except ImportError:
         log.warning("[KB] openpyxl not installed — XLSX skipped")
         return ""
+    _MAX_SHEETS = 100
+    _MAX_CELL_CHARS = 10_000
     wb = load_workbook(path, data_only=True, read_only=True)
     out_parts = []
-    for sheet_name in wb.sheetnames:
+    for idx, sheet_name in enumerate(wb.sheetnames):
+        if idx >= _MAX_SHEETS:
+            out_parts.append(f"[...пропущено {len(wb.sheetnames) - _MAX_SHEETS} оставшихся листов]")
+            break
         ws = wb[sheet_name]
         out_parts.append(f"=== Лист: {sheet_name} ===")
         rows_added = 0
         for row in ws.iter_rows(values_only=True):
-            cells = [str(c).strip() if c is not None else "" for c in row]
+            cells = []
+            for c in row:
+                if c is None:
+                    cells.append("")
+                    continue
+                s = str(c).strip()
+                if len(s) > _MAX_CELL_CHARS:
+                    s = s[:_MAX_CELL_CHARS] + "…[обрезано]"
+                cells.append(s)
             if not any(cells):
                 continue
             out_parts.append(" | ".join(cells))

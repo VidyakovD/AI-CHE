@@ -132,16 +132,60 @@ async def kb_upload(
 
     mime = file.content_type or None
 
-    # Запуск индексации в фоне (длительный embeddings-вызов)
+    # Pre-check биллинг за embedding-индексацию (OpenAI text-embedding-3-small
+    # стоит реальных денег: $0.02/1M токенов. На 100 МБ ≈ $0.5 нашего бюджета).
+    # Если файл маленький (< embed_min_charge = 1 ₽) — индексация бесплатна.
+    from server.pricing import get_price
+    from server.billing import deduct_strict, credit_atomic
+    from server.models import Transaction
+    size_mb = max(1, len(contents) // (1024 * 1024) + (1 if len(contents) % (1024 * 1024) else 0))
+    embed_cost_kop = size_mb * get_price("knowledge.embed_per_mb", default=100)
+    embed_min = get_price("knowledge.embed_min_charge", default=100)
+    embed_charged = 0
+    if embed_cost_kop >= embed_min:
+        if not deduct_strict(db, user.id, embed_cost_kop):
+            # Откатим файл с диска чтобы не оставлять висеть
+            try: abs_path.unlink()
+            except Exception: pass
+            raise HTTPException(
+                402,
+                f"Недостаточно средств. Индексация ~{size_mb} МБ стоит "
+                f"{embed_cost_kop/100:.2f} ₽. Пополните баланс."
+            )
+        db.add(Transaction(
+            user_id=user.id, type="usage", tokens_delta=-embed_cost_kop,
+            description=f"Knowledge: индексация {fname[:80]} ({size_mb} МБ)",
+            model="text-embedding-3-small",
+        ))
+        db.commit()
+        embed_charged = embed_cost_kop
+
+    # Запуск индексации в фоне (длительный embeddings-вызов).
+    # Если падает — refund списанной за embedding суммы.
+    _user_id = user.id  # capture для closure (избежать lazy-eval User-объекта)
     def _do_index():
         try:
             kb_add_file(
-                owner_type=owner_type, owner_id=owner_id, user_id=user.id,
+                owner_type=owner_type, owner_id=owner_id, user_id=_user_id,
                 name=fname[:200], path=rel_path, mime=mime,
                 size=len(contents), tags=tags,
             )
         except Exception as e:
             log.error(f"[KB] index task failed: {type(e).__name__}: {e}")
+            if embed_charged > 0:
+                # Refund — индексация упала, юзер не получил услугу
+                try:
+                    from server.db import db_session as _ds
+                    with _ds() as _db:
+                        credit_atomic(_db, _user_id, embed_charged)
+                        _db.add(Transaction(
+                            user_id=_user_id, type="refund",
+                            tokens_delta=embed_charged,
+                            description=f"Knowledge refund: индексация {fname[:80]} упала",
+                        ))
+                        _db.commit()
+                except Exception as re:
+                    log.error(f"[KB] refund failed: {type(re).__name__}: {re}")
 
     background_tasks.add_task(_do_index)
 
@@ -158,6 +202,7 @@ async def kb_upload(
         "name": fname,
         "size": len(contents),
         "path": rel_path,
+        "embed_charged_kop": embed_charged,
     }
 
 
