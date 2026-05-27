@@ -1077,6 +1077,20 @@ def invoke_module(*, slug: str, task: str, profile: dict,
     if learned_items:
         memory_updates = {"items": learned_items}
 
+    # ─ Auto-postinging для news_aggregator ──────────────────────────────────
+    # Если slug = news_aggregator и в custom_settings.tg_channel задан канал,
+    # парсим output как 1+ постов и публикуем через personal_tg_bot_token юзера.
+    auto_post_info = None
+    if slug == "news_aggregator" and user_id:
+        try:
+            auto_post_info = _autopost_news_to_tg(
+                user_id=user_id,
+                output=output_clean,
+                custom_settings=custom_settings or {},
+            )
+        except Exception as e:
+            log.warning(f"[news_aggregator] autopost failed: {e}")
+
     return {
         "ok": True,
         "output": output_clean,
@@ -1090,6 +1104,77 @@ def invoke_module(*, slug: str, task: str, profile: dict,
             "output_tokens": int(_route_raw.get("output_tokens", 0) or 0),
             "model_used": _route_model,
         },
+        "auto_post": auto_post_info,
+    }
+
+
+def _autopost_news_to_tg(user_id: int, output: str, custom_settings: dict) -> dict | None:
+    """Парсит output модуля news_aggregator и постит в TG-канал юзера.
+
+    output может содержать 1+ постов разделённых '---' или двойным переводом
+    строки. Каждый пост шлём отдельным сообщением. Используется
+    personal_tg_bot_token юзера + tg_channel из custom_settings.
+
+    Returns dict с инфой о публикации или None если автопостинг не сработал.
+    """
+    channel = (custom_settings or {}).get("tg_channel") or \
+               (custom_settings or {}).get("tg_chat_id")
+    if not channel or not output:
+        return None
+    channel = str(channel).strip()
+    if not channel:
+        return None
+    # Достаём токен юзера
+    from server.db import db_session
+    from server.models import User
+    with db_session() as db:
+        u = db.query(User).filter_by(id=user_id).first()
+        if not u or not u.personal_tg_bot_token:
+            log.info(f"[news_aggregator] user={user_id} нет personal_tg_bot_token — autopost skip")
+            return {"posted": 0, "error": "Нет подключённого TG-бота юзера. Подключи через /agents-modular → Свой бот."}
+        token = u.personal_tg_bot_token
+
+    # Разбиваем output на отдельные посты (по разделителю '---' или 3+ переводам)
+    import re as _re
+    parts = _re.split(r"\n\s*---\s*\n|\n{3,}", output.strip())
+    parts = [p.strip() for p in parts if p.strip()]
+    parts = parts[:5]  # safety cap — не больше 5 постов за раз
+    if not parts:
+        return None
+
+    import asyncio as _asyncio
+    from server.personal_bot_relay import tg_send_message
+
+    async def _run_send():
+        ok_count = 0
+        errors: list[str] = []
+        for p in parts:
+            # TG ограничение 4096 символов на сообщение
+            text = p[:3900]
+            try:
+                ok = await tg_send_message(token, channel, text, parse_mode="Markdown")
+                if ok:
+                    ok_count += 1
+                else:
+                    errors.append(f"send_failed: {text[:40]}…")
+            except Exception as e:
+                errors.append(f"{type(e).__name__}: {str(e)[:80]}")
+        return ok_count, errors
+
+    try:
+        loop = _asyncio.new_event_loop()
+        try:
+            ok_count, errors = loop.run_until_complete(_run_send())
+        finally:
+            loop.close()
+    except Exception as e:
+        return {"posted": 0, "error": f"{type(e).__name__}: {e}"}
+
+    return {
+        "posted": ok_count,
+        "channel": channel,
+        "total": len(parts),
+        "errors": errors[:3],
     }
 
 

@@ -625,9 +625,23 @@ def send_message(payload: SendMessagePayload,
                         "interactions": target_mod.interaction_count,
                         "ok": bool(inv.get("ok")),
                         "cost_kop": module_charged_kop,
+                        "auto_post": inv.get("auto_post"),
                     }),
                 )
                 db.add(module_msg)
+                # Если автопостинг сработал — добавим system-сообщение
+                if inv.get("auto_post"):
+                    ap = inv["auto_post"]
+                    if ap.get("posted"):
+                        db.add(AgentMessage(
+                            agent_id=a.id, role="system",
+                            content=f"📰 Автопостинг: опубликовано {ap['posted']}/{ap.get('total', '?')} в {ap.get('channel','')}",
+                        ))
+                    elif ap.get("error"):
+                        db.add(AgentMessage(
+                            agent_id=a.id, role="system",
+                            content=f"⚠ Автопостинг не сработал: {ap['error']}",
+                        ))
             except Exception as e:
                 log.exception(f"[agents.invoke] module {slug} failed: {e}")
                 module_msg = AgentMessage(
