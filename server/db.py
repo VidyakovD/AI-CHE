@@ -248,6 +248,10 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # Cron-runtime для модулей: отдельный timestamp от last_used_at чтобы
     # не путать ручные команды юзера с автоматическим запуском по расписанию.
     ("agent_modules", "last_cron_fired_at", "DATETIME"),
+    # Скилы модулей (Итерация 4): CSV-список slug'ов опциональных навыков.
+    # Каждый включённый скил добавляет price_delta_kop к стоимости invoke и
+    # расширяет allowed_tools модуля. Список доступных — в AGENT_REGISTRY.
+    ("agent_modules", "enabled_skills", "TEXT"),
     # КП: конструктор шапки (4 стиля)
     ("proposal_projects", "header_layout", "VARCHAR DEFAULT 'classic'"),
     # Refresh-token rotation single-use: список активных jti (JSON).

@@ -867,7 +867,8 @@ def _pluralRu(n: int, one: str, few: str, many: str) -> str:
 
 def invoke_module(*, slug: str, task: str, profile: dict,
                   module_memory: dict, custom_settings: dict,
-                  user_id: int | None = None) -> dict:
+                  user_id: int | None = None,
+                  enabled_skills: str | None = None) -> dict:
     """Запустить модуль на задачу. Использует system_prompt из AGENT_REGISTRY +
     подмешивает Memory Hub юзера + персональную память модуля + настройки.
 
@@ -912,6 +913,17 @@ def invoke_module(*, slug: str, task: str, profile: dict,
     base_prompt = meta.get("system_prompt") or (
         f"Ты — {meta.get('name', slug)}. {meta.get('description', '')}"
     )
+
+    # Скилы (Итерация 4) — добавляют инструкции в system_prompt.
+    # tools/cost обрабатываются в caller'е (cron_invoke + manual invoke),
+    # здесь только промпт.
+    try:
+        from server.agent_runner import module_skill_prompt_addon
+        skill_addon = module_skill_prompt_addon(slug, enabled_skills)
+        if skill_addon:
+            base_prompt += "\n\n═══ ВКЛЮЧЁННЫЕ СКИЛЫ (учитывай в ответе) ═══\n" + skill_addon
+    except Exception:
+        pass
 
     # Module-specific context: некоторые модули умеют дёргать внешний мир
     # перед LLM-вызовом (mail тянет inbox, finance — выписку из CSV кэша,

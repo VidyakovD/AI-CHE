@@ -2007,6 +2007,11 @@ class AgentModule(Base):
     interaction_count = Column(Integer, default=0)                  # для прокачки L→L+1
     module_memory_json   = Column(Text, nullable=True)              # выученные правила
     custom_settings_json = Column(Text, nullable=True)              # параметры юзера
+    # Включённые опциональные скилы модуля (Итерация 4, ТЗ раздел 5.4).
+    # CSV-список skill_slug'ов из AGENT_REGISTRY[module_slug]['skills']. Каждый
+    # включённый скил добавляет свою price_delta_kop к стоимости invoke_module
+    # и расширяет allowed_tools модуля.
+    enabled_skills  = Column(Text, nullable=True)
     # cron-расписание этого модуля (опц.) — если задано, scheduler-cron его запустит
     schedule_cron   = Column(String, nullable=True)
     # Последний раз cron-runtime триггерил этот модуль (отдельно от last_used_at,

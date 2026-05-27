@@ -226,6 +226,8 @@ def _agent_dict(a: Agent, *, with_modules_count: bool = False, db: Session | Non
 
 def _module_dict(m: AgentModule, *, with_meta: bool = False) -> dict:
     """Карточка модуля. with_meta=True — добавляет описание из AGENT_REGISTRY."""
+    from server.agent_runner import enabled_skills_list
+    enabled = enabled_skills_list(getattr(m, "enabled_skills", None))
     out = {
         "id": m.id,
         "slug": m.slug,
@@ -237,6 +239,7 @@ def _module_dict(m: AgentModule, *, with_meta: bool = False) -> dict:
         "memory": _safe_json(m.module_memory_json, {}),
         "connected_at": m.connected_at.isoformat() if m.connected_at else None,
         "last_used_at": m.last_used_at.isoformat() if m.last_used_at else None,
+        "enabled_skills": enabled,
     }
     if with_meta:
         try:
@@ -244,9 +247,20 @@ def _module_dict(m: AgentModule, *, with_meta: bool = False) -> dict:
             meta = AGENT_REGISTRY.get(m.slug, {})
             out["name"] = meta.get("name", m.slug)
             out["description"] = meta.get("description", "")
+            # Каталог доступных скилов для UI (имя/описание/цена)
+            out["available_skills"] = [
+                {
+                    "slug": s.get("slug"),
+                    "name": s.get("name"),
+                    "description": s.get("description"),
+                    "price_delta_kop": int(s.get("price_delta_kop") or 0),
+                }
+                for s in (meta.get("skills") or [])
+            ]
         except Exception:
             out["name"] = m.slug
             out["description"] = ""
+            out["available_skills"] = []
     return out
 
 
@@ -501,8 +515,12 @@ def send_message(payload: SendMessagePayload,
         slug = invoke_request.get("slug")
         task = invoke_request.get("task", "")
         target_mod = next((m for m in modules if m.slug == slug), None)
-        # Pre-check баланса для invoke_module — если недостаточно, не делегируем
-        module_cost = get_price("agents.module_invoke", default=100)
+        # Pre-check баланса для invoke_module — если недостаточно, не делегируем.
+        # Базовая цена + дельта за включённые скилы (Итерация 4).
+        from server.agent_runner import module_skill_cost_kop
+        base_cost = get_price("agents.module_invoke", default=100)
+        skill_cost = module_skill_cost_kop(slug, target_mod.enabled_skills) if target_mod else 0
+        module_cost = base_cost + skill_cost
         if target_mod and target_mod.is_enabled and module_cost > 0 \
                 and int(user.tokens_balance or 0) < module_cost:
             # Молча скипаем invoke — Че уже ответил коротким ack, скажем юзеру
@@ -523,6 +541,7 @@ def send_message(payload: SendMessagePayload,
                     module_memory=mod_memory,
                     custom_settings=mod_settings,
                     user_id=user.id,
+                    enabled_skills=target_mod.enabled_skills,
                 )
                 # Создаём отдельное сообщение от модуля
                 level_up = False
@@ -720,6 +739,7 @@ class PatchModulePayload(BaseModel):
     is_enabled: bool | None = None
     schedule_cron: str | None = None
     settings: dict | None = None
+    enabled_skills: list[str] | None = None
     # ВАЖНО: level НЕ принимаем от клиента — прокачка только через
     # compute_module_level (взаимодействия + заученное). L4-автономия —
     # отдельный явный endpoint (TODO когда понадобится).
@@ -750,6 +770,16 @@ def patch_module(slug: str, payload: PatchModulePayload,
         m.schedule_cron = payload.schedule_cron or None
     if payload.settings is not None:
         m.custom_settings_json = json.dumps(payload.settings, ensure_ascii=False)
+    if payload.enabled_skills is not None:
+        # Валидация: оставляем только те slug'и, которые реально есть в реестре
+        # для этого модуля. Защита от ввода произвольных строк через PATCH.
+        from server.agent_runner import get_module_skills
+        valid_slugs = {s.get("slug") for s in get_module_skills(m.slug)}
+        cleaned = [s.strip() for s in payload.enabled_skills if isinstance(s, str) and s.strip() in valid_slugs]
+        # Dedupe сохраняя порядок
+        seen: set[str] = set()
+        unique = [s for s in cleaned if not (s in seen or seen.add(s))]
+        m.enabled_skills = ",".join(unique) if unique else None
     db.commit(); db.refresh(m)
     return _module_dict(m, with_meta=True)
 
@@ -795,9 +825,17 @@ def invoke_module_now(slug: str,
         increment_module_interaction,
     )
 
-    module_cost = get_price("agents.module_invoke", default=100)
+    # Базовая цена + дельта за включённые скилы (Итерация 4)
+    from server.agent_runner import module_skill_cost_kop
+    base_cost = get_price("agents.module_invoke", default=100)
+    skill_cost = module_skill_cost_kop(slug, m.enabled_skills)
+    module_cost = base_cost + skill_cost
     if module_cost > 0 and int(user.tokens_balance or 0) < module_cost:
-        raise HTTPException(402, f"Недостаточно средств. Нужно {module_cost/100:.2f} ₽")
+        raise HTTPException(
+            402,
+            f"Недостаточно средств. Нужно {module_cost/100:.2f} ₽"
+            + (f" (включая скилы: +{skill_cost/100:.2f} ₽)" if skill_cost > 0 else "")
+        )
 
     profile = _safe_json(a.profile_json, {"facts": []})
     mod_memory = _safe_json(m.module_memory_json, {})
@@ -809,6 +847,7 @@ def invoke_module_now(slug: str,
             module_memory=mod_memory,
             custom_settings=settings,
             user_id=user.id,
+            enabled_skills=m.enabled_skills,
         )
     except Exception as e:
         log.exception(f"[agents.invoke_now] module {slug} failed: {e}")
@@ -1220,7 +1259,11 @@ async def fire_webhook(token: str, request: Request,
         invoke_module, apply_module_memory_updates, compute_module_level,
         increment_module_interaction,
     )
-    module_cost = get_price("agents.module_invoke", default=100)
+    # Базовая цена + дельта за включённые скилы (Итерация 4)
+    from server.agent_runner import module_skill_cost_kop
+    base_cost = get_price("agents.module_invoke", default=100)
+    skill_cost = module_skill_cost_kop(target.slug, target.enabled_skills)
+    module_cost = base_cost + skill_cost
     if module_cost > 0 and int(user.tokens_balance or 0) < module_cost:
         raise HTTPException(402, "Недостаточно средств на балансе агента")
 
@@ -1234,6 +1277,7 @@ async def fire_webhook(token: str, request: Request,
             module_memory=mod_memory,
             custom_settings=settings,
             user_id=user.id,
+            enabled_skills=target.enabled_skills,
         )
     except Exception as e:
         log.exception(f"[agents.webhook] {target.slug}: {e}")

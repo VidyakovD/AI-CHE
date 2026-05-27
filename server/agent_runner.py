@@ -70,6 +70,7 @@ def register_agent(
     system_prompt: str | None = None,
     allowed_tools: list[str] | None = None,
     handler=None,
+    skills: list[dict] | None = None,
 ) -> None:
     """Register a new agent type. Idempotent — safe to call on every import.
 
@@ -84,7 +85,36 @@ def register_agent(
                        If None, all tools are available.
         handler:       Optional custom async(task_id, goal, context, max_steps)->None.
                        If None, the standard ReAct loop is used with system_prompt.
+        skills:        Опциональные скилы модуля (Итерация 4). Список словарей вида:
+                       {"slug": "img_gen", "name": "Картинки к посту",
+                        "description": "Добавляет генерацию изображения",
+                        "price_delta_kop": 200,
+                        "tools": ["generate_image"],
+                        "prompt_addon": "Если уместно, сгенерируй картинку через generate_image."}
+                       Юзер включает скилы чекбоксами; за каждый платит price_delta_kop
+                       сверх базовой цены invoke_module. tools мерджатся в whitelist,
+                       prompt_addon подмешивается в system_prompt модуля.
     """
+    # Валидация skills: уникальные slug'и, корректные поля.
+    norm_skills: list[dict] = []
+    if skills:
+        seen_slugs: set[str] = set()
+        for s in skills:
+            if not isinstance(s, dict):
+                continue
+            slug = (s.get("slug") or "").strip()
+            if not slug or slug in seen_slugs:
+                continue
+            seen_slugs.add(slug)
+            norm_skills.append({
+                "slug":             slug,
+                "name":             s.get("name") or slug,
+                "description":      s.get("description") or "",
+                "price_delta_kop":  int(s.get("price_delta_kop") or 0),
+                "tools":            list(s.get("tools") or []),
+                "prompt_addon":     s.get("prompt_addon") or "",
+            })
+
     AGENT_REGISTRY[agent_id] = {
         "id":            agent_id,
         "name":          name,
@@ -93,8 +123,68 @@ def register_agent(
         "system_prompt": system_prompt,
         "allowed_tools": allowed_tools,
         "handler":       handler,
+        "skills":        norm_skills,
     }
     log.info(f"[Registry] Registered: {agent_id} — {name}")
+
+
+def get_module_skills(slug: str) -> list[dict]:
+    """Список скилов из реестра. Пустой если модуля нет или скилы не заданы."""
+    meta = AGENT_REGISTRY.get(slug) or {}
+    return list(meta.get("skills") or [])
+
+
+def skill_by_slug(module_slug: str, skill_slug: str) -> dict | None:
+    """Найти скил в реестре по (module_slug, skill_slug)."""
+    for s in get_module_skills(module_slug):
+        if s.get("slug") == skill_slug:
+            return s
+    return None
+
+
+def enabled_skills_list(enabled_csv: str | None) -> list[str]:
+    """Разбор CSV-поля enabled_skills → список slug'ов."""
+    if not enabled_csv:
+        return []
+    return [s.strip() for s in enabled_csv.split(",") if s.strip()]
+
+
+def module_skill_cost_kop(module_slug: str, enabled_csv: str | None) -> int:
+    """Сумма price_delta_kop по включённым скилам модуля (для invoke pre-check)."""
+    enabled = set(enabled_skills_list(enabled_csv))
+    if not enabled:
+        return 0
+    return sum(
+        int(s.get("price_delta_kop") or 0)
+        for s in get_module_skills(module_slug)
+        if s.get("slug") in enabled
+    )
+
+
+def module_skill_tools(module_slug: str, enabled_csv: str | None) -> list[str]:
+    """Дополнительные tools от включённых скилов (мерджить с allowed_tools модуля)."""
+    enabled = set(enabled_skills_list(enabled_csv))
+    if not enabled:
+        return []
+    out: list[str] = []
+    for s in get_module_skills(module_slug):
+        if s.get("slug") in enabled:
+            out.extend(s.get("tools") or [])
+    # dedupe сохраняя порядок
+    seen: set[str] = set()
+    return [t for t in out if not (t in seen or seen.add(t))]
+
+
+def module_skill_prompt_addon(module_slug: str, enabled_csv: str | None) -> str:
+    """Конкатенация prompt_addon включённых скилов для подмешивания в system_prompt."""
+    enabled = set(enabled_skills_list(enabled_csv))
+    if not enabled:
+        return ""
+    parts: list[str] = []
+    for s in get_module_skills(module_slug):
+        if s.get("slug") in enabled and s.get("prompt_addon"):
+            parts.append(f"[Скил: {s.get('name')}] {s['prompt_addon']}")
+    return "\n".join(parts)
 
 
 def unregister_agent(agent_id: str) -> None:

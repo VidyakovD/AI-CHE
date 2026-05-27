@@ -243,6 +243,7 @@ def process_message(db: Session, user, text: str) -> dict:
                     module_memory=mod_memory,
                     custom_settings=mod_settings,
                     user_id=user.id,
+                    enabled_skills=target_mod.enabled_skills,
                 )
                 level_up = False
                 if inv.get("ok"):

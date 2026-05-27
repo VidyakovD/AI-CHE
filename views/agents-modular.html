@@ -319,6 +319,12 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
       <button class="btn-g" id="schedRunNowBtn" style="white-space:nowrap">▶ Запустить сейчас</button>
     </div>
 
+    <!-- Skills — опциональные навыки модуля с доплатой -->
+    <div id="schedSkillsBox" style="border-top:1px solid rgba(74,63,47,0.4);margin-top:10px;padding-top:10px;display:none">
+      <div class="text-xs text-on-dim mb-2">⚡ <b>Дополнительные скилы</b> — расширяют возможности модуля. Каждый включённый скил доплачивается сверх базовой цены вызова.</div>
+      <div id="schedSkillsList"></div>
+    </div>
+
     <!-- Webhook trigger — внешний URL чтобы дёрнуть модуль из CRM / Zapier -->
     <div style="border-top:1px solid rgba(74,63,47,0.4);margin-top:10px;padding-top:10px">
       <div class="text-xs text-on-dim mb-2">📨 <b>Webhook-триггер</b> — дёргать модуль по URL из CRM / Zapier / webhook'ов.</div>
@@ -804,6 +810,22 @@ function _memoryBlock(m){
     html += `<div class="mem-stats">
       <button class="btn-g" style="font-size:11px" data-cron-btn="${_esc(m.slug)}">⏰ настроить расписание</button>
     </div>`;
+  }
+  // Включённые скилы (Итерация 4) — компактное превью
+  const enabledSkills = m.enabled_skills || [];
+  const availableSkills = m.available_skills || [];
+  if(availableSkills.length){
+    if(enabledSkills.length){
+      const skillNames = availableSkills
+        .filter(s => enabledSkills.includes(s.slug))
+        .map(s => `<span style="display:inline-block;background:rgba(123,217,104,0.15);color:#7bd968;padding:2px 8px;border-radius:12px;font-size:11px;margin:2px 4px 2px 0">${_esc(s.name||s.slug)}</span>`)
+        .join('');
+      html += `<div class="mem-stats">⚡ Скилы (${enabledSkills.length}): ${skillNames}</div>`;
+    } else {
+      html += `<div class="mem-stats" style="opacity:.75">
+        ⚡ ${availableSkills.length} доступных скилов — настрой в расписании
+      </div>`;
+    }
   }
   html += `<div class="mem-stats">Использован ${interactions} раз${_pluralRu(interactions, '', 'а', 'раз')}</div>`;
   div.innerHTML = html;
@@ -2178,10 +2200,47 @@ function openScheduleModal(slug){
       document.getElementById('schedCron').value = btn.dataset.cron;
     });
   });
+  // Skills (Итерация 4): чекбоксы доступных скилов
+  _renderSkills(m);
   // Webhook: рендерим состояние (есть токен или нет)
   const existing_token = (m.settings && m.settings.webhook_token) || null;
   _renderSchedWebhook(existing_token);
   document.getElementById('scheduleModal').classList.add('show');
+}
+
+function _renderSkills(m){
+  const box = document.getElementById('schedSkillsBox');
+  const list = document.getElementById('schedSkillsList');
+  const skills = (m && m.available_skills) || [];
+  if(!skills.length){
+    box.style.display = 'none';
+    list.innerHTML = '';
+    return;
+  }
+  box.style.display = 'block';
+  const enabled = new Set(m.enabled_skills || []);
+  list.innerHTML = skills.map(s => {
+    const price = (s.price_delta_kop || 0) / 100;
+    const priceTxt = price > 0 ? `+${price.toFixed(2)} ₽` : 'бесплатно';
+    const checked = enabled.has(s.slug) ? 'checked' : '';
+    return `
+      <label style="display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border:1px solid rgba(74,63,47,0.3);border-radius:8px;margin-bottom:6px;cursor:pointer">
+        <input type="checkbox" class="skill-cb" data-slug="${_esc(s.slug)}" ${checked}
+               style="margin-top:4px;width:16px;height:16px;cursor:pointer">
+        <div style="flex:1">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <span style="font-weight:600">${_esc(s.name||s.slug)}</span>
+            <span style="font-size:11px;color:${price>0?'#ffb347':'#7bd968'};white-space:nowrap">${priceTxt}/вызов</span>
+          </div>
+          <div class="text-xs text-on-dim" style="margin-top:2px">${_esc(s.description||'')}</div>
+        </div>
+      </label>`;
+  }).join('');
+}
+
+function _getEnabledSkills(){
+  const cbs = document.querySelectorAll('#schedSkillsList .skill-cb');
+  return Array.from(cbs).filter(cb => cb.checked).map(cb => cb.dataset.slug);
 }
 
 function closeScheduleModal(){
@@ -2212,11 +2271,12 @@ document.getElementById('schedSaveBtn').addEventListener('click', async () => {
   const settings = Object.assign({}, (m && m.settings) || {});
   if(task) settings.cron_task = task;
   else delete settings.cron_task;
+  const enabled_skills = _getEnabledSkills();
   try{
     const r = await fetch(`${API}/api/agents/me/modules/${encodeURIComponent(_schedSlug)}`, {
       method:'PATCH', credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({schedule_cron: cron || null, settings}),
+      body: JSON.stringify({schedule_cron: cron || null, settings, enabled_skills}),
     });
     if(!r.ok){
       const d = await r.json().catch(()=>({}));

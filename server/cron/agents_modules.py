@@ -197,8 +197,11 @@ async def _agents_modules_cron_tick():
                       .filter(AgentModule.is_enabled.is_(True))
                       .filter(AgentModule.schedule_cron.isnot(None))
                       .all())
-            module_cost = get_price("agents.module_invoke", default=100)
+            base_module_cost = get_price("agents.module_invoke", default=100)
+            from server.agent_runner import module_skill_cost_kop
             for m in mods:
+                # Скилы могут добавлять к цене вызова (Итерация 4).
+                module_cost = base_module_cost + module_skill_cost_kop(m.slug, m.enabled_skills)
                 cron = (m.schedule_cron or "").strip()
                 if not cron:
                     continue
@@ -252,6 +255,7 @@ async def _agents_modules_cron_tick():
                         module_memory=mod_memory,
                         custom_settings=settings,
                         user_id=user.id,
+                        enabled_skills=m.enabled_skills,
                     )
                 except Exception as e:
                     log.exception(f"[agents.cron] invoke failed: {e}")
