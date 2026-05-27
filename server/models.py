@@ -905,6 +905,66 @@ class SiteProject(Base):
     user = relationship("User", backref="site_projects")
 
 
+class SiteChatWidget(Base):
+    """Чат-виджет на опубликованном сайте.
+
+    Два режима (юзер выбирает в /sites.html при подключении):
+      - mode='relay': клиентские сообщения через сайт идут в личный TG/MAX
+        юзера, он отвечает сам как живой человек.
+      - mode='ai': подключён AI-агент с предобучением (FAQ, описание услуг,
+        стиль ответов). Каждое сообщение клиента вызывает LLM →
+        real_cost × ai.reply_margin_pct. Превью цены показывается юзеру.
+
+    Виджет встраивается в hosted сайт как float-button + плавающее окно чата.
+    Конкретно URL виджета: /sites/widget/{public_token}/embed.js — отдаёт
+    JS-код который пользователи сайта load'ят через <script src=...></script>.
+    """
+    __tablename__ = "site_chat_widgets"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    site_id         = Column(Integer, ForeignKey("site_projects.id", ondelete="CASCADE"),
+                              nullable=False, index=True, unique=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                              nullable=False, index=True)
+    mode            = Column(String, nullable=False)  # relay / ai
+    is_active       = Column(Boolean, default=True)
+    # Конфигурация:
+    #   - для relay: {tg_chat_id, max_user_id, welcome_text, hours}
+    #   - для ai:    {welcome_text, system_prompt, faq, agent_module_slug}
+    config_json     = Column(Text, nullable=True)
+    # Связь с AgentModule если mode='ai' — слаг автоматически "site_chatbot_{id}"
+    # это позволяет юзеру видеть бота как модуль в ИИ-Агенте и редактировать.
+    agent_module_id = Column(Integer, ForeignKey("agent_modules.id", ondelete="SET NULL"),
+                              nullable=True, index=True)
+    # Статистика
+    total_messages  = Column(Integer, default=0)
+    last_message_at = Column(DateTime, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    site = relationship("SiteProject", backref="chat_widget")
+
+
+class SiteChatMessage(Base):
+    """Сообщение чата сайта (от посетителя или от ответчика — юзер/AI).
+
+    visitor_id — уникальный токен браузера посетителя (cookie/localStorage),
+    чтобы группировать диалоги. Без авторизации — мы не знаем кто это.
+    role='user' = посетитель, 'assistant' = ответ (юзер через TG-relay
+    или AI-агент), 'system' = служебные сообщения.
+    """
+    __tablename__ = "site_chat_messages"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    widget_id   = Column(Integer, ForeignKey("site_chat_widgets.id", ondelete="CASCADE"),
+                          nullable=False, index=True)
+    visitor_id  = Column(String, nullable=False, index=True)  # 16-char token
+    role        = Column(String, nullable=False)  # user / assistant / system
+    content     = Column(Text, nullable=False)
+    cost_kop    = Column(Integer, default=0)
+    created_at  = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class SiteCustomDomain(Base):
     """Кастомный домен юзера для опубликованного сайта.
 

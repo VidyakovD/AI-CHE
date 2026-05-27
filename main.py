@@ -23,6 +23,7 @@ from server.routes.solutions import router as solutions_router
 from server.routes.agents_v2 import router as agents_v2_router
 from server.routes.agents_modular import router as agents_modular_router
 from server.routes.sites import router as sites_router
+from server.routes.site_widget import router as site_widget_router
 from server.routes.presentations import router as presentations_router
 from server.routes.agent import router as agent_router, init_agent_queue
 import server.agents.registry  # noqa: F401 — registers all agent types on import
@@ -405,6 +406,7 @@ app.include_router(solutions_router)
 app.include_router(agents_v2_router)
 app.include_router(agents_modular_router)
 app.include_router(sites_router)
+app.include_router(site_widget_router)
 app.include_router(presentations_router)
 app.include_router(agent_router)
 app.include_router(user_apikeys_router)

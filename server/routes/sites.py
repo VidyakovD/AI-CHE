@@ -426,14 +426,59 @@ def _inject_chatbot_widget(html: str, bot_id: int, app_url: str) -> str:
     вставляем перед </html>; если и его нет — добавляем оба тега.
     """
     widget_tag = f'<script src="{app_url}/widget/{bot_id}.js" async></script>\n'
+    return _inject_before_body(html, widget_tag)
+
+
+def _inject_site_widget(html: str, public_token: str, app_url: str) -> str:
+    """Вставляет embed.js SiteChatWidget перед последним </body>."""
+    tag = f'<script async src="{app_url}/sites/widget/{public_token}/embed.js"></script>\n'
+    return _inject_before_body(html, tag)
+
+
+def _inject_before_body(html: str, tag: str) -> str:
+    """Безопасная инъекция тега перед последним </body> или </html>."""
     lower = html.lower()
     body_idx = lower.rfind("</body>")
     if body_idx >= 0:
-        return html[:body_idx] + widget_tag + html[body_idx:]
+        return html[:body_idx] + tag + html[body_idx:]
     html_idx = lower.rfind("</html>")
     if html_idx >= 0:
-        return html[:html_idx] + widget_tag + "</body>\n" + html[html_idx:]
-    return html + "\n" + widget_tag + "</body></html>\n"
+        return html[:html_idx] + tag + "</body>\n" + html[html_idx:]
+    return html + "\n" + tag + "</body></html>\n"
+
+
+def _rewrite_hosted_index_html(project_id: int, db) -> bool:
+    """Перезаписать /sites/hosted/{id}/index.html после изменений виджета.
+
+    Используется в site_widget.py POST/DELETE endpoints. Не падает если файл
+    не существует — просто возвращает False (юзер ещё не публиковал сайт).
+    """
+    try:
+        from server.models import SiteProject
+        p = db.query(SiteProject).filter_by(id=project_id).first()
+        if not p or not p.code_html:
+            return False
+        host_dir = os.path.join(_sites_host_base, str(project_id))
+        if not os.path.isdir(host_dir):
+            return False
+        final_html = p.code_html
+        app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+        if p.attached_bot_id:
+            from server.models import ChatBot
+            b = db.query(ChatBot).filter_by(id=p.attached_bot_id).first()
+            if b and b.widget_enabled:
+                final_html = _inject_chatbot_widget(final_html, b.id, app_url)
+        # SiteChatWidget — если активен
+        from server.models import SiteChatWidget
+        w = db.query(SiteChatWidget).filter_by(site_id=p.id, is_active=True).first()
+        if w and p.public_token:
+            final_html = _inject_site_widget(final_html, p.public_token, app_url)
+        with open(os.path.join(host_dir, "index.html"), "w", encoding="utf-8") as f:
+            f.write(final_html)
+        return True
+    except Exception as e:
+        log.warning(f"[hosted-rewrite] project={project_id}: {e}")
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -1544,16 +1589,24 @@ def site_project_host(project_id: int, db: Session = Depends(get_db),
     host_dir = os.path.join(_sites_host_base, str(project_id))
     os.makedirs(host_dir, exist_ok=True)
     final_html = p.code_html
+    app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
     if p.attached_bot_id:
         from server.models import ChatBot
         b = db.query(ChatBot).filter_by(id=p.attached_bot_id, user_id=user.id).first()
         if b and b.widget_enabled:
-            app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
             final_html = _inject_chatbot_widget(final_html, b.id, app_url)
+    # SiteChatWidget — если уже подключён
+    token = _ensure_public_token(p)
+    try:
+        from server.models import SiteChatWidget
+        w = db.query(SiteChatWidget).filter_by(site_id=p.id, is_active=True).first()
+        if w:
+            final_html = _inject_site_widget(final_html, token, app_url)
+    except Exception:
+        pass
     with open(os.path.join(host_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(final_html)
 
-    token = _ensure_public_token(p)
     p.hosted_path = f"/sites/hosted/{token}/"
     db.commit()
     return {"url": p.hosted_path, "status": "hosted",

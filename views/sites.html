@@ -465,6 +465,79 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <button id="customDomainBtn" type="button" onclick="openCustomDomainsModal()" class="hidden btn-yellow text-sm">
         🌐 Свой домен
       </button>
+      <button id="widgetBtn" type="button" onclick="openWidgetModal()" class="hidden btn-yellow text-sm">
+        💬 Чат на сайт
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Site Chat Widget modal -->
+<div id="widgetModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeWidgetModal()">
+  <div class="bg-surface border border-outline/30 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-lg font-bold">💬 Чат-бот на сайт</h3>
+      <button onclick="closeWidgetModal()" class="btn-g text-sm">✕</button>
+    </div>
+    <p class="text-xs text-on-dim mb-4">
+      Плавающая кнопка чата в правом нижнем углу твоего опубликованного сайта.
+      Посетители пишут — ты выбираешь как они получат ответ.
+    </p>
+
+    <!-- Tabs: 2 режима -->
+    <div class="flex gap-2 mb-4">
+      <button id="wmTabRelay" class="btn-g text-sm flex-1" onclick="setWidgetMode('relay')">📨 Я отвечу сам (в TG)</button>
+      <button id="wmTabAi" class="btn-g text-sm flex-1" onclick="setWidgetMode('ai')">🤖 AI с предобучением</button>
+    </div>
+
+    <!-- Общие поля -->
+    <label class="block text-xs text-on-dim mb-1">Имя в чате (что видит посетитель)</label>
+    <input id="wmName" class="inp mb-3" placeholder="Менеджер Алина" maxlength="80"/>
+
+    <label class="block text-xs text-on-dim mb-1">Приветственное сообщение</label>
+    <textarea id="wmWelcome" class="inp mb-3" rows="2" maxlength="500"
+              placeholder="Здравствуйте! Чем могу помочь?"></textarea>
+
+    <!-- RELAY поля -->
+    <div id="wmRelayBlock" class="hidden">
+      <label class="block text-xs text-on-dim mb-1">TG chat_id (куда пересылать) <a href="https://t.me/userinfobot" target="_blank" class="text-primary">узнать →</a></label>
+      <input id="wmTgChatId" class="inp mb-3" placeholder="например 123456789" maxlength="50"/>
+      <label class="block text-xs text-on-dim mb-1">Рабочие часы (информационно)</label>
+      <input id="wmHours" class="inp mb-3" placeholder="9-21 МСК, кроме воскресенья" maxlength="80"/>
+      <p class="text-xs text-on-dim mb-3">
+        💡 Каждое сообщение посетителя придёт в твой Telegram через подключённого
+        в /agents-modular «своего бота». Если бот не подключён — настрой его сначала.
+      </p>
+    </div>
+
+    <!-- AI поля -->
+    <div id="wmAiBlock" class="hidden">
+      <label class="block text-xs text-on-dim mb-1">Роль бота (system prompt)</label>
+      <textarea id="wmPrompt" class="inp mb-3" rows="4" maxlength="4000"
+                placeholder="Ты менеджер кофейни «Луч». Отвечай тёплым тоном. Главная цель — записать посетителя на дегустацию (форма /booking) или дать координаты доставки."></textarea>
+      <label class="block text-xs text-on-dim mb-1">FAQ / база знаний (опц.)</label>
+      <textarea id="wmFaq" class="inp mb-3" rows="4" maxlength="8000"
+                placeholder="Q: Адрес кофейни? A: Москва, ул. Тверская 12, 2 этаж.&#10;Q: Время работы? A: пн-пт 9-22, сб-вс 10-23..."></textarea>
+      <p class="text-xs text-on-dim mb-3">
+        💸 <b>Тариф</b>: реальная стоимость токенов LLM × 3 (Claude Haiku ≈ 0.5 ₽ за короткий
+        ответ, до 3-5 ₽ за развёрнутый). Минимум 0.5 ₽ за сообщение. Списывается с твоего баланса.
+      </p>
+    </div>
+
+    <div class="flex justify-between items-center">
+      <button id="wmDisableBtn" type="button" class="btn-g text-sm hidden" onclick="disableWidget()">🗑 Отключить</button>
+      <div class="flex gap-2 ml-auto">
+        <button class="btn-g text-sm" onclick="closeWidgetModal()">Отмена</button>
+        <button class="btn-p text-sm" onclick="saveWidget()">Сохранить</button>
+      </div>
+    </div>
+
+    <!-- Embed snippet (после сохранения) -->
+    <div id="wmEmbedBox" class="hidden mt-4 p-3 bg-surface2 rounded-lg">
+      <div class="text-xs text-on-dim mb-1">📋 Виджет уже встроен в твой опубликованный сайт автоматически.
+        Если хочешь вставить на другую страницу:</div>
+      <pre id="wmEmbedCode" class="text-xs bg-black/40 p-2 rounded overflow-x-auto" style="white-space:pre-wrap;word-break:break-all"></pre>
+      <button class="btn-g text-xs mt-2" onclick="copyEmbedCode()">📋 Скопировать</button>
     </div>
   </div>
 </div>
@@ -1423,15 +1496,18 @@ function updateDoneBottomBar(){
   bar.classList.remove('hidden');
 
   const cdBtn = document.getElementById('customDomainBtn');
+  const wgBtn = document.getElementById('widgetBtn');
   if(currentProject.hosted_path){
     const urlWrap = document.getElementById('hostedUrl');
     urlWrap.classList.remove('hidden');
     document.getElementById('hostedLink').href = API + currentProject.hosted_path;
     document.getElementById('hostedLink').textContent = API + currentProject.hosted_path;
     if(cdBtn) cdBtn.classList.remove('hidden');
+    if(wgBtn) wgBtn.classList.remove('hidden');
   } else {
     document.getElementById('hostedUrl').classList.add('hidden');
     if(cdBtn) cdBtn.classList.add('hidden');
+    if(wgBtn) wgBtn.classList.add('hidden');
   }
   // Загружаем список ботов с включённым виджетом и подсвечиваем текущий выбор
   populateAttachBotSelect();
@@ -1558,6 +1634,125 @@ async function verifyDomain(domainId){
     await loadCustomDomains();
   }catch(e){
     if(window.aiAlert) await window.aiAlert('Не удалось проверить: '+e.message, 'error');
+  }
+}
+
+// ── Site Chat Widget ──────────────────────────────────────────────────────
+let _wmMode = 'ai';
+
+function setWidgetMode(mode){
+  _wmMode = mode;
+  document.getElementById('wmTabRelay').classList.toggle('btn-p', mode==='relay');
+  document.getElementById('wmTabAi').classList.toggle('btn-p', mode==='ai');
+  document.getElementById('wmRelayBlock').classList.toggle('hidden', mode!=='relay');
+  document.getElementById('wmAiBlock').classList.toggle('hidden', mode!=='ai');
+}
+
+async function openWidgetModal(){
+  if(!currentProject || !currentProject.id) return;
+  document.getElementById('widgetModal').classList.remove('hidden');
+  document.getElementById('wmEmbedBox').classList.add('hidden');
+  document.getElementById('wmDisableBtn').classList.add('hidden');
+  // Загружаем текущее состояние
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProject.id}/widget`,
+                          {credentials:'same-origin'});
+    if(r.ok){
+      const d = await r.json();
+      if(d.widget){
+        const w = d.widget;
+        setWidgetMode(w.mode || 'ai');
+        document.getElementById('wmName').value = w.config.name || '';
+        document.getElementById('wmWelcome').value = w.config.welcome_text || '';
+        document.getElementById('wmTgChatId').value = w.config.tg_chat_id || '';
+        document.getElementById('wmHours').value = w.config.hours || '';
+        document.getElementById('wmPrompt').value = w.config.system_prompt || '';
+        document.getElementById('wmFaq').value = w.config.faq || '';
+        showEmbedCode();
+        document.getElementById('wmDisableBtn').classList.remove('hidden');
+        return;
+      }
+    }
+  }catch(e){ /* fall through to defaults */ }
+  setWidgetMode('ai');
+  document.getElementById('wmName').value = '';
+  document.getElementById('wmWelcome').value = '';
+  document.getElementById('wmTgChatId').value = '';
+  document.getElementById('wmHours').value = '';
+  document.getElementById('wmPrompt').value = '';
+  document.getElementById('wmFaq').value = '';
+}
+
+function closeWidgetModal(){
+  document.getElementById('widgetModal').classList.add('hidden');
+}
+
+function showEmbedCode(){
+  const tok = currentProject && currentProject.public_token;
+  if(!tok) return;
+  const origin = window.location.origin;
+  const code = `<script async src="${origin}/sites/widget/${tok}/embed.js"></` + `script>`;
+  document.getElementById('wmEmbedCode').textContent = code;
+  document.getElementById('wmEmbedBox').classList.remove('hidden');
+}
+
+function copyEmbedCode(){
+  const code = document.getElementById('wmEmbedCode').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    if(window.aiAlert) aiAlert('Скопировано', 'success');
+  });
+}
+
+async function saveWidget(){
+  const payload = {
+    mode: _wmMode,
+    name: document.getElementById('wmName').value.trim(),
+    welcome_text: document.getElementById('wmWelcome').value.trim(),
+  };
+  if(_wmMode === 'relay'){
+    payload.tg_chat_id = document.getElementById('wmTgChatId').value.trim();
+    payload.hours = document.getElementById('wmHours').value.trim();
+    if(!payload.tg_chat_id){
+      if(window.aiAlert) await aiAlert('Укажи TG chat_id куда пересылать сообщения посетителей.', 'warn');
+      return;
+    }
+  } else {
+    payload.system_prompt = document.getElementById('wmPrompt').value.trim();
+    payload.faq = document.getElementById('wmFaq').value.trim();
+    if(!payload.system_prompt){
+      if(window.aiAlert) await aiAlert('Укажи роль бота (system prompt).', 'warn');
+      return;
+    }
+  }
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProject.id}/widget`, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    if(window.aiAlert) await aiAlert('✓ Виджет сохранён. Открой свой опубликованный сайт — увидишь чат в правом нижнем углу.', 'success');
+    showEmbedCode();
+    document.getElementById('wmDisableBtn').classList.remove('hidden');
+  }catch(e){
+    if(window.aiAlert) await aiAlert('Ошибка: '+e.message, 'error');
+  }
+}
+
+async function disableWidget(){
+  const ok = window.aiConfirm
+    ? await aiConfirm('Отключить чат-виджет на сайте? Диалоги сохранятся, виджет просто перестанет показываться.', 'warn')
+    : confirm('Отключить виджет?');
+  if(!ok) return;
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProject.id}/widget`,
+                          {method:'DELETE', credentials:'same-origin'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    closeWidgetModal();
+    if(window.aiAlert) await aiAlert('Виджет отключён.', 'success');
+  }catch(e){
+    if(window.aiAlert) await aiAlert('Ошибка: '+e.message, 'error');
   }
 }
 
