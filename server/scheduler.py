@@ -372,3 +372,6 @@ def start_scheduler():
     asyncio.create_task(agents_modules_cron_loop())
     asyncio.create_task(proposals_followup_loop())
     asyncio.create_task(creators_metrics_loop())
+    # Пересчёт цен моделей: USD × курс ЦБ × ×3 (раз в сутки).
+    from server.cron.recalc_pricing import recalc_pricing_loop
+    asyncio.create_task(recalc_pricing_loop())

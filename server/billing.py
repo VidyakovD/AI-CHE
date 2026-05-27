@@ -40,6 +40,44 @@ def _maybe_send_low_balance_alert(db: Session, user_id: int):
         log.warning(f"low_balance_alert failed for user {user_id}: {e}")
 
 
+def deduct_with_accumulator(db: Session, user_id: int, cost_kop: float) -> int:
+    """Списать с учётом дробных копеек через UserCostAccumulator.
+
+    Цены теперь динамические (USD × курс × ×3) — могут быть дробными копейками
+    (например 0.0042 коп/1k токенов). Без accumulator короткие запросы дают
+    cost < 1 коп и округляются до 0 = бесплатно. С accumulator дробные части
+    копятся между запросами, при достижении 1+ коп переносятся в основной баланс.
+
+    Returns: integer kop фактически списанное в этом вызове.
+    """
+    if cost_kop <= 0 or not user_id:
+        return 0
+    from server.models import UserCostAccumulator
+    acc = db.query(UserCostAccumulator).filter_by(user_id=user_id).first()
+    if not acc:
+        acc = UserCostAccumulator(user_id=user_id, fractional_kop=0.0)
+        db.add(acc); db.flush()
+    # Добавляем новую стоимость к накопленному остатку
+    total = float(acc.fractional_kop or 0.0) + float(cost_kop)
+    # Сколько целых копеек переносим в основной баланс
+    whole = int(total)  # int обрезает дробную часть (floor для положительных)
+    new_frac = total - whole
+    # Защита от FP-погрешностей
+    if new_frac < 0:
+        new_frac = 0.0
+    if new_frac >= 1.0:
+        whole += 1
+        new_frac -= 1.0
+    acc.fractional_kop = new_frac
+    if whole > 0:
+        charged = deduct_atomic(db, user_id, whole)
+        # Если списали меньше чем хотели (не хватило баланса) — откатим acc?
+        # Нет: непогашенный долг просто не списывается, акк остаётся.
+        # Если у юзера 0 на счету и frac выросло — он не списан, дробь копится.
+        return charged
+    return 0
+
+
 def deduct_atomic(db: Session, user_id: int, cost: int) -> int:
     """
     Атомарно списывает min(balance, cost). Возвращает фактически списанное.

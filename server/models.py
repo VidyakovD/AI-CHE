@@ -762,6 +762,31 @@ class ModelPricing(Base):
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class UserCostAccumulator(Base):
+    """Накопитель дробных копеек юзера.
+
+    Цены моделей теперь = real_USD × курс × ×3, что даёт дробные копейки
+    (например 0.0042 коп/1k токенов). Минимум списания в БД — 1 коп
+    (Integer). Чтобы не терять микро-стоимости коротких запросов, дробная
+    часть копится здесь и при накоплении ≥ 1 коп переносится в основной
+    баланс.
+
+    Пример:
+      - Запрос 1: real cost = 0.6 коп → списываем 0 коп, acc=0.6
+      - Запрос 2: real cost = 0.7 коп → списываем 1 коп, acc=0.3 (0.6+0.7=1.3)
+      - Запрос 3: real cost = 0.8 коп → списываем 1 коп, acc=0.1
+
+    Каждый юзер — одна строка (UNIQUE на user_id).
+    """
+    __tablename__ = "user_cost_accumulators"
+
+    id          = Column(Integer, primary_key=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                          nullable=False, unique=True, index=True)
+    fractional_kop = Column(Float, default=0.0)   # 0.0 ≤ x < 1.0
+    last_updated   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class UsageLog(Base):
     """Логирование каждого вызова AI для статистики."""
     __tablename__ = "usage_logs"

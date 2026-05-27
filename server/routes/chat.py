@@ -90,35 +90,43 @@ def _start_idempotency_sweeper():
 
 def calculate_cost(model_id: str, input_tokens: int, output_tokens: int,
                    db: Session, alt_model_id: str | None = None) -> int:
-    """Посчитать стоимость в копейках за реальное использование токенов.
-    Поля ModelPricing.ch_per_1k_* теперь хранят копейки/1k токенов.
+    """Backward-compat обёртка: возвращает int копеек (округление через accumulator
+    делается в caller). Для точной float-стоимости — calculate_cost_float()."""
+    cost_f = calculate_cost_float(model_id, input_tokens, output_tokens,
+                                    db, alt_model_id)
+    return max(int(round(cost_f)), 0)
+
+
+def calculate_cost_float(model_id: str, input_tokens: int, output_tokens: int,
+                         db: Session, alt_model_id: str | None = None) -> float:
+    """Точная стоимость в копейках (float, может быть < 1).
+    Поля ModelPricing.ch_per_1k_* хранят коп/1k (после dynamic recalc — могут
+    быть дробными, например 0.0042). Округление до целых копеек — задача
+    accumulator-биллинга (server.billing.deduct_with_accumulator).
 
     alt_model_id: alias-имя (req.model вроде "perplexity") если основной
-    real_model ("sonar") не найден в ModelPricing. Защита от баги, когда
-    биллинг скатывался в фикс-цену TOKEN_COST 300 коп вместо per-token.
+    real_model ("sonar") не найден в ModelPricing.
     """
-    def _lookup(mid: str) -> int | None:
+    def _lookup(mid: str) -> float | None:
         if not mid:
             return None
         p = db.query(ModelPricing).filter_by(model_id=mid).first()
         if not p:
             return None
         if p.ch_per_1k_input > 0 or p.ch_per_1k_output > 0:
-            c = (input_tokens / 1000.0) * p.ch_per_1k_input + \
-                (output_tokens / 1000.0) * p.ch_per_1k_output
-            return max(int(round(c)), p.min_ch_per_req or 1)
+            c = (input_tokens / 1000.0) * float(p.ch_per_1k_input) + \
+                (output_tokens / 1000.0) * float(p.ch_per_1k_output)
+            return c
         if p.cost_per_req:
-            return p.cost_per_req
-        return None  # запись пустая — провалимся ниже
+            return float(p.cost_per_req)
+        return None
 
     cost = _lookup(model_id)
     if cost is None and alt_model_id and alt_model_id != model_id:
-        # Provider вернул real_model (sonar), а pricing записан под alias (perplexity).
-        # Без этого fallback — TOKEN_COST даёт фикс 300 коп независимо от объёма.
         cost = _lookup(alt_model_id)
     if cost is not None:
         return cost
-    return get_token_cost(model_id)
+    return float(get_token_cost(model_id))
 
 log = logging.getLogger(__name__)
 
@@ -363,21 +371,30 @@ def send_message(req: MessageRequest,
             _idempotency_put(db, user.id, _idem_key, refunded)
         return refunded
 
-    cost = calculate_cost(cost_model, input_tokens, output_tokens, db,
-                          alt_model_id=req.model)
+    # Точная float-стоимость (поддерживает дробные копейки), accumulator
+    # переносит остатки между запросами. Например при цене 0.0042 коп/1k и
+    # 100 токенах — cost=0.00042 коп, не теряется, копится до 1 коп.
+    cost_float = calculate_cost_float(cost_model, input_tokens, output_tokens,
+                                       db, alt_model_id=req.model)
+    cost = int(round(cost_float))  # для отображения и audit log
 
-    # Атомарное списание (защита от race condition при параллельных запросах)
-    if cost > 0:
-        charged = deduct_atomic(db, user.id, cost)
-        desc = f"{req.model}: {input_tokens}→{output_tokens} ток. ({charged/100:.2f} ₽)"
-        if charged < cost:
-            desc += f" (списано {charged/100:.2f}/{cost/100:.2f} ₽)"
-        db.add(Transaction(user_id=user.id, type="usage", tokens_delta=-charged,
-                           description=desc, model=req.model))
-        db.add(UsageLog(user_id=user.id, model=real_model,
-                        input_tokens=input_tokens, output_tokens=output_tokens,
-                        cached_tokens=answer.get("cached_tokens", 0) if isinstance(answer, dict) else 0,
-                        ch_charged=charged))
+    # Атомарное списание через accumulator (защита от race condition).
+    if cost_float > 0:
+        from server.billing import deduct_with_accumulator
+        charged = deduct_with_accumulator(db, user.id, cost_float)
+        if charged > 0 or cost_float >= 0.005:  # пишем транзакцию даже на 0 коп если cost ощутимый
+            desc = f"{req.model}: {input_tokens}→{output_tokens} ток. ({cost_float/100:.4f} ₽)"
+            if charged > 0 and abs(charged - cost_float) > 0.5:
+                desc += f" (списано {charged/100:.2f} ₽)"
+            elif charged == 0:
+                desc += " (накоплено в аккаунте)"
+            db.add(Transaction(user_id=user.id, type="usage",
+                               tokens_delta=-charged,
+                               description=desc, model=req.model))
+            db.add(UsageLog(user_id=user.id, model=real_model,
+                            input_tokens=input_tokens, output_tokens=output_tokens,
+                            cached_tokens=answer.get("cached_tokens", 0) if isinstance(answer, dict) else 0,
+                            ch_charged=charged))
 
     db.add(Message(chat_id=req.chat_id, role="assistant", content=content,
                    model=req.model, user_id=user.id,
