@@ -899,6 +899,13 @@ class SiteProject(Base):
     gen_progress = Column(String, nullable=True)  # «Улучшаю ТЗ…» / «Claude думает (1/3)…» / «Готово»
     gen_error    = Column(Text, nullable=True)    # текст ошибки если failed
     enhanced_spec = Column(Text, nullable=True)   # обогащённое ТЗ из GPT-4o (для дебага)
+    # Платный хостинг (Шаг 5): юзер платит разово при первой публикации.
+    paid_hosting_at  = Column(DateTime, nullable=True)
+    paid_hosting_kop = Column(Integer, default=0)
+    # SEO meta — embed'ятся в hosted index.html
+    seo_title        = Column(String, nullable=True)
+    seo_description  = Column(String, nullable=True)
+    seo_og_image     = Column(String, nullable=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

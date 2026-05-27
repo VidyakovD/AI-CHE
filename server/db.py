@@ -252,6 +252,15 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # Каждый включённый скил добавляет price_delta_kop к стоимости invoke и
     # расширяет allowed_tools модуля. Список доступных — в AGENT_REGISTRY.
     ("agent_modules", "enabled_skills", "TEXT"),
+    # Платный хостинг (Шаг 5 продуктовых улучшений): юзер платит разово за
+    # публикацию своего сайта на нашем сервере. paid_hosting_at = когда
+    # списали, paid_hosting_kop = сколько (на случай изменения цены).
+    ("site_projects", "paid_hosting_at", "DATETIME"),
+    ("site_projects", "paid_hosting_kop", "INTEGER DEFAULT 0"),
+    # SEO meta (опц.): юзер задаёт через UI, embed в публикации.
+    ("site_projects", "seo_title", "VARCHAR"),
+    ("site_projects", "seo_description", "VARCHAR"),
+    ("site_projects", "seo_og_image", "VARCHAR"),
     # КП: конструктор шапки (4 стиля)
     ("proposal_projects", "header_layout", "VARCHAR DEFAULT 'classic'"),
     # Refresh-token rotation single-use: список активных jti (JSON).

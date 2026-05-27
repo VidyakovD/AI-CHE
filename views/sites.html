@@ -468,6 +468,42 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <button id="widgetBtn" type="button" onclick="openWidgetModal()" class="hidden btn-yellow text-sm">
         💬 Чат на сайт
       </button>
+      <button id="seoBtn" type="button" onclick="openSeoModal()" class="hidden btn-yellow text-sm">
+        🔎 SEO
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- SEO modal -->
+<div id="seoModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeSeoModal()">
+  <div class="bg-surface border border-outline/30 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-lg font-bold">🔎 SEO продвижение</h3>
+      <button onclick="closeSeoModal()" class="btn-g text-sm">✕</button>
+    </div>
+    <p class="text-xs text-on-dim mb-4">
+      Эти данные увидят Google/Yandex и соцсети при шаринге ссылки на твой сайт.
+      sitemap.xml и robots.txt создаются автоматически.
+    </p>
+
+    <label class="block text-xs text-on-dim mb-1">Title (заголовок страницы в выдаче, до 60 симв)</label>
+    <input id="seoTitle" class="inp mb-3" placeholder="Кофейня «Луч» — спешелти в центре Москвы" maxlength="200"/>
+
+    <label class="block text-xs text-on-dim mb-1">Description (описание в выдаче, до 160 симв)</label>
+    <textarea id="seoDescription" class="inp mb-3" rows="3" maxlength="500"
+              placeholder="Авторский кофе из 3 стран, домашняя выпечка, тёплая атмосфера. Открыты ежедневно 8-22."></textarea>
+
+    <label class="block text-xs text-on-dim mb-1">OG-картинка (1200×630, URL) — для шаринга в TG/VK/FB</label>
+    <input id="seoOgImage" class="inp mb-3" placeholder="https://aiche.ru/uploads/og-image.jpg" maxlength="500"/>
+    <p class="text-xs text-on-dim mb-3">
+      💡 Загрузи картинку через /sites.html → «Картинки» → скопируй URL сюда.
+      Эта картинка появится в превью когда ссылку на сайт шарят в мессенджерах.
+    </p>
+
+    <div class="flex justify-end gap-2">
+      <button class="btn-g text-sm" onclick="closeSeoModal()">Отмена</button>
+      <button class="btn-p text-sm" onclick="saveSeo()">Сохранить</button>
     </div>
   </div>
 </div>
@@ -1497,6 +1533,7 @@ function updateDoneBottomBar(){
 
   const cdBtn = document.getElementById('customDomainBtn');
   const wgBtn = document.getElementById('widgetBtn');
+  const seoBtn = document.getElementById('seoBtn');
   if(currentProject.hosted_path){
     const urlWrap = document.getElementById('hostedUrl');
     urlWrap.classList.remove('hidden');
@@ -1504,10 +1541,12 @@ function updateDoneBottomBar(){
     document.getElementById('hostedLink').textContent = API + currentProject.hosted_path;
     if(cdBtn) cdBtn.classList.remove('hidden');
     if(wgBtn) wgBtn.classList.remove('hidden');
+    if(seoBtn) seoBtn.classList.remove('hidden');
   } else {
     document.getElementById('hostedUrl').classList.add('hidden');
     if(cdBtn) cdBtn.classList.add('hidden');
     if(wgBtn) wgBtn.classList.add('hidden');
+    if(seoBtn) seoBtn.classList.add('hidden');
   }
   // Загружаем список ботов с включённым виджетом и подсвечиваем текущий выбор
   populateAttachBotSelect();
@@ -1634,6 +1673,47 @@ async function verifyDomain(domainId){
     await loadCustomDomains();
   }catch(e){
     if(window.aiAlert) await window.aiAlert('Не удалось проверить: '+e.message, 'error');
+  }
+}
+
+// ── SEO modal ─────────────────────────────────────────────────────────────
+async function openSeoModal(){
+  if(!currentProject || !currentProject.id) return;
+  document.getElementById('seoModal').classList.remove('hidden');
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProject.id}/seo`,
+                          {credentials:'same-origin'});
+    if(r.ok){
+      const d = await r.json();
+      document.getElementById('seoTitle').value = d.title || '';
+      document.getElementById('seoDescription').value = d.description || '';
+      document.getElementById('seoOgImage').value = d.og_image || '';
+    }
+  }catch(e){ /* defaults */ }
+}
+function closeSeoModal(){
+  document.getElementById('seoModal').classList.add('hidden');
+}
+async function saveSeo(){
+  const payload = {
+    title: document.getElementById('seoTitle').value.trim(),
+    description: document.getElementById('seoDescription').value.trim(),
+    og_image: document.getElementById('seoOgImage').value.trim(),
+  };
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProject.id}/seo`, {
+      method:'PUT', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || ('HTTP '+r.status));
+    }
+    closeSeoModal();
+    if(window.aiAlert) await aiAlert('✓ SEO сохранено. Изменения применятся к опубликованному сайту автоматически.', 'success');
+  }catch(e){
+    if(window.aiAlert) await aiAlert('Ошибка: '+e.message, 'error');
   }
 }
 

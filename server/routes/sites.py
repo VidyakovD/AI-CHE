@@ -447,6 +447,83 @@ def _inject_before_body(html: str, tag: str) -> str:
     return html + "\n" + tag + "</body></html>\n"
 
 
+def _inject_seo_meta(html: str, project, app_url: str) -> str:
+    """Вставляет meta description / og:* / title-override в <head>.
+
+    Только если юзер задал seo_title / seo_description / seo_og_image
+    в /sites/projects/{id}/seo. Без них — AI-сгенерированный HTML уже содержит
+    свой <title>, не трогаем.
+    """
+    if not project:
+        return html
+    fragments: list[str] = []
+    title = (getattr(project, "seo_title", "") or "").strip()
+    desc = (getattr(project, "seo_description", "") or "").strip()
+    og_image = (getattr(project, "seo_og_image", "") or "").strip()
+    public_url = f"{app_url}/sites/hosted/{project.public_token}/" if project.public_token else app_url
+    if title:
+        # Заменим существующий <title> если есть, иначе вставим новый
+        import re as _re
+        if _re.search(r"<title>[^<]*</title>", html, _re.IGNORECASE):
+            html = _re.sub(r"<title>[^<]*</title>",
+                            f"<title>{_html_escape(title)}</title>",
+                            html, count=1, flags=_re.IGNORECASE)
+        else:
+            fragments.append(f'<title>{_html_escape(title)}</title>')
+        fragments.append(f'<meta property="og:title" content="{_html_escape(title)}"/>')
+    if desc:
+        fragments.append(f'<meta name="description" content="{_html_escape(desc)}"/>')
+        fragments.append(f'<meta property="og:description" content="{_html_escape(desc)}"/>')
+    fragments.append(f'<meta property="og:url" content="{_html_escape(public_url)}"/>')
+    fragments.append('<meta property="og:type" content="website"/>')
+    if og_image:
+        img = og_image if og_image.startswith(("http://", "https://")) else (app_url + og_image)
+        fragments.append(f'<meta property="og:image" content="{_html_escape(img)}"/>')
+        fragments.append(f'<meta name="twitter:card" content="summary_large_image"/>')
+    if not fragments:
+        return html
+    tag_block = "\n  ".join(fragments) + "\n"
+    # Вставляем перед </head>
+    lower = html.lower()
+    head_idx = lower.find("</head>")
+    if head_idx >= 0:
+        return html[:head_idx] + "  " + tag_block + html[head_idx:]
+    return "<head>\n  " + tag_block + "</head>\n" + html
+
+
+def _html_escape(s: str) -> str:
+    return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+             .replace('"', "&quot;").replace("'", "&#39;"))
+
+
+def _write_seo_files(host_dir: str, public_token: str, app_url: str) -> None:
+    """Создаёт sitemap.xml + robots.txt для опубликованного сайта.
+
+    sitemap.xml — одна запись (single-page сайт), но Google/Yandex её увидит.
+    robots.txt — разрешает индексацию всё, sitemap указывает на наш sitemap.
+    """
+    public_url = f"{app_url}/sites/hosted/{public_token}/"
+    sitemap = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f'  <url><loc>{_html_escape(public_url)}</loc>'
+        f'<changefreq>monthly</changefreq><priority>1.0</priority></url>\n'
+        '</urlset>\n'
+    )
+    robots = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        f"Sitemap: {public_url}sitemap.xml\n"
+    )
+    try:
+        with open(os.path.join(host_dir, "sitemap.xml"), "w", encoding="utf-8") as f:
+            f.write(sitemap)
+        with open(os.path.join(host_dir, "robots.txt"), "w", encoding="utf-8") as f:
+            f.write(robots)
+    except Exception as e:
+        log.warning(f"[seo] write files failed: {e}")
+
+
 def _rewrite_hosted_index_html(project_id: int, db) -> bool:
     """Перезаписать /sites/hosted/{id}/index.html после изменений виджета.
 
@@ -1586,10 +1663,35 @@ def site_project_host(project_id: int, db: Session = Depends(get_db),
     if not p.code_html:
         raise HTTPException(400, "Сначала сгенерируйте код")
 
+    # Платный хостинг (Шаг 5): разовое списание при первой публикации.
+    # При повторной публикации (редактирование того же сайта) — НЕ списываем.
+    from server.pricing import get_price as _gp
+    host_fee = _gp("sites.host_fix", default=99_000)
+    host_charged = 0
+    if host_fee > 0 and not p.paid_hosting_at:
+        if int(user.tokens_balance or 0) < host_fee:
+            raise HTTPException(
+                402,
+                f"Платный хостинг сайта — {host_fee/100:.0f} ₽ (разово). "
+                f"Пополни баланс или скачай HTML/ZIP — он останется у тебя."
+            )
+        host_charged = deduct_atomic(db, user.id, host_fee)
+        if host_charged > 0:
+            db.add(Transaction(
+                user_id=user.id, type="usage",
+                tokens_delta=-host_charged,
+                description=f"Хостинг сайта «{(p.name or 'без названия')[:50]}» ({host_charged/100:.0f} ₽, разово)",
+                model="sites.hosting",
+            ))
+            p.paid_hosting_at = datetime.utcnow()
+            p.paid_hosting_kop = host_charged
+
     host_dir = os.path.join(_sites_host_base, str(project_id))
     os.makedirs(host_dir, exist_ok=True)
     final_html = p.code_html
     app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+    # SEO meta — embed в <head>
+    final_html = _inject_seo_meta(final_html, p, app_url)
     if p.attached_bot_id:
         from server.models import ChatBot
         b = db.query(ChatBot).filter_by(id=p.attached_bot_id, user_id=user.id).first()
@@ -1607,10 +1709,14 @@ def site_project_host(project_id: int, db: Session = Depends(get_db),
     with open(os.path.join(host_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(final_html)
 
+    # SEO: robots.txt + sitemap.xml
+    _write_seo_files(host_dir, token, app_url)
+
     p.hosted_path = f"/sites/hosted/{token}/"
     db.commit()
     return {"url": p.hosted_path, "status": "hosted",
-            "widget_attached": bool(p.attached_bot_id)}
+            "widget_attached": bool(p.attached_bot_id),
+            "host_charged_kop": host_charged}
 
 
 @router.get("/sites/hosted/{public_token}/{full_path:path}")
@@ -1772,6 +1878,53 @@ def site_project_zip(project_id: int, db: Session = Depends(get_db),
 # Удалён endpoint POST /sites/code (site_decode_code) — нигде не вызывался
 # из фронта (grep по views/ дал 0 совпадений). Логика дублировала
 # _strip_markdown_code_fence — теперь используется он напрямую.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SEO settings (meta description / og / sitemap)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class SeoPayload(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    og_image: str | None = None
+
+
+@router.get("/sites/projects/{project_id}/seo")
+def get_seo(project_id: int, db: Session = Depends(get_db),
+            user: User = Depends(current_user)):
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    return {
+        "title": p.seo_title or "",
+        "description": p.seo_description or "",
+        "og_image": p.seo_og_image or "",
+    }
+
+
+@router.put("/sites/projects/{project_id}/seo")
+def put_seo(project_id: int, payload: SeoPayload,
+            db: Session = Depends(get_db),
+            user: User = Depends(current_user)):
+    """Сохранить SEO meta для сайта. После сохранения index.html
+    перегенерируется (если сайт уже опубликован) — meta появится сразу."""
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    p.seo_title = (payload.title or "").strip()[:200] or None
+    p.seo_description = (payload.description or "").strip()[:500] or None
+    p.seo_og_image = (payload.og_image or "").strip()[:500] or None
+    db.commit()
+    if p.hosted_path:
+        try:
+            _rewrite_hosted_index_html(p.id, db)
+        except Exception as e:
+            log.warning(f"[seo] rewrite after save failed: {e}")
+    return {"status": "saved", "title": p.seo_title or "",
+            "description": p.seo_description or "",
+            "og_image": p.seo_og_image or ""}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
