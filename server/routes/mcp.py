@@ -572,6 +572,16 @@ _TOOL_REQUIRED_SCOPE: dict[str, str | None] = {
     "recent_records":      "bots",
 }
 
+# Защита от fail-open: если разработчик добавил tool в _TOOL_HANDLERS но забыл
+# entry в _TOOL_REQUIRED_SCOPE, мы упадём на старте вместо тихого разрешения
+# вызова всем токенам. ImportError на сервисе лучше чем scope-escalation в проде.
+_MISSING_SCOPE_ENTRIES = set(_TOOL_HANDLERS.keys()) - set(_TOOL_REQUIRED_SCOPE.keys())
+if _MISSING_SCOPE_ENTRIES:
+    raise RuntimeError(
+        f"MCP _TOOL_REQUIRED_SCOPE missing entries for tools: {_MISSING_SCOPE_ENTRIES}. "
+        "Add explicit scope (or None for public) before deploy."
+    )
+
 
 # ── MCP Resources ─────────────────────────────────────────────────────────
 # Resources — статичные/полу-статичные данные которые Claude может прочитать

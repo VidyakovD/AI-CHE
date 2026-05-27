@@ -156,6 +156,13 @@ RULES = {
     # rate-limit чтобы один Bearer-токен не мог spam'ить 1000 calls/sec и
     # забивать систему. 100/мин достаточно для нормального Claude Desktop usage.
     "/mcp":                       (100, 60),
+    # Public API (/api/v1/*) — Bearer-токен. Дорогие endpoints (generate)
+    # требуют отдельного жёсткого лимита: каждый /proposals/generate = ~50 ₽
+    # списания. Юзер мог бы создать 10 токенов и через них drain'нуть баланс.
+    # Per-user (key = u:{user_id}) средняя ставка покрывает всё, плюс точечно
+    # лимитим самые дорогие префиксы.
+    "/api/v1/proposals/generate": (10, 60),    # ~50 ₽/вызов — 500 ₽/мин cap
+    "/api/v1":                    (120, 60),
     # Публичные КП: /p/{token}, /p/{token}/pdf, /p/{token}/sign — анти-спам.
     # Защищает от: 1) брутфорса токенов (хоть и 16 chars = ~95 bit, минимизируем
     # noise в логах), 2) спама подписей с раздутым data:image body (2MB).
@@ -286,6 +293,98 @@ def validate_upload_filename(filename: str) -> None:
     ext = os.path.splitext(filename or "")[1].lower()
     if ext not in ALLOWED_UPLOAD_EXT:
         raise HTTPException(400, f"Тип файла не разрешён. Допустимы: {', '.join(ALLOWED_UPLOAD_EXT)}")
+
+
+# ── SSRF-валидация внешних URL ───────────────────────────────────────────────
+# Используется в: creators_vk._upload_photo_to_wall (загрузка фотки на стену),
+# calendar_sync.fetch_ics_events (подключение ICS-календаря по URL).
+# Блокирует обращения к localhost / link-local / приватным сетям / cloud metadata.
+import ipaddress as _ipaddr_ssrf
+
+_SSRF_BLOCKED_HOSTS = {
+    "localhost", "0.0.0.0", "ip6-localhost", "ip6-loopback",
+    "metadata.google.internal", "metadata", "metadata.goog",
+}
+
+_SSRF_BLOCKED_CIDRS = [
+    _ipaddr_ssrf.ip_network("169.254.0.0/16"),  # link-local + cloud metadata
+    _ipaddr_ssrf.ip_network("100.64.0.0/10"),   # CG-NAT
+    _ipaddr_ssrf.ip_network("fd00::/8"),        # IPv6 ULA
+    _ipaddr_ssrf.ip_network("fe80::/10"),       # IPv6 link-local
+    _ipaddr_ssrf.ip_network("::ffff:0:0/96"),   # IPv4-mapped IPv6
+    _ipaddr_ssrf.ip_network("64:ff9b::/96"),    # NAT64
+]
+
+
+def _ssrf_ip_blocked(ip_str: str) -> str | None:
+    try:
+        ip = _ipaddr_ssrf.ip_address(ip_str)
+    except ValueError:
+        return f"invalid IP: {ip_str}"
+    if (ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+        return f"private/reserved IP: {ip_str}"
+    for net in _SSRF_BLOCKED_CIDRS:
+        try:
+            if ip in net:
+                return f"blocked CIDR: {ip_str} in {net}"
+        except TypeError:
+            continue
+    return None
+
+
+def validate_external_url(url: str) -> None:
+    """Проверяет что URL ведёт во внешнюю public сеть.
+
+    Raises ValueError если URL ведёт в private/loopback/link-local/multicast/
+    reserved сеть или cloud-metadata endpoint. Используйте перед любым
+    httpx.get() куда URL приходит от пользователя.
+
+    Защита от:
+      - прямой указатель приватного IP / cloud metadata (169.254.169.254)
+      - DNS round-robin с одной публичной + одной приватной A-записью
+      - IPv4-mapped IPv6 (::ffff:127.0.0.1) обход
+      - non-http(s) schema (file://, gopher://, ftp://)
+    """
+    import socket
+    from urllib.parse import urlparse
+    if not url or not isinstance(url, str):
+        raise ValueError("URL пуст")
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        raise ValueError("invalid URL")
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("только http/https")
+    host = (parsed.hostname or "").lower().strip().rstrip(".")
+    if not host:
+        raise ValueError("нет хоста")
+    if host in _SSRF_BLOCKED_HOSTS:
+        raise ValueError(f"internal host blocked: {host}")
+    # Литеральный IP — не нужен DNS-резолв
+    try:
+        reason = _ssrf_ip_blocked(host)
+        if reason:
+            raise ValueError(reason)
+        return
+    except ValueError as e:
+        # ValueError из _ipaddr.ip_address — host не IP, идём в getaddrinfo
+        if "invalid IP" not in str(e):
+            raise
+    # Резолв ВСЕХ адресов
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        raise ValueError("DNS-резолв не удался")
+    seen: set[str] = set()
+    for info in infos:
+        ip_str = info[4][0]
+        if ip_str in seen:
+            continue
+        seen.add(ip_str)
+        reason = _ssrf_ip_blocked(ip_str)
+        if reason:
+            raise ValueError(reason)
 
 
 # SVG-санитайзер: SVG-файл может содержать <script>, on*-handlers и javascript:-URI,

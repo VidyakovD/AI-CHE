@@ -270,16 +270,18 @@ def authenticate_token(request: Request, db: Session,
     if not hmac.compare_digest(expected_hash, t.secret_hash):
         raise HTTPException(401, "Invalid token")
     if required_scope and t.scopes:
-        scopes = set(t.scopes.split(","))
+        scopes = {s.strip() for s in t.scopes.split(",") if s.strip()}
         if required_scope not in scopes:
             raise HTTPException(403, f"Token has no scope '{required_scope}'")
     # Сохраняем scopes в request.state для последующего scope-check внутри
     # endpoint (например, MCP tools/call где scope зависит от tool name —
     # см. server/routes/mcp.py:_handle_tools_call).
     # None означает «все scope разрешены» (legacy токены без CSV).
+    # strip() обязательно: иначе "proposals, solutions" даёт {"proposals", " solutions"}
+    # и токен с пробелом в CSV обходит scope-check на " solutions".
     try:
         request.state.token_scopes = (
-            set(t.scopes.split(",")) if t.scopes else None
+            {s.strip() for s in t.scopes.split(",") if s.strip()} if t.scopes else None
         )
     except Exception:
         pass

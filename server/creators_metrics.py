@@ -137,7 +137,10 @@ async def fetch_tg_post_views(channel: str, message_id: str | int) -> Optional[d
         "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
     }
     try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+        # follow_redirects=False — t.me нормально отдаёт 200 на public posts.
+        # 30x могут увести на сторонний хост (open-redirect = SSRF risk), а
+        # на проде нам важно лишь HTML с preview. Если редирект — считаем недоступным.
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
             r = await client.get(url, headers=headers)
     except Exception as e:
         log.warning(f"[tg-stats] fetch failed {username}/{message_id}: {type(e).__name__}")

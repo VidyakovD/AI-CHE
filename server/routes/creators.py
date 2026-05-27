@@ -566,6 +566,22 @@ def bulk_prepare_brand(
     if not brand:
         raise HTTPException(404, "Бренд не найден")
 
+    # Worker-lock per-brand против double-charge при concurrent кликах.
+    # Без него 2 одновременных запроса от одного юзера могут взять одни и те же
+    # 10 planned-items (status='planned' до commit) и зарядить дважды.
+    # TTL 600s покрывает синхронный цикл (10 items × ~30 сек LLM = 5 мин).
+    from server.worker_lock import worker_lock
+    with worker_lock(f"bulk_prepare_brand:{brand_id}", ttl_sec=600) as acquired:
+        if not acquired:
+            raise HTTPException(
+                409,
+                "Подготовка уже идёт для этого бренда. Подождите завершения "
+                "и обновите страницу.",
+            )
+        return _bulk_prepare_brand_locked(brand, brand_id, user, db)
+
+
+def _bulk_prepare_brand_locked(brand, brand_id: int, user: User, db: Session) -> dict:
     # Все planned-посты бренда (через calendar)
     items_q = (db.query(ContentItem)
                  .join(ContentCalendar, ContentItem.calendar_id == ContentCalendar.id)

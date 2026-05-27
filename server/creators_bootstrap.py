@@ -129,8 +129,10 @@ async def fetch_tg_channel_preview(channel_username: str,
         "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
     }
     try:
+        # follow_redirects=False — public t.me preview никогда не редиректит.
+        # 30x = подмена URL → потенциальный SSRF через open-redirect.
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT,
-                                     follow_redirects=True) as client:
+                                     follow_redirects=False) as client:
             r = await client.get(url, headers=headers)
     except Exception as e:
         log.warning("[bootstrap.tg] HTTP fail %s: %s", username, e)

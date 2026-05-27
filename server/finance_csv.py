@@ -330,6 +330,11 @@ def parse_csv_statement(content: bytes | str, filename: str = "") -> dict:
         desc = (desc or "").strip()[:500]
         # Копейки: умножаем на 100 и округляем
         amount_kop = int(amt * 100)
+        # int4 cap: amount_kop хранится как Integer (32-bit). Пропускаем сверх-
+        # большие транзакции (>21M ₽) чтобы не словить OverflowError на INSERT.
+        if abs(amount_kop) > 2_000_000_000:
+            skipped += 1
+            continue
         cat = categorize(desc)
         # Доходы — если сумма > 0 и не классифицировалась как income — оставим
         # other (могут быть возвраты, бонусы — не trivial без LLM).

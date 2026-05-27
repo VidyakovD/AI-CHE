@@ -53,7 +53,11 @@ def _post_sync(webhook_id: int, payload: dict) -> dict:
         url = w.url
         secret = w.secret
 
-    body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    # sort_keys=True для детерминированного байт-представления — receiver
+    # пересоберёт JSON в любом порядке и сможет верифицировать HMAC. Без
+    # sort_keys одна и та же логика сериализации на разных Python-версиях
+    # может выдать разный порядок ключей, и подпись окажется не сверяемой.
+    body_bytes = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     signature = _sign(secret, body_bytes)
     result = dispatch_outbound(
         model_cls=ApiWebhook,

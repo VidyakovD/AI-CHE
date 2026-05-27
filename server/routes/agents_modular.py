@@ -640,6 +640,16 @@ def connect_module(payload: ConnectModulePayload,
     if slug not in AGENT_REGISTRY:
         raise HTTPException(404, f"Модуль {slug!r} не найден в каталоге")
 
+    # Валидируем cron: не чаще раз в 5 минут, защита от */1 * * * * DoS
+    if payload.schedule_cron:
+        from server.cron.agents_modules import cron_min_interval_ok, CRON_MIN_INTERVAL_MINUTES
+        if not cron_min_interval_ok(payload.schedule_cron):
+            raise HTTPException(
+                400,
+                f"Расписание не может срабатывать чаще раза в "
+                f"{CRON_MIN_INTERVAL_MINUTES} минут. Используйте `*/5` или больше."
+            )
+
     existing = (db.query(AgentModule)
                   .filter_by(agent_id=a.id, slug=slug)
                   .first())
@@ -728,6 +738,15 @@ def patch_module(slug: str, payload: PatchModulePayload,
     if payload.is_enabled is not None:
         m.is_enabled = bool(payload.is_enabled)
     if payload.schedule_cron is not None:
+        # Валидируем cron: не чаще раз в 5 минут (только если задано непустое значение)
+        if payload.schedule_cron:
+            from server.cron.agents_modules import cron_min_interval_ok, CRON_MIN_INTERVAL_MINUTES
+            if not cron_min_interval_ok(payload.schedule_cron):
+                raise HTTPException(
+                    400,
+                    f"Расписание не может срабатывать чаще раза в "
+                    f"{CRON_MIN_INTERVAL_MINUTES} минут. Используйте `*/5` или больше."
+                )
         m.schedule_cron = payload.schedule_cron or None
     if payload.settings is not None:
         m.custom_settings_json = json.dumps(payload.settings, ensure_ascii=False)

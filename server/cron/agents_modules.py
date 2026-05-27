@@ -103,6 +103,76 @@ def cron_should_fire(cron_expr: str, now: datetime,
             and _match_field(dow, w))
 
 
+# ── Min-interval guard (защита от */1 * * * * DoS) ───────────────────────────
+
+CRON_MIN_INTERVAL_MINUTES = 5
+
+
+def cron_min_interval_ok(cron_expr: str, min_minutes: int = CRON_MIN_INTERVAL_MINUTES) -> bool:
+    """Проверка что cron-выражение не стреляет чаще чем раз в `min_minutes` минут.
+
+    Не симулирует все 1440 минут — проверяет первое поле (minute) на самые
+    частые DoS-паттерны: `*`, `*/1`, `*/2`, …, `*/(min_minutes-1)`. Любое
+    выражение с минутой-wildcard или шагом < min_minutes отвергается.
+
+    Возвращает True если интервал OK, False если выражение даёт частоту > 1/min_minutes.
+    """
+    if not cron_expr or not isinstance(cron_expr, str):
+        return False
+    parts = cron_expr.strip().split()
+    if len(parts) != 5:
+        return False
+    minute_field = parts[0].strip()
+
+    # Самый простой кейс — minute=* → каждую минуту любого часа = 60 запусков/час
+    # Допустим только если в часу/dom/etc стоит что-то ограничивающее (но это
+    # ниже — мы пока разрешаем `0 9 * * *` = раз в день, где minute=0 — постоянная).
+    # Wildcard в минуте без cap → DoS.
+    if minute_field == "*":
+        return False
+
+    # Шаг */N где N < min_minutes
+    for part in minute_field.split(","):
+        part = part.strip()
+        if "/" in part:
+            try:
+                _, step = part.split("/", 1)
+                step_i = int(step)
+            except (ValueError, TypeError):
+                return False
+            if step_i < min_minutes:
+                return False
+        elif "-" in part:
+            # Диапазон без шага = каждая минута в диапазоне
+            try:
+                a, b = part.split("-", 1)
+                if int(b) - int(a) + 1 > 1:
+                    # Диапазон 2+ минут → ≥2 запуска в час подряд → > 1/min_minutes
+                    return False
+            except (ValueError, TypeError):
+                return False
+        # Конкретные числа через запятую — посчитаем сколько их и интервалы
+    # Случай "0,5,10,..." — посчитаем минимальное расстояние между значениями
+    try:
+        minutes = []
+        for part in minute_field.split(","):
+            part = part.strip()
+            if "/" in part or "-" in part:
+                continue
+            minutes.append(int(part))
+        if len(minutes) >= 2:
+            minutes.sort()
+            for i in range(1, len(minutes)):
+                if minutes[i] - minutes[i - 1] < min_minutes:
+                    return False
+            # Wrap-around: 55 → 0 в следующем часу = 5 мин
+            if minutes[0] + (60 - minutes[-1]) < min_minutes:
+                return False
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
 # ── Tick ─────────────────────────────────────────────────────────────────────
 
 

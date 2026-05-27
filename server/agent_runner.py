@@ -977,9 +977,10 @@ async def tool_add_finance_transaction(params: dict, context: dict) -> str:
         return "Ошибка: amount_kop должно быть целым числом (копейки, отрицательное для расхода)"
     if amount_kop == 0:
         return "Ошибка: amount_kop=0"
-    # Sanity bound: ±1 млрд рублей одной транзакцией явно ошибка LLM.
-    # Без cap'a — overflow в Postgres int4 / странные суммы.
-    _AMOUNT_HARD_CAP_KOP = 100_000_000_000  # 1 млрд рублей в копейках
+    # Sanity bound: ±20 млн рублей одной транзакцией явно ошибка LLM.
+    # CAP должен быть ≤ int4 max (2.147B копеек = 21.4M ₽), иначе на PG
+    # int4 ловит OverflowError при INSERT. amount_kop хранится в Column(Integer).
+    _AMOUNT_HARD_CAP_KOP = 2_000_000_000  # ~20 млн рублей в копейках (под int4)
     if abs(amount_kop) > _AMOUNT_HARD_CAP_KOP:
         return f"Ошибка: amount_kop={amount_kop} превышает разумный лимит. Проверь данные."
     try:
@@ -1053,8 +1054,11 @@ async def tool_search_notes(params: dict, context: dict) -> str:
     if not query:
         return "Ошибка: query обязательно"
     try:
+        # Cap на top: LLM может передать top=10**9 и DoS'нуть retrieve.
+        # 20 результатов хватает с запасом для чат-контекста.
+        top = max(1, min(int(params.get("top") or 5), 20))
         results = retrieve(owner_type="user", owner_id=int(user_id),
-                           query=query, top=int(params.get("top") or 5))
+                           query=query, top=top)
     except Exception as e:
         return f"Ошибка поиска: {type(e).__name__}: {str(e)[:200]}"
     if not results:
