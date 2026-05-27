@@ -136,12 +136,12 @@ def process_message(db: Session, user, text: str) -> dict:
     is_free_onboarding = (mode == "onboarding"
                           and prior_user_msgs < free_onboarding_n)
     out["free_onboarding"] = is_free_onboarding
-    msg_cost = 0 if is_free_onboarding else get_price("agents.message", default=50)
+    base_msg_min = 0 if is_free_onboarding else get_price("agents.message", default=50)
 
-    if msg_cost > 0 and int(user.tokens_balance or 0) < msg_cost:
+    if base_msg_min > 0 and int(user.tokens_balance or 0) < base_msg_min:
         out["error"] = "insufficient_funds"
         out["reply"] = (f"⚠ Недостаточно средств: для одного сообщения "
-                        f"нужно {msg_cost/100:.2f} ₽. "
+                        f"нужно минимум {base_msg_min/100:.2f} ₽. "
                         f"Пополни баланс на aiche.ru → Кабинет → 📊 Пополнение.")
         return out
 
@@ -202,14 +202,25 @@ def process_message(db: Session, user, text: str) -> dict:
         reply = "Что-то пошло не так при обработке 😔 Попробуй ещё раз."
         asst_meta["errors"] = [str(e)[:200]]
 
-    # ── 4. Биллинг за сообщение ────────────────────────────────────────
-    if msg_cost > 0 and reply and not asst_meta.get("errors"):
+    # ── 4. Биллинг за сообщение: real_cost × margin (×3), мин base_msg_min ──
+    if base_msg_min > 0 and reply and not asst_meta.get("errors"):
+        from server.pricing import calc_agent_cost_kop
+        _u = (result.get("usage") if 'result' in locals() else None) or {}
+        msg_cost = calc_agent_cost_kop(
+            model=_u.get("model_used") or "",
+            input_tokens=_u.get("input_tokens", 0),
+            output_tokens=_u.get("output_tokens", 0),
+            base_min_kop=base_msg_min,
+        )
         charged_kop = deduct_atomic(db, user.id, msg_cost)
         if charged_kop > 0:
             db.add(Transaction(
                 user_id=user.id, type="usage",
                 tokens_delta=-charged_kop,
-                description=f"ИИ-агент (TG): сообщение ({charged_kop/100:.2f} ₽)",
+                description=(
+                    f"ИИ-агент (TG): {_u.get('input_tokens',0)}→{_u.get('output_tokens',0)} ток. "
+                    f"({charged_kop/100:.2f} ₽)"
+                ),
                 model="agents.message",
             ))
             asst_meta["cost_kop"] = charged_kop
@@ -272,12 +283,24 @@ def process_message(db: Session, user, text: str) -> dict:
 
                 module_charged_kop = 0
                 if inv.get("ok") and module_cost > 0:
-                    module_charged_kop = deduct_atomic(db, user.id, module_cost)
+                    from server.pricing import calc_agent_cost_kop
+                    _mu = inv.get("usage") or {}
+                    real_module_cost = calc_agent_cost_kop(
+                        model=_mu.get("model_used") or inv.get("model_used") or "",
+                        input_tokens=_mu.get("input_tokens", 0),
+                        output_tokens=_mu.get("output_tokens", 0),
+                        base_min_kop=module_cost,
+                    )
+                    module_charged_kop = deduct_atomic(db, user.id, real_module_cost)
                     if module_charged_kop > 0:
                         db.add(Transaction(
                             user_id=user.id, type="usage",
                             tokens_delta=-module_charged_kop,
-                            description=f"Модуль {slug} (TG): {module_charged_kop/100:.2f} ₽",
+                            description=(
+                                f"Модуль {slug} (TG): "
+                                f"{_mu.get('input_tokens',0)}→{_mu.get('output_tokens',0)} ток. "
+                                f"({module_charged_kop/100:.2f} ₽)"
+                            ),
                             model=f"agents.module:{slug}",
                         ))
                         out["cost_kop"] += module_charged_kop

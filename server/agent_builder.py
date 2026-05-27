@@ -603,6 +603,8 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
             extra=extra_kw,
         )
         raw = route.content
+        route_raw = route.raw or {}
+        route_model = route.model_used
         # Unmask токены обратно в оригинальные PII в reply модели
         if guard and raw:
             try:
@@ -615,6 +617,7 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
             "reply": "Что-то у меня внутри сломалось 😔 Попробуй ещё раз через минуту.",
             "applied": [], "errors": [f"LLM error: {e!s:.120}"],
             "profile_changed": False, "ready_for_active": False, "raw": "",
+            "usage": {"input_tokens": 0, "output_tokens": 0, "model_used": ""},
         }
 
     parsed = _extract_json(raw)
@@ -691,6 +694,14 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
 
     ready = bool(parsed.get("ready_for_active"))
 
+    # Usage tokens для real_cost × margin биллинга (Шаг 1 биллинг-рефакторинга).
+    # route.raw содержит ответ generate_response с input_tokens/output_tokens.
+    usage = {
+        "input_tokens": int(route_raw.get("input_tokens", 0) or 0),
+        "output_tokens": int(route_raw.get("output_tokens", 0) or 0),
+        "model_used": route_model or "",
+    }
+
     return {
         "reply": reply or "Принял.",
         "applied": applied,
@@ -701,6 +712,7 @@ def build_reply_personal(*, agent_name: str, mode: str, profile: dict,
         "invoke_request": invoke_request,
         "ready_for_active": ready,
         "raw": raw,
+        "usage": usage,
     }
 
 
@@ -1022,6 +1034,8 @@ def invoke_module(*, slug: str, task: str, profile: dict,
             extra=extra_kw,
         )
         output = route.content or ""
+        _route_raw = route.raw or {}
+        _route_model = route.model_used or ""
         if guard and output:
             try:
                 output = guard.unmask_response(output)
@@ -1031,7 +1045,8 @@ def invoke_module(*, slug: str, task: str, profile: dict,
         log.exception(f"[module:{slug}] LLM call failed: {e}")
         return {"ok": False, "output": "",
                 "error": f"LLM error: {e!s:.140}",
-                "model_used": "", "memory_updates": None}
+                "model_used": "", "memory_updates": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0, "model_used": ""}}
 
     # Парсим [LEARNED: ...] маркеры — Adaptive System Prompts.
     # Поддерживаемые форматы:
@@ -1065,9 +1080,16 @@ def invoke_module(*, slug: str, task: str, profile: dict,
     return {
         "ok": True,
         "output": output_clean,
-        "model_used": route.model_used if hasattr(route, "model_used") else "",
+        "model_used": _route_model,
         "error": None,
         "memory_updates": memory_updates,
+        # Usage для real_cost × margin биллинга. _route_raw содержит
+        # input_tokens/output_tokens из generate_response.
+        "usage": {
+            "input_tokens": int(_route_raw.get("input_tokens", 0) or 0),
+            "output_tokens": int(_route_raw.get("output_tokens", 0) or 0),
+            "model_used": _route_model,
+        },
     }
 
 

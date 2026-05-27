@@ -412,10 +412,12 @@ def send_message(payload: SendMessagePayload,
     free_onboarding = get_price("agents.onboarding_free_messages", default=5)
     is_free_onboarding = (mode == "onboarding"
                           and prior_user_msgs < free_onboarding)
-    msg_cost = 0 if is_free_onboarding else get_price("agents.message", default=50)
-    # Pre-check баланса: если не хватает на сообщение — отказываем
-    if msg_cost > 0 and int(user.tokens_balance or 0) < msg_cost:
-        raise HTTPException(402, f"Недостаточно средств. Нужно {msg_cost/100:.2f} ₽")
+    # base_msg_min — минимум за сообщение (anti-abuse: даже ack-ответ стоит
+    # 0.5₽). Реальная стоимость считается ниже из usage tokens × margin.
+    base_msg_min = 0 if is_free_onboarding else get_price("agents.message", default=50)
+    # Pre-check баланса: используем минимум как нижнюю границу (real_cost ≥ base_msg_min)
+    if base_msg_min > 0 and int(user.tokens_balance or 0) < base_msg_min:
+        raise HTTPException(402, f"Недостаточно средств. Нужно минимум {base_msg_min/100:.2f} ₽")
 
     # 1. Сохраняем сообщение юзера
     user_msg = AgentMessage(
@@ -485,19 +487,33 @@ def send_message(payload: SendMessagePayload,
         reply = "Что-то пошло не так при обработке 😔 Попробуй ещё раз."
         asst_meta["errors"] = [str(e)[:200]]
 
-    # ── Биллинг: списываем за сообщение, ТОЛЬКО если был полезный ответ ──
+    # ── Биллинг: real_cost × margin (×3) с минимумом base_msg_min ──
+    # Стоимость считается из реальных input/output tokens × ai.reply_margin_pct.
     # Если упали с ошибкой (нет content) — не списываем (refund-friendly UX).
     charged_kop = 0
-    if msg_cost > 0 and reply and not asst_meta.get("errors"):
+    if base_msg_min > 0 and reply and not asst_meta.get("errors"):
+        from server.pricing import calc_agent_cost_kop
+        usage = (result.get("usage") if 'result' in locals() else None) or {}
+        msg_cost = calc_agent_cost_kop(
+            model=usage.get("model_used") or "",
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            base_min_kop=base_msg_min,
+        )
         charged_kop = deduct_atomic(db, user.id, msg_cost)
         if charged_kop > 0:
             db.add(Transaction(
                 user_id=user.id, type="usage",
                 tokens_delta=-charged_kop,
-                description=f"ИИ-агент: сообщение ({charged_kop/100:.2f} ₽)",
+                description=(
+                    f"ИИ-агент: {usage.get('input_tokens',0)}→{usage.get('output_tokens',0)} ток. "
+                    f"({charged_kop/100:.2f} ₽)"
+                ),
                 model="agents.message",
             ))
             asst_meta["cost_kop"] = charged_kop
+            asst_meta["input_tokens"] = usage.get("input_tokens", 0)
+            asst_meta["output_tokens"] = usage.get("output_tokens", 0)
     elif is_free_onboarding:
         asst_meta["free_onboarding"] = True
 
@@ -574,15 +590,28 @@ def send_message(payload: SendMessagePayload,
                     mod_content = f"⚠ Модуль не справился: {inv.get('error', 'неизвестная ошибка')}"
                     # last_used_at обновляем даже при ошибке (попытка была)
                     target_mod.last_used_at = datetime.utcnow()
-                # Биллинг за вызов модуля — только если он реально отработал.
+                # Биллинг за вызов модуля — real_cost × margin (×3) с минимумом
+                # base + skill_cost. base_min гарантирует что даже короткий ack
+                # стоит agents.module_invoke (по умолч. 100 коп).
                 module_charged_kop = 0
                 if inv.get("ok") and module_cost > 0:
-                    module_charged_kop = deduct_atomic(db, user.id, module_cost)
+                    from server.pricing import calc_agent_cost_kop
+                    _u = inv.get("usage") or {}
+                    real_module_cost = calc_agent_cost_kop(
+                        model=_u.get("model_used") or inv.get("model_used") or "",
+                        input_tokens=_u.get("input_tokens", 0),
+                        output_tokens=_u.get("output_tokens", 0),
+                        base_min_kop=module_cost,  # base_min = фикс + skill_delta
+                    )
+                    module_charged_kop = deduct_atomic(db, user.id, real_module_cost)
                     if module_charged_kop > 0:
                         db.add(Transaction(
                             user_id=user.id, type="usage",
                             tokens_delta=-module_charged_kop,
-                            description=f"Модуль {slug}: {module_charged_kop/100:.2f} ₽",
+                            description=(
+                                f"Модуль {slug}: {_u.get('input_tokens',0)}→{_u.get('output_tokens',0)} ток. "
+                                f"({module_charged_kop/100:.2f} ₽)"
+                            ),
                             model=f"agents.module:{slug}",
                         ))
                 module_msg = AgentMessage(
@@ -857,12 +886,25 @@ def invoke_module_now(slug: str,
     level_up = False
     if inv.get("ok"):
         if module_cost > 0:
-            charged_kop = deduct_atomic(db, user.id, module_cost)
+            # Real_cost × margin биллинг с минимумом base + skill_delta
+            from server.pricing import calc_agent_cost_kop
+            _u = inv.get("usage") or {}
+            real_module_cost = calc_agent_cost_kop(
+                model=_u.get("model_used") or inv.get("model_used") or "",
+                input_tokens=_u.get("input_tokens", 0),
+                output_tokens=_u.get("output_tokens", 0),
+                base_min_kop=module_cost,
+            )
+            charged_kop = deduct_atomic(db, user.id, real_module_cost)
             if charged_kop > 0:
                 db.add(Transaction(
                     user_id=user.id, type="usage",
                     tokens_delta=-charged_kop,
-                    description=f"Модуль {slug} (запуск): {charged_kop/100:.2f} ₽",
+                    description=(
+                        f"Модуль {slug} (запуск): "
+                        f"{_u.get('input_tokens',0)}→{_u.get('output_tokens',0)} ток. "
+                        f"({charged_kop/100:.2f} ₽)"
+                    ),
                     model=f"agents.module:{slug}",
                 ))
         if inv.get("memory_updates"):
@@ -1287,12 +1329,24 @@ async def fire_webhook(token: str, request: Request,
     level_up = False
     if inv.get("ok"):
         if module_cost > 0:
-            charged_kop = deduct_atomic(db, user.id, module_cost)
+            from server.pricing import calc_agent_cost_kop
+            _u = inv.get("usage") or {}
+            real_cost = calc_agent_cost_kop(
+                model=_u.get("model_used") or inv.get("model_used") or "",
+                input_tokens=_u.get("input_tokens", 0),
+                output_tokens=_u.get("output_tokens", 0),
+                base_min_kop=module_cost,
+            )
+            charged_kop = deduct_atomic(db, user.id, real_cost)
             if charged_kop > 0:
                 db.add(Transaction(
                     user_id=user.id, type="usage",
                     tokens_delta=-charged_kop,
-                    description=f"Модуль {target.slug} (webhook): {charged_kop/100:.2f} ₽",
+                    description=(
+                        f"Модуль {target.slug} (webhook): "
+                        f"{_u.get('input_tokens',0)}→{_u.get('output_tokens',0)} ток. "
+                        f"({charged_kop/100:.2f} ₽)"
+                    ),
                     model=f"agents.module:{target.slug}",
                 ))
         if inv.get("memory_updates"):

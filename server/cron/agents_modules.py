@@ -266,12 +266,24 @@ async def _agents_modules_cron_tick():
                 level_up = False
                 if inv.get("ok"):
                     if module_cost > 0:
-                        charged_kop = deduct_atomic(db, user.id, module_cost)
+                        from server.pricing import calc_agent_cost_kop
+                        _u = inv.get("usage") or {}
+                        real_cost = calc_agent_cost_kop(
+                            model=_u.get("model_used") or inv.get("model_used") or "",
+                            input_tokens=_u.get("input_tokens", 0),
+                            output_tokens=_u.get("output_tokens", 0),
+                            base_min_kop=module_cost,
+                        )
+                        charged_kop = deduct_atomic(db, user.id, real_cost)
                         if charged_kop > 0:
                             db.add(Transaction(
                                 user_id=user.id, type="usage",
                                 tokens_delta=-charged_kop,
-                                description=f"Модуль {m.slug} (cron): {charged_kop/100:.2f} ₽",
+                                description=(
+                                    f"Модуль {m.slug} (cron): "
+                                    f"{_u.get('input_tokens',0)}→{_u.get('output_tokens',0)} ток. "
+                                    f"({charged_kop/100:.2f} ₽)"
+                                ),
                                 model=f"agents.module:{m.slug}",
                             ))
                     if inv.get("memory_updates"):

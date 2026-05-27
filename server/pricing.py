@@ -88,6 +88,75 @@ DEFAULTS: dict[str, tuple[int, str]] = {
 }
 
 
+def calc_agent_cost_kop(model: str, input_tokens: int, output_tokens: int,
+                        base_min_kop: int, alt_model: str | None = None) -> int:
+    """Стоимость LLM-вызова от лица ИИ-агента: real_cost × margin, минимум base_min_kop.
+
+    Используется в:
+      - send_message личного агента (минимум agents.message=50 коп)
+      - invoke_module модуля (минимум agents.module_invoke=100 коп + skill_delta)
+      - cron-runtime, webhook-trigger, tg/max relay
+
+    Без этого helper'а агент всегда списывал фикс-цену независимо от объёма
+    запроса. Теперь дорогие промпты (большой profile/memory + длинный ответ)
+    стоят реально дороже, дешёвые ack-ответы — по минимуму.
+
+    margin берётся из pricing_config['ai.reply_margin_pct'] (по умолч. 300 = ×3).
+    base_min_kop — нижняя граница (чтобы каждый запрос имел осмысленную цену
+    при коротких токенах и не уходил в 0).
+
+    alt_model — fallback alias если real_model не в ModelPricing (как для
+    Perplexity sonar → perplexity).
+    """
+    if not model:
+        return base_min_kop
+    margin_pct = max(100, _get_price_uncached("ai.reply_margin_pct", default=300))
+    try:
+        from server.db import db_session
+        from server.models import ModelPricing
+        with db_session() as db:
+            def _lookup(mid: str) -> float | None:
+                if not mid:
+                    return None
+                p = db.query(ModelPricing).filter_by(model_id=mid).first()
+                if not p:
+                    return None
+                if p.ch_per_1k_input > 0 or p.ch_per_1k_output > 0:
+                    return ((input_tokens / 1000.0) * float(p.ch_per_1k_input) +
+                            (output_tokens / 1000.0) * float(p.ch_per_1k_output))
+                if p.cost_per_req:
+                    return float(p.cost_per_req)
+                return None
+            real = _lookup(model)
+            if real is None and alt_model:
+                real = _lookup(alt_model)
+    except Exception as e:
+        log.warning(f"[pricing.calc_agent_cost] {model}: {e}")
+        return base_min_kop
+    if real is None or real <= 0:
+        return base_min_kop
+    # margin_pct = 300 → real × 3. base_min — нижняя граница (защита от
+    # 1-токенного «ОК» который стоит 0.5 коп — мы хотим минимум agent.message).
+    return max(int(round(real * margin_pct / 100.0)), base_min_kop)
+
+
+def _get_price_uncached(key: str, default: int | None = None) -> int:
+    """get_price без кэша — для использования внутри calc_agent_cost_kop
+    (избегаем вложенного TTL-кэш state на холодную)."""
+    try:
+        with db_session() as db:
+            row = db.query(PricingConfig).filter_by(key=key).first()
+            if row is not None:
+                return int(row.value_kop)
+    except Exception:
+        pass
+    if default is not None:
+        return int(default)
+    if key in DEFAULTS:
+        return DEFAULTS[key][0]
+    return 0
+
+
 def get_price(key: str, default: int | None = None) -> int:
     """
     Текущая цена из БД (или дефолт). Кэш 60 секунд.
