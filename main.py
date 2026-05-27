@@ -747,6 +747,12 @@ def serve_agents_v2():
 def serve_agents_modular():
     return _html("agents-modular.html")
 
+@app.get("/services/voice.html", include_in_schema=False)
+def serve_services_voice():
+    """🎤 Распознавание голоса — отдельный сервис в разделе «Сервисы».
+    Использует /mobile/voice/transcribe endpoint (Whisper)."""
+    return _html("services/voice.html")
+
 
 def _verify_proposal_pdf_path(p):
     """Helper: безопасный путь к PDF. ValueError при попытке traversal."""

@@ -2463,6 +2463,19 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   loadBalance();
   const fast = await bootFull();
   if(fast === false) return;        // 401 — уже отрендерили NotAuth
+  // Prefill из /services/voice.html (Распознавание голоса → «отправить в чат»)
+  try {
+    const prefill = localStorage.getItem('voicePrefill');
+    if (prefill) {
+      const ta = document.getElementById('chatInput');
+      if (ta) {
+        ta.value = prefill;
+        ta.dispatchEvent(new Event('input'));
+        ta.focus();
+      }
+      localStorage.removeItem('voicePrefill');
+    }
+  } catch(_) {}
   if(fast === true) return;          // успех — всё загружено за один запрос
   // Fallback (старый путь — 3 запроса)
   const ok = await loadAgent();

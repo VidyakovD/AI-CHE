@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>🎤 Распознавание голоса — AI Студия Че</title>
+<link rel="stylesheet" href="/fonts.css"/>
+<link rel="stylesheet" href="/styles.css"/>
+<style>
+  body{margin:0;background:#1a1611;color:#e8dfc9;font-family:Inter,sans-serif;min-height:100vh}
+  .wrap{max-width:760px;margin:0 auto;padding:32px 20px}
+  h1{font-size:28px;margin:0 0 8px;color:#ffb56b}
+  .sub{color:#a89880;margin:0 0 32px;font-size:14px}
+  .card{background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:24px;margin-bottom:18px}
+  .rec-btn{display:flex;align-items:center;justify-content:center;width:120px;height:120px;border-radius:50%;background:linear-gradient(135deg,#ff8c42,#ff6b1c);border:none;color:#fff;font-size:42px;cursor:pointer;margin:8px auto;transition:transform .15s,box-shadow .15s;box-shadow:0 6px 22px rgba(255,140,66,.45)}
+  .rec-btn:hover{transform:scale(1.04)}
+  .rec-btn.recording{background:linear-gradient(135deg,#ef4444,#dc2626);animation:pulse 1.4s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 6px 22px rgba(239,68,68,.45)}50%{box-shadow:0 6px 32px rgba(239,68,68,.7)}}
+  .timer{text-align:center;font-size:22px;color:#ffb56b;font-variant-numeric:tabular-nums;margin:12px 0 4px;min-height:28px}
+  .hint{text-align:center;color:#a89880;font-size:13px;margin-bottom:12px}
+  textarea{width:100%;min-height:200px;padding:14px;background:#15110d;border:1px solid rgba(74,63,47,.3);border-radius:10px;color:#e8dfc9;font-family:inherit;font-size:15px;resize:vertical;box-sizing:border-box}
+  textarea:focus{outline:none;border-color:#ff8c42}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .btn{padding:10px 18px;border-radius:10px;font-size:14px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#e8dfc9;cursor:pointer;transition:all .15s}
+  .btn:hover{background:rgba(255,255,255,.08);color:#ffb56b;border-color:rgba(255,140,66,.4)}
+  .btn-p{background:linear-gradient(135deg,#ff8c42,#ff6b1c);color:#fff;border:none}
+  .btn-p:hover{filter:brightness(1.1);color:#fff}
+  .price{color:#7bd968;font-size:13px;margin-top:8px;text-align:center}
+  .error{color:#ef4444;font-size:13px;margin-top:8px;text-align:center}
+  .back{display:inline-flex;align-items:center;gap:8px;color:#a89880;text-decoration:none;font-size:13px;margin-bottom:16px}
+  .back:hover{color:#ffb56b}
+  .lang-row{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px;color:#a89880;font-size:13px}
+  .lang-row select{background:#15110d;border:1px solid rgba(74,63,47,.3);border-radius:8px;color:#e8dfc9;padding:6px 10px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a href="/" class="back">← На главную</a>
+  <h1>🎤 Распознавание голоса</h1>
+  <p class="sub">Запиши голосовое сообщение — получи готовый текст. Через Whisper. ~5 ₽ за распознавание.</p>
+
+  <div class="card">
+    <div class="lang-row">
+      <span>Язык:</span>
+      <select id="lang">
+        <option value="ru" selected>Русский</option>
+        <option value="en">English</option>
+        <option value="">Авто</option>
+      </select>
+    </div>
+
+    <button id="recBtn" class="rec-btn" onclick="toggleRecording()" aria-label="Запись">🎙</button>
+    <div class="timer" id="timer">Нажми для записи</div>
+    <div class="hint">Запись идёт пока ты не остановишь. Лимит 15 МБ (~10-12 минут).</div>
+    <div class="error" id="error" hidden></div>
+
+    <textarea id="result" placeholder="Сюда попадёт распознанный текст..." readonly></textarea>
+    <div class="actions">
+      <button class="btn" onclick="copyText()">📋 Копировать</button>
+      <button class="btn" onclick="clearText()">🗑 Очистить</button>
+      <button class="btn-p btn" onclick="sendToChat()">💬 Отправить в чат с Че</button>
+    </div>
+    <div class="price" id="price"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 10px;color:#ffb56b;font-size:16px">Как использовать</h3>
+    <ol style="color:#a89880;font-size:13px;line-height:1.6;padding-left:18px;margin:0">
+      <li>Нажми оранжевую кнопку — браузер попросит доступ к микрофону</li>
+      <li>Говори — таймер покажет длину записи</li>
+      <li>Нажми ещё раз — запись отправится на распознавание (~3-10 сек)</li>
+      <li>Готовый текст появится в поле ниже — можешь копировать, чистить или сразу отправить в чат с Че</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+const API = '';
+let mediaRecorder = null;
+let chunks = [];
+let timerId = null;
+let startedAt = 0;
+let isRecording = false;
+
+function setError(msg){
+  const el = document.getElementById('error');
+  if(!msg){ el.hidden = true; el.textContent = ''; return; }
+  el.hidden = false; el.textContent = msg;
+}
+
+function formatTime(ms){
+  const s = Math.floor(ms/1000);
+  const m = Math.floor(s/60);
+  return `${String(m).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+}
+
+async function toggleRecording(){
+  if(isRecording){ stopRecording(); return; }
+  setError('');
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+               : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+               : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+    mediaRecorder = new MediaRecorder(stream, mime ? {mimeType: mime} : {});
+    chunks = [];
+    mediaRecorder.ondataavailable = e => { if(e.data && e.data.size > 0) chunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      await transcribe();
+    };
+    mediaRecorder.start();
+    isRecording = true;
+    startedAt = Date.now();
+    document.getElementById('recBtn').textContent = '⏸';
+    document.getElementById('recBtn').classList.add('recording');
+    document.getElementById('timer').textContent = '00:00';
+    timerId = setInterval(() => {
+      document.getElementById('timer').textContent = formatTime(Date.now() - startedAt);
+    }, 250);
+  }catch(e){
+    setError('Не удалось получить доступ к микрофону: ' + (e.message || e.name));
+  }
+}
+
+function stopRecording(){
+  if(!mediaRecorder || mediaRecorder.state === 'inactive') return;
+  mediaRecorder.stop();
+  isRecording = false;
+  clearInterval(timerId);
+  document.getElementById('recBtn').textContent = '⌛';
+  document.getElementById('recBtn').classList.remove('recording');
+  document.getElementById('timer').textContent = 'Распознаю...';
+}
+
+async function transcribe(){
+  if(!chunks.length){
+    setError('Нет аудио — попробуй записать снова');
+    resetBtn();
+    return;
+  }
+  const blob = new Blob(chunks, {type: mediaRecorder.mimeType || 'audio/webm'});
+  const ext = (blob.type.split('/')[1] || 'webm').split(';')[0];
+  const fd = new FormData();
+  fd.append('audio', blob, `voice.${ext}`);
+  try{
+    const r = await fetch(`${API}/mobile/voice/transcribe`, {
+      method: 'POST', credentials: 'same-origin', body: fd,
+    });
+    const data = await r.json();
+    if(!r.ok){
+      setError(data.detail || `Ошибка ${r.status}`);
+      resetBtn();
+      return;
+    }
+    const ta = document.getElementById('result');
+    ta.value = (ta.value ? ta.value + '\n\n' : '') + (data.text || '');
+    ta.removeAttribute('readonly');
+    document.getElementById('price').textContent = `Списано: ${(data.cost_kop/100).toFixed(2)} ₽`;
+    resetBtn();
+  }catch(e){
+    setError('Ошибка сети: ' + e.message);
+    resetBtn();
+  }
+}
+
+function resetBtn(){
+  document.getElementById('recBtn').textContent = '🎙';
+  document.getElementById('timer').textContent = 'Нажми для записи';
+}
+
+function copyText(){
+  const ta = document.getElementById('result');
+  if(!ta.value){ setError('Пусто'); return; }
+  navigator.clipboard.writeText(ta.value).then(() => {
+    setError(''); document.getElementById('price').textContent = '✓ Скопировано';
+    setTimeout(() => { document.getElementById('price').textContent = ''; }, 1500);
+  });
+}
+
+function clearText(){
+  document.getElementById('result').value = '';
+  document.getElementById('price').textContent = '';
+  setError('');
+}
+
+function sendToChat(){
+  const text = document.getElementById('result').value.trim();
+  if(!text){ setError('Пусто'); return; }
+  // Открываем главную с заранее заполненным текстом через query-параметр.
+  // index.html подхватит и подставит в messageInput.
+  localStorage.setItem('voicePrefill', text);
+  window.location.href = '/agents-modular.html';
+}
+</script>
+</body>
+</html>
