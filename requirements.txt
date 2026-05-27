@@ -87,3 +87,6 @@ psycopg2-binary==2.9.9
 # копия в РФ-облаке). Используется только если YC_S3_BUCKET задан в env.
 # boto3 — стандартный AWS SDK, поддерживает S3-совместимое API через endpoint_url.
 boto3==1.35.0
+# Custom-домены для сайтов: проверка TXT-записей при verify (CNAME → aiche.ru).
+# Без этой либы fallback на subprocess `dig` — но не на всех системах есть dig.
+dnspython>=2.6.0,<3.0

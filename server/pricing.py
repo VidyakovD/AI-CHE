@@ -81,6 +81,10 @@ DEFAULTS: dict[str, tuple[int, str]] = {
     # (по умолчанию 1 ₽) — иначе мелочёвка бесплатно.
     "knowledge.embed_per_mb":    (100, "Индексация 1 МБ в RAG (1 ₽/МБ)"),
     "knowledge.embed_min_charge": (100, "Минимум для списания за embed (≤1 ₽ — бесплатно)"),
+    # Кастомные домены для сайтов (CNAME + Let's Encrypt). Сам сертификат
+    # бесплатен от LE, но certbot/nginx — наша инфраструктура. Лимит ставим
+    # чтобы юзер не запросил 100 доменов и не положил nginx reload-ами.
+    "sites.max_custom_domains_per_user": (5, "Макс. custom-доменов на юзера"),
 }
 
 

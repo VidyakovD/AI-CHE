@@ -905,6 +905,44 @@ class SiteProject(Base):
     user = relationship("User", backref="site_projects")
 
 
+class SiteCustomDomain(Base):
+    """Кастомный домен юзера для опубликованного сайта.
+
+    Юзер привязывает свой `example.com` к сайту:
+      1. Создаёт запись → получает verification_token (для TXT-record).
+      2. Прописывает у регистратора:
+         - CNAME @ → aiche.ru (главная запись для трафика)
+         - TXT _aiche-verify.example.com → <verification_token>
+      3. Дёргает /verify → мы dig'аем DNS, при успехе сертификируем
+         через certbot + добавляем nginx-config + reload.
+      4. Сайт доступен через https://example.com.
+
+    Поля статуса:
+      verification_status: pending | verified | failed
+      ssl_status:          none | issuing | active | renewing | error
+    """
+    __tablename__ = "site_custom_domains"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    site_id             = Column(Integer, ForeignKey("site_projects.id", ondelete="CASCADE"),
+                                  nullable=False, index=True)
+    user_id             = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                                  nullable=False, index=True)
+    domain              = Column(String, nullable=False, unique=True, index=True)  # example.com
+    verification_token  = Column(String, nullable=False)                          # для TXT-record
+    verification_status = Column(String, default="pending")                       # pending/verified/failed
+    verified_at         = Column(DateTime, nullable=True)
+    last_check_at       = Column(DateTime, nullable=True)
+    last_check_error    = Column(Text, nullable=True)
+    ssl_status          = Column(String, default="none")                          # none/issuing/active/renewing/error
+    ssl_issued_at       = Column(DateTime, nullable=True)
+    ssl_expires_at      = Column(DateTime, nullable=True)
+    nginx_config_path   = Column(String, nullable=True)                           # /etc/nginx/conf.d/custom/<domain>.conf
+    created_at          = Column(DateTime, default=datetime.utcnow)
+
+    site = relationship("SiteProject", backref="custom_domains")
+
+
 class SiteTemplate(Base):
     """Шаблон для генерации ТЗ и кода сайта."""
     __tablename__ = "site_templates"

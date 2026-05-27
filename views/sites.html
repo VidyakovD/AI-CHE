@@ -462,7 +462,36 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
         <p class="text-xs text-on-dim mb-0.5">Сайт опубликован:</p>
         <a id="hostedLink" href="#" target="_blank" rel="noopener noreferrer" class="text-xs text-primary underline truncate block"></a>
       </div>
+      <button id="customDomainBtn" type="button" onclick="openCustomDomainsModal()" class="hidden btn-yellow text-sm">
+        🌐 Свой домен
+      </button>
     </div>
+  </div>
+</div>
+
+<!-- Custom domains modal -->
+<div id="customDomainsModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeCustomDomainsModal()">
+  <div class="bg-surface border border-outline/30 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-lg font-bold">🌐 Кастомные домены</h3>
+      <button onclick="closeCustomDomainsModal()" class="btn-g text-sm">✕</button>
+    </div>
+    <p class="text-xs text-on-dim mb-4">
+      Привяжи свой <code>example.com</code> к этому сайту. Юзеры увидят его на твоём домене вместо aiche.ru. SSL автоматически (Let's Encrypt).
+    </p>
+
+    <!-- Add new domain -->
+    <div class="border border-outline/30 rounded-lg p-3 mb-4">
+      <label class="block text-xs text-on-dim mb-1">Добавить домен</label>
+      <div class="flex gap-2">
+        <input id="newDomainInput" class="inp flex-1" placeholder="example.com" maxlength="253"/>
+        <button id="attachDomainBtn" onclick="attachDomain()" class="btn-p text-sm">Привязать</button>
+      </div>
+      <p class="text-xs text-on-dim mt-1">Только домен — без http:// и path. До 5 на аккаунт.</p>
+    </div>
+
+    <!-- Existing domains list -->
+    <div id="domainsList"></div>
   </div>
 </div>
 
@@ -1393,16 +1422,162 @@ function updateDoneBottomBar(){
   const bar = document.getElementById('doneBottomBar');
   bar.classList.remove('hidden');
 
+  const cdBtn = document.getElementById('customDomainBtn');
   if(currentProject.hosted_path){
     const urlWrap = document.getElementById('hostedUrl');
     urlWrap.classList.remove('hidden');
     document.getElementById('hostedLink').href = API + currentProject.hosted_path;
     document.getElementById('hostedLink').textContent = API + currentProject.hosted_path;
+    if(cdBtn) cdBtn.classList.remove('hidden');
   } else {
     document.getElementById('hostedUrl').classList.add('hidden');
+    if(cdBtn) cdBtn.classList.add('hidden');
   }
   // Загружаем список ботов с включённым виджетом и подсвечиваем текущий выбор
   populateAttachBotSelect();
+}
+
+// ── Custom domains ────────────────────────────────────────────────────────
+function openCustomDomainsModal(){
+  if(!currentProject || !currentProject.id) return;
+  document.getElementById('customDomainsModal').classList.remove('hidden');
+  loadCustomDomains();
+}
+function closeCustomDomainsModal(){
+  document.getElementById('customDomainsModal').classList.add('hidden');
+}
+
+async function loadCustomDomains(){
+  const list = document.getElementById('domainsList');
+  list.innerHTML = '<p class="text-xs text-on-dim">Загружаю…</p>';
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProject.id}/domains`, {credentials:'same-origin'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    renderDomainsList(d.domains || []);
+  }catch(e){
+    list.innerHTML = `<p class="text-xs text-red-400">Ошибка: ${e.message}</p>`;
+  }
+}
+
+function _domainStatusBadge(d){
+  const v = d.verification_status;
+  const s = d.ssl_status;
+  if(v === 'verified' && s === 'active'){
+    return '<span class="text-xs px-2 py-0.5 rounded-full" style="background:rgba(123,217,104,0.2);color:#7bd968">✓ работает</span>';
+  }
+  if(s === 'issuing'){
+    return '<span class="text-xs px-2 py-0.5 rounded-full" style="background:rgba(255,179,71,0.2);color:#ffb347">выдача SSL…</span>';
+  }
+  if(s === 'error'){
+    return '<span class="text-xs px-2 py-0.5 rounded-full" style="background:rgba(239,68,68,0.2);color:#ef4444">⚠ SSL ошибка</span>';
+  }
+  if(v === 'failed'){
+    return '<span class="text-xs px-2 py-0.5 rounded-full" style="background:rgba(239,68,68,0.2);color:#ef4444">DNS не совпал</span>';
+  }
+  return '<span class="text-xs px-2 py-0.5 rounded-full" style="background:rgba(160,160,160,0.2)">ожидает</span>';
+}
+
+function _esc(s){
+  return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderDomainsList(domains){
+  const list = document.getElementById('domainsList');
+  if(!domains.length){
+    list.innerHTML = '<p class="text-xs text-on-dim">Пока нет привязанных доменов.</p>';
+    return;
+  }
+  list.innerHTML = domains.map(d => {
+    const showInstructions = d.verification_status !== 'verified' || d.ssl_status !== 'active';
+    return `
+      <div class="border border-outline/30 rounded-lg p-3 mb-3">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-bold">${_esc(d.domain)}</div>
+          <div class="flex items-center gap-2">
+            ${_domainStatusBadge(d)}
+            <button onclick="verifyDomain(${d.id})" class="btn-g text-xs">↻ Проверить</button>
+            <button onclick="deleteDomain(${d.id}, '${_esc(d.domain)}')" class="btn-g text-xs">🗑</button>
+          </div>
+        </div>
+        ${showInstructions ? `
+          <div class="text-xs text-on-dim mt-2 space-y-2">
+            <div class="font-semibold text-on">Шаги настройки у регистратора домена:</div>
+            <div class="bg-surface2 rounded p-2 font-mono text-xs">
+              <div><b>1. CNAME:</b> ${_esc(d.cname_record.host)} → ${_esc(d.cname_record.value)}</div>
+              <div class="mt-1"><b>2. TXT:</b> ${_esc(d.verification_record.host)} → <span class="text-primary">${_esc(d.verification_record.value)}</span></div>
+            </div>
+            <div>После прописи записей подожди 5-30 минут (DNS propagation) и нажми «↻ Проверить».</div>
+            ${d.last_check_error ? `<div class="text-red-400">⚠ ${_esc(d.last_check_error)}</div>` : ''}
+          </div>
+        ` : `
+          <div class="text-xs text-on-dim">SSL выдан: ${d.ssl_issued_at ? d.ssl_issued_at.slice(0,10) : '—'}.
+          Сайт открывается по <a href="https://${_esc(d.domain)}" target="_blank" class="text-primary underline">https://${_esc(d.domain)}</a></div>
+        `}
+      </div>
+    `;
+  }).join('');
+}
+
+async function attachDomain(){
+  const input = document.getElementById('newDomainInput');
+  const btn = document.getElementById('attachDomainBtn');
+  const domain = (input.value || '').trim().toLowerCase();
+  if(!domain) return;
+  btn.disabled = true; btn.textContent = '...';
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProject.id}/domains`, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({domain}),
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP '+r.status));
+    input.value = '';
+    await loadCustomDomains();
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Не удалось привязать: '+e.message, 'error');
+    else alert('Не удалось привязать: '+e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Привязать';
+  }
+}
+
+async function verifyDomain(domainId){
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProject.id}/domains/${domainId}/verify`, {
+      method:'POST', credentials:'same-origin',
+    });
+    const d = await r.json();
+    // Покажем статус — не всегда ошибка (cname_pending OK для retry'я)
+    if(d.error){
+      if(window.aiAlert) await window.aiAlert(d.error, d.status === 'active' ? 'info' : 'warn');
+    } else if(d.status === 'active'){
+      if(window.aiAlert) await window.aiAlert('Готово! Домен работает по HTTPS.', 'success');
+    }
+    await loadCustomDomains();
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Не удалось проверить: '+e.message, 'error');
+  }
+}
+
+async function deleteDomain(domainId, domain){
+  const ok = window.aiConfirm
+    ? await window.aiConfirm(`Удалить домен ${domain}? SSL-сертификат будет отозван.`, 'warn')
+    : confirm(`Удалить ${domain}?`);
+  if(!ok) return;
+  try{
+    const r = await fetch(`${API}/sites/projects/${currentProject.id}/domains/${domainId}`, {
+      method:'DELETE', credentials:'same-origin',
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(d.detail || ('HTTP '+r.status));
+    }
+    await loadCustomDomains();
+  }catch(e){
+    if(window.aiAlert) await window.aiAlert('Не удалось удалить: '+e.message, 'error');
+  }
 }
 
 async function populateAttachBotSelect(){

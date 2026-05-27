@@ -1719,3 +1719,217 @@ def site_project_zip(project_id: int, db: Session = Depends(get_db),
 # Удалён endpoint POST /sites/code (site_decode_code) — нигде не вызывался
 # из фронта (grep по views/ дал 0 совпадений). Логика дублировала
 # _strip_markdown_code_fence — теперь используется он напрямую.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Custom domains (CNAME + Let's Encrypt)
+# ─────────────────────────────────────────────────────────────────────────────
+from datetime import datetime as _dt_cd  # noqa: E402
+
+
+class AttachDomainPayload(BaseModel):
+    domain: str
+
+
+@router.post("/sites/projects/{project_id}/domains")
+def attach_custom_domain(project_id: int, payload: AttachDomainPayload,
+                         db: Session = Depends(get_db),
+                         user: User = Depends(current_user)):
+    """Привязать новый custom-домен к сайту.
+
+    Создаёт SiteCustomDomain в статусе pending + verification_token. Не запускает
+    certbot — это произойдёт только после /verify.
+    """
+    if not user.is_verified:
+        raise HTTPException(403, "Подтвердите email")
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    if not p.hosted_path or not p.public_token:
+        raise HTTPException(400, "Сайт ещё не опубликован — сначала нажми «Опубликовать»")
+
+    from server.custom_domains import normalize_domain, validate_domain, generate_verification_token
+    from server.models import SiteCustomDomain
+
+    domain = normalize_domain(payload.domain)
+    err = validate_domain(domain)
+    if err:
+        raise HTTPException(400, err)
+
+    # Лимит per-user (5 по умолчанию).
+    from server.pricing import get_price
+    max_per_user = max(1, get_price("sites.max_custom_domains_per_user", default=5))
+    user_count = (db.query(SiteCustomDomain)
+                    .filter_by(user_id=user.id).count())
+    if user_count >= max_per_user:
+        raise HTTPException(
+            400, f"Лимит {max_per_user} custom-доменов на юзера. Удали ненужный."
+        )
+
+    # Уникальность домена в системе
+    existing = db.query(SiteCustomDomain).filter_by(domain=domain).first()
+    if existing:
+        raise HTTPException(
+            409,
+            "Этот домен уже привязан в системе. Если это вы — удалите старую "
+            "привязку. Если нет — обратитесь в поддержку."
+        )
+
+    cd = SiteCustomDomain(
+        site_id=p.id,
+        user_id=user.id,
+        domain=domain,
+        verification_token=generate_verification_token(),
+        verification_status="pending",
+        ssl_status="none",
+    )
+    db.add(cd); db.commit(); db.refresh(cd)
+
+    try:
+        from server.audit_log import log_action
+        log_action("site.custom_domain_attached", user_id=user.id,
+                   target_type="site", target_id=str(p.id),
+                   details={"domain": domain})
+    except Exception:
+        pass
+
+    return _domain_dict(cd)
+
+
+@router.get("/sites/projects/{project_id}/domains")
+def list_custom_domains(project_id: int,
+                        db: Session = Depends(get_db),
+                        user: User = Depends(current_user)):
+    """Все custom-домены сайта (для UI карточки сайта)."""
+    p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
+    if not p:
+        raise HTTPException(404, "Проект не найден")
+    from server.models import SiteCustomDomain
+    rows = (db.query(SiteCustomDomain)
+              .filter_by(site_id=p.id)
+              .order_by(SiteCustomDomain.created_at.desc())
+              .all())
+    return {"domains": [_domain_dict(c) for c in rows]}
+
+
+@router.post("/sites/projects/{project_id}/domains/{domain_id}/verify")
+def verify_custom_domain(project_id: int, domain_id: int,
+                         db: Session = Depends(get_db),
+                         user: User = Depends(current_user)):
+    """Проверка TXT-записи + (если ОК) certbot + nginx config + reload."""
+    from server.models import SiteCustomDomain
+    cd = (db.query(SiteCustomDomain)
+            .filter_by(id=domain_id, user_id=user.id, site_id=project_id)
+            .first())
+    if not cd:
+        raise HTTPException(404, "Домен не найден")
+    if cd.verification_status == "verified" and cd.ssl_status == "active":
+        return {"status": "already_verified", **_domain_dict(cd)}
+
+    from server.custom_domains import (
+        check_verification_txt, check_cname_target, activate_domain,
+        NGINX_CUSTOM_DIR,
+    )
+
+    # 1. TXT-запись
+    ok, reason = check_verification_txt(cd.domain, cd.verification_token)
+    cd.last_check_at = _dt_cd.utcnow()
+    cd.last_check_error = None if ok else reason
+    if not ok:
+        cd.verification_status = "failed"
+        db.commit()
+        return {"status": "txt_failed", "error": reason, **_domain_dict(cd)}
+
+    # 2. CNAME / A-record (best-effort)
+    cname_ok, cname_reason = check_cname_target(cd.domain)
+    if not cname_ok:
+        cd.verification_status = "pending"
+        cd.last_check_error = cname_reason
+        db.commit()
+        return {"status": "cname_pending", "error": cname_reason, **_domain_dict(cd)}
+
+    cd.verification_status = "verified"
+    cd.verified_at = _dt_cd.utcnow()
+    cd.ssl_status = "issuing"
+    db.commit()
+
+    # 3. Активация (certbot + nginx)
+    site = db.query(SiteProject).filter_by(id=cd.site_id).first()
+    if not site or not site.public_token:
+        cd.ssl_status = "error"
+        cd.last_check_error = "Сайт не опубликован"
+        db.commit()
+        raise HTTPException(400, "Сайт должен быть опубликован для активации")
+
+    ok, msg = activate_domain(cd.domain, site.public_token)
+    if not ok:
+        cd.ssl_status = "error"
+        cd.last_check_error = msg[:1000]
+        db.commit()
+        return {"status": "ssl_failed", "error": msg, **_domain_dict(cd)}
+
+    cd.ssl_status = "active"
+    cd.ssl_issued_at = _dt_cd.utcnow()
+    cd.nginx_config_path = f"{NGINX_CUSTOM_DIR}/{cd.domain}.conf"
+    db.commit()
+
+    try:
+        from server.audit_log import log_action
+        log_action("site.custom_domain_activated", user_id=user.id,
+                   target_type="site", target_id=str(site.id),
+                   details={"domain": cd.domain})
+    except Exception:
+        pass
+
+    return {"status": "active", **_domain_dict(cd)}
+
+
+@router.delete("/sites/projects/{project_id}/domains/{domain_id}")
+def delete_custom_domain(project_id: int, domain_id: int,
+                         db: Session = Depends(get_db),
+                         user: User = Depends(current_user)):
+    """Удалить custom-домен: nginx config + certbot delete + reload."""
+    from server.models import SiteCustomDomain
+    cd = (db.query(SiteCustomDomain)
+            .filter_by(id=domain_id, user_id=user.id, site_id=project_id)
+            .first())
+    if not cd:
+        raise HTTPException(404, "Домен не найден")
+    domain_name = cd.domain
+    db.delete(cd); db.commit()
+    try:
+        from server.custom_domains import remove_custom_domain
+        ok, msg = remove_custom_domain(domain_name)
+        if not ok:
+            log.warning(f"[custom-domains] cleanup '{domain_name}' partial: {msg}")
+    except Exception as e:
+        log.warning(f"[custom-domains] cleanup failed: {e}")
+    return {"status": "deleted", "domain": domain_name}
+
+
+def _domain_dict(cd) -> dict:
+    """Сериализация SiteCustomDomain для API + UI."""
+    return {
+        "id": cd.id,
+        "domain": cd.domain,
+        "verification_status": cd.verification_status,
+        "verification_token": cd.verification_token,
+        "verification_record": {
+            "host": f"_aiche-verify.{cd.domain}",
+            "type": "TXT",
+            "value": cd.verification_token,
+        },
+        "cname_record": {
+            "host": cd.domain,
+            "type": "CNAME",
+            "value": "aiche.ru",
+        },
+        "ssl_status": cd.ssl_status,
+        "verified_at": cd.verified_at.isoformat() if cd.verified_at else None,
+        "ssl_issued_at": cd.ssl_issued_at.isoformat() if cd.ssl_issued_at else None,
+        "ssl_expires_at": cd.ssl_expires_at.isoformat() if cd.ssl_expires_at else None,
+        "last_check_at": cd.last_check_at.isoformat() if cd.last_check_at else None,
+        "last_check_error": cd.last_check_error,
+        "created_at": cd.created_at.isoformat() if cd.created_at else None,
+    }
+
