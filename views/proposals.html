@@ -1481,9 +1481,15 @@ async function aiEditSection(sectionHtml){
   _aiSectionMode = false;
   const btn = document.getElementById('pAiEditBtn');
   if(btn) btn.textContent = '✨ AI-правка блока';
-  // Рендерим без overlay — пока юзер вводит инструкцию
-  document.getElementById('pResultIframe').setAttribute('sandbox', 'allow-same-origin');
-  document.getElementById('pResultIframe').srcdoc = _currentHtml;
+  // Рендерим без overlay — пока юзер вводит инструкцию.
+  // Защита от null: iframe может ещё не существовать в DOM (юзер закрыл
+  // превью или модалка перерисовывается). Без null-check было падало с
+  // "Cannot read properties of null (reading 'setAttribute')".
+  const iframe = document.getElementById('pResultIframe');
+  if(iframe){
+    iframe.setAttribute('sandbox', 'allow-same-origin');
+    iframe.srcdoc = _currentHtml;
+  }
 
   const instr = await aiPrompt(
     'Что изменить в этом блоке? Например: «сделай заголовок крупнее», «добавь срок поставки», «убери последний пункт», «измени тон на более дружелюбный».',
@@ -1518,8 +1524,10 @@ async function aiEditSection(sectionHtml){
 
 function hideResult(){
   _currentHtml = '';
-  document.getElementById('pResult').classList.add('hidden');
-  document.getElementById('pResultIframe').srcdoc = '';
+  const result = document.getElementById('pResult');
+  if(result) result.classList.add('hidden');
+  const iframe = document.getElementById('pResultIframe');
+  if(iframe) iframe.srcdoc = '';
   exitEditMode();
 }
 

@@ -52,11 +52,15 @@ def _tg_proxy() -> str | None:
 
 
 async def _tg_request(method: str, url: str, *, data=None, json_body=None,
-                      timeout: float = 30.0, retries: int = 3) -> tuple[int, dict | None, str | None]:
+                      timeout: float = 30.0, retries: int = 3,
+                      backoff_cap: float = 8.0) -> tuple[int, dict | None, str | None]:
     """HTTP-запрос к TG API с retry + опциональным прокси.
 
     Returns: (status_code, json_or_none, error_or_none).
     Делает retries попытки с экспоненциальной паузой при ConnectError / Timeout.
+
+    Backoff: 1s, 2s, 4s, 8s, 8s, 8s (capped at backoff_cap). Для retries=5
+    суммарное время ожидания ≈ 23 сек — должно пережить транзитный outage.
     """
     import asyncio
     proxy = _tg_proxy()
@@ -80,7 +84,9 @@ async def _tg_request(method: str, url: str, *, data=None, json_body=None,
             last_err = f"{type(e).__name__}"
             log.warning(f"[tg] {method} {url[:60]}… attempt {attempt+1}/{retries}: {last_err}")
             if attempt < retries - 1:
-                await asyncio.sleep(1.5 ** attempt)  # 1s, 1.5s, 2.25s
+                # 2^attempt: 1, 2, 4, 8, 8, 8... (cap)
+                pause = min(2 ** attempt, backoff_cap)
+                await asyncio.sleep(pause)
                 continue
         except Exception as e:
             last_err = f"{type(e).__name__}: {str(e)[:80]}"
@@ -167,7 +173,11 @@ def _app_url() -> str:
 
 
 async def tg_set_webhook(token: str, token_hash: str) -> dict:
-    """Установить webhook https://aiche.ru/webhook/personal-tg/<token_hash>."""
+    """Установить webhook https://aiche.ru/webhook/personal-tg/<token_hash>.
+
+    Использует retries=5 (вместо 3) — пользователь часто жаловался на
+    ConnectTimeout при первой установке вебхука. Суммарное окно ≈ 23 сек.
+    """
     if not token or not token_hash:
         return {"ok": False, "error": "no token"}
     webhook_url = f"{_app_url()}/webhook/personal-tg/{token_hash}"
@@ -175,9 +185,9 @@ async def tg_set_webhook(token: str, token_hash: str) -> dict:
     status, data, err = await _tg_request("POST", url, data={
         "url": webhook_url,
         "allowed_updates": '["message","callback_query"]',
-    }, timeout=30, retries=3)
+    }, timeout=30, retries=5)
     if err:
-        return {"ok": False, "error": f"Сеть: {err}"}
+        return {"ok": False, "error": f"Сеть: {err}. Попробуй кнопку «Переподключить» через минуту."}
     data = data or {}
     if status != 200 or not data.get("ok"):
         return {"ok": False, "error": data.get("description", f"HTTP {status}")}

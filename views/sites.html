@@ -469,9 +469,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
         ↻ Перегенерировать
       </button>
-      <!-- Привязка чат-бота: виджет автоматически вставится при «Опубликовать» -->
-      <div class="flex items-center gap-2 ml-2">
-        <label class="text-xs text-on-dim whitespace-nowrap inline-flex items-center gap-1.5"><span class="text-primary" data-i="bot"></span>Чат-бот на сайт:</label>
+      <!-- Привязка существующего чат-бота из /chatbots.html → виджет
+           автоматически вставляется в code_html сайта. -->
+      <div class="flex items-center gap-2 ml-2" title="Выбери уже созданного бота — его виджет встроится в сайт автоматически. Чтобы создать другого вида чат — см. кнопку «💬 Виджет чата» правее.">
+        <label class="text-xs text-on-dim whitespace-nowrap inline-flex items-center gap-1.5"><span class="text-primary" data-i="bot"></span>Привязать бота:</label>
         <select id="attachBotSelect" onchange="attachBotToSite(this.value)" class="inp text-xs py-1" style="min-width:160px">
           <option value="">— нет —</option>
         </select>
@@ -483,8 +484,9 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <button id="customDomainBtn" type="button" onclick="openCustomDomainsModal()" class="hidden btn-yellow text-sm">
         🌐 Свой домен
       </button>
-      <button id="widgetBtn" type="button" onclick="openWidgetModal()" class="hidden btn-yellow text-sm">
-        💬 Чат на сайт
+      <button id="widgetBtn" type="button" onclick="openWidgetModal()" class="hidden btn-yellow text-sm"
+              title="Альтернативный простой виджет — пересылка в твой TG или AI-ответ без workflow. Если уже выбрал бота в списке слева — этот виджет не нужен.">
+        💬 Свой виджет
       </button>
       <button id="seoBtn" type="button" onclick="openSeoModal()" class="hidden btn-yellow text-sm">
         🔎 SEO
@@ -530,13 +532,26 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 <div id="widgetModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeWidgetModal()">
   <div class="bg-surface border border-outline/30 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
     <div class="flex items-center justify-between mb-3">
-      <h3 class="text-lg font-bold">💬 Чат-бот на сайт</h3>
+      <h3 class="text-lg font-bold">💬 Собственный виджет чата</h3>
       <button onclick="closeWidgetModal()" class="btn-g text-sm" aria-label="Закрыть">✕</button>
     </div>
-    <p class="text-xs text-on-dim mb-4">
+    <p class="text-xs text-on-dim mb-3">
       Плавающая кнопка чата в правом нижнем углу твоего опубликованного сайта.
       Посетители пишут — ты выбираешь как они получат ответ.
     </p>
+
+    <!-- Banner: если уже привязан бот через dropdown -->
+    <div id="wmAlreadyAttachedBanner" class="hidden mb-4 p-3 bg-primary/10 border border-primary/30 rounded-lg text-xs leading-relaxed">
+      <b>ℹ У тебя уже привязан бот «<span id="wmAttachedBotName">—</span>»</b>
+      через выпадающий список слева от этой кнопки. Его виджет <b>уже встроен</b>
+      в сайт — посетители получают полноценный workflow-бот (с твоими нодами,
+      базой знаний, прайсом).
+      <br><br>
+      Эта модалка — <b>альтернатива</b>: создаёт простой виджет без workflow
+      (либо пересылка в твой TG, либо одношаговый AI с promp-ом и FAQ).
+      Если хочешь использовать привязанного бота — закрой модалку, всё уже работает.
+      Если хочешь именно простой виджет — он <b>заменит</b> текущего бота на сайте.
+    </div>
 
     <!-- Tabs: 2 режима -->
     <div class="flex gap-2 mb-4">
@@ -1793,6 +1808,19 @@ async function openWidgetModal(){
   document.getElementById('widgetModal').classList.remove('hidden');
   document.getElementById('wmEmbedBox').classList.add('hidden');
   document.getElementById('wmDisableBtn').classList.add('hidden');
+  // Banner: если уже выбран бот в dropdown — показать предупреждение
+  try {
+    const sel = document.getElementById('attachBotSelect');
+    const banner = document.getElementById('wmAlreadyAttachedBanner');
+    if (sel && banner && sel.value) {
+      const opt = sel.options[sel.selectedIndex];
+      const name = opt ? (opt.textContent || '').trim() : '';
+      document.getElementById('wmAttachedBotName').textContent = name || 'бот';
+      banner.classList.remove('hidden');
+    } else if (banner) {
+      banner.classList.add('hidden');
+    }
+  } catch(_){}
   // Загружаем текущее состояние
   try{
     const r = await fetch(`${API}/sites/projects/${currentProject.id}/widget`,

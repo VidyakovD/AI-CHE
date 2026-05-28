@@ -749,10 +749,131 @@ def _build_module_extra_context(slug: str, user_id: int | None) -> str:
             return _fetch_vk_ads_context_for_user(user_id)
         if slug == "copywriter":
             return _fetch_copywriter_brands_for_user(user_id)
+        if slug == "coach":
+            return _fetch_coach_context_for_user(user_id)
+        if slug == "nutrition":
+            return _fetch_nutrition_context_for_user(user_id)
     except Exception as e:
         log.warning("[module-extra-context] slug=%s user=%s failed: %s",
                     slug, user_id, e)
     return ""
+
+
+def _fetch_workouts_block(user_id: int, days: int = 14, limit: int = 12) -> str:
+    """Сводка последних тренировок юзера из WorkoutLog.
+
+    Подмешивается в context модулей coach (как своя память) и nutrition
+    (для понимания энергорасхода). Если записей нет — возвращает пустую
+    строку (без шапки), чтобы не загромождать prompt.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    from server.db import db_session
+    from server.models import WorkoutLog
+    import json as _json
+    cutoff = _dt.utcnow() - _td(days=days)
+    try:
+        with db_session() as db:
+            rows = (db.query(WorkoutLog)
+                      .filter(WorkoutLog.user_id == user_id,
+                              WorkoutLog.workout_date >= cutoff)
+                      .order_by(WorkoutLog.workout_date.desc())
+                      .limit(limit)
+                      .all())
+            if not rows:
+                return ""
+            lines = [f"\n═══ ТРЕНИРОВКИ юзера (последние {days} дней, "
+                     f"{len(rows)} записей) ═══"]
+            for r in rows:
+                d = r.workout_date.strftime("%d.%m")
+                try:
+                    sets = _json.loads(r.sets_json) if r.sets_json else []
+                except Exception:
+                    sets = []
+                sets_str = ", ".join(
+                    f"{s.get('weight', '?')}×{s.get('reps', '?')}" for s in sets[:8]
+                )
+                if len(sets) > 8:
+                    sets_str += f", ...+{len(sets)-8}"
+                line = f"  • {d}: {r.exercise} — {sets_str}"
+                if r.notes:
+                    line += f" ({r.notes[:60]})"
+                lines.append(line)
+            return "\n".join(lines) + "\n"
+    except Exception as e:
+        log.warning("[workouts-context] failed: %s", e)
+        return ""
+
+
+def _fetch_meals_block(user_id: int, days: int = 7, limit: int = 14) -> str:
+    """Сводка последних приёмов пищи юзера из MealLog.
+
+    Подмешивается в context модулей nutrition (как своя память) и coach
+    (для оценки калорийности на фоне тренировок).
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    from server.db import db_session
+    from server.models import MealLog
+    cutoff = _dt.utcnow() - _td(days=days)
+    try:
+        with db_session() as db:
+            rows = (db.query(MealLog)
+                      .filter(MealLog.user_id == user_id,
+                              MealLog.meal_date >= cutoff)
+                      .order_by(MealLog.meal_date.desc())
+                      .limit(limit)
+                      .all())
+            if not rows:
+                return ""
+            lines = [f"\n═══ ПИТАНИЕ юзера (последние {days} дней, "
+                     f"{len(rows)} приёмов) ═══"]
+            for r in rows:
+                d = r.meal_date.strftime("%d.%m")
+                t = r.meal_type or "—"
+                cal = f" ≈{r.calories} ккал" if r.calories else ""
+                lines.append(f"  • {d} {t}: {r.description[:120]}{cal}")
+            return "\n".join(lines) + "\n"
+    except Exception as e:
+        log.warning("[meals-context] failed: %s", e)
+        return ""
+
+
+def _fetch_coach_context_for_user(user_id: int) -> str:
+    """Контекст для модуля coach — кросс-агентский:
+    1. Расписание на эту неделю (из calendar — Google / Yandex / Local)
+    2. Последние тренировки (workout_log)
+    3. Последние приёмы пищи (meal_log) — чтобы тренер видел калории/восстановление
+
+    Это даёт модулю реальное понимание жизни юзера, а не общие советы.
+    """
+    parts: list[str] = []
+    # 1) Calendar — расписание (когда юзеру свободно для тренировок)
+    try:
+        cal = _fetch_calendar_context_for_user(user_id)
+        if cal:
+            parts.append("\n(КАЛЕНДАРЬ — учитывай при планировании тренировок:)\n"
+                          + cal[:1500])
+    except Exception as e:
+        log.warning("[coach-context] calendar failed: %s", e)
+    # 2) Workouts — собственная память
+    parts.append(_fetch_workouts_block(user_id, days=21, limit=20))
+    # 3) Meals — для энергорасхода
+    parts.append(_fetch_meals_block(user_id, days=7, limit=10))
+    out = "".join(parts).strip()
+    return ("\n" + out) if out else ""
+
+
+def _fetch_nutrition_context_for_user(user_id: int) -> str:
+    """Контекст для модуля nutrition — кросс-агентский:
+    1. Последние приёмы пищи (своя память — meal_log)
+    2. Последние тренировки (workout_log) — для расчёта расхода калорий
+
+    Без этих данных любой совет = выдумка. С данными — реальные рекомендации.
+    """
+    parts: list[str] = []
+    parts.append(_fetch_meals_block(user_id, days=7, limit=14))
+    parts.append(_fetch_workouts_block(user_id, days=7, limit=8))
+    out = "".join(parts).strip()
+    return ("\n" + out) if out else ""
 
 
 def _fetch_copywriter_brands_for_user(user_id: int) -> str:
@@ -1159,6 +1280,17 @@ def invoke_module(*, slug: str, task: str, profile: dict,
   ПРАВИЛА, не «случайные заметки», соблюдай их обязательно.
 - Если задача требует данных извне (web, API) которых у тебя нет —
   напрямую скажи юзеру что нужно подключить (через owner-агента).
+
+═══ КРАТКОСТЬ И ЭКОНОМИЯ ТОКЕНОВ (общее правило для всех модулей) ═══
+1. По дефолту ответ ≤200 слов. Юзер платит за каждый токен — не вали простыни.
+2. Структура: 3-7 буллетов или короткие абзацы. Никаких «введений», никаких
+   «вот пример», никаких «надеюсь, это поможет».
+3. Если данных юзера не хватает (его цели/параметры/контекст) — ЗАДАЙ
+   2-3 коротких вопроса и стоп. НЕ выдавай дефолтный/примерный/шаблонный
+   ответ «пока ждём» — это пустая трата токенов и шум.
+4. Длинные планы (тренировки на неделю, рацион на 7 дней, генерация полного
+   контент-плана) — только если юзер ЯВНО просит И параметры собраны.
+5. Не повторяй вопрос юзера — сразу к делу.
 
 ═══ ADAPTIVE PROMPTS — как ты сам прокачиваешься ═══
 В конце ответа (в новой строке) можешь добавить маркеры [LEARNED:...]

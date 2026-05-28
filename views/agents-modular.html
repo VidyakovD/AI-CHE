@@ -665,6 +665,46 @@ function renderHeader(){
   if(tc) tc.textContent = modCount;
 }
 
+// Перевод английских и формальных ключей фактов в человеческие русские лейблы.
+// LLM иногда выдаёт [LEARNED:fact: ...] с ключами вроде "AGE", "MAIN_PAIN",
+// "BUSINESS" — пользователю в sidebar это смотрится не на русском.
+const _FACT_LABELS = {
+  // Основное
+  name: 'Имя', industry: 'Сфера', tone: 'Стиль', goals: 'Цели',
+  // Часто всплывающие от LLM (в т.ч. UPPER_CASE)
+  age: 'Возраст', AGE: 'Возраст',
+  height: 'Рост', HEIGHT: 'Рост',
+  weight: 'Вес', WEIGHT: 'Вес',
+  gender: 'Пол', GENDER: 'Пол',
+  city: 'Город', CITY: 'Город', location: 'Локация', LOCATION: 'Локация',
+  profession: 'Профессия', occupation: 'Род занятий',
+  business: 'Бизнес', BUSINESS: 'Бизнес',
+  company: 'Компания', COMPANY: 'Компания',
+  role: 'Роль', ROLE: 'Роль',
+  main_pain: 'Боль', MAIN_PAIN: 'Боль', pain: 'Боль',
+  goal: 'Цель', GOAL: 'Цель', GOALS: 'Цели',
+  budget: 'Бюджет', BUDGET: 'Бюджет',
+  experience: 'Опыт', EXPERIENCE: 'Опыт',
+  fact: 'Факт', FACT: 'Факт',
+  note: 'Заметка', NOTE: 'Заметка',
+  preference: 'Предпочтение', PREFERENCE: 'Предпочтение',
+  constraint: 'Ограничение', CONSTRAINT: 'Ограничение',
+  diet: 'Диета', DIET: 'Диета',
+  schedule: 'Расписание', SCHEDULE: 'Расписание',
+  audience: 'Аудитория', AUDIENCE: 'Аудитория',
+  product: 'Продукт', PRODUCT: 'Продукт',
+};
+
+function _factLabel(key){
+  if(!key) return 'Факт';
+  if(_FACT_LABELS[key]) return _FACT_LABELS[key];
+  // FOO_BAR → «Foo Bar» по-английски — оставляем но с нормальным регистром
+  const norm = String(key).toLowerCase();
+  if(_FACT_LABELS[norm]) return _FACT_LABELS[norm];
+  // Дефолт: убираем подчёркивания, делаем Capitalized
+  return norm.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function renderProfile(){
   const box = document.getElementById('profileBlock');
   const p = _agent.profile || {};
@@ -672,13 +712,12 @@ function renderProfile(){
   const lines = [];
   for(const k of ['name','industry','tone','goals']){
     if(p[k]){
-      const lbl = {name:'Имя', industry:'Сфера', tone:'Стиль', goals:'Цели'}[k];
-      lines.push(`<div class="profile-fact"><span class="k">${lbl}</span>${_esc(p[k])}</div>`);
+      lines.push(`<div class="profile-fact"><span class="k">${_factLabel(k)}</span>${_esc(p[k])}</div>`);
     }
   }
   for(const f of (facts||[]).slice(-8).reverse()){
     if(f && f.value){
-      lines.push(`<div class="profile-fact"><span class="k">${_esc(f.key||'факт')}</span>${_esc(f.value)}</div>`);
+      lines.push(`<div class="profile-fact"><span class="k">${_esc(_factLabel(f.key))}</span>${_esc(f.value)}</div>`);
     }
   }
   box.innerHTML = lines.length ? lines.join('') : '<div class="profile-empty">Агент ещё ничего о тебе не знает. Поговорите — он запомнит.</div>';
@@ -1525,15 +1564,18 @@ function _msgEl(m){
   const div = document.createElement('div');
   const role = m.role || 'assistant';
   div.className = 'msg '+role;
-  // Сообщения от модулей — header с slug + level + level-up badge
+  // Сообщения от модулей — header с русским названием + level + level-up
   if(role === 'tool' && m.meta){
     const meta = m.meta || {};
     const slug = meta.slug || 'модуль';
+    // Показываем русское имя из _modules (например «🏋 Тренер»), не slug «coach»
+    const mod = (_modules || []).find(x => x.slug === slug);
+    const displayName = (mod && mod.name) ? mod.name : slug;
     const level = (meta.level != null) ? meta.level : 0;
     const levelUp = meta.level_up;
     const hdr = document.createElement('div');
     hdr.className = 'tool-hdr';
-    hdr.innerHTML = `🧩 ${_esc(slug)} <span class="lvl">L${level}</span>` +
+    hdr.innerHTML = `🧩 ${_esc(displayName)} <span class="lvl">L${level}</span>` +
       (levelUp ? ` <span class="levelup">⬆ повышен!</span>` : '');
     div.appendChild(hdr);
     const body = document.createElement('div');
