@@ -24,7 +24,10 @@ set -eu
 REPO=/root/AI-CHE
 GREEN_URL=http://127.0.0.1:8000/
 BLUE_URL=http://127.0.0.1:8001/
-PUBLIC_URL=http://127.0.0.1/  # через nginx (test failover)
+# Публичный smoke через HTTPS на localhost — обходим публичный DNS/CDN,
+# но nginx upstream-failover виден. -k т.к. сертификат на aiche.ru, не localhost.
+PUBLIC_URL=https://aiche.ru/
+PUBLIC_CURL_ARGS="--resolve aiche.ru:443:127.0.0.1 -k"
 SMOKE_TIMEOUT=15
 
 log() {
@@ -34,9 +37,10 @@ log() {
 smoke_test() {
     local url=$1
     local label=$2
+    local extra_args="${3:-}"
     local tries=20
     while [ $tries -gt 0 ]; do
-        code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$url" 2>/dev/null || echo 000)
+        code=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 5 $extra_args "$url" 2>/dev/null || echo 000)
         if [ "$code" = "200" ]; then
             log "✓ $label SMOKE OK (HTTP 200)"
             return 0
@@ -78,16 +82,26 @@ smoke_test "$BLUE_URL" "BLUE" || {
     exit 1
 }
 
+# Прогрев blue 2 запросами через nginx — чтобы failover при падении green
+# был мгновенным (nginx уже знает что blue здоров).
+log "  прогрев blue через nginx upstream..."
+for _ in 1 2 3; do
+    curl -sL -o /dev/null --max-time 5 $PUBLIC_CURL_ARGS "$PUBLIC_URL" || true
+    sleep 0.5
+done
+
 log "── Шаг 4/5: рестарт GREEN (port 8000) — nginx failover на BLUE"
 systemctl restart ai-che
-sleep 3
+# Пока green в рестарте — публичные запросы должны идти через blue.
+# Дадим nginx 2 сек чтобы failover отработал
+sleep 2
 smoke_test "$GREEN_URL" "GREEN" || {
     log "GREEN не поднялся! BLUE активен (через nginx failover). Разберись."
     exit 1
 }
 
 log "── Шаг 5/5: проверяем nginx-маршрут (публичный URL должен отвечать)"
-smoke_test "$PUBLIC_URL" "PUBLIC (через nginx)" || {
+smoke_test "$PUBLIC_URL" "PUBLIC (через nginx)" "$PUBLIC_CURL_ARGS" || {
     log "nginx что-то странное — проверь конфиг."
     exit 1
 }
