@@ -1,9 +1,11 @@
-# DEPLOY — zero-downtime rolling reload
+# DEPLOY — gunicorn + правила миграций
 
 Прод-сервер `193.187.92.147`, systemd unit `ai-che.service`. После перехода на
-**gunicorn + uvicorn workers** деплой выполняется без 502/connection refused —
-gunicorn по SIGHUP перезапускает воркеры по одному, старые дорабатывают
-активные запросы, nginx продолжает отвечать.
+**gunicorn + uvicorn workers** деплой выполняется через `systemctl reload`
+вместо `restart`. Reload даёт **~5-9 секунд** окна 502 (новые workers cold-start
+~9 сек: импорт 26 модулей + scheduler init); restart — 10-20 сек жёсткого
+downtime. Истинный zero-downtime требует blue/green с двумя инстанциями за
+nginx upstream — отложено до 100+ платящих юзеров.
 
 ## Однократная миграция с uvicorn на gunicorn
 
@@ -58,9 +60,16 @@ HOME="C:\\Users\\Денис" ssh ... root@193.187.92.147 "
 "
 ```
 
-**`systemctl reload`** вместо `restart` — это ключ:
-- `restart` = kill всех + старт новых (5-15 секунд downtime)
-- `reload` = SIGHUP → gunicorn rolling restart (0 downtime)
+**`systemctl reload`** вместо `restart`:
+- `restart` = жёсткий kill всех 4 worker'ов + полный старт (10-20 сек downtime)
+- `reload` = SIGHUP → gunicorn graceful workers swap (~5-9 сек короткое окно
+  502 пока новые workers импортируются). Старые workers получают TERM и
+  дорабатывают активные запросы (graceful_timeout=60s), новые fork'аются
+  от master без preload и cold-start'ятся.
+
+Если деплоишь срочный security-фикс — лучше reload.
+Если требуется истинный zero-downtime для платящих юзеров — blue/green
+(см. секцию ниже).
 
 ## Что zero-downtime НЕ покрывает
 
@@ -134,6 +143,47 @@ watch -n 1 'curl -s -o /dev/null -w "HTTP %{http_code} · %{time_total}s\n" http
 
 Если видишь HTTP 502/504 во время `reload` — graceful_timeout слишком короткий.
 Проверь `gunicorn.conf.py`.
+
+## Будущее: blue/green для true zero-downtime (TODO post-100-юзеров)
+
+Когда появятся платящие юзеры и 5-сек dip станет проблемой — мигрировать на
+два инстанса за nginx upstream:
+
+```nginx
+upstream ai_che_app {
+    server 127.0.0.1:8000;
+    server 127.0.0.1:8001 backup;
+}
+```
+
+Два systemd unit'а:
+- `ai-che.service` → port 8000
+- `ai-che-blue.service` → port 8001
+
+`deploy.sh`:
+```bash
+# 1. Подтянуть код
+git pull origin main && pip install -r requirements.txt --upgrade
+
+# 2. Перезапустить blue (8001) — nginx переключает на 8000
+systemctl restart ai-che-blue
+sleep 10  # warm-up
+
+# 3. Smoke-тест blue
+curl -s http://127.0.0.1:8001/ > /dev/null || exit 1
+
+# 4. nginx upstream swap (без даунтайма)
+# (либо вручную nginx reload с актуальным upstream, либо weight=...)
+
+# 5. Перезапустить green (8000) — uplink идёт через blue
+systemctl restart ai-che
+sleep 10
+
+# 6. Возврат к default upstream order
+```
+
+С blue/green истинный zero-downtime достигается. Это **отдельный спринт**,
+~1 час работы. Сейчас 4 юзера на проде — текущей gunicorn-схемы хватает.
 
 ## Прод-сервер: общая информация
 
