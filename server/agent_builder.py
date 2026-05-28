@@ -745,10 +745,53 @@ def _build_module_extra_context(slug: str, user_id: int | None) -> str:
             return _fetch_finance_context_for_user(user_id)
         if slug == "calendar":
             return _fetch_calendar_context_for_user(user_id)
+        if slug == "vk_ads":
+            return _fetch_vk_ads_context_for_user(user_id)
     except Exception as e:
         log.warning("[module-extra-context] slug=%s user=%s failed: %s",
                     slug, user_id, e)
     return ""
+
+
+def _fetch_vk_ads_context_for_user(user_id: int) -> str:
+    """Подмешать сводку рекламных кампаний ВК в context модуля vk_ads.
+
+    Берёт токен из AgentModule.custom_settings['ads_token'] (юзер ввёл его
+    через settings_schema форму). Без токена → friendly hint.
+    """
+    from server.db import db_session
+    from server.models import Agent, AgentModule
+    import json as _json
+    try:
+        with db_session() as db:
+            mod = (db.query(AgentModule)
+                     .join(Agent, AgentModule.agent_id == Agent.id)
+                     .filter(Agent.user_id == user_id,
+                             AgentModule.slug == "vk_ads",
+                             AgentModule.is_enabled.is_(True))
+                     .first())
+            if not mod or not mod.custom_settings_json:
+                return ""
+            try:
+                settings = _json.loads(mod.custom_settings_json) or {}
+            except Exception:
+                return ""
+            token = (settings.get("ads_token") or "").strip()
+            account_id = settings.get("account_id")
+            if not token:
+                return ("\n═══ ВК РЕКЛАМА ═══\n"
+                        "📭 Ads-токен не задан. Юзеру: открой настройки модуля "
+                        "и вставь user-токен с scope=ads (получить — vkhost.github.io).")
+    except Exception as e:
+        log.warning("[vk_ads-context] DB error: %s", e)
+        return ""
+
+    try:
+        from server.vk_ads import build_ads_summary
+        return build_ads_summary(token, account_id or 0)
+    except Exception as e:
+        log.warning("[vk_ads-context] build_ads_summary failed: %s", e)
+        return ""
 
 
 def _fetch_calendar_context_for_user(user_id: int) -> str:
