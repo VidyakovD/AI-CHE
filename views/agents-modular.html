@@ -312,9 +312,17 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 
 <!-- Schedule (cron) modal -->
 <div id="scheduleModal" class="modal-bg">
-  <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:22px;max-width:520px;width:100%" onclick="event.stopPropagation()">
-    <h3 class="text-lg font-bold mb-3">⏰ Расписание агента <span id="schedSlug" style="color:#ffb347"></span></h3>
-    <p class="text-xs text-on-dim mb-3">Агент будет автоматически выполнять задачу по расписанию. Каждый запуск стоит как обычный вызов модуля (1 ₽).</p>
+  <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;max-width:520px;width:100%;max-height:88vh;display:flex;flex-direction:column" onclick="event.stopPropagation()">
+    <!-- Sticky header — всегда видно даже при scroll -->
+    <div style="padding:20px 22px 12px;border-bottom:1px solid rgba(74,63,47,0.4);position:sticky;top:0;background:#1e1a14;border-radius:16px 16px 0 0;z-index:2">
+      <div class="flex items-center justify-between gap-3">
+        <h3 class="text-lg font-bold m-0">⏰ Расписание агента <span id="schedSlug" style="color:#ffb347"></span></h3>
+        <button class="btn-g" onclick="closeScheduleModal()" aria-label="Закрыть" style="flex-shrink:0">✕</button>
+      </div>
+      <p class="text-xs text-on-dim mt-2 mb-0">Агент будет автоматически выполнять задачу по расписанию. Каждый запуск стоит как обычный вызов модуля (1 ₽).</p>
+    </div>
+    <!-- Scrollable body -->
+    <div style="padding:14px 22px 22px;overflow-y:auto;flex:1">
 
     <label class="block text-xs text-on-dim mb-1">Когда запускать (готовые шаблоны)</label>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="schedPresets"></div>
@@ -330,7 +338,6 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
     <div class="flex justify-between items-center" style="margin-bottom:8px">
       <button class="btn-d" id="schedClearBtn">Очистить расписание</button>
       <div class="flex gap-2">
-        <button class="btn-g" onclick="closeScheduleModal()">Отмена</button>
         <button class="btn-p" id="schedSaveBtn">Сохранить</button>
       </div>
     </div>
@@ -351,13 +358,28 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
       <div id="schedSkillsList"></div>
     </div>
 
-    <!-- Webhook trigger — внешний URL чтобы дёрнуть модуль из CRM / Zapier -->
-    <div style="border-top:1px solid rgba(74,63,47,0.4);margin-top:10px;padding-top:10px">
-      <div class="text-xs text-on-dim mb-2">📨 <b>Webhook-триггер</b> — дёргать модуль по URL из CRM / Zapier / webhook'ов.</div>
-      <div id="schedWebhookArea">
-        <button class="btn-g" id="schedWebhookGenBtn">🔑 Сгенерировать webhook URL</button>
+    <!-- Webhook trigger — внешний URL чтобы дёрнуть модуль из CRM / Zapier
+         Спрятано под аккордеон — большинству юзеров не нужно. -->
+    <details style="border-top:1px solid rgba(74,63,47,0.4);margin-top:10px;padding-top:10px">
+      <summary style="cursor:pointer;font-size:12px;color:#a89880;list-style:none;display:flex;align-items:center;gap:6px">
+        <span>🔌</span>
+        <b>Для разработчиков: запускать модуль из внешних сервисов</b>
+        <span style="margin-left:auto;font-size:10px;opacity:.6">(нажми чтобы раскрыть)</span>
+      </summary>
+      <div class="text-xs text-on-dim mt-3 mb-2" style="line-height:1.5">
+        Это <b>секретная ссылка</b> для запуска агента из другой системы — например,
+        твоя CRM получила новую заявку и хочет, чтобы агент сразу её обработал.
+        Ты копируешь URL → вставляешь в настройки CRM/Zapier/n8n → они шлют на
+        неё <b>POST-запрос</b> → агент запускается с задачей которую ты указал выше.
+        <br><br>
+        <b>Не знаешь что это?</b> Просто закрой эту секцию — для обычной работы
+        webhook не нужен, достаточно расписания.
       </div>
-    </div>
+      <div id="schedWebhookArea">
+        <button class="btn-g" id="schedWebhookGenBtn">🔑 Сгенерировать ссылку</button>
+      </div>
+    </details>
+    </div><!-- /scrollable body -->
   </div>
 </div>
 
@@ -2736,12 +2758,18 @@ function _renderSchedWebhook(token){
   const url = `${window.location.origin}/api/agents/triggers/webhook/${token}`;
   area.innerHTML = `
     <div style="background:#272018;border:1px solid rgba(255,140,66,.3);border-radius:8px;padding:9px;font-family:monospace;font-size:11px;color:#ffb347;word-break:break-all;margin-bottom:6px"></div>
-    <div class="flex gap-2">
+    <div class="flex gap-2 flex-wrap">
       <button class="btn-g" id="schedWebhookCopyBtn" style="font-size:11px">📋 Скопировать</button>
-      <button class="btn-g" id="schedWebhookRotateBtn" style="font-size:11px">🔄 Сгенерировать заново</button>
+      <button class="btn-g" id="schedWebhookRotateBtn" style="font-size:11px">🔄 Новая ссылка</button>
       <button class="btn-d" id="schedWebhookRevokeBtn" style="font-size:11px">✕ Отключить</button>
     </div>
-    <div class="text-xs text-on-dim mt-2">POST с любым телом → запустит модуль с задачей выше + телом запроса.</div>`;
+    <div class="text-xs text-on-dim mt-2" style="line-height:1.5">
+      Шли на эту ссылку <b>POST</b>-запрос с любым телом — агент запустится с
+      задачей выше + тело твоего запроса как контекст. Например, из CRM
+      Bitrix24/amoCRM можно настроить webhook на «новая заявка» → агент сразу
+      проанализирует и ответит. Защити ссылку — кто знает URL, тот может
+      запустить агента.
+    </div>`;
   area.querySelector('div').textContent = url;
   document.getElementById('schedWebhookCopyBtn').addEventListener('click', async () => {
     try {

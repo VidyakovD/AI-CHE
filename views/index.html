@@ -2182,19 +2182,59 @@ async function _myrunsShare(token){
 // HTML+JS из api.html в уже большой index.html (риск конфликтов имён функций
 // вроде switchTab/refreshTokens). ?embed=1 говорит api.html спрятать header.
 function renderIntegrationsTab(el){
+  // Раньше тут был <iframe src="/api.html?embed=1">, но X-Frame-Options: DENY
+  // (стоит глобально в main.py против clickjacking) блокировал его в той же
+  // origin'е тоже — юзер видел «aiche.ru не позволяет установить соединение».
+  // Заменяем на inline-сводку + кнопку открытия в отдельной вкладке.
   el.innerHTML = `
-    <div class="space-y-3">
-      <div class="text-xs text-on-surface-dim/70 px-1">
+    <div class="space-y-4">
+      <div class="text-xs text-on-surface-dim/70 px-1 leading-relaxed">
         🔌 <b>Public API</b>: интегрируйте AI Студию Че в ваш SaaS / CRM / сайт
         через Bearer-токены, Webhooks (7 событий с HMAC-подписью) и CRM
         (Bitrix24, amoCRM, generic webhook).
       </div>
-      <iframe src="/api.html?embed=1"
-              style="width:100%;height:70vh;border:1px solid rgba(74,63,47,0.25);border-radius:12px;background:#1C1C1C"
-              title="API & интеграции"
-              loading="lazy"></iframe>
-      <div class="text-[11px] text-on-surface-dim/50 px-1">
-        Хотите открыть в отдельной вкладке? <a href="/api.html" target="_blank" class="text-primary hover:underline">Откройте /api.html</a>
+
+      <div class="grid sm:grid-cols-3 gap-3">
+        <div class="rounded-xl p-4 border" style="background:#1e1a14;border-color:rgba(74,63,47,0.4)">
+          <div class="text-2xl mb-1">🔑</div>
+          <div class="font-bold text-sm mb-1">Bearer-токены</div>
+          <div class="text-xs text-on-surface-dim leading-relaxed">
+            Создавай токены со scope (proposals/sites/agents/...) и подключай
+            наш REST API к своему приложению.
+          </div>
+        </div>
+        <div class="rounded-xl p-4 border" style="background:#1e1a14;border-color:rgba(74,63,47,0.4)">
+          <div class="text-2xl mb-1">📨</div>
+          <div class="font-bold text-sm mb-1">Webhooks</div>
+          <div class="text-xs text-on-surface-dim leading-relaxed">
+            7 событий (КП открыто/подписано, бот собрал заявку, агент закончил,
+            сайт готов и т.д.) — POST на твой URL с HMAC-SHA256.
+          </div>
+        </div>
+        <div class="rounded-xl p-4 border" style="background:#1e1a14;border-color:rgba(74,63,47,0.4)">
+          <div class="text-2xl mb-1">🏢</div>
+          <div class="font-bold text-sm mb-1">CRM-интеграции</div>
+          <div class="text-xs text-on-surface-dim leading-relaxed">
+            Bitrix24 / amoCRM / generic webhook — заявки от чат-ботов летят
+            прямо в твою воронку.
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 pt-2">
+        <a href="/api.html" target="_blank" rel="noopener" class="btn-p inline-flex items-center gap-2 text-sm">
+          🔌 Открыть API &amp; Webhooks
+          <span style="opacity:.7;font-size:11px">↗</span>
+        </a>
+        <a href="/docs" target="_blank" rel="noopener" class="btn-g inline-flex items-center gap-2 text-sm" title="OpenAPI/Swagger">
+          📖 OpenAPI-docs
+        </a>
+      </div>
+
+      <div class="text-[11px] text-on-surface-dim/50 px-1 pt-1">
+        Управление токенами, webhook'ами и CRM — на отдельной странице
+        <a href="/api.html" target="_blank" class="text-primary hover:underline">/api.html</a>.
+        Здесь — короткое описание раздела.
       </div>
     </div>`;
 }
