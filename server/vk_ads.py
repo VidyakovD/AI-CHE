@@ -198,6 +198,48 @@ def build_ads_summary(token: str, account_id: int | str) -> str:
     return "\n".join(lines)
 
 
+def update_campaign_status(token: str, account_id: int | str,
+                             campaign_id: int | str, status: int) -> dict:
+    """ads.updateCampaigns — изменить статус кампании.
+
+    status: 0 = stopped (пауза), 1 = running (старт)
+    Возвращает {ok: bool, error: str|None}.
+    """
+    import json as _json
+    if status not in (0, 1):
+        return {"ok": False, "error": "status должен быть 0 (стоп) или 1 (старт)"}
+    data = [{"campaign_id": int(campaign_id), "status": int(status)}]
+    d = _call("ads.updateCampaigns", token,
+              account_id=account_id, data=_json.dumps(data))
+    if "error" in d:
+        return {"ok": False, "error": str(d["error"])[:300]}
+    resp = d.get("response") or []
+    # VK возвращает массив 0/1 для каждой кампании в запросе
+    success = bool(resp) and (resp[0] == 0 or resp[0] is True)
+    if not success:
+        return {"ok": False, "error": f"VK вернул {resp!r}"}
+    return {"ok": True, "error": None}
+
+
+def set_campaign_day_limit(token: str, account_id: int | str,
+                             campaign_id: int | str,
+                             day_limit_rub: int) -> dict:
+    """ads.updateCampaigns с day_limit. VK ждёт суммы в КОПЕЙКАХ ₽."""
+    import json as _json
+    if not isinstance(day_limit_rub, (int, float)) or day_limit_rub < 0:
+        return {"ok": False, "error": "day_limit_rub должен быть ≥ 0"}
+    data = [{"campaign_id": int(campaign_id),
+             "day_limit": int(day_limit_rub * 100)}]
+    d = _call("ads.updateCampaigns", token,
+              account_id=account_id, data=_json.dumps(data))
+    if "error" in d:
+        return {"ok": False, "error": str(d["error"])[:300]}
+    resp = d.get("response") or []
+    success = bool(resp) and (resp[0] == 0 or resp[0] is True)
+    return {"ok": success,
+            "error": None if success else f"VK вернул {resp!r}"}
+
+
 def get_targeting_stats(token: str, account_id: int | str,
                          criteria: dict) -> dict:
     """ads.getTargetingStats — оценка размера аудитории по таргетингу.

@@ -872,7 +872,11 @@ async def google_calendar_oauth_start(request: Request,
         "client_id": client_id,
         "redirect_uri": _google_calendar_redirect_uri(),
         "response_type": "code",
-        "scope": "https://www.googleapis.com/auth/calendar.events.readonly",
+        # calendar.events — read + write (нужен для модуля calendar чтобы
+        # реально создавать встречи через [ACTION:create_google_event]).
+        # Старые connection с .readonly scope получат 403 при попытке
+        # создать событие — система предложит переподключиться.
+        "scope": "https://www.googleapis.com/auth/calendar.events",
         "access_type": "offline",      # → refresh_token
         "prompt": "consent",            # форсим refresh_token даже если уже давали разрешение
         "state": state,

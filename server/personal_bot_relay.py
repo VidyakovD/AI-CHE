@@ -605,6 +605,53 @@ async def vk_delete_callback(token: str, group_id: str, token_hash: str) -> dict
     return {"ok": True}
 
 
+async def push_to_user(user, text: str) -> dict:
+    """Push-уведомление юзеру через подключённые personal-боты.
+
+    Перебирает приоритетно TG → MAX → VK. Возвращает {channels: [...],
+    delivered: int}. Если ни один не подключён → пустой список.
+
+    Используется autoresponder cron'ом: модули coach/nutrition/news_aggregator
+    могут проактивно написать «Утро! Что планируешь на завтрак?» — юзер
+    получает уведомление в своём боте, открывает чат → отвечает в Че.
+    """
+    delivered = 0
+    channels: list[str] = []
+    # TG
+    tg_token = getattr(user, "personal_tg_bot_token", None)
+    tg_chat = getattr(user, "personal_tg_chat_id", None)
+    if tg_token and tg_chat:
+        try:
+            ok = await tg_send_message(tg_token, str(tg_chat), text,
+                                        parse_mode="HTML")
+            if ok:
+                delivered += 1
+                channels.append("tg")
+        except Exception as e:
+            log.warning(f"[push] tg failed: {e}")
+    # MAX
+    max_token = getattr(user, "personal_max_bot_token", None)
+    max_uid = getattr(user, "personal_max_user_id", None)
+    if max_token and max_uid:
+        try:
+            ok = await max_send_message(max_token, str(max_uid), text)
+            if ok:
+                delivered += 1
+                channels.append("max")
+        except Exception as e:
+            log.warning(f"[push] max failed: {e}")
+    # VK Community bot
+    vk_token = getattr(user, "personal_vk_bot_token", None)
+    vk_gid = getattr(user, "personal_vk_group_id", None)
+    if vk_token and vk_gid:
+        # VK group bot шлёт сообщение в группу — для juзера это значит peer_id =
+        # это его user_id. Но мы не знаем чей user_id... Только если у нас
+        # есть в БД chat_message с from_id юзера. Для MVP пропускаем VK
+        # push если нет явного chat_id (autoresponder получит лог "vk skipped").
+        pass
+    return {"delivered": delivered, "channels": channels}
+
+
 async def vk_send_message(token: str, peer_id: int | str, text: str) -> bool:
     """Отправить сообщение от имени группы. random_id обязателен (anti-replay)."""
     import random

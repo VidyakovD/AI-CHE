@@ -1342,6 +1342,11 @@ class UserMailbox(Base):
     host            = Column(String, nullable=False)   # imap.yandex.ru
     port            = Column(Integer, default=993)
     password        = Column(EncryptedString(1024), nullable=False)  # app-password
+    # SMTP-настройки для отправки писем модулем mail. Если NULL — будут
+    # выведены автоматически из host (yandex.ru/gmail.com/mail.ru). Тот же
+    # password (app-password) обычно работает и для SMTP.
+    smtp_host       = Column(String, nullable=True)    # smtp.yandex.ru
+    smtp_port       = Column(Integer, nullable=True)   # 465 (SSL) / 587 (STARTTLS)
     is_active       = Column(Boolean, default=True)
     last_synced_at  = Column(DateTime, nullable=True)
     last_error      = Column(Text, nullable=True)
@@ -2213,6 +2218,95 @@ class AgentMessage(Base):
                               nullable=False, index=True)
     role            = Column(String, nullable=False)            # user|assistant|system|tool
     content         = Column(Text, nullable=True)
-    # tool_calls / attachments / mode (build|command|settings) / cost_kop
+    # tool_calls / attachments / mode (build|command|settings) / cost_kop /
+    # pending_action_ids (список id'шек PendingAgentAction, который надо
+    # отрендерить в UI при отображении этого сообщения)
     meta_json       = Column(Text, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class PendingAgentAction(Base):
+    """Отложенное действие, которое модуль предложил выполнить.
+
+    Не запускается автоматически — юзер ОБЯЗАТЕЛЬНО подтверждает через UI.
+    Это безопасный flow для опасных действий: отправка email, создание
+    встречи в Google, пауза рекламной кампании, и т.п.
+
+    Lifecycle:
+      pending   → юзер видит preview в чате, кнопки [Отправить] / [Отмена]
+      confirmed → tool реально вызван, в result_json — что вернул tool
+      cancelled → юзер нажал «Отмена», ничего не делается
+      error     → юзер нажал confirm, но tool упал; error в result_json
+      expired   → 24 часа не подтверждено — auto-cancel cron'ом
+
+    action_type — slug инструмента (send_email, create_google_event,
+    yandex_direct_pause_campaign, vk_ads_pause_campaign, и т.п.).
+
+    params_json — параметры специфичные для tool (to/subject/body для email,
+    title/start/end для calendar, и т.д.). preview_text — человекочитаемая
+    выжимка для UI (1-3 строки).
+    """
+    __tablename__ = "pending_agent_actions"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                              nullable=False, index=True)
+    agent_id        = Column(Integer, ForeignKey("agents.id", ondelete="SET NULL"),
+                              nullable=True, index=True)
+    module_slug     = Column(String, nullable=False, index=True)  # mail|calendar|direct_ads|...
+    action_type     = Column(String, nullable=False, index=True)  # send_email|create_google_event|...
+    params_json     = Column(Text, nullable=False)
+    preview_text    = Column(Text, nullable=True)                  # для рендера в чате
+    status          = Column(String, default="pending", index=True)  # pending|confirmed|cancelled|error|expired
+    result_json     = Column(Text, nullable=True)                  # что вернул tool (или error message)
+    created_at      = Column(DateTime, default=datetime.utcnow, index=True)
+    confirmed_at    = Column(DateTime, nullable=True)
+    # Опциональная ссылка на сообщение в чате — для линковки UI
+    chat_message_id = Column(Integer, ForeignKey("agent_messages.id", ondelete="SET NULL"),
+                              nullable=True)
+
+
+class WorkoutLog(Base):
+    """Структурированный лог тренировки от модуля coach.
+
+    Заменяет свободный формат [LEARNED:fact: 28.05 жим 80×8×4] на чёткие
+    поля → точные отчёты по агрегатам (тоннаж, рекорды, динамика).
+
+    Одна запись = одно упражнение в один день. Юзер делает 5 упражнений
+    за тренировку → 5 строк. Сеты внутри одного упражнения хранятся в
+    sets_json как список словарей: [{"weight": 80, "reps": 8}, ...].
+    """
+    __tablename__ = "workout_logs"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                              nullable=False, index=True)
+    workout_date    = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    exercise        = Column(String, nullable=False)   # «жим лёжа», «присед»
+    sets_json       = Column(Text, nullable=False)     # JSON [{weight, reps}, ...]
+    notes           = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+
+class MealLog(Base):
+    """Структурированный лог приёма пищи от модуля nutrition.
+
+    Заменяет свободный формат [LEARNED:fact: 26.05 обед курица + рис ≈ 550 ккал]
+    на отдельные поля → точная сумма ккал/БЖУ за день/неделю.
+
+    meal_type: breakfast|lunch|dinner|snack
+    """
+    __tablename__ = "meal_logs"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                              nullable=False, index=True)
+    meal_date       = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    meal_type       = Column(String, nullable=False)   # breakfast|lunch|dinner|snack
+    description     = Column(Text, nullable=False)     # «овсянка + банан + кофе»
+    calories        = Column(Integer, nullable=True)
+    protein_g       = Column(Integer, nullable=True)
+    fat_g           = Column(Integer, nullable=True)
+    carbs_g         = Column(Integer, nullable=True)
+    notes           = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)

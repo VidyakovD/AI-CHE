@@ -122,7 +122,9 @@ class TestGoogleConnectStart:
         assert url.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
         q = parse_qs(urlparse(url).query)
         assert q["client_id"] == ["test-client-id"]
-        assert q["scope"] == ["https://www.googleapis.com/auth/calendar.events.readonly"]
+        # Scope расширен до calendar.events (read+write) — нужно для
+        # [ACTION:create_google_event] (модуль calendar умеет создавать встречи).
+        assert q["scope"] == ["https://www.googleapis.com/auth/calendar.events"]
         assert q["access_type"] == ["offline"]
         assert q["prompt"] == ["consent"]
         assert q["response_type"] == ["code"]

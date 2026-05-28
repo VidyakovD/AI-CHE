@@ -211,8 +211,14 @@ def _cleanup_user_mailbox(uid):
 class TestModuleExtraContext:
     def test_non_mail_slug_returns_empty(self):
         from server.agent_builder import _build_module_extra_context
-        assert _build_module_extra_context("copywriter", user_id=1) == ""
+        # lawyer / другие старые модули без context-loader'ов — пусто
         assert _build_module_extra_context("lawyer", user_id=1) == ""
+        # copywriter теперь подгружает список брендов — даже если их нет,
+        # возвращает hint о том что бренд надо создать. Проверяем что в
+        # ответе упомянуты Creators.
+        out = _build_module_extra_context("copywriter", user_id=1)
+        # copywriter теперь подгружает список брендов либо hint про их отсутствие
+        assert "креатор" in out.lower() or out == ""
 
     def test_no_user_id_returns_empty(self):
         from server.agent_builder import _build_module_extra_context

@@ -747,10 +747,50 @@ def _build_module_extra_context(slug: str, user_id: int | None) -> str:
             return _fetch_calendar_context_for_user(user_id)
         if slug == "vk_ads":
             return _fetch_vk_ads_context_for_user(user_id)
+        if slug == "copywriter":
+            return _fetch_copywriter_brands_for_user(user_id)
     except Exception as e:
         log.warning("[module-extra-context] slug=%s user=%s failed: %s",
                     slug, user_id, e)
     return ""
+
+
+def _fetch_copywriter_brands_for_user(user_id: int) -> str:
+    """Список Creator-брендов юзера + подключённые каналы — для copywriter модуля.
+
+    LLM нужно знать brand_id чтобы оформить [ACTION:publish_to_creators].
+    Также показываем какие платформы для каждого бренда поддерживают
+    автопостинг (есть активный канал) — чтобы LLM не предлагала
+    публикацию туда, куда нельзя.
+    """
+    from server.db import db_session
+    from server.models import CreatorBrand, CreatorChannelConnection
+    try:
+        with db_session() as db:
+            brands = (db.query(CreatorBrand)
+                        .filter(CreatorBrand.user_id == user_id)
+                        .all())
+            if not brands:
+                return ("\n═══ КРЕАТОРЫ ═══\n"
+                        "У юзера нет брендов в Creators. Перед автопостингом "
+                        "ему нужно создать бренд в /creators.html.\n")
+            lines = ["\n═══ КРЕАТОРЫ — твои бренды для [ACTION:publish_to_creators] ═══"]
+            for b in brands:
+                channels = (db.query(CreatorChannelConnection)
+                              .filter(CreatorChannelConnection.brand_id == b.id,
+                                      CreatorChannelConnection.is_active.is_(True))
+                              .all())
+                platforms = ", ".join(c.platform for c in channels) or "—"
+                lines.append(
+                    f"  • brand_id={b.id}: {b.name} "
+                    f"(ниша: {b.niche or '?'}, активные каналы: {platforms})"
+                )
+            lines.append("Используй brand_id из списка. schedule_at в прошлом / сейчас → "
+                          "опубликуется сразу (если есть активный канал нужной платформы).")
+            return "\n".join(lines) + "\n"
+    except Exception as e:
+        log.warning("[copywriter-brands] failed: %s", e)
+        return ""
 
 
 def _fetch_vk_ads_context_for_user(user_id: int) -> str:
@@ -794,6 +834,32 @@ def _fetch_vk_ads_context_for_user(user_id: int) -> str:
         return ""
 
 
+def _calendar_connections_header(user_id: int) -> str:
+    """Возвращает блок «подключённые календари: id + email + provider».
+    LLM нужен calendar_connection_id чтобы оформить [ACTION:create_google_event].
+    """
+    from server.db import db_session
+    from server.models import UserCalendarConnection
+    try:
+        with db_session() as db:
+            conns = (db.query(UserCalendarConnection)
+                       .filter(UserCalendarConnection.user_id == user_id,
+                               UserCalendarConnection.is_active.is_(True))
+                       .all())
+            rows = [
+                f"  • calendar_connection_id={c.id}: "
+                f"{c.account_email or 'без email'} ({c.provider})"
+                for c in conns
+            ]
+    except Exception:
+        return ""
+    if not rows:
+        return ""
+    return ("\nПодключённые календари (для [ACTION:create_google_event] "
+            "используй calendar_connection_id из списка):\n" +
+            "\n".join(rows) + "\n")
+
+
 def _fetch_calendar_context_for_user(user_id: int) -> str:
     """Подмешать ближайшие события Calendar (Google/Yandex/ICS) в context.
 
@@ -809,6 +875,8 @@ def _fetch_calendar_context_for_user(user_id: int) -> str:
     from server.db import db_session
     from server.calendar_sync import fetch_all_user_events, format_events_for_llm
     from server.models import UserCalendarConnection, LocalCalendarEvent
+
+    header = _calendar_connections_header(user_id)
 
     # 1) Cache lookup — быстрый путь
     try:
@@ -869,7 +937,7 @@ def _fetch_calendar_context_for_user(user_id: int) -> str:
                             "uid": f"local:{r.id}",
                         })
                     events.sort(key=lambda e: e.get("start") or now)
-                    return "\n" + format_events_for_llm(events[:50])
+                    return header + "\n" + format_events_for_llm(events[:50])
                 except Exception as e:
                     log.warning("[calendar-context] cache parse failed: %s", e)
     except Exception as e:
@@ -888,9 +956,9 @@ def _fetch_calendar_context_for_user(user_id: int) -> str:
             loop.close()
     except Exception as e:
         log.warning("[calendar-context] user=%s fetch failed: %s", user_id, e)
-        return ""
+        return header  # хотя бы список подключений отдадим
 
-    return "\n" + format_events_for_llm(events)
+    return header + "\n" + format_events_for_llm(events)
 
 
 def _fetch_finance_context_for_user(user_id: int) -> str:
@@ -956,11 +1024,16 @@ def _fetch_mail_context_for_user(user_id: int) -> str:
             for e in emails:
                 e["_mailbox"] = b["label"] or b["email"]
             all_emails.extend(emails)
-            boxes_info.append(f"  • {b['email']} ({b['label'] or 'без метки'}): "
-                              f"{len(emails)} писем")
+            # mailbox_id показываем в context — LLM использует его в [ACTION:send_email]
+            boxes_info.append(
+                f"  • mailbox_id={b['id']}: {b['email']} "
+                f"({b['label'] or 'без метки'}) — {len(emails)} писем"
+            )
         except Exception as e:
             log.warning("[mail-context] mailbox %s failed: %s", b["email"], e)
-            boxes_info.append(f"  • {b['email']}: ошибка {e!s:.80}")
+            boxes_info.append(
+                f"  • mailbox_id={b['id']}: {b['email']} — ошибка {e!s:.80}"
+            )
 
     if not all_emails:
         return f"\n═══ ПОЧТА ═══\nПодключено ящиков: {len(boxes_data)}, " \
@@ -970,6 +1043,9 @@ def _fetch_mail_context_for_user(user_id: int) -> str:
               f"Подключено: {len(boxes_data)} {_pluralRu(len(boxes_data), 'ящик','ящика','ящиков')}\n")
     for line in boxes_info:
         header += line + "\n"
+    header += ("\nКогда отправляешь письмо через [ACTION:send_email] — в поле "
+               "mailbox_id ОБЯЗАТЕЛЬНО подставь конкретный id из списка выше "
+               "(не email — именно число).\n")
     return header + "\n" + build_mail_context(all_emails)
 
 
@@ -1023,6 +1099,12 @@ def invoke_module(*, slug: str, task: str, profile: dict,
     # Это качественный апгрейд по сравнению с «случайной заметкой».
     memory_text = _format_adaptive_rules(module_memory)
 
+    # Action-protocol: для модулей, у которых есть реальные действия (mail.send,
+    # calendar.create_google_event, ads.pause, etc.) добавляем в system_prompt
+    # описание формата [ACTION:...]...[/ACTION] чтобы LLM умела предлагать.
+    # См. server/agent_actions.py для протокола.
+    allowed_actions_for_module = _ALLOWED_ACTIONS_BY_MODULE.get(slug) or []
+
     # Кастомные настройки (channels/tokens/preferences)
     settings_text = ""
     if isinstance(custom_settings, dict) and custom_settings:
@@ -1045,6 +1127,14 @@ def invoke_module(*, slug: str, task: str, profile: dict,
             base_prompt += "\n\n═══ ВКЛЮЧЁННЫЕ СКИЛЫ (учитывай в ответе) ═══\n" + skill_addon
     except Exception:
         pass
+
+    # Action-protocol prompt для модулей с реальными действиями
+    if allowed_actions_for_module:
+        try:
+            from server.agent_actions import get_action_protocol_prompt
+            base_prompt += "\n" + get_action_protocol_prompt(allowed_actions_for_module)
+        except Exception:
+            pass
 
     # Module-specific context: некоторые модули умеют дёргать внешний мир
     # перед LLM-вызовом (mail тянет inbox, finance — выписку из CSV кэша,
@@ -1200,6 +1290,23 @@ def invoke_module(*, slug: str, task: str, profile: dict,
         except Exception as e:
             log.warning(f"[news_aggregator] autopost failed: {e}")
 
+    # ─ Action-блоки: парсим [ACTION:...]...[/ACTION] из output, создаём
+    #   PendingAgentAction в БД. Юзер увидит preview в UI + кнопки confirm/cancel.
+    pending_actions: list[dict] = []
+    if allowed_actions_for_module and user_id:
+        try:
+            from server.agent_actions import create_pending_actions
+            cleaned, pending_actions = create_pending_actions(
+                user_id=int(user_id),
+                agent_id=None,   # модуль invoke не привязан к конкретному agent_id
+                module_slug=slug,
+                output=output_clean,
+            )
+            if pending_actions:
+                output_clean = cleaned
+        except Exception as e:
+            log.warning(f"[module:{slug}] action parse failed: {e}")
+
     return {
         "ok": True,
         "output": output_clean,
@@ -1214,7 +1321,23 @@ def invoke_module(*, slug: str, task: str, profile: dict,
             "model_used": _route_model,
         },
         "auto_post": auto_post_info,
+        "pending_actions": pending_actions,
     }
+
+
+# Какие модули могут предлагать какие действия.
+# Логика добавления нового модуля = одна строка + регистрация executor в agent_actions.py.
+_ALLOWED_ACTIONS_BY_MODULE: dict[str, list[str]] = {
+    "mail":       ["send_email"],
+    "calendar":   ["create_google_event"],
+    "finance":    ["add_finance_transaction"],
+    "coach":      ["log_workout"],
+    "nutrition":  ["log_meal"],
+    "direct_ads": ["yandex_direct_pause_campaign",
+                   "yandex_direct_set_daily_budget"],
+    "vk_ads":     ["vk_ads_pause_campaign"],
+    "copywriter": ["publish_to_creators"],
+}
 
 
 def _autopost_news_to_tg(user_id: int, output: str, custom_settings: dict) -> dict | None:

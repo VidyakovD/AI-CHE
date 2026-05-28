@@ -323,13 +323,49 @@ async def _agents_modules_cron_tick():
                         "ok": bool(inv.get("ok")),
                         "cost_kop": charged_kop,
                         "cron": cron,
+                        "pending_actions": [
+                            {"id": pa["id"], "action_type": pa["action_type"],
+                             "preview_text": pa["preview_text"],
+                             "status": pa.get("status", "pending")}
+                            for pa in (inv.get("pending_actions") or [])
+                        ],
                     }, ensure_ascii=False),
                 ))
+                # Линкуем pending action к этому сообщению (для UI)
+                if inv.get("pending_actions"):
+                    db.flush()
+                    from server.models import PendingAgentAction
+                    last_msg = (db.query(AgentMessage)
+                                  .filter(AgentMessage.agent_id == agent.id)
+                                  .order_by(AgentMessage.id.desc())
+                                  .first())
+                    if last_msg:
+                        ids = [pa["id"] for pa in inv["pending_actions"]]
+                        (db.query(PendingAgentAction)
+                           .filter(PendingAgentAction.id.in_(ids))
+                           .update({"chat_message_id": last_msg.id,
+                                    "agent_id": agent.id},
+                                   synchronize_session=False))
                 # Помечаем что отработали
                 m.last_cron_fired_at = now_min
                 # Live agent activity — UI заметит свежий tick
                 agent.last_activity_at = now
                 db.commit()
+
+                # Push в подключённого личного бота (TG/MAX) — autoresponder.
+                # Юзер увидит уведомление и сможет ответить прямо там.
+                # Не блокируем cron — fire-and-forget, ошибка не валит tick.
+                if inv.get("ok") and content:
+                    try:
+                        from server.personal_bot_relay import push_to_user
+                        # Короткая выжимка: первые 600 симв + ссылка
+                        preview = content[:600] + ("…" if len(content) > 600 else "")
+                        push_text = (f"🧩 <b>{m.slug}</b>\n\n"
+                                     f"{preview}\n\n"
+                                     f"Открой Че для продолжения диалога.")
+                        await push_to_user(user, push_text)
+                    except Exception as e:
+                        log.warning(f"[agents.cron] push failed: {e}")
                 try:
                     from server.audit_log import log_action
                     log_action(

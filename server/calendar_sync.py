@@ -231,6 +231,102 @@ def _parse_iso_to_naive_utc(s: str) -> Optional[datetime]:
         return None
 
 
+async def create_google_event(
+    *, access_token: str, calendar_id: str = "primary",
+    summary: str, start: str, end: Optional[str] = None,
+    description: Optional[str] = None, location: Optional[str] = None,
+    timezone_str: str = "Europe/Moscow",
+) -> dict:
+    """Создать событие в Google Calendar через API v3.
+
+    Args:
+      access_token: свежий access_token (caller сам обновляет через refresh_token)
+      calendar_id:  обычно 'primary'
+      summary:      название события
+      start:        ISO-8601 datetime с TZ ('2026-06-05T14:00:00+03:00') или date ('2026-06-05')
+      end:          ISO-8601 datetime/date или None (тогда +1 час от start или весь день)
+      description:  опционально, текст события
+      location:     опционально, место
+      timezone_str: IANA TZ для not-tz-aware дат
+
+    Returns: {"ok": bool, "event_id": str|None, "html_link": str|None, "error": str|None}.
+
+    Требует scope = `calendar.events` (write). Старые connection с read-only
+    scope получат 403 — caller должен дать понятное сообщение.
+    """
+    if not access_token:
+        return {"ok": False, "event_id": None, "html_link": None,
+                "error": "Нет access_token"}
+    if not (summary or "").strip():
+        return {"ok": False, "event_id": None, "html_link": None,
+                "error": "Нужно указать название события (summary)"}
+    if not start:
+        return {"ok": False, "event_id": None, "html_link": None,
+                "error": "Нужно указать дату/время начала (start)"}
+
+    # Если start = date-only (YYYY-MM-DD) — это all-day event
+    is_all_day = bool(re.match(r"^\d{4}-\d{2}-\d{2}$", start))
+    if is_all_day:
+        start_obj = {"date": start}
+        end_obj = {"date": end or start}
+    else:
+        start_obj = {"dateTime": start, "timeZone": timezone_str}
+        if not end:
+            # По умолчанию +1 час
+            try:
+                dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                end_dt = dt + timedelta(hours=1)
+                end = end_dt.isoformat()
+            except Exception:
+                end = start
+        end_obj = {"dateTime": end, "timeZone": timezone_str}
+
+    payload = {
+        "summary": summary[:250],
+        "start": start_obj,
+        "end": end_obj,
+    }
+    if description:
+        payload["description"] = description[:2000]
+    if location:
+        payload["location"] = location[:200]
+
+    url = f"{GOOGLE_CAL_API_BASE}/calendars/{calendar_id}/events"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(url, json=payload, headers=headers)
+    except Exception as e:
+        return {"ok": False, "event_id": None, "html_link": None,
+                "error": f"Network error: {type(e).__name__}: {e!s:.140}"}
+
+    if r.status_code == 401:
+        raise PermissionError("google_token_expired")
+    if r.status_code == 403:
+        # Скорее всего у юзера старый read-only scope.
+        return {"ok": False, "event_id": None, "html_link": None,
+                "error": "Google отказал (403). Возможно у тебя read-only "
+                          "доступ — переподключи Google Calendar."}
+    if not (200 <= r.status_code < 300):
+        log.warning(f"[google-cal] create event {r.status_code}: {r.text[:200]}")
+        return {"ok": False, "event_id": None, "html_link": None,
+                "error": f"Google вернул {r.status_code}"}
+
+    try:
+        data = r.json()
+    except Exception:
+        data = {}
+    return {
+        "ok": True,
+        "event_id": data.get("id"),
+        "html_link": data.get("htmlLink"),
+        "error": None,
+    }
+
+
 # ── Yandex CalDAV ────────────────────────────────────────────────────────────
 
 

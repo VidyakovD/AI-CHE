@@ -1472,6 +1472,12 @@ register_agent(
         {"key": "preferred_strategy", "label": "Управление ставками", "type": "select",
          "options": ["ручное", "auto-CPA", "auto-CPC", "auto-конверсии"],
          "default": "ручное"},
+        {"key": "oauth_token", "label": "OAuth-токен Direct API", "type": "text",
+         "hint": "Только если нужна реальная пауза/изменение бюджета. "
+                  "Получить: direct.yandex.ru → ⚙ Сервисы → Управление токенами"},
+        {"key": "sandbox", "label": "Sandbox-режим (для тестов)", "type": "bool",
+         "default": False,
+         "hint": "При включённом — write-ops идут в api-sandbox.direct.yandex.com"},
     ],
 )
 

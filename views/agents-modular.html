@@ -111,6 +111,11 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 .msg.tool .tool-hdr .lvl{background:rgba(110,193,255,.15);padding:1px 6px;border-radius:5px;font-size:10px}
 .msg.tool .tool-hdr .levelup{background:rgba(123,217,104,.2);color:#7bd968;padding:1px 6px;border-radius:5px;font-size:10px;animation:pulse 2s ease-in-out}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+/* Pending agent action — inline-карточка под сообщением модуля */
+.pending-action{margin-top:10px;background:rgba(255,140,66,.06);border:1.5px solid rgba(255,140,66,.35);border-radius:10px;padding:10px 12px}
+.pending-action .pa-hdr{font-size:11px;color:#ffb347;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.pending-action .pa-preview{margin:0 0 8px;background:rgba(0,0,0,.25);border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.45;color:#f0e6d8;white-space:pre-wrap;font-family:inherit;max-height:240px;overflow-y:auto}
+.pending-action .pa-actions{display:flex;gap:8px}
 .suggest-row{align-self:flex-start;display:flex;gap:6px;flex-wrap:wrap;margin-top:-4px}
 .suggest-chip{padding:5px 11px;background:#322a1e;border:1px solid rgba(255,140,66,.4);border-radius:14px;font-size:12px;color:#ffb347;cursor:pointer;transition:all .15s}
 .suggest-chip:hover{background:rgba(255,140,66,.15);color:#fff}
@@ -1521,10 +1526,112 @@ function _msgEl(m){
     // _linkifyText сам делает escape — безопасно использовать innerHTML.
     body.innerHTML = _linkifyText(m.content || '');
     div.appendChild(body);
+    // Pending action блоки (send_email / create_google_event / pause_campaign)
+    const pas = meta.pending_actions || [];
+    pas.forEach(pa => div.appendChild(_pendingActionEl(pa)));
   } else {
     div.innerHTML = _linkifyText(m.content || '');
   }
   return div;
+}
+
+// Inline-карточка для отложенного действия модуля.
+// Юзер видит preview + кнопки [Выполнить] / [Отмена].
+// Без подтверждения действие НЕ выполняется.
+function _pendingActionEl(pa){
+  const wrap = document.createElement('div');
+  wrap.className = 'pending-action';
+  wrap.dataset.actionId = pa.id;
+  const status = pa.status || 'pending';
+
+  const hdr = document.createElement('div');
+  hdr.className = 'pa-hdr';
+  let badge = '⏳ Жду подтверждения';
+  if(status === 'confirmed') badge = '✅ Выполнено';
+  else if(status === 'cancelled') badge = '⏹ Отменено';
+  else if(status === 'error') badge = '⚠ Ошибка';
+  hdr.textContent = badge;
+  wrap.appendChild(hdr);
+
+  const preview = document.createElement('pre');
+  preview.className = 'pa-preview';
+  preview.textContent = pa.preview_text || pa.action_type;
+  wrap.appendChild(preview);
+
+  if(status === 'pending'){
+    const row = document.createElement('div');
+    row.className = 'pa-actions';
+    const ok = document.createElement('button');
+    ok.className = 'btn-p';
+    ok.textContent = '✓ Выполнить';
+    ok.style.cssText = 'padding:7px 14px;font-size:12px';
+    ok.addEventListener('click', () => confirmPendingAction(pa.id, wrap));
+    const cancel = document.createElement('button');
+    cancel.className = 'btn-g';
+    cancel.textContent = 'Отмена';
+    cancel.style.cssText = 'padding:7px 14px;font-size:12px';
+    cancel.addEventListener('click', () => cancelPendingAction(pa.id, wrap));
+    row.appendChild(ok);
+    row.appendChild(cancel);
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+
+async function confirmPendingAction(id, wrap){
+  const buttons = wrap.querySelectorAll('button');
+  buttons.forEach(b => b.disabled = true);
+  const hdr = wrap.querySelector('.pa-hdr');
+  if(hdr) hdr.textContent = '⏳ Выполняется...';
+  try{
+    const r = await fetch(`/api/agents/me/actions/${id}/confirm`, {
+      method:'POST', credentials:'include',
+      headers: {'X-CSRF-Token': getCSRF()},
+    });
+    const d = await r.json().catch(() => ({}));
+    if(r.ok && d.ok){
+      if(hdr) hdr.textContent = '✅ Выполнено';
+      // Удаляем кнопки
+      const row = wrap.querySelector('.pa-actions');
+      if(row) row.remove();
+      (window.aiToast || (() => {}))('Действие выполнено');
+      // Подгружаем свежие сообщения чтобы увидеть system-сообщение «✅ Выполнено»
+      loadHistory();
+    }else{
+      if(hdr) hdr.textContent = '⚠ Ошибка';
+      const err = document.createElement('div');
+      err.className = 'pa-err';
+      err.style.cssText = 'color:#ff6b6b;font-size:11px;margin-top:6px';
+      err.textContent = d.error || ('HTTP ' + r.status);
+      wrap.appendChild(err);
+      buttons.forEach(b => b.disabled = false);
+    }
+  }catch(e){
+    if(hdr) hdr.textContent = '⚠ Ошибка сети';
+    buttons.forEach(b => b.disabled = false);
+    (window.aiToast || alert)('Сеть упала: ' + e.message);
+  }
+}
+
+async function cancelPendingAction(id, wrap){
+  const buttons = wrap.querySelectorAll('button');
+  buttons.forEach(b => b.disabled = true);
+  try{
+    const r = await fetch(`/api/agents/me/actions/${id}/cancel`, {
+      method:'POST', credentials:'include',
+      headers: {'X-CSRF-Token': getCSRF()},
+    });
+    if(r.ok){
+      const hdr = wrap.querySelector('.pa-hdr');
+      if(hdr) hdr.textContent = '⏹ Отменено';
+      const row = wrap.querySelector('.pa-actions');
+      if(row) row.remove();
+    }else{
+      buttons.forEach(b => b.disabled = false);
+    }
+  }catch(e){
+    buttons.forEach(b => b.disabled = false);
+  }
 }
 
 function _suggestRow(suggestSlugs){

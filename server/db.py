@@ -114,6 +114,11 @@ def db_session():
 # Запуск произойдёт автоматически при startup.
 
 LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
+    # PendingAgentAction — таблица создаётся через create_all (модель новая).
+    # SMTP-поля для UserMailbox (#1 модуль mail) — для существующих ящиков
+    # NULL = auto-derive из host. Юзеру переподключать ящик не надо.
+    ("user_mailboxes", "smtp_host", "VARCHAR"),
+    ("user_mailboxes", "smtp_port", "INTEGER"),
     # Уведомления о низком балансе
     ("users", "low_balance_threshold", "INTEGER DEFAULT 100"),
     ("users", "low_balance_alerted_at", "DATETIME"),

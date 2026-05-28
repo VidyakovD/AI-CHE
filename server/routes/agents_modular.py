@@ -629,9 +629,29 @@ def send_message(payload: SendMessagePayload,
                         "ok": bool(inv.get("ok")),
                         "cost_kop": module_charged_kop,
                         "auto_post": inv.get("auto_post"),
+                        # pending_actions — упрощённые dict'ы (id, action_type,
+                        # preview_text, status). UI рендерит inline кнопки.
+                        "pending_actions": [
+                            {"id": pa["id"],
+                             "action_type": pa["action_type"],
+                             "preview_text": pa["preview_text"],
+                             "status": pa.get("status", "pending")}
+                            for pa in (inv.get("pending_actions") or [])
+                        ],
                     }),
                 )
                 db.add(module_msg)
+                # Линкуем pending action → конкретное сообщение в чате (для UI)
+                if inv.get("pending_actions"):
+                    db.flush()  # чтобы у module_msg появился id
+                    from server.models import PendingAgentAction
+                    ids = [pa["id"] for pa in inv["pending_actions"]]
+                    if ids:
+                        (db.query(PendingAgentAction)
+                           .filter(PendingAgentAction.id.in_(ids))
+                           .update({"chat_message_id": module_msg.id,
+                                    "agent_id": a.id},
+                                   synchronize_session=False))
                 # Если автопостинг сработал — добавим system-сообщение
                 if inv.get("auto_post"):
                     ap = inv["auto_post"]
@@ -959,9 +979,24 @@ def invoke_module_now(slug: str,
             "interactions": m.interaction_count,
             "ok": bool(inv.get("ok")),
             "cost_kop": charged_kop,
+            "pending_actions": [
+                {"id": pa["id"], "action_type": pa["action_type"],
+                 "preview_text": pa["preview_text"],
+                 "status": pa.get("status", "pending")}
+                for pa in (inv.get("pending_actions") or [])
+            ],
         }),
     )
     db.add(msg)
+    if inv.get("pending_actions"):
+        db.flush()
+        from server.models import PendingAgentAction
+        ids = [pa["id"] for pa in inv["pending_actions"]]
+        if ids:
+            (db.query(PendingAgentAction)
+               .filter(PendingAgentAction.id.in_(ids))
+               .update({"chat_message_id": msg.id, "agent_id": a.id},
+                       synchronize_session=False))
     a.last_activity_at = datetime.utcnow()
     db.commit()
     db.refresh(msg)
@@ -2167,3 +2202,154 @@ def get_note(
         "mime": kf.mime,
         "created_at": kf.created_at.isoformat() if kf.created_at else None,
     }
+
+
+# ── Pending agent actions (confirm-flow для опасных действий) ────────────────
+# См. server/agent_actions.py — общий протокол. Этот блок — REST-обвязка.
+
+def _pending_action_dict(pa) -> dict:
+    """Сериализация PendingAgentAction для UI."""
+    import json as _json
+    try:
+        params = _json.loads(pa.params_json) if pa.params_json else {}
+    except Exception:
+        params = {}
+    return {
+        "id": pa.id,
+        "module_slug": pa.module_slug,
+        "action_type": pa.action_type,
+        "preview_text": pa.preview_text or "",
+        "params": params,
+        "status": pa.status,
+        "created_at": pa.created_at.isoformat() if pa.created_at else None,
+        "confirmed_at": pa.confirmed_at.isoformat() if pa.confirmed_at else None,
+        "chat_message_id": pa.chat_message_id,
+        "result": (_json.loads(pa.result_json) if pa.result_json else None),
+    }
+
+
+@router.get("/me/actions")
+def list_my_pending_actions(
+    status: str = "pending",
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Получить отложенные действия юзера (по умолчанию — только pending).
+
+    Полезно для UI чтобы показать «у тебя 3 неподтверждённых действия»
+    или для пакетной отмены.
+    """
+    from server.models import PendingAgentAction
+    q = db.query(PendingAgentAction).filter(PendingAgentAction.user_id == user.id)
+    if status and status != "all":
+        q = q.filter(PendingAgentAction.status == status)
+    rows = q.order_by(PendingAgentAction.id.desc()).limit(50).all()
+    return {"actions": [_pending_action_dict(r) for r in rows]}
+
+
+@router.post("/me/actions/{action_id}/confirm")
+def confirm_pending_action(
+    action_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Реально выполнить ранее предложенное модулем действие.
+
+    Юзер всегда видит preview перед confirm — без подтверждения ничего
+    не происходит. Это безопасный flow для send_email / create_google_event /
+    pause_campaign / etc.
+    """
+    import json as _json
+    from server.models import PendingAgentAction
+    from server.agent_actions import execute_action
+
+    pa = (db.query(PendingAgentAction)
+            .filter(PendingAgentAction.id == action_id,
+                    PendingAgentAction.user_id == user.id)
+            .first())
+    if not pa:
+        raise HTTPException(404, "Действие не найдено")
+    if pa.status != "pending":
+        raise HTTPException(400,
+            f"Действие уже {pa.status} — повторное подтверждение невозможно")
+
+    try:
+        params = _json.loads(pa.params_json) if pa.params_json else {}
+    except Exception:
+        params = {}
+
+    result = execute_action(pa.action_type, params, user.id)
+
+    pa.confirmed_at = datetime.utcnow()
+    pa.status = "confirmed" if result.get("ok") else "error"
+    pa.result_json = _json.dumps(
+        {"ok": result.get("ok"), "error": result.get("error"),
+         "result": result.get("result")},
+        ensure_ascii=False,
+    )
+
+    # Сразу пишем системное сообщение в чат — юзер видит что действие выполнено
+    if pa.agent_id and pa.chat_message_id:
+        if result.get("ok"):
+            content = f"✅ Действие выполнено: {pa.action_type}"
+        else:
+            content = f"⚠ Действие провалилось: {pa.action_type}\n{result.get('error') or ''}"
+        db.add(AgentMessage(
+            agent_id=pa.agent_id, role="system",
+            content=content[:1000],
+            meta_json=_dump_meta({"mode": "action_result",
+                                   "action_id": pa.id,
+                                   "ok": bool(result.get("ok"))}),
+        ))
+
+    db.commit()
+
+    try:
+        log_action(
+            f"agent_action.{pa.action_type}", user_id=user.id,
+            target_type="pending_agent_action", target_id=pa.id,
+            details={"ok": bool(result.get("ok")),
+                     "error": result.get("error"),
+                     "module_slug": pa.module_slug},
+        )
+    except Exception:
+        pass
+
+    return {"ok": bool(result.get("ok")),
+            "status": pa.status,
+            "result": result.get("result"),
+            "error": result.get("error"),
+            "action": _pending_action_dict(pa)}
+
+
+@router.post("/me/actions/{action_id}/cancel")
+def cancel_pending_action(
+    action_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Отменить предложенное действие — ничего не делается, статус → cancelled."""
+    from server.models import PendingAgentAction
+    pa = (db.query(PendingAgentAction)
+            .filter(PendingAgentAction.id == action_id,
+                    PendingAgentAction.user_id == user.id)
+            .first())
+    if not pa:
+        raise HTTPException(404, "Действие не найдено")
+    if pa.status != "pending":
+        return {"ok": True, "status": pa.status, "action": _pending_action_dict(pa)}
+    pa.status = "cancelled"
+    pa.confirmed_at = datetime.utcnow()
+
+    if pa.agent_id:
+        db.add(AgentMessage(
+            agent_id=pa.agent_id, role="system",
+            content=f"⏹ Отменено: {pa.action_type}",
+            meta_json=_dump_meta({"mode": "action_result",
+                                   "action_id": pa.id, "ok": False,
+                                   "cancelled": True}),
+        ))
+
+    db.commit()
+    return {"ok": True, "status": "cancelled",
+            "action": _pending_action_dict(pa)}

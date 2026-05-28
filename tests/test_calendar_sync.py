@@ -209,6 +209,122 @@ class TestFetchGoogleEvents:
             self._run(cs.fetch_google_events("expired_at", "primary"))
 
 
+class TestCreateGoogleEvent:
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def test_no_access_token(self):
+        from server.calendar_sync import create_google_event
+        r = self._run(create_google_event(
+            access_token="", summary="X", start="2026-06-05T14:00:00+03:00",
+        ))
+        assert r["ok"] is False
+        assert "access_token" in (r.get("error") or "").lower()
+
+    def test_no_summary(self):
+        from server.calendar_sync import create_google_event
+        r = self._run(create_google_event(
+            access_token="at", summary="   ",
+            start="2026-06-05T14:00:00+03:00",
+        ))
+        assert r["ok"] is False
+        assert "summary" in (r.get("error") or "").lower() or \
+            "название" in (r.get("error") or "").lower()
+
+    def test_successful_create(self, monkeypatch):
+        from server import calendar_sync as cs
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(return_value={
+            "id": "abc123event",
+            "htmlLink": "https://calendar.google.com/event?eid=...",
+        })
+        mock_post = AsyncMock(return_value=mock_response)
+        mock_client = MagicMock()
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr(cs.httpx, "AsyncClient", lambda **kw: mock_client)
+
+        r = self._run(cs.create_google_event(
+            access_token="at", summary="Встреча с Иваном",
+            start="2026-06-05T14:00:00+03:00",
+            end="2026-06-05T15:00:00+03:00",
+            location="Zoom", description="Обсудим план",
+        ))
+        assert r["ok"] is True
+        assert r["event_id"] == "abc123event"
+        assert "calendar.google.com" in r["html_link"]
+
+        # Проверяем что отправили правильный payload
+        called_payload = mock_post.call_args.kwargs.get("json") or {}
+        assert called_payload["summary"] == "Встреча с Иваном"
+        assert called_payload["start"]["dateTime"] == "2026-06-05T14:00:00+03:00"
+        assert called_payload["end"]["dateTime"] == "2026-06-05T15:00:00+03:00"
+        assert called_payload["location"] == "Zoom"
+
+    def test_all_day_event_uses_date_field(self, monkeypatch):
+        from server import calendar_sync as cs
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(return_value={"id": "all-day-1"})
+        mock_post = AsyncMock(return_value=mock_response)
+        mock_client = MagicMock()
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr(cs.httpx, "AsyncClient", lambda **kw: mock_client)
+
+        r = self._run(cs.create_google_event(
+            access_token="at", summary="День рождения",
+            start="2026-06-05",  # date-only → all-day
+        ))
+        assert r["ok"] is True
+        payload = mock_post.call_args.kwargs.get("json") or {}
+        assert "date" in payload["start"]
+        assert payload["start"]["date"] == "2026-06-05"
+        assert "dateTime" not in payload["start"]
+
+    def test_403_readonly_scope_gives_friendly_error(self, monkeypatch):
+        """Старые connections с .readonly scope → 403 при попытке write."""
+        from server import calendar_sync as cs
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.text = "Insufficient permissions"
+        mock_post = AsyncMock(return_value=mock_response)
+        mock_client = MagicMock()
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr(cs.httpx, "AsyncClient", lambda **kw: mock_client)
+
+        r = self._run(cs.create_google_event(
+            access_token="readonly_token", summary="X",
+            start="2026-06-05T14:00:00+03:00",
+        ))
+        assert r["ok"] is False
+        assert "переподключи" in (r.get("error") or "").lower()
+
+    def test_401_raises_permission_error(self, monkeypatch):
+        from server import calendar_sync as cs
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.text = "Token expired"
+        mock_post = AsyncMock(return_value=mock_response)
+        mock_client = MagicMock()
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr(cs.httpx, "AsyncClient", lambda **kw: mock_client)
+
+        with pytest.raises(PermissionError):
+            self._run(cs.create_google_event(
+                access_token="expired", summary="X",
+                start="2026-06-05T14:00:00+03:00",
+            ))
+
+
 class TestYandexCalDavCheck:
 
     def _run(self, coro):
