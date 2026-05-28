@@ -643,17 +643,28 @@ def _validate_proposal_for_generation(p: ProposalProject) -> None:
 
 
 @router.post("/projects/{project_id}/generate")
-def generate_proposal_endpoint(project_id: int, db: Session = Depends(get_db),
+def generate_proposal_endpoint(project_id: int,
+                                 style: str = "default",
+                                 db: Session = Depends(get_db),
                                  user: User = Depends(current_user)):
     """Сгенерировать КП: парсит сайт клиента → промпт Claude → HTML+PDF.
     Списывает фикс. цену (5 ₽ = 500 коп при перегенерации, 50 ₽ за первый раз).
 
-    Pre-validation: проверяем длину контекста и URL ДО списания, чтобы юзер
-    не платил за заведомо-плохой запрос.
+    style: default | sales | consultative | technical
+      - default       — баланс (для большинства)
+      - sales         — продающий стиль: фокус на выгоды, эмоции, призыв
+      - consultative  — консультативный: фокус на проблеме клиента, диагноз
+      - technical     — технический: фокус на спецификациях, цифрах, сравнении
+
+    Юзер может перегенерировать (5 ₽) с другим стилем чтобы сравнить.
     """
     p = db.query(ProposalProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
+
+    style = (style or "default").strip().lower()
+    if style not in ("default", "sales", "consultative", "technical"):
+        style = "default"
 
     _validate_proposal_for_generation(p)
 
@@ -676,16 +687,20 @@ def generate_proposal_endpoint(project_id: int, db: Session = Depends(get_db),
 
     try:
         from server.proposal_builder import generate_proposal
-        result = generate_proposal(db, p, user_api_key=user_key)
+        result = generate_proposal(db, p, user_api_key=user_key, style=style)
         p.generated_html = result["html"]
         p.generated_pdf = result["pdf_path"]
         p.status = "done"
         # Сохраняем версию (после успешной генерации)
-        _snapshot_version(db, p, note="Генерация" if not is_regen else "Перегенерация", cost_kop=cost)
+        version_note = "Генерация" if not is_regen else "Перегенерация"
+        if style != "default":
+            version_note += f" ({style})"
+        _snapshot_version(db, p, note=version_note, cost_kop=cost)
         db.commit()
         log_action("proposal.generated", user_id=user.id,
                    target_type="proposal", target_id=str(p.id),
                    details={"regen": is_regen, "cost_kop": cost,
+                            "style": style,
                             "has_brand": bool(p.brand_id),
                             "has_bot": bool(p.bot_id),
                             "has_site": bool(p.client_site_url)})
@@ -1385,3 +1400,4 @@ async def import_price_csv(pl_id: int,
                target_type="pricelist", target_id=str(pl_id),
                details={"added": added})
     return {"status": "ok", "added": added}
+

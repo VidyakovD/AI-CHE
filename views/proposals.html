@@ -75,8 +75,9 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 <script src="/icons.js" defer></script>
 </head>
 <body class="dark" data-assistant-section="proposals.projects" data-assistant-label="КП · мои">
+<a href="#main-content" class="sr-only focus:not-sr-only" style="position:fixed;top:8px;left:8px;z-index:9999;padding:8px 14px;background:#ff8c42;color:#141210;font-weight:700;border-radius:8px;text-decoration:none;transform:translateY(-200%);transition:transform .15s" onfocus="this.style.transform='translateY(0)'" onblur="this.style.transform='translateY(-200%)'">Перейти к содержимому</a>
 
-<div class="max-w-6xl mx-auto px-5 py-8">
+<div id="main-content" class="max-w-6xl mx-auto px-5 py-8">
 
   <!-- Header -->
   <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -320,6 +321,16 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <div class="field">
         <label>Доп. инструкции (опц.)</label>
         <textarea id="pNotes" rows="2" class="inp resize-none" placeholder="Сделай акцент на скорость поставки. Спецпредложение: -10% при заказе до конца месяца."></textarea>
+      </div>
+      <div class="field">
+        <label>Стиль КП</label>
+        <select id="pStyle" class="inp">
+          <option value="default">Default — баланс (для большинства)</option>
+          <option value="sales">💰 Sales — продающий: выгоды, эмоции, CTA</option>
+          <option value="consultative">🧠 Consultative — экспертный: диагноз → решение</option>
+          <option value="technical">📐 Technical — технический: цифры, спецификации</option>
+        </select>
+        <p class="text-xs text-on-dim mt-1">Стиль не влияет на цену. Можно перегенерировать в другом стиле за 5 ₽.</p>
       </div>
       <!-- Auto-followup toggle: cron шлёт клиенту напоминалку если КП не открыт за 3 дня -->
       <div class="field" id="pFollowupWrap" style="display:none">
@@ -1604,8 +1615,13 @@ async function generateProposal(){
     resWrap.innerHTML = `<div class="p-4">${window.aiSkeleton('proposal')}</div>`;
   }
   try{
-    const r = await fetch(`${API}/proposals/projects/${currentProjectId}/generate`,
-                          {method:'POST', headers: hdrs(), credentials:'same-origin'});
+    // Стиль КП — можно выбрать через #pStyle select (если есть в форме).
+    // Без выбора — default. Стиль НЕ влияет на цену, только на промпт.
+    const styleEl = document.getElementById('pStyle');
+    const style = styleEl ? (styleEl.value || 'default') : 'default';
+    const url = `${API}/proposals/projects/${currentProjectId}/generate`
+      + (style && style !== 'default' ? `?style=${encodeURIComponent(style)}` : '');
+    const r = await fetch(url, {method:'POST', headers: hdrs(), credentials:'same-origin'});
     const data = await r.json();
     if(!r.ok) throw new Error(data.detail || 'Ошибка ' + r.status);
     showResult(data.generated_html || '');

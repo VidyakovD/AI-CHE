@@ -71,6 +71,7 @@ def register_agent(
     allowed_tools: list[str] | None = None,
     handler=None,
     skills: list[dict] | None = None,
+    settings_schema: list[dict] | None = None,
 ) -> None:
     """Register a new agent type. Idempotent — safe to call on every import.
 
@@ -115,6 +116,32 @@ def register_agent(
                 "prompt_addon":     s.get("prompt_addon") or "",
             })
 
+    # Settings schema — описание полей формы настроек модуля.
+    # Формат: [{key, label, type, default?, options?, hint?}]
+    # type: 'text' | 'textarea' | 'number' | 'select' | 'bool'
+    # Если задано → UI рендерит форму вместо raw JSON.
+    norm_schema: list[dict] = []
+    if settings_schema:
+        for f in settings_schema:
+            if not isinstance(f, dict):
+                continue
+            key = (f.get("key") or "").strip()
+            if not key:
+                continue
+            ftype = (f.get("type") or "text").lower()
+            if ftype not in ("text", "textarea", "number", "select", "bool"):
+                ftype = "text"
+            entry = {
+                "key":     key,
+                "label":   f.get("label") or key,
+                "type":    ftype,
+                "hint":    f.get("hint") or "",
+                "default": f.get("default"),
+            }
+            if ftype == "select":
+                entry["options"] = list(f.get("options") or [])
+            norm_schema.append(entry)
+
     AGENT_REGISTRY[agent_id] = {
         "id":            agent_id,
         "name":          name,
@@ -124,6 +151,7 @@ def register_agent(
         "allowed_tools": allowed_tools,
         "handler":       handler,
         "skills":        norm_skills,
+        "settings_schema": norm_schema,
     }
     log.info(f"[Registry] Registered: {agent_id} — {name}")
 

@@ -58,6 +58,7 @@ select.inp option{background:#272018;color:#f0e6d8}
 <script src="/icons.js" defer></script>
 </head>
 <body class="bg-background text-on-surface font-body min-h-screen" data-assistant-section="admin" data-assistant-label="админ">
+<a href="#main-content" class="sr-only focus:not-sr-only" style="position:fixed;top:8px;left:8px;z-index:9999;padding:8px 14px;background:#ff8c42;color:#141210;font-weight:700;border-radius:8px;text-decoration:none;transform:translateY(-200%);transition:transform .15s" onfocus="this.style.transform='translateY(0)'" onblur="this.style.transform='translateY(-200%)'">Перейти к содержимому</a>
 
 <!-- Login gate -->
 <div id="loginGate" class="fixed inset-0 bg-background flex items-center justify-center z-50">
@@ -136,7 +137,7 @@ select.inp option{background:#272018;color:#f0e6d8}
       </button>
     </nav>
 
-    <main class="flex-1 p-5 overflow-auto">
+    <main id="main-content" class="flex-1 p-5 overflow-auto">
 
       <!-- Dashboard -->
       <div id="sec-dashboard" class="sec hidden space-y-5">

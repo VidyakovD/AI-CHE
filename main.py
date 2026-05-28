@@ -1131,6 +1131,35 @@ async def sign_public_proposal(public_token: str, request: "Request"):
     except Exception:
         pass
 
+    # Calendar integration: создаём событие в LocalCalendarEvent юзера на
+    # завтра в 10:00 МСК «Связаться с {client} — КП подписан». Юзер видит в
+    # /calendar.html, Че видит при «что у меня завтра».
+    try:
+        from server.db import db_session as _ds
+        from server.models import LocalCalendarEvent as _LCE
+        from datetime import datetime as _dt2, timedelta as _td2
+        tomorrow = (_dt2.utcnow() + _td2(days=1)).replace(hour=7, minute=0,
+                                                          second=0, microsecond=0)
+        # 7 UTC = 10:00 МСК — удобное утреннее напоминание
+        with _ds() as _db3:
+            _ev = _LCE(
+                user_id=owner_id,
+                title=f"📝 Связаться: {client_label[:60]} — КП подписан",
+                description=(
+                    f"Клиент подписал КП «{proposal_name[:100]}». "
+                    f"Свяжись чтобы согласовать следующие шаги."
+                )[:500],
+                start=tomorrow,
+                end=tomorrow + _td2(minutes=30),
+                all_day=False,
+            )
+            _db3.add(_ev)
+            _db3.commit()
+    except Exception as _e:
+        logging.getLogger("proposals").warning(
+            f"[proposal.signed] calendar-event create failed: {_e}"
+        )
+
     # Audit log
     try:
         from server.audit_log import log_action

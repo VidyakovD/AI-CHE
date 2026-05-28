@@ -334,9 +334,13 @@ _TONE_HINTS = {
 
 
 def _claude_prompt_json(brand_css: dict, project: ProposalProject,
-                         price_text: str, site_ctx: str) -> str:
+                         price_text: str, site_ctx: str,
+                         style: str = "default") -> str:
     """JSON-first промпт. AI возвращает СТРОГИЙ JSON со слотами. Мы потом
     рендерим в HTML по нашему шаблону.
+
+    style: default | sales | consultative | technical — добавляет
+    style-инструкцию в начало промпта (см. _STYLE_INSTRUCTIONS).
 
     Если AI всё-таки вернёт мусор — fallback на legacy _claude_prompt.
     """
@@ -484,6 +488,10 @@ def _claude_prompt_json(brand_css: dict, project: ProposalProject,
         "",
         "ВЕРНИ ТОЛЬКО ВАЛИДНЫЙ JSON. БЕЗ ```json. БЕЗ ОБЪЯСНЕНИЙ. БЕЗ HTML.",
     ]
+    # Вставляем style-инструкцию в начало (после первой строки-роли)
+    style_instr = _STYLE_INSTRUCTIONS.get(style, "")
+    if style_instr:
+        parts.insert(1, style_instr)
     return "\n".join(parts)
 
 
@@ -1121,9 +1129,34 @@ def _strip_ai_wrappers(content: str) -> str:
     return s.strip()
 
 
-def generate_proposal(db, project: ProposalProject, user_api_key: str | None = None) -> dict:
+_STYLE_INSTRUCTIONS = {
+    "default": "",
+    "sales": (
+        "СТИЛЬ — ПРОДАЮЩИЙ. Фокус на выгодах для клиента (а не на наших фичах). "
+        "Эмоциональные заголовки, упоминание боли клиента, FOMO («только до конца "
+        "месяца»), сильный CTA в конце. Не превращайся в спам, но энергия — высокая."
+    ),
+    "consultative": (
+        "СТИЛЬ — КОНСУЛЬТАТИВНЫЙ. Начни с диагностики проблемы клиента (его боли + "
+        "почему стандартное решение не работает в его случае). Затем — наш подход "
+        "как ответ на эту конкретную проблему. Без агрессии, как разговор эксперта. "
+        "Подходит для дорогих проектов и B2B-продаж."
+    ),
+    "technical": (
+        "СТИЛЬ — ТЕХНИЧЕСКИЙ. Фокус на спецификациях, цифрах, сравнительных "
+        "таблицах. Минимум эмоций, максимум конкретики: сроки в днях, "
+        "характеристики, технологии, KPI. Подходит для B2B-IT, инжиниринга, "
+        "промышленности."
+    ),
+}
+
+
+def generate_proposal(db, project: ProposalProject, user_api_key: str | None = None,
+                       style: str = "default") -> dict:
     """
     Генерирует HTML+PDF для проекта КП.
+
+    style: default | sales | consultative | technical — меняет тон/структуру.
     Возвращает {html, pdf_path, usage}. Кидает ValueError при ошибке AI.
     """
     brand = None
@@ -1150,7 +1183,8 @@ def generate_proposal(db, project: ProposalProject, user_api_key: str | None = N
     # JSON-first: AI возвращает структурированные данные → мы рендерим
     # в HTML по нашему шаблону (стабильное оформление). Fallback на
     # legacy HTML-генерацию если JSON не сработал.
-    json_prompt = _claude_prompt_json(brand_css, project, price_text, site_ctx)
+    json_prompt = _claude_prompt_json(brand_css, project, price_text, site_ctx,
+                                       style=style)
     # max_tokens адаптивно: базовые 6000 + по 0.25 токена на каждый символ
     # прайса (длинные прайсы >50 позиций обрезались на старом фикс-лимите).
     # Cap 16000 — Sonnet max_tokens, выше не имеет смысла.

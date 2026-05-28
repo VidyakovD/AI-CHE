@@ -217,8 +217,9 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 <script src="/icons.js" defer></script>
 </head>
 <body class="dark" data-assistant-section="agents-modular" data-assistant-label="ИИ Агенты">
+<a href="#main-content" class="sr-only focus:not-sr-only" style="position:fixed;top:8px;left:8px;z-index:9999;padding:8px 14px;background:#ff8c42;color:#141210;font-weight:700;border-radius:8px;text-decoration:none;transform:translateY(-200%);transition:transform .15s" onfocus="this.style.transform='translateY(0)'" onblur="this.style.transform='translateY(-200%)'">Перейти к содержимому</a>
 
-<div class="app">
+<div id="main-content" class="app">
   <header class="hdr">
     <div class="left">
       <a href="/" class="btn-g" title="На главную" style="font-size:13px">←</a>
@@ -317,6 +318,12 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
     <div style="border-top:1px solid rgba(74,63,47,0.4);padding-top:10px;display:flex;align-items:center;justify-content:space-between;gap:10px">
       <div class="text-xs text-on-dim">Протестировать прямо сейчас — запустит модуль с задачей выше (с биллингом 1 ₽).</div>
       <button class="btn-g" id="schedRunNowBtn" style="white-space:nowrap">▶ Запустить сейчас</button>
+    </div>
+
+    <!-- Settings form — если модуль предоставил settings_schema -->
+    <div id="schedSettingsBox" style="border-top:1px solid rgba(74,63,47,0.4);margin-top:10px;padding-top:10px;display:none">
+      <div class="text-xs text-on-dim mb-2">⚙ <b>Настройки модуля</b> — модуль использует эти значения в каждом вызове.</div>
+      <div id="schedSettingsForm"></div>
     </div>
 
     <!-- Skills — опциональные навыки модуля с доплатой -->
@@ -2366,6 +2373,7 @@ function openScheduleModal(slug){
   });
   // Skills (Итерация 4): чекбоксы доступных скилов
   _renderSkills(m);
+  _renderSettingsForm(m);
   // Webhook: рендерим состояние (есть токен или нет)
   const existing_token = (m.settings && m.settings.webhook_token) || null;
   _renderSchedWebhook(existing_token);
@@ -2407,6 +2415,63 @@ function _getEnabledSkills(){
   return Array.from(cbs).filter(cb => cb.checked).map(cb => cb.dataset.slug);
 }
 
+// ── Settings form (UI настроек модуля через формы) ─────────────────────────
+function _renderSettingsForm(m){
+  const box = document.getElementById('schedSettingsBox');
+  const form = document.getElementById('schedSettingsForm');
+  const schema = (m && m.settings_schema) || [];
+  if(!schema.length){
+    box.style.display = 'none';
+    form.innerHTML = '';
+    return;
+  }
+  box.style.display = 'block';
+  const settings = (m.settings) || {};
+  form.innerHTML = schema.map(f => {
+    const v = settings[f.key];
+    const cur = (v !== undefined && v !== null) ? v : (f.default ?? '');
+    const lbl = `<label style="display:block;font-size:12px;color:#a89880;margin-bottom:3px;font-weight:500">${_esc(f.label||f.key)}${f.hint ? `<span style="font-weight:400;opacity:.75"> — ${_esc(f.hint)}</span>` : ''}</label>`;
+    if(f.type === 'select'){
+      const opts = (f.options||[]).map(o => {
+        const sel = String(o) === String(cur) ? 'selected' : '';
+        return `<option value="${_esc(o)}" ${sel}>${_esc(o)}</option>`;
+      }).join('');
+      return `<div style="margin-bottom:10px">${lbl}<select class="inp settings-field" data-key="${_esc(f.key)}" data-type="select">${opts}</select></div>`;
+    }
+    if(f.type === 'textarea'){
+      return `<div style="margin-bottom:10px">${lbl}<textarea class="inp settings-field" data-key="${_esc(f.key)}" data-type="textarea" rows="2">${_esc(cur||'')}</textarea></div>`;
+    }
+    if(f.type === 'number'){
+      return `<div style="margin-bottom:10px">${lbl}<input class="inp settings-field" data-key="${_esc(f.key)}" data-type="number" type="number" value="${_esc(cur||'')}"/></div>`;
+    }
+    if(f.type === 'bool'){
+      const checked = (cur === true || cur === 'true' || cur === 1) ? 'checked' : '';
+      return `<div style="margin-bottom:10px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" class="settings-field" data-key="${_esc(f.key)}" data-type="bool" ${checked} style="width:16px;height:16px">${_esc(f.label||f.key)}${f.hint ? `<span class="text-xs text-on-dim"> · ${_esc(f.hint)}</span>` : ''}</label></div>`;
+    }
+    // default text
+    return `<div style="margin-bottom:10px">${lbl}<input class="inp settings-field" data-key="${_esc(f.key)}" data-type="text" type="text" value="${_esc(cur||'')}"/></div>`;
+  }).join('');
+}
+
+function _getFormSettings(){
+  const out = {};
+  document.querySelectorAll('#schedSettingsForm .settings-field').forEach(el => {
+    const key = el.dataset.key;
+    const type = el.dataset.type;
+    if(!key) return;
+    if(type === 'bool'){
+      out[key] = !!el.checked;
+    } else if(type === 'number'){
+      const n = parseFloat(el.value);
+      out[key] = Number.isFinite(n) ? n : null;
+    } else {
+      const v = (el.value || '').trim();
+      if(v) out[key] = v;
+    }
+  });
+  return out;
+}
+
 function closeScheduleModal(){
   document.getElementById('scheduleModal').classList.remove('show');
   _schedSlug = null;
@@ -2433,6 +2498,12 @@ document.getElementById('schedSaveBtn').addEventListener('click', async () => {
   }
   const m = _modules.find(x => x.slug === _schedSlug);
   const settings = Object.assign({}, (m && m.settings) || {});
+  // Накладываем значения из формы поверх — UI-форма имеет приоритет
+  const formValues = _getFormSettings();
+  for(const [k, v] of Object.entries(formValues)){
+    if(v === null || v === undefined || v === '') delete settings[k];
+    else settings[k] = v;
+  }
   if(task) settings.cron_task = task;
   else delete settings.cron_task;
   const enabled_skills = _getEnabledSkills();

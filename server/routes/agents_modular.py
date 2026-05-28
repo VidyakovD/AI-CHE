@@ -257,10 +257,13 @@ def _module_dict(m: AgentModule, *, with_meta: bool = False) -> dict:
                 }
                 for s in (meta.get("skills") or [])
             ]
+            # Schema настроек — UI рендерит форму если задана
+            out["settings_schema"] = list(meta.get("settings_schema") or [])
         except Exception:
             out["name"] = m.slug
             out["description"] = ""
             out["available_skills"] = []
+            out["settings_schema"] = []
     return out
 
 
