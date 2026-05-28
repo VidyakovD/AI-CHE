@@ -137,6 +137,64 @@ class TestPushToUser:
         assert "tg" in r["channels"] and "max" in r["channels"]
         assert calls == ["tg", "max"]
 
+    def test_vk_push_when_peer_id_known(self, monkeypatch):
+        """После первого сообщения юзера peer_id сохраняется в БД, и push
+        в VK становится возможен."""
+        from server import personal_bot_relay as pbr
+        calls = []
+
+        async def _vk(token, peer_id, text):
+            calls.append((token, peer_id, text))
+            return True
+
+        monkeypatch.setattr(pbr, "vk_send_message", _vk)
+
+        db = SessionLocal()
+        try:
+            u = _make_user(db, "push-vk-with-peer@test.com",
+                           personal_vk_bot_token="vk-token",
+                           personal_vk_group_id="12345",
+                           personal_vk_chat_peer_id="98765")
+            user_obj = u
+            db.expunge(user_obj)
+        finally:
+            db.close()
+
+        r = _run(pbr.push_to_user(user_obj, "<b>привет</b>"))
+        assert r["delivered"] == 1
+        assert r["channels"] == ["vk"]
+        # HTML-теги должны быть зачищены — VK не парсит HTML
+        assert calls[0][1] == "98765"
+        assert "<b>" not in calls[0][2]
+        assert "привет" in calls[0][2]
+
+    def test_vk_push_skipped_without_peer_id(self, monkeypatch):
+        """Если peer_id ещё не запомнен (юзер не писал боту) — VK push скип."""
+        from server import personal_bot_relay as pbr
+        called = []
+
+        async def _vk(token, peer_id, text):
+            called.append("vk")
+            return True
+
+        monkeypatch.setattr(pbr, "vk_send_message", _vk)
+
+        db = SessionLocal()
+        try:
+            u = _make_user(db, "push-vk-no-peer@test.com",
+                           personal_vk_bot_token="vk-token",
+                           personal_vk_group_id="12345",
+                           personal_vk_chat_peer_id=None)
+            user_obj = u
+            db.expunge(user_obj)
+        finally:
+            db.close()
+
+        r = _run(pbr.push_to_user(user_obj, "тест"))
+        assert r["delivered"] == 0
+        assert "vk" not in r["channels"]
+        assert called == []
+
     def test_only_max_when_tg_missing(self, monkeypatch):
         from server import personal_bot_relay as pbr
         calls = []

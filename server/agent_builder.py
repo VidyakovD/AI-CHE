@@ -1334,8 +1334,9 @@ _ALLOWED_ACTIONS_BY_MODULE: dict[str, list[str]] = {
     "coach":      ["log_workout"],
     "nutrition":  ["log_meal"],
     "direct_ads": ["yandex_direct_pause_campaign",
+                   "yandex_direct_resume_campaign",
                    "yandex_direct_set_daily_budget"],
-    "vk_ads":     ["vk_ads_pause_campaign"],
+    "vk_ads":     ["vk_ads_pause_campaign", "vk_ads_set_day_limit"],
     "copywriter": ["publish_to_creators"],
 }
 

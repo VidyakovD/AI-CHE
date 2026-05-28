@@ -119,6 +119,9 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # NULL = auto-derive из host. Юзеру переподключать ящик не надо.
     ("user_mailboxes", "smtp_host", "VARCHAR"),
     ("user_mailboxes", "smtp_port", "INTEGER"),
+    # VK personal-bot peer_id: запоминается при первом сообщении юзера → даёт
+    # возможность push'ить ему через VK community-bot (autoresponder cron).
+    ("users", "personal_vk_chat_peer_id", "VARCHAR"),
     # Marketplace — удалён в 2026-05-28 (фича отключена 2026-05-10, теперь
     # снесена окончательно). Таблицы дропаем через DROP TABLE в проде
     # отдельной командой; LIGHTWEIGHT_MIGRATIONS делает только ADD.

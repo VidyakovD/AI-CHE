@@ -104,6 +104,10 @@ class User(Base):
     personal_vk_bot_token_hash   = Column(String, unique=True, nullable=True, index=True)
     personal_vk_confirmation     = Column(String, nullable=True)         # код для ответа на VK confirmation callback
     personal_vk_webhook_set      = Column(Boolean, default=False)
+    # peer_id юзера в личке VK community-bot. Заполняется при первом message_new
+    # событии от юзера → даёт возможность бэк-пушить в VK (autoresponder cron).
+    # Без него community-bot не знает куда слать первое уведомление.
+    personal_vk_chat_peer_id     = Column(String, nullable=True)
     # In-app колокольчик уведомлений: всё новее этого таймстампа = непрочитано.
     # Устанавливается клиентом через POST /user/notifications/seen.
     notifications_last_seen_at = Column(DateTime, nullable=True)

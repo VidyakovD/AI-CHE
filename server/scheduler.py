@@ -339,6 +339,7 @@ from server.cron.creators import (  # noqa: E402, F401
 # ── Cron-runtime для модулей ИИ Агентов (раздел 23) ──────────────────────────
 from server.cron.agents_modules import (  # noqa: E402, F401
     _agents_modules_cron_tick, agents_modules_cron_loop, cron_should_fire,
+    pending_actions_expire_loop, expire_old_pending_actions,
 )
 
 
@@ -374,6 +375,7 @@ def start_scheduler():
     asyncio.create_task(creators_prepare_loop())
     asyncio.create_task(creators_publish_loop())
     asyncio.create_task(agents_modules_cron_loop())
+    asyncio.create_task(pending_actions_expire_loop())
     asyncio.create_task(proposals_followup_loop())
     asyncio.create_task(creators_metrics_loop())
     # Пересчёт цен моделей: USD × курс ЦБ × ×3 (раз в сутки).

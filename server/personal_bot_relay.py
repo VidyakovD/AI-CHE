@@ -640,15 +640,24 @@ async def push_to_user(user, text: str) -> dict:
                 channels.append("max")
         except Exception as e:
             log.warning(f"[push] max failed: {e}")
-    # VK Community bot
+    # VK Community bot — пушим только если есть peer_id (запомненный при
+    # первом сообщении юзера через webhook /webhook/personal-vk/{hash}).
+    # Без peer_id community-bot не знает кому слать первое уведомление.
     vk_token = getattr(user, "personal_vk_bot_token", None)
-    vk_gid = getattr(user, "personal_vk_group_id", None)
-    if vk_token and vk_gid:
-        # VK group bot шлёт сообщение в группу — для juзера это значит peer_id =
-        # это его user_id. Но мы не знаем чей user_id... Только если у нас
-        # есть в БД chat_message с from_id юзера. Для MVP пропускаем VK
-        # push если нет явного chat_id (autoresponder получит лог "vk skipped").
-        pass
+    vk_peer = getattr(user, "personal_vk_chat_peer_id", None)
+    if vk_token and vk_peer:
+        try:
+            # text может содержать HTML (для TG parse_mode), VK не парсит HTML —
+            # очищаем теги через простую замену. Полноценный strip не нужен,
+            # т.к. autoresponder шлёт plain-text + минимум разметки.
+            import re as _re
+            plain = _re.sub(r"<[^>]+>", "", text)
+            ok = await vk_send_message(vk_token, vk_peer, plain)
+            if ok:
+                delivered += 1
+                channels.append("vk")
+        except Exception as e:
+            log.warning(f"[push] vk failed: {e}")
     return {"delivered": delivered, "channels": channels}
 
 
@@ -710,6 +719,11 @@ async def process_vk_che_message(update: dict, user_id: int) -> None:
         token = user.personal_vk_bot_token
         if not token:
             return
+        # Сохраняем peer_id для возможного push'а (autoresponder cron).
+        # Не перезаписываем если уже есть — peer_id юзера не меняется.
+        if not user.personal_vk_chat_peer_id:
+            user.personal_vk_chat_peer_id = str(peer_id)
+            db.commit()
         # process_message sync — крутим в той же сессии. Использует тот же
         # build_reply_personal что TG/MAX relay → биллинг + invoke_module единый.
         try:

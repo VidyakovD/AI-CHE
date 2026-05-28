@@ -116,6 +116,15 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 .pending-action .pa-hdr{font-size:11px;color:#ffb347;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
 .pending-action .pa-preview{margin:0 0 8px;background:rgba(0,0,0,.25);border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.45;color:#f0e6d8;white-space:pre-wrap;font-family:inherit;max-height:240px;overflow-y:auto}
 .pending-action .pa-actions{display:flex;gap:8px}
+/* Pending sidebar badge */
+.pa-badge{display:inline-block;background:#ff8c42;color:#141210;font-weight:700;font-size:10px;padding:1px 7px;border-radius:9999px;margin-left:4px;vertical-align:middle}
+.pending-mini{background:rgba(255,140,66,.05);border:1px solid rgba(255,140,66,.25);border-radius:8px;padding:7px 9px;margin-bottom:6px;font-size:11px;line-height:1.35}
+.pending-mini .pm-title{color:#ffb347;font-weight:600;margin-bottom:3px}
+.pending-mini .pm-body{color:#a89880;white-space:pre-wrap;max-height:60px;overflow:hidden;text-overflow:ellipsis}
+.pending-mini .pm-actions{display:flex;gap:6px;margin-top:6px}
+.pending-mini .pm-actions button{padding:3px 9px;font-size:10px;border-radius:6px;border:none;cursor:pointer}
+.pending-mini .pm-ok{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700}
+.pending-mini .pm-cancel{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,.4)!important}
 .suggest-row{align-self:flex-start;display:flex;gap:6px;flex-wrap:wrap;margin-top:-4px}
 .suggest-chip{padding:5px 11px;background:#322a1e;border:1px solid rgba(255,140,66,.4);border-radius:14px;font-size:12px;color:#ffb347;cursor:pointer;transition:all .15s}
 .suggest-chip:hover{background:rgba(255,140,66,.15);color:#fff}
@@ -271,6 +280,11 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
       <div class="aside-block">
         <h4>📋 Что я знаю о тебе</h4>
         <div id="profileBlock"></div>
+      </div>
+      <!-- Pending actions widget — показывается только если есть pending'и -->
+      <div class="aside-block" id="pendingActionsBlock" style="display:none">
+        <h4>⏳ Жду подтверждения <span id="pendingActionsCount" class="pa-badge"></span></h4>
+        <div id="pendingActionsList"></div>
       </div>
       <div class="aside-block" style="flex:1">
         <h4>🧩 Подключённые агенты</h4>
@@ -1550,6 +1564,7 @@ function _pendingActionEl(pa){
   if(status === 'confirmed') badge = '✅ Выполнено';
   else if(status === 'cancelled') badge = '⏹ Отменено';
   else if(status === 'error') badge = '⚠ Ошибка';
+  else if(status === 'expired') badge = '⌛ Истекло (более 24ч без подтверждения)';
   hdr.textContent = badge;
   wrap.appendChild(hdr);
 
@@ -2812,6 +2827,82 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     await loadMessages();
   }
 });
+
+// ── Pending actions sidebar widget ──────────────────────────────────────────
+// Список pending'ов виден прямо в sidebar — юзер не теряет «жду подтверждения»
+// карточки если они выпали из видимости чата. Polling каждые 30 сек.
+
+async function loadPendingActionsSidebar(){
+  try{
+    const r = await fetch('/api/agents/me/actions?status=pending', {credentials:'include'});
+    if(!r.ok) return;
+    const d = await r.json();
+    const actions = (d.actions || []).filter(a => a.status === 'pending');
+    const block = document.getElementById('pendingActionsBlock');
+    const list = document.getElementById('pendingActionsList');
+    const cnt = document.getElementById('pendingActionsCount');
+    if(!actions.length){
+      block.style.display = 'none';
+      return;
+    }
+    block.style.display = '';
+    cnt.textContent = actions.length;
+    list.innerHTML = '';
+    actions.slice(0, 5).forEach(pa => {
+      const wrap = document.createElement('div');
+      wrap.className = 'pending-mini';
+      const title = document.createElement('div');
+      title.className = 'pm-title';
+      title.textContent = pa.action_type;
+      wrap.appendChild(title);
+      const body = document.createElement('div');
+      body.className = 'pm-body';
+      body.textContent = (pa.preview_text || '').slice(0, 150);
+      wrap.appendChild(body);
+      const row = document.createElement('div');
+      row.className = 'pm-actions';
+      const ok = document.createElement('button');
+      ok.className = 'pm-ok';
+      ok.textContent = '✓ Да';
+      ok.addEventListener('click', async () => {
+        ok.disabled = true;
+        await fetch(`/api/agents/me/actions/${pa.id}/confirm`, {
+          method:'POST', credentials:'include',
+          headers:{'X-CSRF-Token': getCSRF()},
+        });
+        loadPendingActionsSidebar();
+        loadMessages();
+      });
+      const cancel = document.createElement('button');
+      cancel.className = 'pm-cancel';
+      cancel.textContent = 'Отмена';
+      cancel.addEventListener('click', async () => {
+        cancel.disabled = true;
+        await fetch(`/api/agents/me/actions/${pa.id}/cancel`, {
+          method:'POST', credentials:'include',
+          headers:{'X-CSRF-Token': getCSRF()},
+        });
+        loadPendingActionsSidebar();
+        loadMessages();
+      });
+      row.appendChild(ok); row.appendChild(cancel);
+      wrap.appendChild(row);
+      list.appendChild(wrap);
+    });
+    if(actions.length > 5){
+      const more = document.createElement('div');
+      more.style.cssText = 'font-size:10px;color:#a89880;text-align:center;margin-top:4px';
+      more.textContent = `…и ещё ${actions.length - 5}`;
+      list.appendChild(more);
+    }
+  }catch(e){
+    // тихо — сайдбар не критичен
+  }
+}
+
+// Запускаем при загрузке + раз в 30 сек
+loadPendingActionsSidebar();
+setInterval(loadPendingActionsSidebar, 30000);
 </script>
 
 </body>

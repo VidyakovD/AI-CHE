@@ -83,6 +83,13 @@ def _preview_yandex_direct_pause(params: dict) -> str:
     return f"⏸ Поставить на паузу Я.Директ кампанию {cid}\n{name}"
 
 
+@register_action_preview("yandex_direct_resume_campaign")
+def _preview_yandex_direct_resume(params: dict) -> str:
+    cid = params.get("campaign_id", "?")
+    name = params.get("campaign_name") or ""
+    return f"▶ Возобновить Я.Директ кампанию {cid}\n{name}"
+
+
 @register_action_preview("yandex_direct_set_daily_budget")
 def _preview_yandex_direct_set_budget(params: dict) -> str:
     cid = params.get("campaign_id", "?")
@@ -94,6 +101,13 @@ def _preview_yandex_direct_set_budget(params: dict) -> str:
 def _preview_vk_ads_pause(params: dict) -> str:
     cid = params.get("campaign_id", "?")
     return f"⏸ Поставить на паузу VK Ads кампанию {cid}"
+
+
+@register_action_preview("vk_ads_set_day_limit")
+def _preview_vk_ads_set_day_limit(params: dict) -> str:
+    cid = params.get("campaign_id", "?")
+    new = params.get("day_limit_rub", "?")
+    return f"💰 VK Ads дневной лимит кампании {cid} → {new} ₽"
 
 
 @register_action_preview("add_finance_transaction")
@@ -522,6 +536,67 @@ def _execute_yandex_direct_set_budget(params: dict, user_id: int) -> dict:
     if result["ok"]:
         return {"ok": True,
                 "result": {"campaign_id": cid, "new_budget_rub": new_budget},
+                "error": None}
+    return {"ok": False, "error": result.get("error")}
+
+
+@register_executor("yandex_direct_resume_campaign")
+def _execute_yandex_direct_resume(params: dict, user_id: int) -> dict:
+    """Возобновить Я.Директ кампанию (снять с паузы)."""
+    from server.yandex_direct import resume_campaign
+
+    cid = params.get("campaign_id")
+    if not isinstance(cid, int) or cid <= 0:
+        return {"ok": False, "error": "campaign_id обязателен"}
+
+    settings = _load_module_settings(user_id, "direct_ads")
+    token = (settings.get("oauth_token") or settings.get("access_token") or "").strip()
+    if not token:
+        return {"ok": False,
+                "error": "OAuth-токен Я.Директа не настроен в карточке модуля «Директолог»."}
+    sandbox = bool(settings.get("sandbox"))
+    result = resume_campaign(token, cid, sandbox=sandbox)
+    if result["ok"]:
+        return {"ok": True,
+                "result": {"campaign_id": cid, "action": "resumed"},
+                "error": None}
+    return {"ok": False, "error": result.get("error")}
+
+
+@register_executor("vk_ads_set_day_limit")
+def _execute_vk_ads_set_day_limit(params: dict, user_id: int) -> dict:
+    """Изменить дневной лимит VK Ads кампании (рубли)."""
+    from server.vk_ads import set_campaign_day_limit
+
+    cid = params.get("campaign_id")
+    account_id = params.get("account_id")
+    day_limit = params.get("day_limit_rub") or params.get("daily_budget_rub")
+    if not isinstance(cid, int) or cid <= 0:
+        return {"ok": False, "error": "campaign_id обязателен"}
+    try:
+        day_limit = float(day_limit)
+    except Exception:
+        return {"ok": False, "error": "day_limit_rub должен быть числом"}
+    if day_limit < 0:
+        return {"ok": False, "error": "Лимит должен быть ≥ 0"}
+    # Защита от опечатки LLM: VK Ads >500k₽/день — почти наверняка ошибка
+    if day_limit > 500_000:
+        return {"ok": False,
+                "error": f"Лимит {day_limit} ₽/день кажется чрезмерным — уточни и подтверди явно"}
+
+    settings = _load_module_settings(user_id, "vk_ads")
+    token = (settings.get("ads_token") or "").strip()
+    if not token:
+        return {"ok": False, "error": "VK Ads токен не настроен"}
+    account_id = account_id or settings.get("account_id")
+    if not account_id:
+        return {"ok": False, "error": "account_id обязателен (или сохрани в настройках)"}
+
+    result = set_campaign_day_limit(token, account_id, cid, int(day_limit))
+    if result["ok"]:
+        return {"ok": True,
+                "result": {"campaign_id": cid, "account_id": account_id,
+                           "day_limit_rub": day_limit},
                 "error": None}
     return {"ok": False, "error": result.get("error")}
 
@@ -992,6 +1067,19 @@ def get_action_protocol_prompt(allowed_actions: list[str]) -> str:
             "[ACTION:yandex_direct_pause_campaign]\n"
             "campaign_id: 12345678\n"
             "campaign_name: Аукционные товары\n"
+            "[/ACTION]"
+        ),
+        "yandex_direct_resume_campaign": (
+            "[ACTION:yandex_direct_resume_campaign]\n"
+            "campaign_id: 12345678\n"
+            "campaign_name: Аукционные товары\n"
+            "[/ACTION]"
+        ),
+        "vk_ads_set_day_limit": (
+            "[ACTION:vk_ads_set_day_limit]\n"
+            "campaign_id: 4242424\n"
+            "account_id: 12345     # опц. (или из настроек модуля)\n"
+            "day_limit_rub: 1500\n"
             "[/ACTION]"
         ),
         "publish_to_creators": (

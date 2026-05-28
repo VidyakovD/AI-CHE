@@ -397,3 +397,56 @@ async def agents_modules_cron_loop():
         except Exception as e:
             log.error(f"[agents.cron] loop error: {e}")
         await asyncio.sleep(60)
+
+
+# ── Auto-expire pending agent actions ────────────────────────────────────────
+
+def expire_old_pending_actions(ttl_hours: int = 24) -> int:
+    """Помечает PendingAgentAction в статусе pending старше ttl_hours как expired.
+
+    Защищает UI от карточек, которые юзер не подтвердил и не отменил —
+    например, агент предложил действие, юзер закрыл вкладку, забыл.
+    Через 24ч карточка автоматически становится «истекшей» — кнопки
+    подтверждения скрываются, юзер не выполнит случайно устаревшее действие.
+
+    Возвращает количество expired'нутых записей. Безопасно вызывать на multi-
+    worker — один SQL UPDATE с условием по статусу.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    from sqlalchemy import update as _sa_update
+    from server.db import db_session
+    from server.models import PendingAgentAction
+
+    cutoff = _dt.utcnow() - _td(hours=ttl_hours)
+    with db_session() as db:
+        res = db.execute(
+            _sa_update(PendingAgentAction)
+            .where(PendingAgentAction.status == "pending",
+                   PendingAgentAction.created_at < cutoff)
+            .values(status="expired")
+        )
+        db.commit()
+        n = res.rowcount or 0
+    if n > 0:
+        log.info(f"[agents.expire] expired {n} pending actions older than {ttl_hours}h")
+    return n
+
+
+async def pending_actions_expire_loop():
+    """Раз в час чистим зависшие pending-actions.
+
+    TTL = 24ч от created_at. Cron самый дешёвый из всех — единичный UPDATE.
+    Worker-lock на 50 мин — гарантия что только один воркер сделает.
+    """
+    from server.worker_lock import worker_lock
+    log.info("Pending-actions expire loop started")
+    await asyncio.sleep(120)  # старт после миграций / других init'ов
+    while True:
+        try:
+            with worker_lock("pending_actions_expire", ttl_sec=3000) as acquired:
+                if acquired:
+                    expire_old_pending_actions(ttl_hours=24)
+        except Exception as e:
+            log.error(f"[agents.expire] loop error: {e}")
+        # Раз в час — большой интервал, т.к. это housekeeping
+        await asyncio.sleep(3600)
