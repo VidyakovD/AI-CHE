@@ -137,7 +137,7 @@ _Последнее обновление до этой сессии: 2026-05-22.
 | Приоритет | Что |
 |---|---|
 | 🟢 low | **Multi-LLM паттерны** Pipeline/Parallel/Verify (workflow patterns) — большой scope |
-| 🟢 low | **Module manifest.yaml** формат — рефакторинг 28 модулей (для будущего marketplace) |
+| 🟢 low | **Module manifest.yaml** формат — рефакторинг 28 модулей |
 | 🟢 low | **Splitting `chatbot_engine._execute_node`** (1100 строк) — высокий риск, без покрытия тестами |
 | 🟢 low | **Тесты на OAuth flow** для Calendar (mock exchange request) |
 | 🟢 low | **A11y aria-label + alt + label-for** на 6 страницах (skip-link уже есть) |
@@ -146,8 +146,12 @@ _Последнее обновление до этой сессии: 2026-05-22.
 | 🟢 low | **Settings_schema** для остальных 23 модулей (5 уже сделано) |
 | 🟢 low | **VK ads — write-операции** (создание/изменение кампаний). MVP только READ |
 | 🟢 low | **Splitting `views/icons.js`** (2700 строк) — косметика |
-| 🟢 low | **Marketplace withdrawal flow** — продуктовое решение |
 | 🟢 low | **Migrate notify_user() на personal_tg** — отложено (риск потери push при не-personal-bot)|
+
+#### Удалено окончательно в сессии 2026-05-28:
+- ~~Marketplace ботов~~ — фича снесена полностью (была отключена 2026-05-10
+  через feature-flag, теперь удалены модели, routes, views, тесты, docs).
+  См. scripts/drop_marketplace_tables.sql для DROP таблиц на проде.
 
 #### Снято с очереди (проверено в сессии 2026-05-28):
 - ~~Удалить /user/tg-link/* /user/max-link/*~~ — index.html всё ещё их использует
@@ -333,7 +337,7 @@ _Последнее обновление до этой сессии: 2026-05-22.
 - ✅ **Public proposal page → Jinja-template** — вынесено в `views/proposal_public.html`, ~200 строк inline-HTML удалено из main.py (`6d87fc9`)
 
 ### Общее (cross-module)
-- **A11y на остальных страницах** (proposals/sites/chatbots/agents/admin/api/marketplace) — сделано только index.html
+- **A11y на остальных страницах** (proposals/sites/chatbots/agents/admin/api) — сделано только index.html
 - ⏸ **chatbot_engine._execute_node split** (~1100 строк в runtime ботов) — высокий риск без полного покрытия unit-тестами
 - ⏸ **views/icons.js 2700 строк split** — не критично, отложено
 
@@ -359,9 +363,6 @@ _Последнее обновление до этой сессии: 2026-05-22.
 
 ### [10-agents-workflows](docs/modules/10-agents-workflows.md) / [11-knowledge-rag](docs/modules/11-knowledge-rag.md)
 - **Bulk-генерация КП из CSV** — для агентств
-
-### [12-marketplace](docs/modules/12-marketplace.md)
-- **Marketplace withdrawal flow** — авторы выводят 70% на карту через ЮKassa (если решено вернуть marketplace)
 
 ---
 

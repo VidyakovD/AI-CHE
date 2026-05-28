@@ -1267,8 +1267,6 @@ _NOTIFY_USER_ACTIONS = {
     "solution.orchestra_started",
     "solution.orchestra_done",
     "solution.orchestra_compare",
-    "marketplace.installed",  # установили шаблон
-    "marketplace.published",  # принят/отклонён модератором
     "presentation.done",
     "ai.refund",              # авто-возврат при ошибке
 }
@@ -1283,8 +1281,6 @@ _NOTIFY_LABELS = {
     "solution.orchestra_started":("🚀", "Запущено бизнес-решение"),
     "solution.orchestra_done":   ("✅", "Готов отчёт по решению"),
     "solution.orchestra_compare":("🔬", "Сравнение моделей запущено"),
-    "marketplace.installed":     ("📥", "Шаблон установлен из Marketplace"),
-    "marketplace.published":     ("📤", "Шаблон опубликован в Marketplace"),
     "presentation.done":         ("🎬", "Презентация готова"),
     "ai.refund":                 ("↩️", "Возврат за неудачную генерацию"),
 }

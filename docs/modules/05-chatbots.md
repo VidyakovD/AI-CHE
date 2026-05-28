@@ -10,7 +10,7 @@
   - [server/messaging/voice.py](server/messaging/voice.py) — Whisper + TTS для чатбота
   - [server/sandbox.py](server/sandbox.py) — code_python sandbox
 - **Routes:** [server/routes/chatbots.py](server/routes/chatbots.py) + [server/routes/webhook.py](server/routes/webhook.py) (incoming TG/VK/MAX/WA/Avito) + [server/routes/widget.py](server/routes/widget.py).
-- **UI:** [views/chatbots.html](views/chatbots.html) (2232 строки) + [views/marketplace.html](views/marketplace.html) для публикации.
+- **UI:** [views/chatbots.html](views/chatbots.html) (~2150 строк).
 - **Шаблоны:** [server/bot_templates.py](server/bot_templates.py) — 7 готовых (магазин, бронь, ремонт, и т.д.).
 - **TG mgmt-бот:** [server/tg_management.py](server/tg_management.py) — управление аккаунтом через TG.
 
@@ -50,7 +50,6 @@
 | `bot_conversations` | bot_id, user_chat_id, state (variables), last_message_at |
 | `bot_records` | bot_id, type (lead/order/booking), fields_json, created_at — то что бот собрал у клиента |
 | `bot_price_items` | bot_id, name, price_kop, sku, description (semantic search) |
-| `bot_marketplace_listings` / `installs` | публикация (см. [12-marketplace.md](12-marketplace.md)) |
 
 ## Endpoints (CRUD + AI)
 
@@ -65,7 +64,6 @@
 | POST | `/bots/ai-create` | **AI-конструктор** (≥1000 ₽) — Claude генерит граф |
 | POST | `/bots/{id}/ai-improve` | **AI-доработка** (real × 5) |
 | GET | `/bots/{id}/analytics` | Конверсии, реакции |
-| POST | `/bots/{id}/publish-marketplace` | Опубликовать как шаблон |
 | Webhook'и | `/webhook/tg/{secret}` и т.д. | Incoming сообщения |
 
 ## RAG + прайсы
@@ -97,7 +95,6 @@
 ## Гочча
 
 - **`/iterate` сайта ≠ `/ai-improve` бота** — разные endpoints, не путать.
-- **Marketplace отключён в проде** (см. [12-marketplace.md](12-marketplace.md)) — но код botов работает.
 - **Voice в боте билит через chatbot-канал**, не через chat. Отдельная биллинг-логика.
 
 ## Тесты
@@ -112,4 +109,3 @@
 - [15-crm](15-crm.md) — record.created → CRM
 - [17-push](17-push.md) — push при record.created
 - [13-public-api](13-public-api.md) — webhook record.created
-- [12-marketplace](12-marketplace.md) — публикация шаблона

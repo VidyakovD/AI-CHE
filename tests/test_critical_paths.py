@@ -766,27 +766,6 @@ class TestSolutionsOrchestra:
         assert "/solutions/compare/{compare_group}" in paths
 
 
-class TestMarketplace:
-    """Marketplace ботов: модели, endpoints, share-логика."""
-
-    def test_marketplace_endpoints_registered(self):
-        import main
-        paths = {r.path for r in main.app.routes if hasattr(r, "path")}
-        assert "/marketplace/listings" in paths
-        assert "/marketplace/listings/{listing_id}" in paths
-        assert "/marketplace/listings/{listing_id}/install" in paths
-        assert "/marketplace/listings/{listing_id}/review" in paths
-        assert "/marketplace/my-listings" in paths
-        assert "/marketplace/admin/pending" in paths
-        assert "/marketplace/admin/listings/{listing_id}/approve" in paths
-
-    def test_marketplace_models_importable(self):
-        from server.models import (BotMarketplaceListing,
-                                    BotMarketplaceInstall)
-        assert BotMarketplaceListing.__tablename__ == "bot_marketplace_listings"
-        assert BotMarketplaceInstall.__tablename__ == "bot_marketplace_installs"
-
-
 class TestPublicAPI:
     """Public API: токены + endpoints."""
 

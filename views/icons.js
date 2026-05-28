@@ -1332,7 +1332,6 @@
       {label: 'Главная — чат с AI',         emoji: '💬', url: '/'},
       {label: 'Бизнес-решения',             emoji: '🎯', url: '/?tab=solutions'},
       {label: 'Чат-боты',                   emoji: '🤖', url: '/chatbots.html'},
-      {label: 'Marketplace ботов',          emoji: '🛍', url: '/marketplace.html'},
       {label: 'Public API + Webhooks',      emoji: '🔌', url: '/api.html'},
       {label: 'Коммерческие предложения',   emoji: '📄', url: '/proposals.html'},
       {label: 'Презентации',                emoji: '🎬', url: '/presentations.html'},

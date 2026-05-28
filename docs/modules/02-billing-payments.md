@@ -23,7 +23,6 @@
 - ✅ `IdempotencyRecord` UNIQUE(user_id, key) для multi-worker безопасности
 - ✅ `yookassa_payment_id` UNIQUE — чтобы webhook не задвоил начисление
 - ✅ Авто-refund при ошибке AI-stage / failed-генерации сайта
-- ✅ Race на одобрении marketplace (`atomic UPDATE rating`)
 
 ## Тарифы (актуально на 2026-05-13)
 
@@ -48,7 +47,6 @@
 | Бизнес-решение orchestra | real × 5 за каждый llm-stage | `ai.improve_margin_pct=500` |
 | Voice (Whisper) | 5 ₽ за запрос | фикс |
 | TTS | 2.25 ₽ / 1000 симв (мин 50 коп) | фикс |
-| Marketplace install | price_kop листинга (70% автору) | per listing |
 | `/iterate` сайта | через pricing_config | `site.iter` |
 
 ## ЮKassa

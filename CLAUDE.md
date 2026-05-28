@@ -64,7 +64,6 @@
 | 09 | [sites](docs/modules/09-sites.md) | sandbox-iframe, edit-режим, patch-based /iterate |
 | 10 | [agents-workflows](docs/modules/10-agents-workflows.md) | agent_runner, workflow_builder, 25+ ролей |
 | 11 | [knowledge-rag](docs/modules/11-knowledge-rag.md) | embeddings, chunks, storage-биллинг |
-| 12 | [marketplace](docs/modules/12-marketplace.md) | ⏸ Отключён (feature-flag) |
 | 13 | [public-api](docs/modules/13-public-api.md) | Bearer-токены, scopes, 7 webhook-событий |
 | 14 | [mcp-server](docs/modules/14-mcp-server.md) | JSON-RPC, 10 tools, 3 resources |
 | 15 | [crm](docs/modules/15-crm.md) | Bitrix24, amoCRM, generic webhook |

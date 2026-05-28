@@ -119,6 +119,10 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # NULL = auto-derive из host. Юзеру переподключать ящик не надо.
     ("user_mailboxes", "smtp_host", "VARCHAR"),
     ("user_mailboxes", "smtp_port", "INTEGER"),
+    # Marketplace — удалён в 2026-05-28 (фича отключена 2026-05-10, теперь
+    # снесена окончательно). Таблицы дропаем через DROP TABLE в проде
+    # отдельной командой; LIGHTWEIGHT_MIGRATIONS делает только ADD.
+    # См. scripts/drop_marketplace_tables.sql.
     # Уведомления о низком балансе
     ("users", "low_balance_threshold", "INTEGER DEFAULT 100"),
     ("users", "low_balance_alerted_at", "DATETIME"),
@@ -364,12 +368,6 @@ LIGHTWEIGHT_INDEXES: list[tuple[str, str]] = [
     ("uq_promo_uses_code_user",
      "CREATE UNIQUE INDEX IF NOT EXISTS uq_promo_uses_code_user "
      "ON promo_uses(code_id, user_id)"),
-    # Marketplace anti-pump (только для ПЛАТНЫХ): не даём поставить шаблон
-    # одному и тому же юзеру дважды на разных воркерах одновременно — иначе
-    # автор получит 70%×N. Бесплатные можно ставить заново сколько угодно.
-    ("uq_marketplace_paid_install",
-     "CREATE UNIQUE INDEX IF NOT EXISTS uq_marketplace_paid_install "
-     "ON bot_marketplace_installs(listing_id, installer_id) WHERE paid_kop > 0"),
     # ── Performance: user_id-фильтрация в горячих путях ──────────────────────
     # Большинство SELECT'ов в /routes/*.py идут по `WHERE user_id = X`.
     # Без индекса PG делает sequential scan — на проде с 100k транзакций

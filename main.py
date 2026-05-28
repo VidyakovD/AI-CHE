@@ -39,7 +39,6 @@ from server.routes.assistant import router as assistant_router
 from server.routes.qr_login import router as qr_login_router
 from server.routes.mobile import router as mobile_router
 from server.routes.knowledge import router as knowledge_router
-from server.routes.marketplace import router as marketplace_router
 from server.routes.public_api import (
     mgmt_router as api_tokens_router,
     api_router as public_api_router,
@@ -423,7 +422,6 @@ app.include_router(assistant_router)
 app.include_router(qr_login_router)
 app.include_router(mobile_router)
 app.include_router(knowledge_router)
-app.include_router(marketplace_router)
 app.include_router(api_tokens_router)
 app.include_router(public_api_router)
 app.include_router(schedules_router)
@@ -700,14 +698,6 @@ def serve_presentations():
 @app.get("/proposals.html", include_in_schema=False)
 def serve_proposals():
     return _html("proposals.html")
-
-@app.get("/marketplace.html", include_in_schema=False)
-def serve_marketplace():
-    """Marketplace отключён (продуктовое решение, 2026-05-10).
-    Старые ссылки → редирект на главную. Установленные боты от прошлых
-    публикаций продолжают работать как обычные ChatBot."""
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse("/", status_code=307)
 
 @app.get("/api.html", include_in_schema=False)
 def serve_api_docs():

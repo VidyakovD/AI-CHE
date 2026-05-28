@@ -6,7 +6,6 @@
 - qr_login: TOTP-enforcement для админов (P0 batch)
 - /admin/reencrypt-secrets: единая регистрация после слияния (P0 batch)
 - _validate_env: fail-fast на старте (P0 batch)
-- Marketplace review: atomic UPDATE rating_sum (P2 batch)
 - _outbound.dispatch_outbound: pre-flight URL reject + auto-disable (P3 batch)
 
 Цель — поймать регрессии при будущих рефакторах. Не e2e (preview покрывает).
@@ -213,82 +212,6 @@ class TestReencryptSecretsRoute:
         post_routes = [p for p in paths if "POST" in (p[1] or set())]
         assert len(post_routes) == 1, \
             f"Должна быть одна регистрация POST /reencrypt-secrets, а нашлось {len(post_routes)}: {post_routes}"
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# Marketplace review rating — atomic UPDATE с дельтой (P2 batch)
-# ════════════════════════════════════════════════════════════════════════════
-
-class TestMarketplaceRatingAtomic:
-    """rating_sum / rating_count теперь обновляются через UPDATE ... = + delta
-    (не read-modify-write в Python). Защита от потери concurrent reviews."""
-
-    def test_first_review_increments_count(self):
-        from server.models import (User, ChatBot, BotMarketplaceListing,
-                                     BotMarketplaceInstall)
-        from fastapi.testclient import TestClient
-        from main import app
-        from server.auth import create_token
-        from server.db import SessionLocal
-        import uuid as _uuid
-
-        with SessionLocal() as db:
-            # Author
-            author = User(
-                email=f"author-{_uuid.uuid4().hex[:8]}@t.local",
-                password_hash="$2b$12$abcdefghijklmnopqrstuvCxyz0123456789ABCDEFGHIJKLMNOPQRSTU",
-                tokens_balance=10000, is_verified=True, agreed_to_terms=True,
-                referral_code=_uuid.uuid4().hex[:8].upper(),
-            )
-            db.add(author); db.commit(); db.refresh(author)
-            # Reviewer
-            reviewer = User(
-                email=f"rev-{_uuid.uuid4().hex[:8]}@t.local",
-                password_hash="$2b$12$abcdefghijklmnopqrstuvCxyz0123456789ABCDEFGHIJKLMNOPQRSTU",
-                tokens_balance=100000, is_verified=True, agreed_to_terms=True,
-                referral_code=_uuid.uuid4().hex[:8].upper(),
-            )
-            db.add(reviewer); db.commit(); db.refresh(reviewer)
-            # Original bot for listing source
-            bot = ChatBot(user_id=author.id, name="Source", system_prompt="x")
-            db.add(bot); db.commit(); db.refresh(bot)
-            listing = BotMarketplaceListing(
-                source_bot_id=bot.id, author_id=author.id,
-                name="Test listing", description="...", category="other",
-                system_prompt="x", price_kop=0,
-                is_approved=True, is_active=True,
-                rating_sum=0, rating_count=0,
-            )
-            db.add(listing); db.commit(); db.refresh(listing)
-            # Install (имитируем что юзер уже установил)
-            inst = BotMarketplaceInstall(
-                listing_id=listing.id, installer_id=reviewer.id,
-                installed_bot_id=bot.id, paid_kop=0,
-            )
-            db.add(inst); db.commit(); db.refresh(inst)
-            listing_id, reviewer_id, reviewer_email = listing.id, reviewer.id, reviewer.email
-
-        cli = TestClient(app)
-        cli.headers["Authorization"] = "Bearer " + create_token(reviewer_id, reviewer_email)
-        # Первый review: rating=5
-        r = cli.post(f"/marketplace/listings/{listing_id}/review",
-                      json={"rating": 5, "review": "Top!"})
-        assert r.status_code == 200, r.text
-
-        with SessionLocal() as db:
-            l2 = db.query(BotMarketplaceListing).filter_by(id=listing_id).first()
-            assert l2.rating_sum == 5
-            assert l2.rating_count == 1
-
-        # Повторный review: меняем rating с 5 на 3 — count тот же, sum -= 5 + 3
-        r2 = cli.post(f"/marketplace/listings/{listing_id}/review",
-                       json={"rating": 3})
-        assert r2.status_code == 200
-
-        with SessionLocal() as db:
-            l3 = db.query(BotMarketplaceListing).filter_by(id=listing_id).first()
-            assert l3.rating_sum == 3
-            assert l3.rating_count == 1, "Count не должен инкрементироваться при повторе"
 
 
 # ════════════════════════════════════════════════════════════════════════════

@@ -55,7 +55,6 @@ final = guard.unmask_response(ans["content"])
 - `proposal.*` + `proposal.signed`
 - `solution.*` + `solution.auto_flagged`
 - `orchestra_schedule.*`
-- `marketplace.*`
 - `api_token.*`
 - `api_webhook.*`
 - `crm.connection_*`

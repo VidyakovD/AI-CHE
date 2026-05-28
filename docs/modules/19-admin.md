@@ -1,11 +1,11 @@
 # Модуль 19 — Admin panel
 
-> **Что это:** админка для контроля платформы — юзеры, статистика, action_logs, ai-stats, pricing_config, 2FA, marketplace модерация, assistant-feedback кластеризация. Open когда: добавляешь admin-фичу, чинишь /admin/*, работаешь с TOTP.
+> **Что это:** админка для контроля платформы — юзеры, статистика, action_logs, ai-stats, pricing_config, 2FA, assistant-feedback кластеризация. Open когда: добавляешь admin-фичу, чинишь /admin/*, работаешь с TOTP.
 
 ## TL;DR
 
 - **Routes:** [server/routes/admin.py](server/routes/admin.py) — все админ-endpoints.
-- **UI:** [views/admin.html](views/admin.html) (1640 строк) — табы: Пользователи, Pricing, Действия, AI-stats, **🛍 Marketplace модерация** (если включена), **🔐 Безопасность 2FA**.
+- **UI:** [views/admin.html](views/admin.html) — табы: Пользователи, Pricing, Действия, AI-stats, **🔐 Безопасность 2FA**.
 - **Доступ:** `ADMIN_EMAILS` в env (через [server/security.py](server/security.py)) + опционально 2FA TOTP.
 
 ## Endpoints
@@ -27,8 +27,6 @@
 | POST | `/admin/2fa/disable` | Требует TOTP-код |
 | GET | `/admin/2fa/status` | enabled / disabled |
 | POST | `/admin/reencrypt-secrets` | Ротация JWT_SECRET без потери EncryptedString-полей |
-| POST | `/admin/listings/{id}/approve` | Marketplace модерация (если включена) |
-| POST | `/admin/listings/{id}/reject` | Marketplace модерация |
 
 ## 2FA для админов
 
@@ -63,4 +61,3 @@ QR-bypass атака закрыта (`dc7eecf`).
 - [02-billing-payments](02-billing-payments.md) — pricing_config UI
 - [18-privacy-compliance](18-privacy-compliance.md) — action_logs, ai-stats
 - [03-ai-core](03-ai-core.md) — `/admin/reencrypt-secrets`
-- [12-marketplace](12-marketplace.md) — модерация (если flag включён)

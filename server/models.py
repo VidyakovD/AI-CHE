@@ -435,62 +435,6 @@ class SolutionRun(Base):
     created_at   = Column(DateTime, default=datetime.utcnow)
 
 
-class BotMarketplaceListing(Base):
-    """Публикация бота в marketplace.
-
-    Юзер опубликовал свой бот (system_prompt + workflow_json + прайс) — другие
-    юзеры видят каталог и могут «установить» (создаётся копия как новый
-    ChatBot у них). Платный режим: при установке списываем price_kop, 70%
-    автору, 30% платформе.
-
-    Модерация: is_approved=False по умолчанию — админ ставит True вручную
-    через /admin/marketplace/approve. Защита от спама и непристойного контента.
-    """
-    __tablename__ = "bot_marketplace_listings"
-
-    id              = Column(Integer, primary_key=True, index=True)
-    author_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
-                             nullable=False, index=True)
-    source_bot_id   = Column(Integer, ForeignKey("chatbots.id", ondelete="SET NULL"),
-                             nullable=True)
-    name            = Column(String, nullable=False)
-    description     = Column(Text, nullable=True)
-    category        = Column(String, nullable=True, index=True)  # «Продажи» / «HR» / «FAQ» / ...
-    price_kop       = Column(Integer, default=0)   # 0 = бесплатно
-    # Содержимое — снапшот на момент публикации (не зависит от текущего бота автора)
-    system_prompt   = Column(Text, nullable=True)
-    workflow_json   = Column(Text, nullable=True)   # граф нод
-    cover_image_url = Column(String, nullable=True)
-    # Модерация и метрики
-    is_approved     = Column(Boolean, default=False, index=True)
-    is_active       = Column(Boolean, default=True)
-    installs_count  = Column(Integer, default=0)
-    rating_sum      = Column(Integer, default=0)    # сумма всех оценок (1-5)
-    rating_count    = Column(Integer, default=0)
-    created_at      = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at      = Column(DateTime, default=datetime.utcnow,
-                              onupdate=datetime.utcnow)
-
-
-class BotMarketplaceInstall(Base):
-    """Запись установки шаблона юзером — для аналитики автору и для атомарности
-    биллинга (UNIQUE по installer_id+listing_id опц., сейчас разрешим повтор)."""
-    __tablename__ = "bot_marketplace_installs"
-
-    id           = Column(Integer, primary_key=True, index=True)
-    listing_id   = Column(Integer, ForeignKey("bot_marketplace_listings.id",
-                                                ondelete="CASCADE"),
-                           nullable=False, index=True)
-    installer_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
-                           nullable=False, index=True)
-    installed_bot_id = Column(Integer, ForeignKey("chatbots.id", ondelete="SET NULL"),
-                                nullable=True)
-    paid_kop     = Column(Integer, default=0)
-    rating       = Column(Integer, nullable=True)   # 1-5, опц. от установившего
-    review       = Column(Text, nullable=True)
-    created_at   = Column(DateTime, default=datetime.utcnow, index=True)
-
-
 class ApiToken(Base):
     """Public API токен для SaaS-интеграций (machine-to-machine).
 

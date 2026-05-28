@@ -424,57 +424,6 @@ class TestMobileTts:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Marketplace anti-pump (UNIQUE на платных установках)
-# ════════════════════════════════════════════════════════════════════════════
-
-class TestMarketplaceAntiPump:
-    """Платный листинг нельзя установить дважды одному юзеру (anti-pump):
-    UNIQUE-индекс на (listing_id, installer_id) WHERE paid_kop > 0.
-    Защищает автора от collusion-схемы «два аккаунта установили друг другу
-    100 раз и собрали 70%×100 автору». Race-safe на multi-worker."""
-
-    def _make_paid_listing(self, author_id, price=10000):
-        from server.models import BotMarketplaceListing
-        with SessionLocal() as db:
-            l = BotMarketplaceListing(
-                author_id=author_id,
-                name="Тестовый платный шаблон",
-                price_kop=price,
-                system_prompt="Ты помощник.",
-                is_approved=True, is_active=True,
-            )
-            db.add(l); db.commit(); db.refresh(l)
-            return l.id
-
-    def test_paid_install_then_repeat_returns_409(self):
-        with SessionLocal() as db:
-            author = _user(db, "author@market.test", balance=0)
-            buyer = _user(db, "buyer@market.test", balance=100_000)
-        listing_id = self._make_paid_listing(author[0], price=5000)
-        client = _client_for(buyer)
-        r1 = client.post(f"/marketplace/listings/{listing_id}/install")
-        assert r1.status_code == 200, r1.text
-        # Повторно — UNIQUE сработает → 409
-        r2 = client.post(f"/marketplace/listings/{listing_id}/install")
-        assert r2.status_code == 409
-
-    def test_installs_count_atomic(self):
-        """installs_count должен инкрементиться через atomic UPDATE."""
-        from server.models import BotMarketplaceListing
-        with SessionLocal() as db:
-            author = _user(db, "author2@market.test", balance=0)
-            buyer1 = _user(db, "buy1@market.test", balance=100_000)
-            buyer2 = _user(db, "buy2@market.test", balance=100_000)
-        listing_id = self._make_paid_listing(author[0], price=3000)
-        # Двое разных юзеров — оба установили
-        _client_for(buyer1).post(f"/marketplace/listings/{listing_id}/install")
-        _client_for(buyer2).post(f"/marketplace/listings/{listing_id}/install")
-        with SessionLocal() as db:
-            l = db.query(BotMarketplaceListing).filter_by(id=listing_id).first()
-            assert l.installs_count == 2
-
-
-# ════════════════════════════════════════════════════════════════════════════
 # Webhook atomic fail_count + auto-disable
 # ════════════════════════════════════════════════════════════════════════════
 
