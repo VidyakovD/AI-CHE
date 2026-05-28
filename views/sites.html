@@ -1929,10 +1929,31 @@ async function attachBotToSite(botId){
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Ошибка');
     currentProject.attached_bot_id = botId ? +botId : null;
+    // Backend инжектил виджет в code_html — подтянем актуальный код
+    // и обновим превью, чтобы юзер сразу видел чат на сайте.
+    try {
+      const detailResp = await fetch(`${API}/sites/projects/${currentProjectId}`, {
+        headers: authHeaders(),
+      });
+      if (detailResp.ok) {
+        const detail = await detailResp.json();
+        if (detail.code_html) {
+          const codeEditor = document.getElementById('codeEditor');
+          if (codeEditor) codeEditor.value = detail.code_html;
+          currentProject.code_html = detail.code_html;
+        }
+      }
+      // Refresh превью (если на нём активная вкладка)
+      const activeTab = document.querySelector('#phaseDone .tab-btn.active');
+      if (activeTab && activeTab.textContent.trim() === 'Превью' && typeof refreshPreview === 'function') {
+        refreshPreview();
+      }
+    } catch(_) {}
     if (botId) {
-      addChatMessage('system', `🤖 Бот «${d.bot_name}» будет добавлен на сайт при публикации.`);
+      addChatMessage('system', `🤖 Бот «${d.bot_name}» добавлен на сайт — виджет уже в превью.`);
+      if (window.aiToast) aiToast(`Чат-бот «${d.bot_name}» встроен`, 'success');
     } else {
-      addChatMessage('system', '🤖 Чат-бот отвязан от сайта.');
+      addChatMessage('system', '🤖 Чат-бот отвязан, виджет удалён из сайта.');
     }
   }catch(e){
     aiAlertError(e);

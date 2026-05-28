@@ -395,23 +395,76 @@ class AttachBotBody(BaseModel):
 def site_project_attach_bot(project_id: int, body: AttachBotBody,
                             db: Session = Depends(get_db),
                             user: User = Depends(current_user)):
-    """Привязать чат-бот юзера к сайту. При генерации/публикации виджет
-    бота вставится в HTML автоматически."""
+    """Привязать чат-бот юзера к сайту.
+
+    Сразу инжектит `<script src=/widget/{bot_id}.js>` в `code_html` и
+    `hosted_path/index.html` (если опубликован). Раньше виджет вставлялся
+    только при генерации/публикации — пользователь жаловался что после
+    выбора бот не появлялся в превью.
+
+    При detach (bot_id=None) — удаляет ВСЕ widget-script'ы из HTML
+    (старый bot + наш own site-widget — чтоб не было дублей).
+    """
+    import re as _re
     p = db.query(SiteProject).filter_by(id=project_id, user_id=user.id).first()
     if not p:
         raise HTTPException(404, "Проект не найден")
+
+    app_url = (os.getenv("APP_URL", "https://aiche.ru") or "https://aiche.ru").rstrip("/")
+
+    # Удаляем все существующие widget-script'ы — чтобы не было дублей при
+    # повторных attach (юзер сменил одного бота на другого).
+    def _strip_widgets(html: str) -> str:
+        if not html:
+            return html
+        # /widget/{bot_id}.js + /sites/widget/{token}/embed.js
+        patterns = [
+            r'<script[^>]*src="[^"]*/widget/\d+\.js[^"]*"[^>]*>\s*</script>\s*',
+            r'<script[^>]*src="[^"]*/sites/widget/[^/]+/embed\.js[^"]*"[^>]*>\s*</script>\s*',
+        ]
+        for pat in patterns:
+            html = _re.sub(pat, "", html, flags=_re.IGNORECASE)
+        return html
+
     if body.bot_id is None:
+        # Detach — снимаем виджет из HTML, сохраняем
         p.attached_bot_id = None
+        if p.code_html:
+            p.code_html = _strip_widgets(p.code_html)
         db.commit()
+        _sync_hosted_html(p)
         return {"status": "detached"}
+
     bot = db.query(ChatBot).filter_by(id=body.bot_id, user_id=user.id).first()
     if not bot:
         raise HTTPException(404, "Бот не найден или не ваш")
     if not bot.widget_enabled:
         raise HTTPException(400, "У бота не включён виджет — включите в /chatbots.html")
     p.attached_bot_id = bot.id
+
+    # Инжектим виджет в HTML сайта сразу (а не только при публикации)
+    if p.code_html:
+        cleaned = _strip_widgets(p.code_html)
+        p.code_html = _inject_chatbot_widget(cleaned, bot.id, app_url)
+
     db.commit()
-    return {"status": "attached", "bot_id": bot.id, "bot_name": bot.name}
+    _sync_hosted_html(p)
+    return {"status": "attached", "bot_id": bot.id, "bot_name": bot.name,
+            "widget_url": f"{app_url}/widget/{bot.id}.js"}
+
+
+def _sync_hosted_html(p) -> None:
+    """Если сайт опубликован — перезаписать hosted index.html из p.code_html.
+    Иначе ничего не делаем (виджет применится при следующем hostSite())."""
+    if not p.hosted_path or not p.code_html:
+        return
+    try:
+        host_dir = os.path.join(_sites_host_base, str(p.id))
+        os.makedirs(host_dir, exist_ok=True)
+        with open(os.path.join(host_dir, "index.html"), "w", encoding="utf-8") as f:
+            f.write(p.code_html)
+    except Exception as e:
+        log.warning(f"[attach-bot] sync hosted failed project={p.id}: {e}")
 
 
 def _inject_chatbot_widget(html: str, bot_id: int, app_url: str) -> str:
