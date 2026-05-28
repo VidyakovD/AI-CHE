@@ -39,10 +39,16 @@ VK_API_VERSION = "5.131"
 
 
 def _tg_proxy() -> str | None:
-    """Прокси для api.telegram.org если задан. На РФ-проде сеть к TG нестабильна,
-    через Xray (AI_HTTPS_PROXY) идёт надёжнее. Если переменная не задана —
-    идём напрямую."""
-    return (os.getenv("TG_HTTPS_PROXY") or os.getenv("AI_HTTPS_PROXY") or "").strip() or None
+    """Прокси для api.telegram.org только если ЯВНО задан TG_HTTPS_PROXY.
+
+    Раньше fallback'или на AI_HTTPS_PROXY (Xray) — это БЫЛО ОШИБКОЙ. Xray
+    настроен под OpenAI/Anthropic/Google и НЕ маршрутизирует TG (на проде
+    тест: curl -x http://127.0.0.1:10809 api.telegram.org → 000). TG доступен
+    напрямую с прод-сервера (HOSTKEY Москва) — `curl api.telegram.org` → 302.
+
+    Если когда-то TG заблокируют — установить TG_HTTPS_PROXY=http://...
+    в .env. Пока этого env'а нет — идём напрямую."""
+    return (os.getenv("TG_HTTPS_PROXY") or "").strip() or None
 
 
 async def _tg_request(method: str, url: str, *, data=None, json_body=None,
