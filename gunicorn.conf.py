@@ -22,7 +22,11 @@ import multiprocessing
 import os
 
 # ── Socket ───────────────────────────────────────────────────────────────────
-bind = "127.0.0.1:8000"
+# bind через env-переменную: blue/green развёрнут на двух портах.
+# - ai-che.service       → AI_CHE_PORT=8000 (зелёный, основной)
+# - ai-che-blue.service  → AI_CHE_PORT=8001 (синий, backup)
+# Nginx upstream даёт failover между ними при деплое.
+bind = f"127.0.0.1:{os.getenv('AI_CHE_PORT', '8000')}"
 # Backlog: сколько pending TCP-соединений ждёт accept. nginx буферит запросы
 # при reload — берём с запасом чтобы pending не отбрасывались.
 backlog = 2048
@@ -70,7 +74,8 @@ keepalive = 5
 # preload_app = False
 
 # ── PID и лог ────────────────────────────────────────────────────────────────
-pidfile = "/run/ai-che.pid"
+# pidfile тоже параметризован — у blue свой PID, иначе они перетирали бы друг друга.
+pidfile = os.getenv("AI_CHE_PIDFILE", "/run/ai-che.pid")
 # Логи идут в stderr → systemd journal. JSON-формат можно настроить отдельно
 # если понадобится structured logging для observability.
 accesslog = "-"   # stdout

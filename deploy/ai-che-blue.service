@@ -1,0 +1,38 @@
+[Unit]
+Description=AI Studio Che — FastAPI app (BLUE — port 8001, backup для blue/green)
+Documentation=https://aiche.ru/docs/DEPLOY.md
+After=network.target
+
+[Service]
+Type=notify
+WorkingDirectory=/root/AI-CHE
+EnvironmentFile=/root/AI-CHE/.env
+# Override AI_CHE_PORT и pidfile через дополнительные Environment=
+# (после EnvironmentFile они переопределяют значения из .env).
+Environment=AI_CHE_PORT=8001
+Environment=AI_CHE_PIDFILE=/run/ai-che-blue.pid
+
+ExecStart=/root/AI-CHE/venv/bin/gunicorn main:app -c /root/AI-CHE/gunicorn.conf.py
+ExecReload=/bin/kill -HUP $MAINPID
+PIDFile=/run/ai-che-blue.pid
+
+Restart=on-failure
+RestartSec=5
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Logs → journalctl (отдельный identifier чтобы фильтровать)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ai-che-blue
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+LimitNOFILE=65536
+TimeoutStartSec=60
+TimeoutStopSec=90
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target
