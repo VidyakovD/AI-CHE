@@ -34,6 +34,8 @@ log = logging.getLogger("personal-bot")
 
 TG_API_BASE = "https://api.telegram.org/bot"
 MAX_API_BASE = "https://botapi.max.ru"
+VK_API_BASE = "https://api.vk.com/method"
+VK_API_VERSION = "5.131"
 
 
 def _tg_proxy() -> str | None:
@@ -450,3 +452,223 @@ async def handle_personal_max_update(update: dict, user_id: int) -> None:
     parts = _format_for_max(result)
     for part in parts:
         await max_send_message(token, sender_uid, part)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# VK community-bot relay (2026-05-28)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+async def vk_validate_token(token: str, group_id: str) -> dict:
+    """Проверка group access_token + получение confirmation-кода для Callback API.
+
+    Returns:
+        {ok: True, group_name, confirmation_code} при успехе
+        {ok: False, error} при ошибке
+    """
+    if not token or not group_id:
+        return {"ok": False, "error": "Токен или group_id пуст"}
+    group_id_clean = str(group_id).lstrip("-").strip()
+    if not group_id_clean.isdigit():
+        return {"ok": False, "error": "group_id должен быть числом (например 123456789)"}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # 1) Проверка токена + имя группы
+            r1 = await client.get(f"{VK_API_BASE}/groups.getById", params={
+                "group_id": group_id_clean,
+                "access_token": token.strip(),
+                "v": VK_API_VERSION,
+            })
+            d1 = r1.json() if r1.content else {}
+            if "error" in d1:
+                return {"ok": False,
+                        "error": d1["error"].get("error_msg", "VK error")}
+            groups_resp = d1.get("response") or []
+            if isinstance(groups_resp, dict):
+                groups_resp = groups_resp.get("groups") or []
+            if not groups_resp:
+                return {"ok": False, "error": "Группа не найдена"}
+            group_name = (groups_resp[0].get("name")
+                          if isinstance(groups_resp[0], dict) else "") or ""
+
+            # 2) Confirmation code для Callback API
+            r2 = await client.get(f"{VK_API_BASE}/groups.getCallbackConfirmationCode", params={
+                "group_id": group_id_clean,
+                "access_token": token.strip(),
+                "v": VK_API_VERSION,
+            })
+            d2 = r2.json() if r2.content else {}
+            if "error" in d2:
+                return {"ok": False,
+                        "error": d2["error"].get("error_msg", "VK error (confirmation code)")}
+            confirmation_code = (d2.get("response") or {}).get("code", "")
+            if not confirmation_code:
+                return {"ok": False, "error": "VK не вернул confirmation-код"}
+    except Exception as e:
+        return {"ok": False, "error": f"Сеть: {type(e).__name__}"}
+    return {"ok": True, "group_name": group_name,
+            "confirmation_code": confirmation_code}
+
+
+async def vk_set_callback(token: str, group_id: str, token_hash: str) -> dict:
+    """Прописать webhook через Callback API:
+    1) groups.addCallbackServer (если ещё не добавлен с этим URL)
+    2) groups.setCallbackSettings — message_new=1
+    """
+    group_id_clean = str(group_id).lstrip("-").strip()
+    webhook_url = f"{_app_url()}/webhook/personal-vk/{token_hash}"
+    title = f"AIche-{token_hash[:8]}"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            # Существующие серверы
+            r0 = await client.get(f"{VK_API_BASE}/groups.getCallbackServers", params={
+                "group_id": group_id_clean,
+                "access_token": token.strip(),
+                "v": VK_API_VERSION,
+            })
+            d0 = r0.json() if r0.content else {}
+            servers = ((d0.get("response") or {}).get("items") or [])
+            existing = next((s for s in servers if s.get("url") == webhook_url), None)
+            if existing:
+                server_id = existing["id"]
+            else:
+                r1 = await client.post(f"{VK_API_BASE}/groups.addCallbackServer", data={
+                    "group_id": group_id_clean,
+                    "url": webhook_url,
+                    "title": title[:14],
+                    "access_token": token.strip(),
+                    "v": VK_API_VERSION,
+                })
+                d1 = r1.json() if r1.content else {}
+                if "error" in d1:
+                    return {"ok": False,
+                            "error": d1["error"].get("error_msg",
+                                                     "addCallbackServer failed")}
+                server_id = (d1.get("response") or {}).get("server_id")
+                if not server_id:
+                    return {"ok": False, "error": "VK не вернул server_id"}
+
+            # Включаем message_new для этого server_id
+            r2 = await client.post(f"{VK_API_BASE}/groups.setCallbackSettings", data={
+                "group_id": group_id_clean,
+                "server_id": server_id,
+                "api_version": VK_API_VERSION,
+                "message_new": 1,
+                "access_token": token.strip(),
+                "v": VK_API_VERSION,
+            })
+            d2 = r2.json() if r2.content else {}
+            if "error" in d2:
+                return {"ok": False,
+                        "error": d2["error"].get("error_msg",
+                                                 "setCallbackSettings failed")}
+    except Exception as e:
+        return {"ok": False, "error": f"Сеть: {type(e).__name__}"}
+    return {"ok": True, "webhook_url": webhook_url, "server_id": server_id}
+
+
+async def vk_delete_callback(token: str, group_id: str, token_hash: str) -> dict:
+    """Снять наш callback-сервер с группы при disconnect."""
+    group_id_clean = str(group_id).lstrip("-").strip()
+    webhook_url = f"{_app_url()}/webhook/personal-vk/{token_hash}"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r0 = await client.get(f"{VK_API_BASE}/groups.getCallbackServers", params={
+                "group_id": group_id_clean,
+                "access_token": token.strip(),
+                "v": VK_API_VERSION,
+            })
+            d0 = r0.json() if r0.content else {}
+            servers = ((d0.get("response") or {}).get("items") or [])
+            existing = next((s for s in servers if s.get("url") == webhook_url), None)
+            if not existing:
+                return {"ok": True, "detail": "no server to delete"}
+            r1 = await client.post(f"{VK_API_BASE}/groups.deleteCallbackServer", data={
+                "group_id": group_id_clean,
+                "server_id": existing["id"],
+                "access_token": token.strip(),
+                "v": VK_API_VERSION,
+            })
+            d1 = r1.json() if r1.content else {}
+            if "error" in d1:
+                return {"ok": False,
+                        "error": d1["error"].get("error_msg",
+                                                 "deleteCallbackServer failed")}
+    except Exception as e:
+        return {"ok": False, "error": f"Сеть: {type(e).__name__}"}
+    return {"ok": True}
+
+
+async def vk_send_message(token: str, peer_id: int | str, text: str) -> bool:
+    """Отправить сообщение от имени группы. random_id обязателен (anti-replay)."""
+    import random
+    if not token or not peer_id:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(f"{VK_API_BASE}/messages.send", data={
+                "peer_id": str(peer_id),
+                "message": text[:4000],
+                "random_id": random.randint(1, 2**31 - 1),
+                "access_token": token.strip(),
+                "v": VK_API_VERSION,
+                "disable_mentions": 1,
+            })
+            d = r.json() if r.content else {}
+            if "error" in d:
+                log.warning(f"[personal-vk] send failed: {d['error']}")
+                return False
+    except Exception as e:
+        log.warning(f"[personal-vk] send exception: {type(e).__name__}: {e}")
+        return False
+    return True
+
+
+async def process_vk_che_message(update: dict, user_id: int) -> None:
+    """Обработка VK message_new события. Симметрично process_tg_message.
+
+    Структура update от VK Callback API:
+    {
+      "type": "message_new",
+      "object": {"message": {"from_id": 123, "peer_id": 123, "text": "..."}}
+    }
+    """
+    from server.db import db_session
+    from server.models import User
+    from server.tg_che_relay import process_message as _process
+
+    obj = update.get("object") or {}
+    msg = obj.get("message") if isinstance(obj.get("message"), dict) else obj
+    if not isinstance(msg, dict):
+        return
+    text = (msg.get("text") or "").strip()
+    if not text:
+        return
+    peer_id = msg.get("peer_id") or msg.get("from_id")
+    if not peer_id:
+        return
+
+    token: str | None = None
+    result: dict = {}
+    with db_session() as db:
+        user = db.query(User).filter_by(id=user_id).first()
+        if not user:
+            return
+        token = user.personal_vk_bot_token
+        if not token:
+            return
+        # process_message sync — крутим в той же сессии. Использует тот же
+        # build_reply_personal что TG/MAX relay → биллинг + invoke_module единый.
+        try:
+            result = _process(db, user, text[:8000])
+        except Exception as e:
+            log.warning(f"[personal-vk] process_message failed: {type(e).__name__}: {e}")
+            result = {"reply": "😔 Что-то пошло не так. Попробуй ещё раз."}
+
+    reply = (result.get("reply") or "").strip()
+    if reply:
+        await vk_send_message(token, peer_id, reply[:4000])
+    # Если был ответ модуля — отправляем отдельно (как в TG/MAX)
+    mod_reply = (result.get("module_reply") or "").strip()
+    if mod_reply:
+        await vk_send_message(token, peer_id, mod_reply[:4000])

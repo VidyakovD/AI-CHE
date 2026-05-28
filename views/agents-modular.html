@@ -464,8 +464,45 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
       </div>
     </div>
 
+    <!-- 5. VK community-бот -->
+    <div class="channel-card" id="vkCard">
+      <div class="ch-head">
+        <span class="ch-icon">💙</span>
+        <div class="ch-title">Свой VK community-бот
+          <span class="ch-badge ok" id="vkLinkedBadge" style="display:none">✓ подключен</span>
+          <span class="ch-badge wait" id="vkAvailBadge">доступно</span>
+        </div>
+      </div>
+      <div class="ch-desc">Получай сообщения в группу ВКонтакте и отвечай через Че. Нужен админ-доступ к сообществу + access_token с правами «Сообщения сообщества» + «Управление».</div>
+      <div class="ch-actions" id="vkActions">
+        <button class="btn-p" id="vkConnectBtn" onclick="openPersonalVkForm()">💙 Подключить ВК-группу</button>
+        <button class="btn-g" id="vkDisconnectBtn" onclick="disconnectPersonalVk()" style="display:none">Отключить</button>
+      </div>
+      <div id="vkConnectForm" class="ch-instructions" style="display:none">
+        <div class="ch-instr-os" style="margin-bottom:8px">
+          1. Зайди в ВК → твоё сообщество → <b>Управление</b> → <b>Работа с API</b> → <b>Ключи доступа</b> → <b>Создать ключ</b><br>
+          2. Включи права: <b>Сообщения сообщества</b> + <b>Управление сообществом</b><br>
+          3. Скопируй access_token и group_id (число из URL сообщества)
+        </div>
+        <input id="vkGroupIdInput" class="inp" style="width:100%;font-family:monospace;font-size:12px;margin-bottom:6px"
+               placeholder="group_id (например 123456789)"/>
+        <textarea id="vkTokenInput" class="inp" style="width:100%;font-family:monospace;font-size:12px"
+                  rows="2" placeholder="VK community access_token..."></textarea>
+        <div class="ch-actions" style="margin-top:8px">
+          <button class="btn-p" id="vkConnectSaveBtn" onclick="connectPersonalVk()">Подключить</button>
+          <button class="btn-g" onclick="document.getElementById('vkConnectForm').style.display='none'">Отмена</button>
+        </div>
+      </div>
+      <div id="vkConnectedInfo" class="ch-instructions" style="display:none">
+        <div class="ch-instr-os">
+          ✓ Сообщество <b><span id="vkGroupName">—</span></b> подключено.<br>
+          Напиши в группу — Че ответит через сообщения сообщества.
+        </div>
+      </div>
+    </div>
+
     <p class="text-xs text-on-dim mt-3" style="opacity:.7">
-      💡 Подключённые TG/MAX будут пушить тебя если Че/модули закончили работу (например cron-расписание сделало пост → ты узнаешь в TG).
+      💡 Подключённые TG/MAX/VK будут пушить тебя если Че/модули закончили работу (например cron-расписание сделало пост → ты узнаешь в TG).
     </p>
 
     <!-- 5. Календари (модуль 📅 Календарь) -->
@@ -1738,6 +1775,7 @@ function openChannelsModal() {
   _updatePwaUiState();
   _updateTgUiState();
   _updateMaxUiState();
+  _updateVkUiState();
   _loadCalendarConnections();
 }
 
@@ -2099,6 +2137,118 @@ async function disconnectPersonalMax() {
     if (window.aiAlert) await window.aiAlert('Не удалось отключить: '+e.message, 'error');
   }
 }
+
+// ── Personal VK community-бот (симметрично TG/MAX) ────────────────────────
+let _vkStatus = null;
+
+async function _loadVkStatus() {
+  try {
+    const r = await fetch(`${API}/user/personal-bot/vk/status`, {credentials:'same-origin'});
+    if (!r.ok) return null;
+    return await r.json();
+  } catch(_) { return null; }
+}
+
+async function _updateVkUiState() {
+  _vkStatus = await _loadVkStatus();
+  const connectBtn = document.getElementById('vkConnectBtn');
+  const disconnectBtn = document.getElementById('vkDisconnectBtn');
+  const linkedBadge = document.getElementById('vkLinkedBadge');
+  const availBadge = document.getElementById('vkAvailBadge');
+  const connectForm = document.getElementById('vkConnectForm');
+  const connectedInfo = document.getElementById('vkConnectedInfo');
+  const groupNameSpan = document.getElementById('vkGroupName');
+  if (!connectBtn) return;
+
+  if (_vkStatus && _vkStatus.connected) {
+    connectBtn.style.display = 'none';
+    disconnectBtn.style.display = 'inline-flex';
+    disconnectBtn.textContent = `Отключить ${_vkStatus.group_name || '—'}`;
+    if (linkedBadge) linkedBadge.style.display = 'inline-block';
+    if (availBadge) availBadge.style.display = 'none';
+    if (connectForm) connectForm.style.display = 'none';
+    if (connectedInfo) connectedInfo.style.display = 'block';
+    if (groupNameSpan) groupNameSpan.textContent = _vkStatus.group_name || '—';
+  } else {
+    connectBtn.style.display = 'inline-flex';
+    connectBtn.disabled = false;
+    disconnectBtn.style.display = 'none';
+    if (linkedBadge) linkedBadge.style.display = 'none';
+    if (availBadge) {
+      availBadge.style.display = 'inline-block';
+      availBadge.textContent = 'доступно';
+      availBadge.className = 'ch-badge wait';
+    }
+    if (connectedInfo) connectedInfo.style.display = 'none';
+  }
+}
+
+function openPersonalVkForm() {
+  const form = document.getElementById('vkConnectForm');
+  if (form) form.style.display = 'block';
+  const gid = document.getElementById('vkGroupIdInput');
+  const tok = document.getElementById('vkTokenInput');
+  if (gid) gid.value = '';
+  if (tok) tok.value = '';
+  if (gid) setTimeout(() => gid.focus(), 50);
+}
+
+async function connectPersonalVk() {
+  const gidInput = document.getElementById('vkGroupIdInput');
+  const tokInput = document.getElementById('vkTokenInput');
+  const btn = document.getElementById('vkConnectSaveBtn');
+  if (!gidInput || !tokInput || !btn) return;
+  const group_id = (gidInput.value || '').trim();
+  const token = (tokInput.value || '').trim();
+  if (!group_id || !token) {
+    if (window.aiAlert) await window.aiAlert('Заполни group_id и access_token', 'warn');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '⏳ Проверяю...';
+  try {
+    const r = await fetch(`${API}/user/personal-bot/vk/connect`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token, group_id}),
+    });
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(d.detail || 'HTTP '+r.status);
+    tokInput.value = '';
+    if (window.aiAlert) {
+      await window.aiAlert(
+        `✓ Сообщество «${d.group_name || group_id}» подключено.`
+        + (d.next_step ? '\n\n' + d.next_step : ''),
+        d.status === 'connected_partial' ? 'warn' : 'success'
+      );
+    }
+    await _updateVkUiState();
+  } catch (e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось подключить: '+e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Подключить';
+  }
+}
+
+async function disconnectPersonalVk() {
+  const ok = await (window.aiConfirm
+    ? window.aiConfirm('Отключить ВК-сообщество? Callback-сервер будет удалён.',
+                       {danger: true, okLabel: 'Отключить'})
+    : Promise.resolve(confirm('Отключить VK?')));
+  if (!ok) return;
+  try {
+    const r = await fetch(`${API}/user/personal-bot/vk/disconnect`, {
+      method: 'POST', credentials: 'same-origin',
+    });
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    await _updateVkUiState();
+    if (window.aiAlert) await window.aiAlert('🔓 ВК отключен.', 'success');
+  } catch (e) {
+    if (window.aiAlert) await window.aiAlert('Не удалось отключить: '+e.message, 'error');
+  }
+}
+
 function closeChannelsModal() {
   document.getElementById('channelsModal').classList.remove('show');
 }

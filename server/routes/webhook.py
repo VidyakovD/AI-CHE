@@ -636,6 +636,57 @@ async def personal_max_webhook(token_hash: str, request: Request,
     return {"ok": True}
 
 
+@router.post("/personal-vk/{token_hash}")
+async def personal_vk_webhook(token_hash: str, request: Request,
+                               db: Session = Depends(get_db)):
+    """Webhook для personal VK community-бота юзера.
+
+    Особенности VK Callback API:
+    - На первом запросе ВК присылает type='confirmation' и ожидает в ответ
+      raw-строку с confirmation-кодом (без JSON-обёртки!). Без этого вебхук
+      не активируется.
+    - Дальше события message_new — обычный JSON с object.message.
+    - Дедуп через event_id (VK его присылает в каждом событии).
+    """
+    from fastapi.responses import PlainTextResponse
+    from server.models import User
+    user = (db.query(User)
+              .filter(User.personal_vk_bot_token_hash == token_hash)
+              .first())
+    if not user:
+        # Не возвращаем "ok" пустой строкой — ВК будет долбить retry.
+        # PlainTextResponse "ok" соответствует требованию VK.
+        return PlainTextResponse("ok")
+    try:
+        body = await _safe_json(request)
+    except Exception:
+        return PlainTextResponse("ok")
+    if not isinstance(body, dict):
+        return PlainTextResponse("ok")
+
+    # CONFIRMATION — самый первый запрос при активации Callback API.
+    # ВК ожидает ровно строку = confirmation_code БЕЗ JSON.
+    if body.get("type") == "confirmation":
+        code = user.personal_vk_confirmation or ""
+        return PlainTextResponse(code)
+
+    # Дедуп по event_id (если VK прислал)
+    event_id = body.get("event_id")
+    if event_id and _is_duplicate_update("personal-vk", user.id, str(event_id)):
+        log.info(f"[personal-vk] duplicate user={user.id} event={event_id}")
+        return PlainTextResponse("ok")
+
+    # message_new event → процессим через process_vk_che_message
+    if body.get("type") == "message_new":
+        try:
+            from server.personal_bot_relay import process_vk_che_message
+            await process_vk_che_message(body, user.id)
+        except Exception as e:
+            log.error(f"[personal-vk] handler error user={user.id}: {type(e).__name__}: {e}")
+
+    return PlainTextResponse("ok")
+
+
 # ── WhatsApp через Wazzup24 ────────────────────────────────────────────────
 
 

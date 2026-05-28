@@ -92,6 +92,18 @@ class User(Base):
     personal_max_bot_token_hash = Column(String, unique=True, nullable=True, index=True)
     personal_max_user_id      = Column(String, nullable=True)
     personal_max_webhook_set  = Column(Boolean, default=False)
+    # VK Community bot — для юзеров кто общается с Че через сообщения в группу ВК.
+    # access_token берётся в настройках сообщества с правами `messages`+`manage`.
+    # Webhook ставится через groups.setCallbackSettings на /webhook/personal-vk/<hash>.
+    # group_id нужен для отправки ответов через messages.send.
+    # confirmation_code нужен на первом VK callback (ВК присылает type='confirmation',
+    # ждёт от нас в ответ строку из groups.getCallbackConfirmationCode).
+    personal_vk_bot_token        = Column(EncryptedString(1024), nullable=True)
+    personal_vk_group_id         = Column(String, nullable=True)         # положительное число
+    personal_vk_group_name       = Column(String, nullable=True)
+    personal_vk_bot_token_hash   = Column(String, unique=True, nullable=True, index=True)
+    personal_vk_confirmation     = Column(String, nullable=True)         # код для ответа на VK confirmation callback
+    personal_vk_webhook_set      = Column(Boolean, default=False)
     # In-app колокольчик уведомлений: всё новее этого таймстампа = непрочитано.
     # Устанавливается клиентом через POST /user/notifications/seen.
     notifications_last_seen_at = Column(DateTime, nullable=True)

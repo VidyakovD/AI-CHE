@@ -195,6 +195,13 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("users", "personal_max_bot_token_hash", "VARCHAR"),
     ("users", "personal_max_user_id", "VARCHAR"),
     ("users", "personal_max_webhook_set", "BOOLEAN DEFAULT 0"),
+    # VK community-bot (2026-05-28): юзер общается с Че через сообщения в группе.
+    ("users", "personal_vk_bot_token", "VARCHAR"),
+    ("users", "personal_vk_group_id", "VARCHAR"),
+    ("users", "personal_vk_group_name", "VARCHAR"),
+    ("users", "personal_vk_bot_token_hash", "VARCHAR"),
+    ("users", "personal_vk_confirmation", "VARCHAR"),
+    ("users", "personal_vk_webhook_set", "BOOLEAN DEFAULT 0"),
     # Auto-followup для КП: cron шлёт напоминалку клиенту если КП открыт не был
     ("proposal_projects", "auto_followup_enabled", "BOOLEAN DEFAULT 1"),
     ("proposal_projects", "followup_sent_at", "DATETIME"),

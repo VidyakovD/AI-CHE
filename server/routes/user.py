@@ -662,6 +662,134 @@ async def personal_max_disconnect(user: User = Depends(current_user),
     return {"status": "disconnected"}
 
 
+# ── VK community-bot connection (2026-05-28) ───────────────────────────────
+
+
+class PersonalVKConnectBody(BaseModel):
+    token: str       # group access_token (права messages + manage)
+    group_id: str    # положительное число — id сообщества
+
+
+@router.get("/personal-bot/vk/status")
+def personal_vk_status(user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Статус подключения VK community-бота юзера."""
+    u = db.query(User).filter_by(id=user.id).first()
+    return {
+        "connected": bool(u and u.personal_vk_bot_token),
+        "group_id": (u.personal_vk_group_id if u else None) or None,
+        "group_name": (u.personal_vk_group_name if u else None) or None,
+        "webhook_set": bool(u and u.personal_vk_webhook_set),
+    }
+
+
+@router.post("/personal-bot/vk/connect")
+async def personal_vk_connect(payload: PersonalVKConnectBody,
+                              user: User = Depends(current_user),
+                              db: Session = Depends(get_db)):
+    """Подключить VK-сообщество к личному агенту: валидация через VK API,
+    добавление callback-сервера, включение message_new event.
+
+    Юзер должен сначала:
+    1. Зайти в VK → Управление → Работа с API → Ключи доступа → Создать ключ
+       с правами «Сообщения сообщества» и «Управление сообществом»
+    2. Скопировать access_token и group_id из URL сообщества
+    """
+    from server.personal_bot_relay import (
+        vk_validate_token, vk_set_callback, compute_token_hash,
+    )
+    token = (payload.token or "").strip()
+    group_id = (payload.group_id or "").strip().lstrip("-")
+    if not token or not group_id:
+        raise HTTPException(400, "Токен и group_id обязательны")
+
+    # Валидация через VK API
+    info = await vk_validate_token(token, group_id)
+    if not info.get("ok"):
+        raise HTTPException(400, f"VK: {info.get('error', 'unknown')}")
+
+    # Anti-collision: один токен → один юзер
+    token_hash = compute_token_hash(token)
+    existing = (db.query(User)
+                  .filter(User.personal_vk_bot_token_hash == token_hash,
+                          User.id != user.id)
+                  .first())
+    if existing:
+        raise HTTPException(409,
+            "Этот VK-бот уже подключен к другому аккаунту. Отвяжи там сначала.")
+
+    # Сохраняем
+    u = db.query(User).filter_by(id=user.id).first()
+    u.personal_vk_bot_token = token
+    u.personal_vk_group_id = group_id
+    u.personal_vk_group_name = info.get("group_name", "")
+    u.personal_vk_bot_token_hash = token_hash
+    u.personal_vk_confirmation = info.get("confirmation_code", "")
+    u.personal_vk_webhook_set = False
+    db.commit()
+
+    # Прописываем Callback API
+    cb = await vk_set_callback(token, group_id, token_hash)
+    if not cb.get("ok"):
+        log.warning(f"[personal-vk] setCallback failed user={user.id}: {cb.get('error')}")
+        return {"status": "connected_partial",
+                "group_name": u.personal_vk_group_name,
+                "error": f"Бот подключен, но callback не установился: {cb.get('error')}"}
+    u.personal_vk_webhook_set = True
+    db.commit()
+
+    try:
+        from server.audit_log import log_action
+        log_action("user.personal_vk_connect", user_id=user.id,
+                   target_type="user", target_id=user.id,
+                   details={"group_name": u.personal_vk_group_name,
+                            "group_id": group_id})
+    except Exception:
+        pass
+
+    return {"status": "connected",
+            "group_name": u.personal_vk_group_name,
+            "group_id": group_id,
+            "webhook_url": cb.get("webhook_url"),
+            "next_step": (f"Открой ВК-сообщество «{u.personal_vk_group_name}», "
+                          "включи «Сообщения сообщества» в настройках, "
+                          "и напиши боту первое сообщение.")}
+
+
+@router.post("/personal-bot/vk/disconnect")
+async def personal_vk_disconnect(user: User = Depends(current_user),
+                                  db: Session = Depends(get_db)):
+    """Отключить VK-бота: снять callback + очистить токен."""
+    from server.personal_bot_relay import vk_delete_callback
+    u = db.query(User).filter_by(id=user.id).first()
+    if not u or not u.personal_vk_bot_token:
+        return {"status": "not_connected"}
+    token = u.personal_vk_bot_token
+    group_id = u.personal_vk_group_id
+    token_hash = u.personal_vk_bot_token_hash
+    prev_group = u.personal_vk_group_name
+    if token and group_id and token_hash:
+        try:
+            await vk_delete_callback(token, group_id, token_hash)
+        except Exception as e:
+            log.warning(f"[personal-vk] deleteCallback failed: {e}")
+    u.personal_vk_bot_token = None
+    u.personal_vk_group_id = None
+    u.personal_vk_group_name = None
+    u.personal_vk_bot_token_hash = None
+    u.personal_vk_confirmation = None
+    u.personal_vk_webhook_set = False
+    db.commit()
+    try:
+        from server.audit_log import log_action
+        log_action("user.personal_vk_disconnect", user_id=user.id,
+                   target_type="user", target_id=user.id, level="warn",
+                   details={"prev_group": prev_group or ""})
+    except Exception:
+        pass
+    return {"status": "disconnected"}
+
+
 # ── Calendar connections (Loom Phase 2: модуль 📅 Календарь) ────────────────
 
 
