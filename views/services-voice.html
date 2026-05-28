@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html class="dark" lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Студия Че — Распознавание голоса</title>
+<link rel="stylesheet" href="/fonts.css"/>
+<link rel="stylesheet" href="/styles.css"/>
+<script src="https://cdn.tailwindcss.com/3.4.0"></script>
+<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b","success":"#7bd968"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<style>
+*{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
+*::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
+body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;min-height:100vh}
+.sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
+.sig-text{background:linear-gradient(135deg,#ff8c42,#ffb347);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.inp{width:100%;padding:9px 13px;border-radius:9px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,0.5);outline:none;font-size:13px;font-family:inherit}
+.inp:focus{border-color:#ff8c42}
+textarea.inp{resize:vertical;min-height:200px;font-family:inherit;line-height:1.5}
+.btn-p{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;font-weight:700;border-radius:11px;padding:10px 20px;cursor:pointer;font-size:14px;border:none;display:inline-flex;align-items:center;gap:8px;transition:opacity .15s}
+.btn-p:hover{opacity:.88}.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{background:#272018;color:#a89880;border:1px solid rgba(74,63,47,0.4);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-g:hover{color:#f0e6d8;border-color:#ff8c42}
+.card{background:#1e1a14;border:1.5px solid rgba(74,63,47,0.25);border-radius:16px}
+.drop-zone{border:2px dashed rgba(74,63,47,0.55);border-radius:14px;padding:40px 24px;text-align:center;transition:all .15s;cursor:pointer;background:rgba(39,32,24,.3)}
+.drop-zone:hover,.drop-zone.dragover{border-color:#ff8c42;background:rgba(255,140,66,.06)}
+.rec-btn{width:108px;height:108px;border-radius:50%;border:none;cursor:pointer;font-size:36px;transition:all .2s;display:flex;align-items:center;justify-content:center}
+.rec-btn.idle{background:linear-gradient(135deg,#ff8c42,#ffb347);color:#141210;box-shadow:0 6px 24px rgba(255,140,66,.3)}
+.rec-btn.idle:hover{transform:scale(1.05);box-shadow:0 8px 32px rgba(255,140,66,.45)}
+.rec-btn.recording{background:linear-gradient(135deg,#ff6b6b,#ff4757);color:#fff;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,107,107,.5)}50%{box-shadow:0 0 0 24px rgba(255,107,107,0)}}
+.rec-meter{font-variant-numeric:tabular-nums;font-size:18px;color:#a89880;margin-top:14px;font-weight:600}
+.tab-btn{padding:9px 18px;background:transparent;color:#a89880;border:none;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid transparent;transition:all .15s;font-family:inherit}
+.tab-btn.active{color:#ff8c42;border-bottom-color:#ff8c42}
+.tab-btn:hover{color:#f0e6d8}
+</style>
+<script src="/shared.js" defer></script>
+<script src="/icons.js" defer></script>
+</head>
+<body class="dark" data-assistant-section="services" data-assistant-label="Сервисы · Распознавание голоса">
+
+<div class="max-w-3xl mx-auto px-4 py-6">
+
+  <header class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div class="flex items-center gap-3">
+      <a href="/" class="btn-g" title="На главную">← На главную</a>
+      <h1 class="text-2xl font-bold sig-text">🎙 Распознавание голоса</h1>
+    </div>
+    <span class="text-xs text-on-dim">Whisper · ~5 ₽ за вызов</span>
+  </header>
+
+  <p class="text-sm text-on-dim mb-5 leading-relaxed">
+    Загрузи аудиофайл или запиши с микрофона — получишь текст. Поддержка mp3, wav, m4a, ogg, webm. Макс. 15 МБ.
+    Используется OpenAI Whisper, оптимизирован под русский.
+  </p>
+
+  <!-- Tabs -->
+  <div class="flex gap-2 border-b border-outline/20 mb-5">
+    <button class="tab-btn active" id="tabFile" onclick="switchTab('file')">📁 Загрузить файл</button>
+    <button class="tab-btn" id="tabMic" onclick="switchTab('mic')">🎙 Записать с микрофона</button>
+  </div>
+
+  <!-- Tab: file -->
+  <div id="paneFile">
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <div style="font-size:42px;margin-bottom:10px">📁</div>
+      <div style="font-size:15px;color:#f0e6d8;font-weight:600;margin-bottom:4px">Перетащи аудио сюда</div>
+      <div class="text-xs text-on-dim">или нажми для выбора файла</div>
+      <input type="file" id="fileInput" accept="audio/*" style="display:none"/>
+    </div>
+    <div id="fileInfo" class="text-xs text-on-dim mt-3" style="display:none"></div>
+  </div>
+
+  <!-- Tab: microphone -->
+  <div id="paneMic" style="display:none">
+    <div class="card p-7 text-center">
+      <button id="recBtn" class="rec-btn idle" onclick="toggleRecording()" title="Начать запись">🎙</button>
+      <div class="rec-meter" id="recMeter">00:00</div>
+      <div class="text-xs text-on-dim mt-2" id="recHint">Нажми чтобы начать запись</div>
+    </div>
+  </div>
+
+  <!-- Submit button (общая для обоих режимов) -->
+  <div class="flex items-center justify-between gap-3 mt-5 mb-5 flex-wrap">
+    <div class="text-xs text-on-dim" id="readyHint">Сначала выбери файл или запиши голос</div>
+    <button class="btn-p" id="transcribeBtn" onclick="transcribe()" disabled>
+      <span data-i="play"></span>
+      Распознать
+    </button>
+  </div>
+
+  <!-- Result -->
+  <div class="card p-5" id="resultCard" style="display:none">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-bold">📝 Результат</h3>
+      <div class="flex gap-2">
+        <button class="btn-g text-xs" onclick="copyResult()">📋 Копировать</button>
+        <button class="btn-g text-xs" onclick="clearResult()">✕ Очистить</button>
+      </div>
+    </div>
+    <textarea class="inp" id="resultText" rows="8" placeholder="Распознанный текст появится здесь..."></textarea>
+    <div class="text-xs text-on-dim mt-2" id="resultMeta"></div>
+  </div>
+
+  <!-- Loading state -->
+  <div id="loadingCard" class="card p-6 text-center" style="display:none">
+    <div class="text-3xl mb-3 animate-spin" style="display:inline-block">⏳</div>
+    <div class="text-sm">Распознаём... обычно 5-15 секунд</div>
+  </div>
+
+  <!-- Error state -->
+  <div id="errorCard" class="card p-5" style="display:none;border-color:rgba(255,107,107,0.4)">
+    <div class="font-bold text-error mb-1">⚠ Ошибка</div>
+    <div class="text-sm text-on-dim" id="errorText"></div>
+  </div>
+
+</div>
+
+<script>
+const API = '';
+
+// ── State ───────────────────────────────────────────────────────────────
+let _selectedFile = null;
+let _recBlob = null;
+let _recorder = null;
+let _recStream = null;
+let _recStartTime = 0;
+let _recTimer = null;
+
+// ── Tab switching ──────────────────────────────────────────────────────
+function switchTab(tab){
+  document.getElementById('tabFile').classList.toggle('active', tab === 'file');
+  document.getElementById('tabMic').classList.toggle('active', tab === 'mic');
+  document.getElementById('paneFile').style.display = tab === 'file' ? 'block' : 'none';
+  document.getElementById('paneMic').style.display = tab === 'mic' ? 'block' : 'none';
+  // При переключении вкладок сбрасываем выбор
+  _selectedFile = null;
+  _recBlob = null;
+  updateReadyState();
+}
+
+// ── File picking + drag-n-drop ─────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+fileInput.addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) setSelectedFile(f);
+});
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) setSelectedFile(f);
+});
+
+function setSelectedFile(f){
+  if (!f.type.startsWith('audio/') && !/\.(mp3|wav|m4a|ogg|webm|aac|flac)$/i.test(f.name)){
+    showError('Это не аудиофайл. Выбери mp3, wav, m4a, ogg или webm.');
+    return;
+  }
+  if (f.size > 15 * 1024 * 1024){
+    showError('Файл больше 15 МБ. Сократи или сожми.');
+    return;
+  }
+  _selectedFile = f;
+  _recBlob = null;
+  const sizeKb = (f.size / 1024).toFixed(0);
+  const info = document.getElementById('fileInfo');
+  info.style.display = 'block';
+  info.innerHTML = `✓ Выбран: <b>${escapeHtml(f.name)}</b> (${sizeKb} КБ)`;
+  hideError();
+  updateReadyState();
+}
+
+// ── Microphone recording ──────────────────────────────────────────────
+async function toggleRecording(){
+  if (_recorder && _recorder.state === 'recording'){
+    _recorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    showError('Браузер не поддерживает MediaRecorder. Используй вкладку «Загрузить файл».');
+    return;
+  }
+  try {
+    _recStream = await navigator.mediaDevices.getUserMedia({audio: true});
+  } catch (e){
+    showError('Не получилось получить доступ к микрофону: ' + e.message);
+    return;
+  }
+  const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' :
+               MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+  _recorder = new MediaRecorder(_recStream, mime ? {mimeType: mime} : {});
+  const chunks = [];
+  _recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  _recorder.onstop = () => {
+    _recBlob = new Blob(chunks, {type: mime || 'audio/webm'});
+    _selectedFile = null;
+    if (_recStream) _recStream.getTracks().forEach(t => t.stop());
+    _recStream = null;
+    clearInterval(_recTimer);
+    document.getElementById('recBtn').classList.replace('recording', 'idle');
+    document.getElementById('recBtn').textContent = '🎙';
+    document.getElementById('recBtn').title = 'Записать ещё раз';
+    const sizeKb = (_recBlob.size / 1024).toFixed(0);
+    document.getElementById('recHint').innerHTML = `✓ Записано: <b>${formatDuration(Date.now() - _recStartTime)}</b> (${sizeKb} КБ). Нажми «Распознать» ниже.`;
+    updateReadyState();
+  };
+  _recorder.start();
+  _recStartTime = Date.now();
+  document.getElementById('recBtn').classList.replace('idle', 'recording');
+  document.getElementById('recBtn').textContent = '⏹';
+  document.getElementById('recBtn').title = 'Остановить запись';
+  document.getElementById('recHint').textContent = 'Идёт запись... нажми ещё раз чтобы остановить';
+  _recTimer = setInterval(() => {
+    document.getElementById('recMeter').textContent = formatDuration(Date.now() - _recStartTime);
+    // Auto-stop при 5 минутах (защита от случайно забытой записи)
+    if (Date.now() - _recStartTime > 5 * 60 * 1000){
+      _recorder.stop();
+    }
+  }, 250);
+}
+
+function formatDuration(ms){
+  const sec = Math.floor(ms / 1000);
+  const m = String(Math.floor(sec / 60)).padStart(2, '0');
+  const s = String(sec % 60).padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+// ── Transcription ──────────────────────────────────────────────────────
+function updateReadyState(){
+  const ready = !!(_selectedFile || _recBlob);
+  document.getElementById('transcribeBtn').disabled = !ready;
+  document.getElementById('readyHint').textContent = ready
+    ? 'Готов! Нажми «Распознать»'
+    : 'Сначала выбери файл или запиши голос';
+}
+
+async function transcribe(){
+  const fileToSend = _selectedFile || (_recBlob && new File([_recBlob], 'voice.webm', {type: _recBlob.type}));
+  if (!fileToSend) return;
+
+  hideError();
+  document.getElementById('resultCard').style.display = 'none';
+  document.getElementById('loadingCard').style.display = 'block';
+  document.getElementById('transcribeBtn').disabled = true;
+
+  const fd = new FormData();
+  fd.append('audio', fileToSend, fileToSend.name);
+
+  const startTime = Date.now();
+  try {
+    const r = await fetch(`${API}/mobile/voice/transcribe`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: fd,
+    });
+    if (!r.ok){
+      let detail = `HTTP ${r.status}`;
+      try { const d = await r.json(); detail = d.detail || detail; } catch(e){}
+      throw new Error(detail);
+    }
+    const data = await r.json();
+    const text = data.text || data.transcript || '';
+    if (!text){
+      throw new Error('Тишина или речь не распознана');
+    }
+    document.getElementById('resultText').value = text;
+    const dur = ((Date.now() - startTime) / 1000).toFixed(1);
+    document.getElementById('resultMeta').textContent =
+      `Распознано за ${dur} сек · ~${text.split(/\s+/).length} слов · списано ~5 ₽`;
+    document.getElementById('resultCard').style.display = 'block';
+  } catch (e){
+    showError(e.message || String(e));
+  } finally {
+    document.getElementById('loadingCard').style.display = 'none';
+    document.getElementById('transcribeBtn').disabled = false;
+  }
+}
+
+// ── Result helpers ─────────────────────────────────────────────────────
+function copyResult(){
+  const text = document.getElementById('resultText').value;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    if (window.aiToast) window.aiToast('Скопировано в буфер', 'success');
+  }).catch(() => {
+    document.getElementById('resultText').select();
+    document.execCommand('copy');
+  });
+}
+
+function clearResult(){
+  document.getElementById('resultText').value = '';
+  document.getElementById('resultMeta').textContent = '';
+  document.getElementById('resultCard').style.display = 'none';
+}
+
+// ── Error helpers ─────────────────────────────────────────────────────
+function showError(msg){
+  document.getElementById('errorText').textContent = msg;
+  document.getElementById('errorCard').style.display = 'block';
+}
+function hideError(){
+  document.getElementById('errorCard').style.display = 'none';
+}
+
+function escapeHtml(s){
+  return String(s||'').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── Auth check: если не залогинен — на главную ────────────────────────
+(async function checkAuth(){
+  try {
+    const r = await fetch(`${API}/me`, {credentials: 'same-origin'});
+    if (!r.ok){
+      window.location.href = '/';
+    }
+  } catch(_){
+    window.location.href = '/';
+  }
+})();
+</script>
+</body>
+</html>

@@ -738,6 +738,13 @@ def serve_notes():
     агента через retrieve_multi()."""
     return _html("notes.html")
 
+@app.get("/services/voice.html", include_in_schema=False)
+def serve_services_voice():
+    """🎙 Распознавание голоса — отдельный сервис, не модуль агента.
+    Юзер загружает аудио (или записывает через mic) → текст через Whisper.
+    Использует существующий POST /mobile/voice/transcribe (5 ₽ фикс)."""
+    return _html("services-voice.html")
+
 @app.get("/agents-v2.html", include_in_schema=False)
 def serve_agents_v2():
     """ИИ Агенты v2 (промежуточная итерация с Knowledge Hub + Поисковик)
