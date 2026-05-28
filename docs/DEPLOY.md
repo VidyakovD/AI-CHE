@@ -1,11 +1,48 @@
-# DEPLOY — gunicorn + правила миграций
+# DEPLOY — true zero-downtime через blue/green
 
-Прод-сервер `193.187.92.147`, systemd unit `ai-che.service`. После перехода на
-**gunicorn + uvicorn workers** деплой выполняется через `systemctl reload`
-вместо `restart`. Reload даёт **~5-9 секунд** окна 502 (новые workers cold-start
-~9 сек: импорт 26 модулей + scheduler init); restart — 10-20 сек жёсткого
-downtime. Истинный zero-downtime требует blue/green с двумя инстанциями за
-nginx upstream — отложено до 100+ платящих юзеров.
+Прод-сервер `193.187.92.147`. Развёрнута **blue/green** схема: два gunicorn-
+инстанса за nginx upstream с автоматическим failover. Любое изменение кода
+(включая `server/agents/registry.py` — модули агента) деплоится через
+`scripts/deploy.sh` **без 502 для конечного юзера**.
+
+**Замерено в проде: 120/120 запросов = 100% OK во время полного deploy
+цикла (rolling restart обоих инстансов).**
+
+## Архитектура
+
+```
+                                ┌─ 127.0.0.1:8000 (GREEN, primary)
+   nginx upstream ai_che_backend ┤
+                                └─ 127.0.0.1:8001 (BLUE, backup)
+                                              ↑
+                          proxy_next_upstream error timeout 502 503 504
+                          max_fails=1 fail_timeout=2s
+```
+
+- `ai-che.service` → port 8000 (green, primary в upstream)
+- `ai-che-blue.service` → port 8001 (blue, backup)
+- nginx посылает запросы на 8000; если 8000 не отвечает (HTTP 5xx, refuse,
+  timeout) — мгновенно retry на 8001 без 502 на клиента.
+
+## Обычный деплой (рекомендуемый)
+
+```bash
+ssh root@aiche.ru "/root/AI-CHE/scripts/deploy.sh"
+```
+
+Скрипт:
+1. Сбрасывает локальные изменения tracked файлов + pull origin/main
+2. `pip install -r requirements.txt --upgrade --quiet`
+3. Рестарт BLUE (8001) → smoke. GREEN продолжает обслуживать.
+4. Прогрев BLUE через nginx — чтобы failover был мгновенным.
+5. Рестарт GREEN (8000) → nginx failover на BLUE → smoke.
+6. Финальная smoke публичного URL через nginx.
+
+Запуск занимает ~30 секунд. Все запросы юзеров остаются HTTP 200.
+
+При сбое: GREEN не поднялся → BLUE остаётся primary через nginx failover.
+Сервис продолжает работать на старом коде blue (актуальный, мы уже его
+успешно рестартовали). Разбирайся, потом снова запусти `deploy.sh`.
 
 ## Однократная миграция с uvicorn на gunicorn
 
@@ -144,46 +181,19 @@ watch -n 1 'curl -s -o /dev/null -w "HTTP %{http_code} · %{time_total}s\n" http
 Если видишь HTTP 502/504 во время `reload` — graceful_timeout слишком короткий.
 Проверь `gunicorn.conf.py`.
 
-## Будущее: blue/green для true zero-downtime (TODO post-100-юзеров)
+## Что blue/green покрывает
 
-Когда появятся платящие юзеры и 5-сек dip станет проблемой — мигрировать на
-два инстанса за nginx upstream:
-
-```nginx
-upstream ai_che_app {
-    server 127.0.0.1:8000;
-    server 127.0.0.1:8001 backup;
-}
-```
-
-Два systemd unit'а:
-- `ai-che.service` → port 8000
-- `ai-che-blue.service` → port 8001
-
-`deploy.sh`:
-```bash
-# 1. Подтянуть код
-git pull origin main && pip install -r requirements.txt --upgrade
-
-# 2. Перезапустить blue (8001) — nginx переключает на 8000
-systemctl restart ai-che-blue
-sleep 10  # warm-up
-
-# 3. Smoke-тест blue
-curl -s http://127.0.0.1:8001/ > /dev/null || exit 1
-
-# 4. nginx upstream swap (без даунтайма)
-# (либо вручную nginx reload с актуальным upstream, либо weight=...)
-
-# 5. Перезапустить green (8000) — uplink идёт через blue
-systemctl restart ai-che
-sleep 10
-
-# 6. Возврат к default upstream order
-```
-
-С blue/green истинный zero-downtime достигается. Это **отдельный спринт**,
-~1 час работы. Сейчас 4 юзера на проде — текущей gunicorn-схемы хватает.
+| Что меняется | Downtime через deploy.sh |
+|---|---|
+| Python код (.py) — server/, main.py | 0 |
+| HTML/CSS/JS — views/ | 0 |
+| **`server/agents/registry.py` (модули агента)** | **0** |
+| Безопасные миграции БД (ADD COLUMN nullable) | 0 |
+| Новый пакет в `requirements.txt` | 0 |
+| Изменения в `.env` | 0 (через `Environment=` или подмены) |
+| `gunicorn.conf.py` | 0 (оба инстанса берут новый при restart) |
+| `deploy/ai-che.service` (systemd unit) | 0 (deploy.sh обновляет автоматом) |
+| Опасные миграции (DROP/RENAME) | 2-step deploy (см. ниже) |
 
 ## Прод-сервер: общая информация
 
