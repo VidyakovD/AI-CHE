@@ -26,6 +26,11 @@ bind = "127.0.0.1:8000"
 # Backlog: сколько pending TCP-соединений ждёт accept. nginx буферит запросы
 # при reload — берём с запасом чтобы pending не отбрасывались.
 backlog = 2048
+# SO_REUSEPORT: позволяет ДВУМ master-процессам слушать тот же порт. Это
+# критично для USR2 zero-downtime upgrade: новый master стартует параллельно
+# со старым на 127.0.0.1:8000, оба accept'ят connections, потом старый
+# graceful shuts down.
+reuse_port = True
 
 # ── Workers ──────────────────────────────────────────────────────────────────
 # 4 worker'а как было в uvicorn unit'е. На 2-core машине = 2*core+1 не нужен,
