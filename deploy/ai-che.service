@@ -11,14 +11,14 @@ EnvironmentFile=/root/AI-CHE/.env
 # Конфиг в gunicorn.conf.py: workers=4, timeout=180, graceful_timeout=60,
 # max_requests=10000, access-log → journal.
 ExecStart=/root/AI-CHE/venv/bin/gunicorn main:app -c /root/AI-CHE/gunicorn.conf.py
-# True zero-downtime reload через скрипт с USR2 upgrade.
-# HUP не годится: gunicorn убивает workers одновременно, у нас старт нового
-# worker'а ~9 сек (тяжёлые импорты), за это окно kernel accept queue
-# переполняется → 5-10 сек 502.
-# USR2: новый master стартует параллельно со старым на том же сокете
-# (SO_REUSEPORT в gunicorn.conf.py), после чего старый graceful завершается.
-# Скрипт ждёт что новый master реально поднялся прежде чем убивать старый.
-ExecReload=/root/AI-CHE/scripts/gunicorn_graceful_reload.sh
+# Reload: SIGHUP → gunicorn перезагружает workers (старые TERM, новые fork
+# от master). У нас стартап нового worker'а тяжёлый (~9 сек: импорт 26
+# модулей + scheduler init), поэтому короткое окно ~5-9 сек когда новые
+# workers ещё бутятся → 502. Это **не zero-downtime**, но лучше restart:
+#   - Restart: жёсткий kill всех + полный старт (10-20 сек)
+#   - Reload: graceful_timeout=60 + fork workers (~7-10 сек)
+# Истинный zero-downtime требует blue/green (см. docs/DEPLOY.md).
+ExecReload=/bin/kill -HUP $MAINPID
 PIDFile=/run/ai-che.pid
 
 Restart=on-failure
