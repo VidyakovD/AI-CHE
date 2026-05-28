@@ -30,7 +30,10 @@ from server.creators_prepare import (
     freemium_status,
     consume_freemium,
     refund_freemium,
+    DEFAULT_PRICE_TEXT_EVERGREEN_KOP,
+    DEFAULT_PRICE_TEXT_NEWS_KOP,
 )
+from server.pricing import get_price
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/creators", tags=["creators"])
@@ -471,6 +474,94 @@ def prepare_item_endpoint(
         "freemium": freemium_status(brand),
         "charged_kop": charged_kop,
         "was_free": use_free,
+    }
+
+
+@router.post("/items/{item_id}/regenerate-text")
+def regenerate_item_text(
+    item_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Перегенерировать ТОЛЬКО текст поста, картинка сохраняется как была.
+
+    Зачем: текст не зашёл (тон/детали/длина), а картинка норм. Не нужно
+    переплачивать за повторный DALL-E. Списываем только text-цену
+    (15 ₽ evergreen / 25 ₽ news), без freemium — это правка, не первичная
+    генерация.
+    """
+    item = db.query(ContentItem).join(ContentCalendar).join(CreatorBrand).filter(
+        ContentItem.id == item_id, CreatorBrand.user_id == user.id,
+    ).first()
+    if not item:
+        raise HTTPException(404, "Пост не найден")
+    if item.status != "ready":
+        raise HTTPException(400, "Перегенерация доступна только для подготовленных постов")
+
+    brand = db.query(CreatorBrand).join(ContentCalendar, CreatorBrand.id == ContentCalendar.brand_id).filter(
+        ContentCalendar.id == item.calendar_id,
+    ).first()
+    if not brand:
+        raise HTTPException(500, "Бренд для поста не найден")
+
+    # Цена text-only: news дороже из-за Perplexity-research
+    if item.is_news:
+        cost_kop = get_price("creators.text_news", default=DEFAULT_PRICE_TEXT_NEWS_KOP)
+    else:
+        cost_kop = get_price("creators.text_evergreen", default=DEFAULT_PRICE_TEXT_EVERGREEN_KOP)
+
+    if not deduct_strict(db, user.id, cost_kop):
+        raise HTTPException(402, f"Недостаточно средств. Нужно {cost_kop / 100:.2f} ₽")
+    db.add(Transaction(
+        user_id=user.id, type="usage", tokens_delta=-cost_kop,
+        description=f"Creators · регенерация текста (бренд {brand.id})",
+        model="claude-sonnet-4-6" + (" + sonar-pro" if item.is_news else ""),
+    ))
+
+    # Сохраняем текущую картинку, чтобы pipeline её не пересоздал
+    preserved_media_url = item.prepared_media_url
+    item.status = "preparing"
+    db.commit()
+
+    try:
+        result = _prepare_item_pipeline(item, brand, user_id=user.id,
+                                        with_image=False, db=db)
+    except Exception as e:
+        log.exception("[creators.regen-text] item=%s failed: %s", item_id, e)
+        from server.billing import credit_atomic
+        credit_atomic(db, user.id, cost_kop)
+        db.add(Transaction(
+            user_id=user.id, type="refund", tokens_delta=cost_kop,
+            description=f"Creators refund · регенерация текста #{item_id}",
+        ))
+        item.status = "ready"  # обратно — старый текст и картинка сохранились
+        item.error = str(e)[:500]
+        db.commit()
+        raise HTTPException(500, f"Не удалось перегенерировать: {e}")
+
+    # Обновляем только текст; картинка остаётся прежней
+    item.prepared_content_md = result["text"] or None
+    item.prepared_media_url = preserved_media_url
+    item.status = "ready"
+    item.cost_kop = (item.cost_kop or 0) + cost_kop
+    item.error = None
+    db.commit()
+    db.refresh(item)
+
+    log_action(
+        "creator.item_text_regenerated", user_id=user.id,
+        target_type="content_item", target_id=str(item.id),
+        details={
+            "brand_id": brand.id,
+            "cost_kop": cost_kop,
+            "had_image": bool(preserved_media_url),
+            "models": ",".join(result.get("model_chain") or []),
+        },
+    )
+
+    return {
+        "item": _item_dict(item),
+        "charged_kop": cost_kop,
     }
 
 

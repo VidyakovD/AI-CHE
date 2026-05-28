@@ -22,6 +22,9 @@ from server.db import db_session
 from server.models import CrmConnection
 from server._outbound import (
     dispatch_outbound,
+    serialize_payload,
+    hmac_sign_sha256,
+    result_to_dict,
     DEFAULT_TIMEOUT_SEC as CRM_TIMEOUT_SEC,
     DEFAULT_MAX_FAIL as MAX_FAIL_BEFORE_DISABLE,
 )
@@ -116,10 +119,9 @@ def _post_to_crm(conn_id: int, record: dict) -> dict:
     # запрос пришёл от нас, а не от подделывателя знающего URL.
     if webhook_secret and provider in ("webhook", "generic"):
         try:
-            import hmac as _hmac, hashlib as _hl
-            body_bytes = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-            sig = _hmac.new(webhook_secret.encode("utf-8"), body_bytes, _hl.sha256).hexdigest()
-            headers["X-CRM-Signature"] = f"sha256={sig}"
+            headers["X-CRM-Signature"] = hmac_sign_sha256(
+                webhook_secret, serialize_payload(payload),
+            )
         except Exception as e:
             log.warning(f"[crm {conn_id}] HMAC sign failed: {e}")
     result = dispatch_outbound(
@@ -132,11 +134,7 @@ def _post_to_crm(conn_id: int, record: dict) -> dict:
         max_fail=MAX_FAIL_BEFORE_DISABLE,
         log_prefix=f"crm {conn_id}",
     )
-    return {
-        "status": result.status if result.status is not None else "error",
-        "error": result.error,
-        "delivered": result.delivered,
-    }
+    return result_to_dict(result)
 
 
 def _post_to_crm_with_retry(conn_id: int, record: dict) -> None:

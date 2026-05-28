@@ -28,8 +28,21 @@
 <title>AI Студия Che — Конструктор агентов</title>
 <link rel="stylesheet" href="/fonts.css"/>
 <link rel="stylesheet" href="/styles.css"/>
-<script src="https://cdn.tailwindcss.com/3.4.0"></script>
-<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#141210","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<!-- Tailwind: собранный /styles.css. Fallback на CDN только если файл недоступен (dev). -->
+<script>
+(function(){
+  fetch('/styles.css', {method:'HEAD'}).then(function(r){
+    if(!r.ok){
+      var s = document.createElement('script');
+      s.src = 'https://cdn.tailwindcss.com/3.4.0';
+      s.onload = function(){
+        window.tailwind && (window.tailwind.config = {darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#141210","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}});
+      };
+      document.head.appendChild(s);
+    }
+  }).catch(function(){});
+})();
+</script>
 <script src="/shared.js" defer></script>
 <script src="/icons.js" defer></script>
 <script src="/knowledge-ui.js" defer></script>

@@ -18,11 +18,17 @@ from urllib.parse import urlparse
 
 from server.ai import generate_response
 from server.models import CreatorBrand
+from server.pricing import get_price
 
 log = logging.getLogger(__name__)
 
-PRICE_OWN_KOP = 15000   # 150 ₽
-PRICE_COMP_KOP = 20000  # 200 ₽
+# Дефолтные цены (override через pricing_config["creators.*"])
+DEFAULT_PRICE_OWN_KOP = 15000   # 150 ₽
+DEFAULT_PRICE_COMP_KOP = 20000  # 200 ₽
+
+# Обратно-совместимые алиасы
+PRICE_OWN_KOP = DEFAULT_PRICE_OWN_KOP
+PRICE_COMP_KOP = DEFAULT_PRICE_COMP_KOP
 
 VALID_TARGET_TYPES = {"own", "competitor"}
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
@@ -39,7 +45,10 @@ def is_valid_url(s: str) -> bool:
 
 
 def cost_for(target_type: str) -> int:
-    return PRICE_COMP_KOP if target_type == "competitor" else PRICE_OWN_KOP
+    """Цена анализа канала/профиля. Берём из pricing_config с фолбэком."""
+    if target_type == "competitor":
+        return get_price("creators.analyze_competitor", default=DEFAULT_PRICE_COMP_KOP)
+    return get_price("creators.analyze_own", default=DEFAULT_PRICE_OWN_KOP)
 
 
 def detect_platform(url: str) -> Optional[str]:

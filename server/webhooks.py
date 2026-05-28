@@ -22,9 +22,6 @@
 HMAC-подпись + headers и делегирует.
 """
 import asyncio
-import hashlib
-import hmac
-import json
 import logging
 from datetime import datetime
 
@@ -32,16 +29,14 @@ from server.db import db_session
 from server.models import ApiWebhook
 from server._outbound import (
     dispatch_outbound,
+    serialize_payload,
+    hmac_sign_sha256,
+    result_to_dict,
     DEFAULT_TIMEOUT_SEC as WEBHOOK_TIMEOUT_SEC,
     DEFAULT_MAX_FAIL as MAX_FAIL_BEFORE_DISABLE,
 )
 
 log = logging.getLogger(__name__)
-
-
-def _sign(secret: str, body: bytes) -> str:
-    h = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-    return f"sha256={h}"
 
 
 def _post_sync(webhook_id: int, payload: dict) -> dict:
@@ -53,12 +48,8 @@ def _post_sync(webhook_id: int, payload: dict) -> dict:
         url = w.url
         secret = w.secret
 
-    # sort_keys=True для детерминированного байт-представления — receiver
-    # пересоберёт JSON в любом порядке и сможет верифицировать HMAC. Без
-    # sort_keys одна и та же логика сериализации на разных Python-версиях
-    # может выдать разный порядок ключей, и подпись окажется не сверяемой.
-    body_bytes = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    signature = _sign(secret, body_bytes)
+    body_bytes = serialize_payload(payload)
+    signature = hmac_sign_sha256(secret, body_bytes)
     result = dispatch_outbound(
         model_cls=ApiWebhook,
         row_id=webhook_id,
@@ -74,11 +65,7 @@ def _post_sync(webhook_id: int, payload: dict) -> dict:
         max_fail=MAX_FAIL_BEFORE_DISABLE,
         log_prefix=f"webhook {webhook_id}",
     )
-    return {
-        "status": result.status if result.status is not None else "error",
-        "error": result.error,
-        "delivered": result.delivered,
-    }
+    return result_to_dict(result)
 
 
 async def _post_async(webhook_id: int, payload: dict) -> dict:

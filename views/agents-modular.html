@@ -256,7 +256,7 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
         <div class="msg system">⏳ Загрузка истории...</div>
       </div>
       <div class="chat-input-row">
-        <textarea class="inp" id="chatInput" rows="1" placeholder="Напиши сообщение агенту..."></textarea>
+        <textarea class="inp" id="chatInput" rows="1" placeholder="Напиши сообщение агенту..." aria-label="Напиши сообщение агенту..."></textarea>
         <button class="btn-p" id="sendBtn" onclick="sendMessage()">Отправить</button>
       </div>
     </div>
@@ -281,9 +281,9 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
   <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:20px;max-width:720px;width:100%" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-3">
       <h3 class="text-lg font-bold">🧩 Каталог агентов</h3>
-      <button class="btn-g" onclick="closeCatalog()">✕</button>
+      <button class="btn-g" onclick="closeCatalog()" aria-label="Закрыть">✕</button>
     </div>
-    <input class="inp cat-search" id="catSearch" placeholder="Поиск по названию или ключевым словам..."/>
+    <input class="inp cat-search" id="catSearch" placeholder="Поиск по названию или ключевым словам..." aria-label="Поиск по названию или ключевым словам..."/>
     <div id="catCatChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
     <div id="catalogGrid" class="cat-grid">
       <div class="profile-empty">⏳ Загрузка...</div>
@@ -301,11 +301,11 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="schedPresets"></div>
 
     <label class="block text-xs text-on-dim mb-1">Cron-выражение (минута час день месяц день_недели)</label>
-    <input class="inp mb-3" id="schedCron" placeholder="0 9 * * 1-5" maxlength="80"/>
+    <input class="inp mb-3" id="schedCron" placeholder="0 9 * * 1-5" maxlength="80" aria-label="0 9 * * 1-5"/>
 
     <label class="block text-xs text-on-dim mb-1">Задача (что делать)</label>
     <textarea class="inp" id="schedTask" rows="3" maxlength="2000"
-              placeholder="Например: Подготовь пост на тему стройки на сегодня"></textarea>
+              placeholder="Например: Подготовь пост на тему стройки на сегодня" aria-label="Например: Подготовь пост на тему стройки на сегодня"></textarea>
     <p class="text-xs text-on-dim mt-1 mb-3">Без задачи расписание не сработает — модулю нужно понять что делать.</p>
 
     <div class="flex justify-between items-center" style="margin-bottom:8px">
@@ -347,7 +347,7 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
   <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:22px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-3">
       <h3 class="text-lg font-bold">📲 Где использовать Че</h3>
-      <button class="btn-g" onclick="closeChannelsModal()">✕</button>
+      <button class="btn-g" onclick="closeChannelsModal()" aria-label="Закрыть">✕</button>
     </div>
     <p class="text-xs text-on-dim mb-4">Че — один помощник, доступный отовсюду. История и память синхронизируются между каналами.</p>
 
@@ -410,7 +410,7 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
           Вставь <b>токен бота</b> от @BotFather (вида <code>123456:ABC-DEF...</code>):
         </div>
         <textarea id="tgTokenInput" class="inp" style="width:100%;font-family:monospace;font-size:12px"
-                  rows="2" placeholder="123456789:ABCdef..."></textarea>
+                  rows="2" placeholder="123456789:ABCdef..." aria-label="123456789:ABCdef..."></textarea>
         <div class="ch-actions" style="margin-top:8px">
           <button class="btn-p" id="tgConnectSaveBtn" onclick="connectPersonalTg()">Подключить</button>
           <button class="btn-g" onclick="document.getElementById('tgConnectForm').style.display='none'">Отмена</button>
@@ -457,7 +457,7 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
           Создай бота на <a href="https://dev.max.ru" target="_blank" style="color:#ffb347">dev.max.ru</a> и вставь его токен:
         </div>
         <textarea id="maxTokenInput" class="inp" style="width:100%;font-family:monospace;font-size:12px"
-                  rows="2" placeholder="MAX bot token..."></textarea>
+                  rows="2" placeholder="MAX bot token..." aria-label="MAX bot token..."></textarea>
         <div class="ch-actions" style="margin-top:8px">
           <button class="btn-p" id="maxConnectSaveBtn" onclick="connectPersonalMax()">Подключить</button>
           <button class="btn-g" onclick="document.getElementById('maxConnectForm').style.display='none'">Отмена</button>
@@ -492,9 +492,9 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
           3. Скопируй access_token и group_id (число из URL сообщества)
         </div>
         <input id="vkGroupIdInput" class="inp" style="width:100%;font-family:monospace;font-size:12px;margin-bottom:6px"
-               placeholder="group_id (например 123456789)"/>
+               placeholder="group_id (например 123456789)" aria-label="group_id (например 123456789)"/>
         <textarea id="vkTokenInput" class="inp" style="width:100%;font-family:monospace;font-size:12px"
-                  rows="2" placeholder="VK community access_token..."></textarea>
+                  rows="2" placeholder="VK community access_token..." aria-label="VK community access_token..."></textarea>
         <div class="ch-actions" style="margin-top:8px">
           <button class="btn-p" id="vkConnectSaveBtn" onclick="connectPersonalVk()">Подключить</button>
           <button class="btn-g" onclick="document.getElementById('vkConnectForm').style.display='none'">Отмена</button>
@@ -526,8 +526,8 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
       <div class="ch-instr-os" style="margin-bottom:8px">
         Yandex CalDAV — нужен <b>app-password</b> от <a href="https://id.yandex.ru/security/app-passwords" target="_blank" style="color:#ffb347">id.yandex.ru/security/app-passwords</a> (не основной пароль).
       </div>
-      <input id="calYandexEmail" type="email" class="inp" placeholder="ivan@yandex.ru" style="margin-bottom:6px"/>
-      <input id="calYandexPwd" type="password" class="inp" placeholder="app-password (16 символов)"/>
+      <input id="calYandexEmail" type="email" class="inp" placeholder="ivan@yandex.ru" style="margin-bottom:6px" aria-label="ivan@yandex.ru"/>
+      <input id="calYandexPwd" type="password" class="inp" placeholder="app-password (16 символов)" aria-label="app-password (16 символов)"/>
       <div class="ch-actions" style="margin-top:8px">
         <button class="btn-p" id="calYandexSaveBtn" onclick="connectYandexCalendar()">Подключить</button>
         <button class="btn-g" onclick="document.getElementById('calYandexForm').style.display='none'">Отмена</button>
@@ -541,14 +541,14 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
   <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:22px;max-width:480px;width:100%" onclick="event.stopPropagation()">
     <h3 class="text-lg font-bold mb-4">⚙ Настройки агента</h3>
     <label class="block text-xs text-on-dim mb-1">Имя</label>
-    <input class="inp mb-4" id="editName" maxlength="80" placeholder="Че"/>
+    <input class="inp mb-4" id="editName" maxlength="80" placeholder="Че" aria-label="Че"/>
 
     <label class="block text-xs text-on-dim mb-2">Иконка — выбери или введи свою</label>
     <div class="icon-grid" id="iconGrid"></div>
     <div class="flex items-center gap-2 mb-4 mt-2">
       <input class="inp" id="editIcon" maxlength="64"
              style="max-width:200px;text-align:center;font-size:16px"
-             placeholder="🤖 или seed:nova"/>
+             placeholder="🤖 или seed:nova" aria-label="🤖 или seed:nova"/>
       <span class="text-xs text-on-dim">или свой эмодзи</span>
     </div>
 
@@ -699,7 +699,7 @@ function renderModules(){
       <span class="chev">›</span>
       <div class="nm">${_esc(m.name||m.slug)}</div>
       <div class="lvl L${m.level}">L${m.level}</div>
-      <button class="x" title="Отключить">✕</button>
+      <button class="x" title="Отключить" aria-label="Отключить">✕</button>
     `;
     card.querySelector('.x').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1173,7 +1173,7 @@ async function loadMailboxList(container){
           ${b.last_error ? `<br><span style="font-size:10px">${_esc(b.last_error)}</span>` : ''}
         </span>
         <button class="btn-d" style="font-size:10px;padding:2px 6px"
-                data-mailbox-del="${b.id}">✕</button>
+                data-mailbox-del="${b.id}" aria-label="Закрыть">✕</button>
       </div>`;
     }).join('');
     container.querySelectorAll('button[data-mailbox-del]').forEach(btn => {
@@ -1239,23 +1239,23 @@ async function openMailboxConnectModal(){
     <label style="display:block;margin-bottom:8px;font-size:12px">
       Email
       <input id="mb-email" type="email" placeholder="me@yandex.ru"
-             style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px"/>
+             style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px" aria-label="me@yandex.ru"/>
     </label>
     <label style="display:block;margin-bottom:8px;font-size:12px">
       App-password <span style="opacity:.6">(не обычный пароль)</span>
       <input id="mb-password" type="password" placeholder="XXXX XXXX XXXX XXXX"
-             style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px"/>
+             style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px" aria-label="XXXX XXXX XXXX XXXX"/>
     </label>
     <label style="display:block;margin-bottom:8px;font-size:12px">
       Метка <span style="opacity:.6">(опц., для UI)</span>
       <input id="mb-label" type="text" placeholder="Личный / Рабочий / info@"
-             style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px"/>
+             style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px" aria-label="Личный / Рабочий / info@"/>
     </label>
     <div id="mb-host-row" style="display:none;margin-bottom:8px">
       <label style="display:block;font-size:12px">
         IMAP host
         <input id="mb-host" type="text" placeholder="imap.example.com"
-               style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px"/>
+               style="width:100%;padding:7px 9px;border-radius:8px;background:#272018;color:#f0e6d8;border:1px solid rgba(74,63,47,.5);margin-top:3px" aria-label="imap.example.com"/>
       </label>
       <label style="display:block;font-size:12px;margin-top:6px">
         Port

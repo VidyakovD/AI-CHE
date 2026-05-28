@@ -28,8 +28,21 @@
 <title>AI Студия Че — Чат-боты</title>
 <link rel="stylesheet" href="/fonts.css"/>
 <link rel="stylesheet" href="/styles.css"/>
-<script src="https://cdn.tailwindcss.com/3.4.0"></script>
-<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#141210","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<!-- Tailwind: собранный /styles.css. Fallback на CDN только если файл недоступен (dev). -->
+<script>
+(function(){
+  fetch('/styles.css', {method:'HEAD'}).then(function(r){
+    if(!r.ok){
+      var s = document.createElement('script');
+      s.src = 'https://cdn.tailwindcss.com/3.4.0';
+      s.onload = function(){
+        window.tailwind && (window.tailwind.config = {darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#141210","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}});
+      };
+      document.head.appendChild(s);
+    }
+  }).catch(function(){});
+})();
+</script>
 <style>
 body{background:#141210;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;min-height:100vh}
 .sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
@@ -115,7 +128,7 @@ select.inp option{background:#272018;color:#f0e6d8}
           <h2 class="font-headline font-bold text-[#1e1a14] text-lg" id="createChooserTitle">Создание бота</h2>
           <p class="text-[11px] text-[#1e1a14]/70 mt-0.5">Выберите способ — каждый занимает 5–10 минут</p>
         </div>
-        <button onclick="closeCreateChooser()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+        <button onclick="closeCreateChooser()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg" aria-label="Закрыть">✕</button>
       </div>
       <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
         <button onclick="closeCreateChooser();openTemplates()" class="text-left bg-surface2 hover:bg-surface3 rounded-2xl p-5 border border-outline/20 hover:border-primary/40 transition group">
@@ -148,7 +161,7 @@ select.inp option{background:#272018;color:#f0e6d8}
           <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="templatesModalTitle"><span data-i="clipboard" aria-hidden="true"></span> Шаблоны бизнес-ботов</h2>
           <p class="text-[11px] text-[#1e1a14]/70 mt-0.5">Готовые сценарии под популярные задачи. Нажмите на карточку — заполните данные — запустите.</p>
         </div>
-        <button onclick="closeTemplates()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+        <button onclick="closeTemplates()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg" aria-label="Закрыть">✕</button>
       </div>
       <div class="p-6 max-h-[80vh] overflow-y-auto">
         <div id="templatesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">Загрузка…</div>
@@ -164,7 +177,7 @@ select.inp option{background:#272018;color:#f0e6d8}
           <h2 id="tplSetupTitle" class="font-headline font-bold text-[#1e1a14] text-lg">Настройка шаблона</h2>
           <p id="tplSetupHint" class="text-[11px] text-[#1e1a14]/70 mt-0.5"></p>
         </div>
-        <button onclick="closeTemplateSetup()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+        <button onclick="closeTemplateSetup()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg" aria-label="Закрыть">✕</button>
       </div>
       <div class="p-6 max-h-[80vh] overflow-y-auto">
         <p id="tplSetupDesc" class="text-sm text-on-dim mb-5 leading-relaxed"></p>
@@ -173,11 +186,11 @@ select.inp option{background:#272018;color:#f0e6d8}
           <p class="text-xs uppercase text-on-dim tracking-wider">Куда подключить</p>
           <div>
             <label class="block text-xs text-on-dim mb-1">Telegram-токен (от @BotFather, опционально)</label>
-            <input id="tplSetupTg" type="password" class="inp text-xs" placeholder="Можно подключить позже"/>
+            <input id="tplSetupTg" type="password" class="inp text-xs" placeholder="Можно подключить позже" aria-label="Можно подключить позже"/>
           </div>
           <div>
             <label class="block text-xs text-on-dim mb-1">MAX-токен (от @MasterBot, опционально)</label>
-            <input id="tplSetupMax" type="password" class="inp text-xs" placeholder="Можно подключить позже"/>
+            <input id="tplSetupMax" type="password" class="inp text-xs" placeholder="Можно подключить позже" aria-label="Можно подключить позже"/>
           </div>
         </div>
         <div class="flex justify-end gap-2 pt-4 border-t border-outline/15 mt-4">
@@ -194,7 +207,7 @@ select.inp option{background:#272018;color:#f0e6d8}
     <div class="bg-surface rounded-2xl w-full max-w-xl border border-outline/25 shadow-2xl overflow-hidden">
       <div class="sig px-6 py-4 flex items-center justify-between">
         <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="aiCreateModalTitle"><span class="icn" data-i="wand" aria-hidden="true"></span> AI-конструктор бота</h2>
-        <button onclick="closeAiCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+        <button onclick="closeAiCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg" aria-label="Закрыть">✕</button>
       </div>
       <div class="p-6 space-y-4">
         <p class="text-sm text-on-dim leading-relaxed">
@@ -203,20 +216,20 @@ select.inp option{background:#272018;color:#f0e6d8}
         <div>
           <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Задача</label>
           <textarea id="ai_desc" rows="5" class="inp resize-none text-sm leading-relaxed"
-            placeholder="Например: бот для записи в салон красоты на маникюр и стрижку. Спрашивает услугу, дату, время, имя и телефон. Подтверждает запись и присылает напоминание за час."></textarea>
+            placeholder="Например: бот для записи в салон красоты на маникюр и стрижку. Спрашивает услугу, дату, время, имя и телефон. Подтверждает запись и присылает напоминание за час." aria-label="Например: бот для записи в салон красоты на маникюр и стрижку. Спрашивает усл..."></textarea>
         </div>
         <div>
           <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Имя бота (опционально)</label>
-          <input id="ai_name" type="text" class="inp text-sm" placeholder="Авто из задачи если пусто"/>
+          <input id="ai_name" type="text" class="inp text-sm" placeholder="Авто из задачи если пусто" aria-label="Авто из задачи если пусто"/>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">TG-токен (опц)</label>
-            <input id="ai_tg" type="password" class="inp text-xs" placeholder="от @BotFather"/>
+            <input id="ai_tg" type="password" class="inp text-xs" placeholder="от @BotFather" aria-label="от @BotFather"/>
           </div>
           <div>
             <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">MAX-токен (опц)</label>
-            <input id="ai_max" type="password" class="inp text-xs" placeholder="от @MasterBot в MAX"/>
+            <input id="ai_max" type="password" class="inp text-xs" placeholder="от @MasterBot в MAX" aria-label="от @MasterBot в MAX"/>
           </div>
         </div>
         <label class="flex items-center gap-2 text-sm">
@@ -306,7 +319,7 @@ select.inp option{background:#272018;color:#f0e6d8}
   <div class="bg-surface rounded-2xl w-full max-w-2xl border border-outline/25 shadow-2xl overflow-hidden">
     <div class="sig px-6 py-4 flex items-center justify-between">
       <h2 class="font-headline font-bold text-[#1e1a14] text-lg" id="modalTitle">Новый чат-бот</h2>
-      <button onclick="closeCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+      <button onclick="closeCreate()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
       <!-- Инфо-баннер: создание бесплатно, оплата только за реальные диалоги -->
@@ -326,7 +339,7 @@ select.inp option{background:#272018;color:#f0e6d8}
       </div>
       <div>
         <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Название бота</label>
-        <input id="bot_name" type="text" placeholder="Например: Поддержка магазина" class="inp"/>
+        <input id="bot_name" type="text" placeholder="Например: Поддержка магазина" class="inp" aria-label="Например: Поддержка магазина"/>
       </div>
       <div>
         <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">AI Модель</label>
@@ -343,7 +356,7 @@ select.inp option{background:#272018;color:#f0e6d8}
           База знаний / системный промпт
         </label>
         <textarea id="bot_system" rows="6" class="inp resize-none text-sm leading-relaxed"
-          placeholder="Ты вежливый ассистент магазина «Название». Отвечай только на вопросы о товарах, доставке и оплате.&#10;&#10;О нас: мы продаём..."></textarea>
+          placeholder="Ты вежливый ассистент магазина «Название». Отвечай только на вопросы о товарах, доставке и оплате.&#10;&#10;О нас: мы продаём..." aria-label="Ты вежливый ассистент магазина «Название». Отвечай только на вопросы о товара..."></textarea>
         <p class="text-[10px] text-on-dim/40 mt-1">Чем подробнее — тем точнее бот.</p>
       </div>
       <!-- Подключения -->
@@ -357,7 +370,7 @@ select.inp option{background:#272018;color:#f0e6d8}
               <div><p class="font-medium text-sm">Telegram</p><p class="text-xs text-on-dim/60">Бот отвечает в личных сообщениях и группах</p></div>
             </div>
             <div class="relative">
-              <input id="tg_token" type="password" placeholder="Bot Token от @BotFather" class="inp text-xs pr-9"/>
+              <input id="tg_token" type="password" placeholder="Bot Token от @BotFather" class="inp text-xs pr-9" aria-label="Bot Token от @BotFather"/>
               <button type="button" onclick="togglePwd('tg_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 inline-flex items-center" title="Показать/скрыть" data-i="eye"></button>
             </div>
             <details class="help-block">
@@ -380,10 +393,10 @@ select.inp option{background:#272018;color:#f0e6d8}
             </div>
             <div class="space-y-2">
               <div class="relative">
-                <input id="vk_token" type="password" placeholder="Access Token сообщества" class="inp text-xs pr-9"/>
+                <input id="vk_token" type="password" placeholder="Access Token сообщества" class="inp text-xs pr-9" aria-label="Access Token сообщества"/>
                 <button type="button" onclick="togglePwd('vk_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 inline-flex items-center" title="Показать/скрыть" data-i="eye"></button>
               </div>
-              <input id="vk_group_id" type="text" placeholder="ID группы (123456789)" class="inp text-xs"/>
+              <input id="vk_group_id" type="text" placeholder="ID группы (123456789)" class="inp text-xs" aria-label="ID группы (123456789)"/>
             </div>
             <details class="help-block">
               <summary>Где взять Access Token и ID группы ВКонтакте?</summary>
@@ -405,12 +418,12 @@ select.inp option{background:#272018;color:#f0e6d8}
               <div><p class="font-medium text-sm">Авито</p><p class="text-xs text-on-dim/60">Отвечает в мессенджере Авито</p></div>
             </div>
             <div class="space-y-2">
-              <input id="avito_client_id" type="text" placeholder="Client ID" class="inp text-xs"/>
+              <input id="avito_client_id" type="text" placeholder="Client ID" class="inp text-xs" aria-label="Client ID"/>
               <div class="relative">
-                <input id="avito_client_secret" type="password" placeholder="Client Secret" class="inp text-xs pr-9"/>
+                <input id="avito_client_secret" type="password" placeholder="Client Secret" class="inp text-xs pr-9" aria-label="Client Secret"/>
                 <button type="button" onclick="togglePwd('avito_client_secret', this)" class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 inline-flex items-center" title="Показать/скрыть" data-i="eye"></button>
               </div>
-              <input id="avito_user_id" type="text" placeholder="User ID (ваш ID на Авито)" class="inp text-xs"/>
+              <input id="avito_user_id" type="text" placeholder="User ID (ваш ID на Авито)" class="inp text-xs" aria-label="User ID (ваш ID на Авито)"/>
             </div>
             <details class="help-block">
               <summary>Где взять ключи Авито?</summary>
@@ -433,7 +446,7 @@ select.inp option{background:#272018;color:#f0e6d8}
             </div>
             <div class="space-y-2">
               <div class="relative">
-                <input id="max_token" type="password" placeholder="Bot Token от @MasterBot в MAX" class="inp text-xs pr-9"/>
+                <input id="max_token" type="password" placeholder="Bot Token от @MasterBot в MAX" class="inp text-xs pr-9" aria-label="Bot Token от @MasterBot в MAX"/>
                 <button type="button" onclick="togglePwd('max_token', this)" class="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 inline-flex items-center" title="Показать/скрыть" data-i="eye"></button>
               </div>
             </div>
@@ -573,7 +586,7 @@ select.inp option{background:#272018;color:#f0e6d8}
   <div class="bg-surface rounded-2xl w-full max-w-lg border border-outline/25 shadow-2xl mx-4">
     <div class="sig px-5 py-4 flex items-center justify-between rounded-t-2xl">
       <h3 class="font-headline font-bold text-[#1e1a14]">📤 Опубликовать в Marketplace</h3>
-      <button onclick="closePublishModal()" class="text-[#1e1a14] text-xl bg-black/10 w-7 h-7 rounded-full flex items-center justify-center">✕</button>
+      <button onclick="closePublishModal()" class="text-[#1e1a14] text-xl bg-black/10 w-7 h-7 rounded-full flex items-center justify-center" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5 space-y-3">
       <div class="text-xs text-on-dim leading-relaxed bg-surface2 p-3 rounded-lg border border-outline/20">
@@ -584,11 +597,11 @@ select.inp option{background:#272018;color:#f0e6d8}
       </div>
       <div>
         <label class="block text-xs font-bold text-on-dim mb-1">Название в каталоге</label>
-        <input id="pubName" class="inp" placeholder="Бот для записи на маникюр" maxlength="100">
+        <input id="pubName" class="inp" placeholder="Бот для записи на маникюр" maxlength="100" aria-label="Бот для записи на маникюр">
       </div>
       <div>
         <label class="block text-xs font-bold text-on-dim mb-1">Описание (что бот умеет)</label>
-        <textarea id="pubDesc" class="inp" rows="3" placeholder="Принимает заявки, спрашивает имя/телефон/удобное время, сохраняет в записях..." maxlength="2000"></textarea>
+        <textarea id="pubDesc" class="inp" rows="3" placeholder="Принимает заявки, спрашивает имя/телефон/удобное время, сохраняет в записях..." maxlength="2000" aria-label="Принимает заявки, спрашивает имя/телефон/удобное время, сохраняет в записях..."></textarea>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
@@ -605,12 +618,12 @@ select.inp option{background:#272018;color:#f0e6d8}
         </div>
         <div>
           <label class="block text-xs font-bold text-on-dim mb-1">Цена за установку, ₽</label>
-          <input id="pubPrice" class="inp" type="number" min="0" max="10000" step="50" value="0" placeholder="0 = бесплатно">
+          <input id="pubPrice" class="inp" type="number" min="0" max="10000" step="50" value="0" placeholder="0 = бесплатно" aria-label="0 = бесплатно">
         </div>
       </div>
       <div>
         <label class="block text-xs font-bold text-on-dim mb-1">Обложка (URL картинки, опционально)</label>
-        <input id="pubCover" class="inp" placeholder="https://example.com/cover.jpg">
+        <input id="pubCover" class="inp" placeholder="https://example.com/cover.jpg" aria-label="https://example.com/cover.jpg">
       </div>
     </div>
     <div class="px-5 pb-5 flex items-center justify-end gap-2">
@@ -625,7 +638,7 @@ select.inp option{background:#272018;color:#f0e6d8}
   <div class="bg-surface rounded-2xl w-full max-w-lg border border-outline/25 shadow-2xl mx-4">
     <div class="sig px-5 py-4 flex items-center justify-between rounded-t-2xl">
       <h3 class="font-headline font-bold text-[#1e1a14]" id="summaryModalTitle">Пересказ диалогов</h3>
-      <button onclick="closeSummary()" class="text-[#1e1a14] text-xl bg-black/10 w-7 h-7 rounded-full flex items-center justify-center">✕</button>
+      <button onclick="closeSummary()" class="text-[#1e1a14] text-xl bg-black/10 w-7 h-7 rounded-full flex items-center justify-center" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5">
       <div id="summaryContent" class="text-sm leading-relaxed whitespace-pre-wrap text-on-surface min-h-[80px]"></div>
@@ -641,7 +654,7 @@ select.inp option{background:#272018;color:#f0e6d8}
         <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="aiImproveModalTitle"><span data-i="sparkle" aria-hidden="true"></span> Доработать через AI</h2>
         <p id="aiImproveBotName" class="text-[11px] text-[#1e1a14]/70 mt-0.5">—</p>
       </div>
-      <button onclick="closeAiImprove()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+      <button onclick="closeAiImprove()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-6 space-y-4">
       <p class="text-sm text-on-dim leading-relaxed">
@@ -650,7 +663,7 @@ select.inp option{background:#272018;color:#f0e6d8}
       <div>
         <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Что улучшить</label>
         <textarea id="aiImproveInstr" rows="4" class="inp text-sm resize-none"
-          placeholder="Например: 'Добавь вопрос про бюджет перед тем как просить телефон' / 'Сделай тон бота строже' / 'Убери шаг с email — он не нужен'"></textarea>
+          placeholder="Например: 'Добавь вопрос про бюджет перед тем как просить телефон' / 'Сделай тон бота строже' / 'Убери шаг с email — он не нужен'" aria-label="Например: 'Добавь вопрос про бюджет перед тем как просить телефон' / 'Сделай ..."></textarea>
         <p class="text-[10px] text-on-dim/60 mt-1.5">Стоимость: ~5–15 ₽ по реальным токенам Claude.</p>
       </div>
       <div class="flex justify-end gap-2 pt-2 border-t border-outline/15">
@@ -670,7 +683,7 @@ select.inp option{background:#272018;color:#f0e6d8}
         <h2 class="font-headline font-bold text-[#1e1a14] text-lg flex items-center gap-2" id="analyticsModalTitle"><span data-i="chart" aria-hidden="true"></span> Аналитика бота</h2>
         <p id="analyticsBotName" class="text-[11px] text-[#1e1a14]/70 mt-0.5">—</p>
       </div>
-      <button onclick="closeAnalytics()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+      <button onclick="closeAnalytics()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-6 max-h-[80vh] overflow-y-auto">
       <div class="flex items-center gap-2 mb-4">
@@ -694,7 +707,7 @@ select.inp option{background:#272018;color:#f0e6d8}
       </div>
       <div class="flex items-center gap-2">
         <button onclick="resetPreview()" class="text-[10px] px-2 py-1 rounded-md bg-black/10 hover:bg-black/20 text-[#1e1a14] flex items-center gap-1" title="Очистить диалог"><span data-i="refresh"></span></button>
-        <button onclick="closePreview()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]">✕</button>
+        <button onclick="closePreview()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14]" aria-label="Закрыть">✕</button>
       </div>
     </div>
     <div id="previewMsgs" class="flex-1 overflow-y-auto p-4 space-y-3 bg-surface2/30" role="log" aria-live="polite" aria-label="Диалог превью">
@@ -815,7 +828,7 @@ select.inp option{background:#272018;color:#f0e6d8}
         </h2>
         <p class="text-[11px] text-[#1e1a14]/70 mt-0.5" id="recordsBotName">—</p>
       </div>
-      <button onclick="closeRecords()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg">✕</button>
+      <button onclick="closeRecords()" class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1e1a14] text-lg" aria-label="Закрыть">✕</button>
     </div>
     <div class="p-5 max-h-[80vh] overflow-y-auto">
       <div class="flex items-center gap-2 mb-4 flex-wrap">
@@ -1090,9 +1103,9 @@ function openTemplateSetup(slug){
     if(f.options){
       input = `<select id="${id}" class="inp text-sm">${f.options.map(o => `<option value="${o}" ${o===f.default?'selected':''}>${o}</option>`).join('')}</select>`;
     } else if(f.multiline){
-      input = `<textarea id="${id}" rows="3" class="inp text-sm resize-none" placeholder="${f.placeholder||''}">${f.default||''}</textarea>`;
+      input = `<textarea id="${id}" rows="3" class="inp text-sm resize-none" placeholder="${f.placeholder||''}" aria-label="${f.placeholder||''}">${f.default||''}</textarea>`;
     } else {
-      input = `<input id="${id}" type="text" class="inp text-sm" placeholder="${f.placeholder||''}" value="${f.default||''}"/>`;
+      input = `<input id="${id}" type="text" class="inp text-sm" placeholder="${f.placeholder||''}" value="${f.default||''}" aria-label="${f.placeholder||''}"/>`;
     }
     return `
       <div>
@@ -1699,14 +1712,14 @@ function _bp_render(){
     </div>` +
     _bpItems.map((it, idx) => `
       <div class="grid grid-cols-12 gap-2 items-center bg-surface2 rounded-lg p-2 border border-outline/15" data-bp-idx="${idx}">
-        <input class="col-span-4 inp text-xs" value="${escHtml(it.name||'')}" placeholder="Название позиции" data-bp="name"/>
-        <input class="col-span-2 inp text-xs" type="number" step="1" min="0" value="${it.price_kop ? Math.round(it.price_kop/100) : ''}" placeholder="2500" data-bp="price_rub"/>
-        <input class="col-span-2 inp text-xs" value="${escHtml(it.price_text||'')}" placeholder="от 1500 / договорная" data-bp="price_text"/>
-        <input class="col-span-2 inp text-xs" value="${escHtml(it.category||'')}" placeholder="Услуги" data-bp="category"/>
+        <input class="col-span-4 inp text-xs" value="${escHtml(it.name||'')}" placeholder="Название позиции" data-bp="name" aria-label="Название позиции"/>
+        <input class="col-span-2 inp text-xs" type="number" step="1" min="0" value="${it.price_kop ? Math.round(it.price_kop/100) : ''}" placeholder="2500" data-bp="price_rub" aria-label="2500"/>
+        <input class="col-span-2 inp text-xs" value="${escHtml(it.price_text||'')}" placeholder="от 1500 / договорная" data-bp="price_text" aria-label="от 1500 / договорная"/>
+        <input class="col-span-2 inp text-xs" value="${escHtml(it.category||'')}" placeholder="Услуги" data-bp="category" aria-label="Услуги"/>
         <input class="col-span-1 inp text-xs" type="number" step="1" value="${it.sort_order||0}" data-bp="sort_order"/>
         <div class="col-span-1 flex justify-end">
           <button onclick="bp_save(${idx})" class="text-xs px-2 py-1 rounded-full bg-primary/15 text-primary hover:bg-primary/25" title="Сохранить">✓</button>
-          <button onclick="bp_delete(${idx})" class="text-xs px-2 py-1 rounded-full bg-error/15 text-error hover:bg-error/25 ml-1" title="Удалить">🗑</button>
+          <button onclick="bp_delete(${idx})" class="text-xs px-2 py-1 rounded-full bg-error/15 text-error hover:bg-error/25 ml-1" title="Удалить" aria-label="Удалить">🗑</button>
         </div>
       </div>`).join('') +
     `<div class="text-[10px] text-on-dim/50 mt-2">

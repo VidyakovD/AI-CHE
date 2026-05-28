@@ -140,15 +140,26 @@ function getSvgIcon(name, size=20, color='currentColor') {
 </script>
 <link rel="stylesheet" href="/fonts.css"/>
 <link rel="stylesheet" href="/styles.css"/>
-<script src="https://cdn.tailwindcss.com/3.4.0"></script>
+<!-- Tailwind: собранный /styles.css. Fallback на CDN только если файл недоступен (dev). -->
 <script>
-tailwind.config={darkMode:"class",theme:{extend:{colors:{
+(function(){
+  fetch('/styles.css', {method:'HEAD'}).then(function(r){
+    if(!r.ok){
+      var s = document.createElement('script');
+      s.src = 'https://cdn.tailwindcss.com/3.4.0';
+      s.onload = function(){
+        window.tailwind && (window.tailwind.config = {darkMode:"class",theme:{extend:{colors:{
   "primary":"#ff8c42","primary-dim":"#ff6b00","primary-soft":"#ff8c42",
   "secondary":"#ffb347","surface-lo":"#181510","surface":"#1e1a14",
   "surface2":"#272018","surface3":"#322a1e","surface4":"#3d3325",
   "on-surface":"#f0e6d8","on-surface-dim":"#a89880","outline":"#4a3f2f",
   "error":"#ff6b6b","background":"#141210"
-},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}
+},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}});
+      };
+      document.head.appendChild(s);
+    }
+  }).catch(function(){});
+})();
 </script>
 <style>
 .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;display:inline-block;line-height:1;text-transform:none;white-space:nowrap}

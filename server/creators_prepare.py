@@ -27,26 +27,46 @@ from sqlalchemy.orm import Session
 
 from server.ai import generate_response
 from server.models import CreatorBrand, ContentItem
+from server.pricing import get_price
 
 log = logging.getLogger(__name__)
 
-# Цены в копейках
-PRICE_TEXT_EVERGREEN_KOP = 1500
-PRICE_TEXT_NEWS_KOP      = 2500
-PRICE_WITH_IMAGE_KOP     = 3000   # text + картинка
-PRICE_REELS_KOP          = 3000   # сценарий + картинка превью
+# Дефолтные цены (override через pricing_config["creators.*"])
+DEFAULT_PRICE_TEXT_EVERGREEN_KOP = 1500
+DEFAULT_PRICE_TEXT_NEWS_KOP      = 2500
+DEFAULT_PRICE_WITH_IMAGE_KOP     = 3000   # text + картинка
+DEFAULT_PRICE_REELS_KOP          = 3000   # сценарий + картинка превью
+DEFAULT_FREE_POSTS_PER_MONTH     = 3
 
-FREE_POSTS_PER_MONTH = 3
+# Обратно-совместимые алиасы (для импортов из тестов/сторонних файлов).
+# Используют значения по умолчанию, но реальный биллинг берёт через get_price()
+PRICE_TEXT_EVERGREEN_KOP = DEFAULT_PRICE_TEXT_EVERGREEN_KOP
+PRICE_TEXT_NEWS_KOP      = DEFAULT_PRICE_TEXT_NEWS_KOP
+PRICE_WITH_IMAGE_KOP     = DEFAULT_PRICE_WITH_IMAGE_KOP
+PRICE_REELS_KOP          = DEFAULT_PRICE_REELS_KOP
+FREE_POSTS_PER_MONTH     = DEFAULT_FREE_POSTS_PER_MONTH
+
+
+def free_posts_per_month() -> int:
+    """Сколько постов в месяц бесплатно (из pricing_config или дефолт)."""
+    return max(0, get_price("creators.free_posts_per_month",
+                            default=DEFAULT_FREE_POSTS_PER_MONTH))
 
 
 def compute_cost_kop(item: ContentItem) -> int:
-    """Сколько будет стоить подготовка этого поста (если не freemium)."""
+    """Сколько будет стоить подготовка этого поста (если не freemium).
+
+    Цены динамические — берём из pricing_config["creators.*"] с фолбэком
+    на дефолтные значения.
+    """
     if item.is_news:
-        return PRICE_TEXT_NEWS_KOP
-    if item.type in ("image", "reels"):
-        return PRICE_WITH_IMAGE_KOP
+        return get_price("creators.text_news", default=DEFAULT_PRICE_TEXT_NEWS_KOP)
+    if item.type == "reels":
+        return get_price("creators.reels", default=DEFAULT_PRICE_REELS_KOP)
+    if item.type == "image":
+        return get_price("creators.with_image", default=DEFAULT_PRICE_WITH_IMAGE_KOP)
     # text/poll/youtube — без картинки по умолчанию
-    return PRICE_TEXT_EVERGREEN_KOP
+    return get_price("creators.text_evergreen", default=DEFAULT_PRICE_TEXT_EVERGREEN_KOP)
 
 
 PLATFORM_LIMITS = {
@@ -310,11 +330,12 @@ def freemium_status(brand: CreatorBrand) -> dict:
     reset_at = brand.free_posts_reset_at
     if not reset_at or reset_at < cur_month_start:
         used = 0  # будем сбрасывать на caller-стороне при списании
-    remaining = max(0, FREE_POSTS_PER_MONTH - used)
+    limit = free_posts_per_month()
+    remaining = max(0, limit - used)
     return {
         "used": used,
         "remaining": remaining,
-        "limit": FREE_POSTS_PER_MONTH,
+        "limit": limit,
         "is_free_eligible": remaining > 0,
         "current_month": _month_key(now),
     }
@@ -340,7 +361,7 @@ def consume_freemium(db: Session, brand_id: int) -> bool:
         sa_update(CreatorBrand)
         .where(
             CreatorBrand.id == brand_id,
-            sa_or_(new_month, CreatorBrand.free_posts_used_this_month < FREE_POSTS_PER_MONTH),
+            sa_or_(new_month, CreatorBrand.free_posts_used_this_month < free_posts_per_month()),
         )
         .values(
             free_posts_used_this_month=case(

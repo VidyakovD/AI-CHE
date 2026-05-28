@@ -28,8 +28,21 @@
 <title>AI Студия Че — Креаторы</title>
 <link rel="stylesheet" href="/fonts.css"/>
 <link rel="stylesheet" href="/styles.css"/>
-<script src="https://cdn.tailwindcss.com/3.4.0"></script>
-<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<!-- Tailwind: собранный /styles.css. Fallback на CDN только если файл недоступен (dev). -->
+<script>
+(function(){
+  fetch('/styles.css', {method:'HEAD'}).then(function(r){
+    if(!r.ok){
+      var s = document.createElement('script');
+      s.src = 'https://cdn.tailwindcss.com/3.4.0';
+      s.onload = function(){
+        window.tailwind && (window.tailwind.config = {darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}});
+      };
+      document.head.appendChild(s);
+    }
+  }).catch(function(){});
+})();
+</script>
 <style>
 *{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
 *::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
@@ -396,10 +409,14 @@ textarea.inp{resize:vertical;min-height:64px;font-family:inherit;line-height:1.4
     </div>
 
     <div class="flex items-center justify-between gap-3 mt-6 flex-wrap">
-      <button class="btn-d" onclick="deleteItem()">🗑 Удалить</button>
+      <button class="btn-d" onclick="deleteItem()" aria-label="Удалить пост">🗑 Удалить</button>
       <div class="flex gap-2 flex-wrap">
         <button class="btn-g" onclick="toggleSkip()" id="im_skip_btn">⏸ Пропустить</button>
         <button class="btn-g" onclick="saveItem()">💾 Сохранить</button>
+        <button class="btn-g" onclick="regenerateText()" id="im_regen_text_btn"
+                style="display:none" title="Перегенерировать только текст, картинку оставить">
+          🔄 Перегенерировать текст
+        </button>
         <button class="btn-g" onclick="publishNow()" id="im_pub_btn" style="display:none">📤 Опубликовать</button>
         <button class="btn-p" onclick="prepareItem()" id="im_prep_btn">✨ Подготовить</button>
       </div>
@@ -1454,13 +1471,19 @@ function openItemModal(item){
   // Prepare button + freemium hint
   const prepBtn = document.getElementById('im_prep_btn');
   const pubBtn = document.getElementById('im_pub_btn');
+  const regenTextBtn = document.getElementById('im_regen_text_btn');
   if(item.status === 'published'){
     prepBtn.style.display = 'none';
     pubBtn.style.display = 'none';
+    regenTextBtn.style.display = 'none';
   }else{
     prepBtn.style.display = 'inline-flex';
-    prepBtn.textContent = item.status === 'ready' ? '↻ Перегенерировать' : '✨ Подготовить';
+    prepBtn.textContent = item.status === 'ready' ? '↻ Перегенерировать всё' : '✨ Подготовить';
     prepBtn.disabled = false;
+    // «Перегенерировать текст» — только если уже есть подготовленный контент,
+    // иначе нечего перегенерировать. Дешевле полной регенерации (без DALL-E).
+    regenTextBtn.style.display = item.status === 'ready' ? 'inline-flex' : 'none';
+    regenTextBtn.disabled = false;
     // Кнопка «Опубликовать» доступна только для ready + платформа, поддерживающая автопостинг (tg/vk)
     pubBtn.style.display = (item.status === 'ready' && (item.platform === 'tg' || item.platform === 'vk')) ? 'inline-flex' : 'none';
     pubBtn.disabled = false;
@@ -1609,6 +1632,44 @@ async function prepareItem(){
     (window.aiToast || (() => {}))(d.was_free ? 'Готово (бесплатно)' : `Готово, списано ${(d.charged_kop/100).toFixed(2)} ₽`);
   }catch(e){
     (window.aiToast || alert)(e.message);
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
+}
+
+async function regenerateText(){
+  if(!_editingItemId) return;
+  const item = _items.find(x => x.id === _editingItemId);
+  if(!item) return;
+  const hadImage = !!item.prepared_media_url;
+  const msg = hadImage
+    ? 'Перегенерировать только текст? Картинка останется прежней.'
+    : 'Перегенерировать текст? Списание ≈ 15-25 ₽.';
+  const ok = await (window.aiConfirm || ((m) => Promise.resolve(confirm(m))))(msg);
+  if(!ok) return;
+  const btn = document.getElementById('im_regen_text_btn');
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = '⏳ Перегенерация…';
+  try{
+    const r = await fetch(`/creators/items/${_editingItemId}/regenerate-text`, {
+      method:'POST', credentials:'include',
+      headers: {'Content-Type':'application/json', 'X-CSRF-Token': getCSRF()},
+    });
+    if(!r.ok){
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || 'Ошибка ' + r.status);
+    }
+    const d = await r.json();
+    const idx = _items.findIndex(x => x.id === d.item.id);
+    if(idx >= 0) _items[idx] = d.item;
+    renderCalendar();
+    openItemModal(d.item);
+    loadBalance();
+    (window.aiToast || (() => {}))(`Текст обновлён, списано ${(d.charged_kop/100).toFixed(2)} ₽`);
+  }catch(e){
+    (window.aiToast || alert)(e.message);
+  }finally{
     btn.textContent = origText;
     btn.disabled = false;
   }

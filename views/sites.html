@@ -28,8 +28,21 @@
 <title>AI Студия Че — Создание сайтов</title>
 <link rel="stylesheet" href="/fonts.css"/>
 <link rel="stylesheet" href="/styles.css"/>
-<script src="https://cdn.tailwindcss.com/3.4.0"></script>
-<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","primary-dim":"#ff6b00","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<!-- Tailwind: собранный /styles.css. Fallback на CDN только если файл недоступен (dev). -->
+<script>
+(function(){
+  fetch('/styles.css', {method:'HEAD'}).then(function(r){
+    if(!r.ok){
+      var s = document.createElement('script');
+      s.src = 'https://cdn.tailwindcss.com/3.4.0';
+      s.onload = function(){
+        window.tailwind && (window.tailwind.config = {darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","primary-dim":"#ff6b00","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}});
+      };
+      document.head.appendChild(s);
+    }
+  }).catch(function(){});
+})();
+</script>
 <style>
 body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;min-height:100vh}
 .sig{background:linear-gradient(135deg,#ff8c42,#ffb347)}
@@ -197,7 +210,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <!-- Project name -->
       <div>
         <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Название проекта</label>
-        <input id="proj_name" type="text" placeholder="Например: Лендинг кофейни" class="inp"/>
+        <input id="proj_name" type="text" placeholder="Например: Лендинг кофейни" class="inp" aria-label="Например: Лендинг кофейни"/>
       </div>
 
       <!-- Mode selection -->
@@ -225,7 +238,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <div id="specInputWrap" class="hidden">
         <label class="block text-xs text-on-dim uppercase tracking-wider mb-1.5">Техническое задание</label>
         <textarea id="proj_spec" rows="5" class="inp resize-none text-sm leading-relaxed"
-          placeholder="Вставьте или напишите ТЗ сюда..."></textarea>
+          placeholder="Вставьте или напишите ТЗ сюда..." aria-label="Вставьте или напишите ТЗ сюда..."></textarea>
       </div>
 
       <div id="proj_err" class="text-error text-xs hidden"></div>
@@ -246,7 +259,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
     <div class="sig px-6 py-4 flex items-center justify-between flex-shrink-0">
       <div class="flex items-center gap-3">
         <h2 class="font-headline font-bold text-[#1C1C1C] text-lg" id="detailTitle">Проект</h2>
-        <button onclick="startRename()" class="w-6 h-6 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-xs" title="Переименовать">✎</button>
+        <button onclick="startRename()" class="w-6 h-6 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-xs" title="Переименовать" aria-label="Переименовать">✎</button>
         <div class="cost-badge text-[#1C1C1C]/70 bg-black/10 border-black/10" id="detailCost">0.00 ₽</div>
       </div>
       <div class="flex items-center gap-2">
@@ -485,7 +498,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
   <div class="bg-surface border border-outline/30 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
     <div class="flex items-center justify-between mb-3">
       <h3 class="text-lg font-bold">🔎 SEO продвижение</h3>
-      <button onclick="closeSeoModal()" class="btn-g text-sm">✕</button>
+      <button onclick="closeSeoModal()" class="btn-g text-sm" aria-label="Закрыть">✕</button>
     </div>
     <p class="text-xs text-on-dim mb-4">
       Эти данные увидят Google/Yandex и соцсети при шаринге ссылки на твой сайт.
@@ -493,14 +506,14 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
     </p>
 
     <label class="block text-xs text-on-dim mb-1">Title (заголовок страницы в выдаче, до 60 симв)</label>
-    <input id="seoTitle" class="inp mb-3" placeholder="Кофейня «Луч» — спешелти в центре Москвы" maxlength="200"/>
+    <input id="seoTitle" class="inp mb-3" placeholder="Кофейня «Луч» — спешелти в центре Москвы" maxlength="200" aria-label="Кофейня «Луч» — спешелти в центре Москвы"/>
 
     <label class="block text-xs text-on-dim mb-1">Description (описание в выдаче, до 160 симв)</label>
     <textarea id="seoDescription" class="inp mb-3" rows="3" maxlength="500"
-              placeholder="Авторский кофе из 3 стран, домашняя выпечка, тёплая атмосфера. Открыты ежедневно 8-22."></textarea>
+              placeholder="Авторский кофе из 3 стран, домашняя выпечка, тёплая атмосфера. Открыты ежедневно 8-22." aria-label="Авторский кофе из 3 стран, домашняя выпечка, тёплая атмосфера. Открыты ежедне..."></textarea>
 
     <label class="block text-xs text-on-dim mb-1">OG-картинка (1200×630, URL) — для шаринга в TG/VK/FB</label>
-    <input id="seoOgImage" class="inp mb-3" placeholder="https://aiche.ru/uploads/og-image.jpg" maxlength="500"/>
+    <input id="seoOgImage" class="inp mb-3" placeholder="https://aiche.ru/uploads/og-image.jpg" maxlength="500" aria-label="https://aiche.ru/uploads/og-image.jpg"/>
     <p class="text-xs text-on-dim mb-3">
       💡 Загрузи картинку через /sites.html → «Картинки» → скопируй URL сюда.
       Эта картинка появится в превью когда ссылку на сайт шарят в мессенджерах.
@@ -518,7 +531,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
   <div class="bg-surface border border-outline/30 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
     <div class="flex items-center justify-between mb-3">
       <h3 class="text-lg font-bold">💬 Чат-бот на сайт</h3>
-      <button onclick="closeWidgetModal()" class="btn-g text-sm">✕</button>
+      <button onclick="closeWidgetModal()" class="btn-g text-sm" aria-label="Закрыть">✕</button>
     </div>
     <p class="text-xs text-on-dim mb-4">
       Плавающая кнопка чата в правом нижнем углу твоего опубликованного сайта.
@@ -533,18 +546,18 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 
     <!-- Общие поля -->
     <label class="block text-xs text-on-dim mb-1">Имя в чате (что видит посетитель)</label>
-    <input id="wmName" class="inp mb-3" placeholder="Менеджер Алина" maxlength="80"/>
+    <input id="wmName" class="inp mb-3" placeholder="Менеджер Алина" maxlength="80" aria-label="Менеджер Алина"/>
 
     <label class="block text-xs text-on-dim mb-1">Приветственное сообщение</label>
     <textarea id="wmWelcome" class="inp mb-3" rows="2" maxlength="500"
-              placeholder="Здравствуйте! Чем могу помочь?"></textarea>
+              placeholder="Здравствуйте! Чем могу помочь?" aria-label="Здравствуйте! Чем могу помочь?"></textarea>
 
     <!-- RELAY поля -->
     <div id="wmRelayBlock" class="hidden">
       <label class="block text-xs text-on-dim mb-1">TG chat_id (куда пересылать) <a href="https://t.me/userinfobot" target="_blank" class="text-primary">узнать →</a></label>
-      <input id="wmTgChatId" class="inp mb-3" placeholder="например 123456789" maxlength="50"/>
+      <input id="wmTgChatId" class="inp mb-3" placeholder="например 123456789" maxlength="50" aria-label="например 123456789"/>
       <label class="block text-xs text-on-dim mb-1">Рабочие часы (информационно)</label>
-      <input id="wmHours" class="inp mb-3" placeholder="9-21 МСК, кроме воскресенья" maxlength="80"/>
+      <input id="wmHours" class="inp mb-3" placeholder="9-21 МСК, кроме воскресенья" maxlength="80" aria-label="9-21 МСК, кроме воскресенья"/>
       <p class="text-xs text-on-dim mb-3">
         💡 Каждое сообщение посетителя придёт в твой Telegram через подключённого
         в /agents-modular «своего бота». Если бот не подключён — настрой его сначала.
@@ -555,10 +568,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
     <div id="wmAiBlock" class="hidden">
       <label class="block text-xs text-on-dim mb-1">Роль бота (system prompt)</label>
       <textarea id="wmPrompt" class="inp mb-3" rows="4" maxlength="4000"
-                placeholder="Ты менеджер кофейни «Луч». Отвечай тёплым тоном. Главная цель — записать посетителя на дегустацию (форма /booking) или дать координаты доставки."></textarea>
+                placeholder="Ты менеджер кофейни «Луч». Отвечай тёплым тоном. Главная цель — записать посетителя на дегустацию (форма /booking) или дать координаты доставки." aria-label="Ты менеджер кофейни «Луч». Отвечай тёплым тоном. Главная цель — записать посе..."></textarea>
       <label class="block text-xs text-on-dim mb-1">FAQ / база знаний (опц.)</label>
       <textarea id="wmFaq" class="inp mb-3" rows="4" maxlength="8000"
-                placeholder="Q: Адрес кофейни? A: Москва, ул. Тверская 12, 2 этаж.&#10;Q: Время работы? A: пн-пт 9-22, сб-вс 10-23..."></textarea>
+                placeholder="Q: Адрес кофейни? A: Москва, ул. Тверская 12, 2 этаж.&#10;Q: Время работы? A: пн-пт 9-22, сб-вс 10-23..." aria-label="Q: Адрес кофейни? A: Москва, ул. Тверская 12, 2 этаж.&#10;Q: Время работы? A:..."></textarea>
       <p class="text-xs text-on-dim mb-3">
         💸 <b>Тариф</b>: реальная стоимость токенов LLM × 3 (Claude Haiku ≈ 0.5 ₽ за короткий
         ответ, до 3-5 ₽ за развёрнутый). Минимум 0.5 ₽ за сообщение. Списывается с твоего баланса.
@@ -588,7 +601,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
   <div class="bg-surface border border-outline/30 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
     <div class="flex items-center justify-between mb-3">
       <h3 class="text-lg font-bold">🌐 Кастомные домены</h3>
-      <button onclick="closeCustomDomainsModal()" class="btn-g text-sm">✕</button>
+      <button onclick="closeCustomDomainsModal()" class="btn-g text-sm" aria-label="Закрыть">✕</button>
     </div>
     <p class="text-xs text-on-dim mb-4">
       Привяжи свой <code>example.com</code> к этому сайту. Юзеры увидят его на твоём домене вместо aiche.ru. SSL автоматически (Let's Encrypt).
@@ -598,7 +611,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
     <div class="border border-outline/30 rounded-lg p-3 mb-4">
       <label class="block text-xs text-on-dim mb-1">Добавить домен</label>
       <div class="flex gap-2">
-        <input id="newDomainInput" class="inp flex-1" placeholder="example.com" maxlength="253"/>
+        <input id="newDomainInput" class="inp flex-1" placeholder="example.com" maxlength="253" aria-label="example.com"/>
         <button id="attachDomainBtn" onclick="attachDomain()" class="btn-p text-sm">Привязать</button>
       </div>
       <p class="text-xs text-on-dim mt-1">Только домен — без http:// и path. До 5 на аккаунт.</p>
@@ -1659,7 +1672,7 @@ function renderDomainsList(domains){
           <div class="flex items-center gap-2">
             ${_domainStatusBadge(d)}
             <button onclick="verifyDomain(${d.id})" class="btn-g text-xs">↻ Проверить</button>
-            <button onclick="deleteDomain(${d.id}, '${_esc(d.domain)}')" class="btn-g text-xs">🗑</button>
+            <button onclick="deleteDomain(${d.id}, '${_esc(d.domain)}')" class="btn-g text-xs" aria-label="Удалить">🗑</button>
           </div>
         </div>
         ${showInstructions ? `

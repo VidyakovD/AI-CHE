@@ -28,8 +28,21 @@
 <title>AI Студия Че — Коммерческие предложения</title>
 <link rel="stylesheet" href="/fonts.css"/>
 <link rel="stylesheet" href="/styles.css"/>
-<script src="https://cdn.tailwindcss.com/3.4.0"></script>
-<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<!-- Tailwind: собранный /styles.css. Fallback на CDN только если файл недоступен (dev). -->
+<script>
+(function(){
+  fetch('/styles.css', {method:'HEAD'}).then(function(r){
+    if(!r.ok){
+      var s = document.createElement('script');
+      s.src = 'https://cdn.tailwindcss.com/3.4.0';
+      s.onload = function(){
+        window.tailwind && (window.tailwind.config = {darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}});
+      };
+      document.head.appendChild(s);
+    }
+  }).catch(function(){});
+})();
+</script>
 <style>
 *{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
 *::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
@@ -105,7 +118,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
     <div class="modal" onclick="event.stopPropagation()">
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-xl font-bold sig-text">📧 Распознать из письма</h2>
-        <button class="btn-g btn-icon" onclick="closeAutoFillEmail()" title="Закрыть">✕</button>
+        <button class="btn-g btn-icon" onclick="closeAutoFillEmail()" title="Закрыть" aria-label="Закрыть">✕</button>
       </div>
       <p class="text-sm text-on-dim mb-3">
         Вставь сырое письмо от клиента (из Outlook → File → Save As .eml,
@@ -115,7 +128,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       </p>
       <textarea id="autoFillRawEmail" class="inp" rows="14"
                 style="font-family:monospace;font-size:12px"
-                placeholder="From: ivan@romashka.ru&#10;To: us@aiche.ru&#10;Subject: Запрос на расчёт&#10;&#10;Здравствуйте, нас интересует..."></textarea>
+                placeholder="From: ivan@romashka.ru&#10;To: us@aiche.ru&#10;Subject: Запрос на расчёт&#10;&#10;Здравствуйте, нас интересует..." aria-label="From: ivan@romashka.ru&#10;To: us@aiche.ru&#10;Subject: Запрос на расчёт&#10;..."></textarea>
       <div class="flex justify-end gap-2 mt-3">
         <button onclick="closeAutoFillEmail()" class="btn-g">Отмена</button>
         <button onclick="submitAutoFillEmail()" id="autoFillSubmitBtn" class="btn-p">📧 Распознать (5 ₽)</button>
@@ -128,7 +141,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
     <div class="modal" onclick="event.stopPropagation()">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-xl font-bold sig-text">📥 Bulk-импорт из CSV</h2>
-        <button class="btn-g btn-icon" onclick="closeBulkCsv()" title="Закрыть">✕</button>
+        <button class="btn-g btn-icon" onclick="closeBulkCsv()" title="Закрыть" aria-label="Закрыть">✕</button>
       </div>
       <p class="text-sm text-on-dim mb-3">
         Создать драфты КП по списку клиентов. Каждый ряд = отдельный черновик.
@@ -158,7 +171,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 
       <label class="block text-sm mb-1">Доп. инструкции для всех (опционально)</label>
       <textarea id="bulkExtraNotes" class="inp" rows="2"
-                placeholder="Например: «Подчеркнуть скидку 15% до конца месяца»"></textarea>
+                placeholder="Например: «Подчеркнуть скидку 15% до конца месяца»" aria-label="Например: «Подчеркнуть скидку 15% до конца месяца»"></textarea>
 
       <div class="flex justify-end gap-2 mt-4">
         <button onclick="closeBulkCsv()" class="btn-g">Отмена</button>
@@ -248,7 +261,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       </div>
       <div class="field">
         <label>Название проекта (для вас)</label>
-        <input id="pNa" type="text" class="inp" placeholder="КП для ООО Ромашка"/>
+        <input id="pNa" type="text" class="inp" placeholder="КП для ООО Ромашка" aria-label="КП для ООО Ромашка"/>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
@@ -296,11 +309,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
           <label>Имя клиента</label>
-          <input id="pClientName" type="text" class="inp" placeholder="Иван Иванов" onblur="_autoFillName()"/>
+          <input id="pClientName" type="text" class="inp" placeholder="Иван Иванов" onblur="_autoFillName()" aria-label="Иван Иванов"/>
         </div>
         <div class="field">
           <label>Email клиента</label>
-          <input id="pClientEmail" type="email" class="inp" placeholder="ivan@romashka.ru"/>
+          <input id="pClientEmail" type="email" class="inp" placeholder="ivan@romashka.ru" aria-label="ivan@romashka.ru"/>
         </div>
       </div>
       <div class="field">
@@ -311,16 +324,16 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
             📧 Распознать из письма
           </button>
         </label>
-        <textarea id="pClientReq" rows="4" class="inp resize-none" placeholder="Здравствуйте, нас интересует ваше оборудование для пищевого производства..."></textarea>
+        <textarea id="pClientReq" rows="4" class="inp resize-none" placeholder="Здравствуйте, нас интересует ваше оборудование для пищевого производства..." aria-label="Здравствуйте, нас интересует ваше оборудование для пищевого производства..."></textarea>
       </div>
       <div class="field">
         <label>Сайт клиента (для AI-контекста)</label>
-        <input id="pClientSite" type="url" class="inp" placeholder="https://romashka.ru"/>
+        <input id="pClientSite" type="url" class="inp" placeholder="https://romashka.ru" aria-label="https://romashka.ru"/>
         <p class="text-xs text-on-dim mt-1">AI прочитает сайт и сделает КП персонализированным под их сферу.</p>
       </div>
       <div class="field">
         <label>Доп. инструкции (опц.)</label>
-        <textarea id="pNotes" rows="2" class="inp resize-none" placeholder="Сделай акцент на скорость поставки. Спецпредложение: -10% при заказе до конца месяца."></textarea>
+        <textarea id="pNotes" rows="2" class="inp resize-none" placeholder="Сделай акцент на скорость поставки. Спецпредложение: -10% при заказе до конца месяца." aria-label="Сделай акцент на скорость поставки. Спецпредложение: -10% при заказе до конца..."></textarea>
       </div>
       <div class="field">
         <label>Стиль КП</label>
@@ -412,7 +425,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
           <label>Название</label>
-          <input id="plName" type="text" class="inp" placeholder="Услуги студии"/>
+          <input id="plName" type="text" class="inp" placeholder="Услуги студии" aria-label="Услуги студии"/>
         </div>
         <div class="field">
           <label class="flex items-center gap-2 mt-5">
@@ -423,7 +436,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       </div>
       <div class="field">
         <label>Описание (опц.)</label>
-        <input id="plDesc" type="text" class="inp" placeholder="Например «Маникюр и уход — основной»"/>
+        <input id="plDesc" type="text" class="inp" placeholder="Например «Маникюр и уход — основной»" aria-label="Например «Маникюр и уход — основной»"/>
       </div>
 
       <!-- Позиции -->
@@ -475,16 +488,16 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
     <div class="p-5 space-y-4">
       <div class="field">
         <label>Email получателя</label>
-        <input id="seTo" type="email" class="inp" placeholder="client@example.com"/>
+        <input id="seTo" type="email" class="inp" placeholder="client@example.com" aria-label="client@example.com"/>
       </div>
       <div class="field">
         <label>Тема письма</label>
-        <input id="seSubject" type="text" class="inp" placeholder="Коммерческое предложение"/>
+        <input id="seSubject" type="text" class="inp" placeholder="Коммерческое предложение" aria-label="Коммерческое предложение"/>
       </div>
       <div class="field">
         <label>Текст письма</label>
         <textarea id="seBody" rows="6" class="inp resize-none"
-                  placeholder="Здравствуйте! Во вложении — наше КП. Если возникнут вопросы — на связи."></textarea>
+                  placeholder="Здравствуйте! Во вложении — наше КП. Если возникнут вопросы — на связи." aria-label="Здравствуйте! Во вложении — наше КП. Если возникнут вопросы — на связи."></textarea>
         <p class="text-xs text-on-dim mt-1">PDF КП прикрепится автоматически как вложение.</p>
       </div>
     </div>
@@ -506,11 +519,11 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
           <label>Название бренда</label>
-          <input id="bName" type="text" class="inp" placeholder="Основной"/>
+          <input id="bName" type="text" class="inp" placeholder="Основной" aria-label="Основной"/>
         </div>
         <div class="field">
           <label>Название компании</label>
-          <input id="bCompany" type="text" class="inp" placeholder="ООО «Ромашка»"/>
+          <input id="bCompany" type="text" class="inp" placeholder="ООО «Ромашка»" aria-label="ООО «Ромашка»"/>
         </div>
       </div>
 
@@ -587,12 +600,12 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 
       <div class="field">
         <label>Контакты для подвала</label>
-        <textarea id="bContacts" rows="2" class="inp resize-none text-sm" placeholder="+7 999 000-00-00 | hello@romashka.ru | romashka.ru"></textarea>
+        <textarea id="bContacts" rows="2" class="inp resize-none text-sm" placeholder="+7 999 000-00-00 | hello@romashka.ru | romashka.ru" aria-label="+7 999 000-00-00 | hello@romashka.ru | romashka.ru"></textarea>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
           <label>ИНН (опц.)</label>
-          <input id="bInn" type="text" class="inp" placeholder="7700000000"/>
+          <input id="bInn" type="text" class="inp" placeholder="7700000000" aria-label="7700000000"/>
         </div>
         <div class="field">
           <label>
@@ -603,7 +616,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       </div>
       <div class="field">
         <label>Юридический адрес (опц.)</label>
-        <input id="bAddress" type="text" class="inp" placeholder="г. Москва, ул. ..."/>
+        <input id="bAddress" type="text" class="inp" placeholder="г. Москва, ул. ..." aria-label="г. Москва, ул. ..."/>
       </div>
 
       <!-- ── Глубокая персонализация (используется AI при генерации) ── -->
@@ -616,7 +629,7 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 
       <div class="field">
         <label>Слоган / позиционирование (опц.)</label>
-        <input id="bTagline" type="text" class="inp" maxlength="200" placeholder="Промышленные решения с 2010 года"/>
+        <input id="bTagline" type="text" class="inp" maxlength="200" placeholder="Промышленные решения с 2010 года" aria-label="Промышленные решения с 2010 года"/>
         <p class="text-xs text-on-dim mt-1">Появится в шапке КП мелким текстом над заголовком.</p>
       </div>
 
@@ -633,25 +646,25 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
       <div class="field">
         <label>Ключевые УТП (по строке)</label>
         <textarea id="bUsp" rows="3" class="inp resize-none text-sm" maxlength="2000"
-                  placeholder="10 лет на рынке&#10;200+ реализованных проектов&#10;Гарантия результата по договору&#10;Свой завод — без посредников"></textarea>
+                  placeholder="10 лет на рынке&#10;200+ реализованных проектов&#10;Гарантия результата по договору&#10;Свой завод — без посредников" aria-label="10 лет на рынке&#10;200+ реализованных проектов&#10;Гарантия результата по до..."></textarea>
         <p class="text-xs text-on-dim mt-1">Будут учтены в блоке «Что мы предлагаем» / «Понимание задачи».</p>
       </div>
 
       <div class="field">
         <label>Гарантии (по строке)</label>
         <textarea id="bGuarantees" rows="3" class="inp resize-none text-sm" maxlength="2000"
-                  placeholder="Гарантия 24 месяца&#10;Договор по 44-ФЗ / 223-ФЗ&#10;Возврат денег при срыве сроков"></textarea>
+                  placeholder="Гарантия 24 месяца&#10;Договор по 44-ФЗ / 223-ФЗ&#10;Возврат денег при срыве сроков" aria-label="Гарантия 24 месяца&#10;Договор по 44-ФЗ / 223-ФЗ&#10;Возврат денег при срыве ..."></textarea>
         <p class="text-xs text-on-dim mt-1">Появятся отдельным блоком «Гарантии» в каждом КП — стабильно, без AI-вариаций.</p>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="field">
           <label>Шаблон приветствия (опц.)</label>
-          <input id="bIntroPhrase" type="text" class="inp" maxlength="200" placeholder="Здравствуйте, рады знакомству!"/>
+          <input id="bIntroPhrase" type="text" class="inp" maxlength="200" placeholder="Здравствуйте, рады знакомству!" aria-label="Здравствуйте, рады знакомству!"/>
         </div>
         <div class="field">
           <label>Шаблон призыва (опц.)</label>
-          <input id="bCtaPhrase" type="text" class="inp" maxlength="200" placeholder="Готовы обсудить детали — позвоните или напишите."/>
+          <input id="bCtaPhrase" type="text" class="inp" maxlength="200" placeholder="Готовы обсудить детали — позвоните или напишите." aria-label="Готовы обсудить детали — позвоните или напишите."/>
         </div>
       </div>
 
@@ -2240,14 +2253,14 @@ function renderPlItems(){
       <div class="card p-3" data-idx="${idx}">
         <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
           <input type="text" class="inp md:col-span-4" placeholder="Название" value="${escAttr(it.name||'')}"
-                 onchange="_plItemsBuffer[${idx}].name=this.value;_plItemsBuffer[${idx}]._dirty=true"/>
+                 onchange="_plItemsBuffer[${idx}].name=this.value;_plItemsBuffer[${idx}]._dirty=true" aria-label="Название"/>
           <input type="text" class="inp md:col-span-2" placeholder="Цена ₽" value="${it.price_kop ? (it.price_kop/100) : ''}"
-                 onchange="_plItemsBuffer[${idx}].price_kop=this.value?Math.round(parseFloat(this.value)*100):null;_plItemsBuffer[${idx}]._dirty=true"/>
+                 onchange="_plItemsBuffer[${idx}].price_kop=this.value?Math.round(parseFloat(this.value)*100):null;_plItemsBuffer[${idx}]._dirty=true" aria-label="Цена ₽"/>
           <input type="text" class="inp md:col-span-2" placeholder="Категория" value="${escAttr(it.category||'')}"
-                 onchange="_plItemsBuffer[${idx}].category=this.value;_plItemsBuffer[${idx}]._dirty=true"/>
+                 onchange="_plItemsBuffer[${idx}].category=this.value;_plItemsBuffer[${idx}]._dirty=true" aria-label="Категория"/>
           <input type="text" class="inp md:col-span-3" placeholder="Описание" value="${escAttr(it.description||'')}"
-                 onchange="_plItemsBuffer[${idx}].description=this.value;_plItemsBuffer[${idx}]._dirty=true"/>
-          <button onclick="removePlItem(${idx})" class="btn-d text-xs py-1 md:col-span-1">✕</button>
+                 onchange="_plItemsBuffer[${idx}].description=this.value;_plItemsBuffer[${idx}]._dirty=true" aria-label="Описание"/>
+          <button onclick="removePlItem(${idx})" class="btn-d text-xs py-1 md:col-span-1" aria-label="Закрыть">✕</button>
         </div>
       </div>`;
   }).join('');

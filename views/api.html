@@ -28,8 +28,21 @@
 <title>AI Студия Че — Public API</title>
 <link rel="stylesheet" href="/fonts.css"/>
 <link rel="stylesheet" href="/styles.css"/>
-<script src="https://cdn.tailwindcss.com/3.4.0"></script>
-<script>tailwind.config={darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}}</script>
+<!-- Tailwind: собранный /styles.css. Fallback на CDN только если файл недоступен (dev). -->
+<script>
+(function(){
+  fetch('/styles.css', {method:'HEAD'}).then(function(r){
+    if(!r.ok){
+      var s = document.createElement('script');
+      s.src = 'https://cdn.tailwindcss.com/3.4.0';
+      s.onload = function(){
+        window.tailwind && (window.tailwind.config = {darkMode:"class",theme:{extend:{colors:{"primary":"#ff8c42","secondary":"#ffb347","bg":"#1C1C1C","surface":"#1e1a14","surface2":"#272018","surface3":"#322a1e","on-surface":"#f0e6d8","on-dim":"#a89880","outline":"#4a3f2f","error":"#ff6b6b"},fontFamily:{headline:["Golos Text","Manrope","sans-serif"],body:["Golos Text","Inter","sans-serif"],sans:["Golos Text","Inter","sans-serif"]}}}});
+      };
+      document.head.appendChild(s);
+    }
+  }).catch(function(){});
+})();
+</script>
 <style>
 *{scrollbar-width:thin;scrollbar-color:rgba(255,140,66,0.2) transparent}
 *::-webkit-scrollbar{width:6px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:rgba(255,140,66,0.25);border-radius:999px}
@@ -241,7 +254,7 @@ def verify(secret, body_bytes, signature_header):
     <div class="space-y-3">
       <div>
         <label class="text-xs font-bold text-on-dim mb-1 block">Название</label>
-        <input id="tknName" class="inp" placeholder="my-saas-integration" maxlength="80">
+        <input id="tknName" class="inp" placeholder="my-saas-integration" maxlength="80" aria-label="my-saas-integration">
       </div>
       <div>
         <label class="text-xs font-bold text-on-dim mb-1 block">Доступы (scopes) — пусто = все</label>
@@ -308,11 +321,11 @@ def verify(secret, body_bytes, signature_header):
       </div>
       <div>
         <label class="text-xs font-bold text-on-dim mb-1 block">Webhook URL</label>
-        <input id="crmUrl" class="inp" placeholder="https://your-crm.bitrix24.ru/rest/1/abc.../crm.lead.add" maxlength="2000">
+        <input id="crmUrl" class="inp" placeholder="https://your-crm.bitrix24.ru/rest/1/abc.../crm.lead.add" maxlength="2000" aria-label="https://your-crm.bitrix24.ru/rest/1/abc.../crm.lead.add">
       </div>
       <div>
         <label class="text-xs font-bold text-on-dim mb-1 block">Название (для удобства)</label>
-        <input id="crmName" class="inp" placeholder="Главная воронка" maxlength="100">
+        <input id="crmName" class="inp" placeholder="Главная воронка" maxlength="100" aria-label="Главная воронка">
       </div>
     </div>
     <div class="flex justify-end gap-2 mt-5 pt-3 border-t border-outline/25">
@@ -333,12 +346,12 @@ def verify(secret, body_bytes, signature_header):
     <div class="space-y-3">
       <div>
         <label class="text-xs font-bold text-on-dim mb-1 block">URL для POST</label>
-        <input id="whUrl" class="inp" placeholder="https://your.com/webhooks/aiche" maxlength="2000">
+        <input id="whUrl" class="inp" placeholder="https://your.com/webhooks/aiche" maxlength="2000" aria-label="https://your.com/webhooks/aiche">
         <p class="text-xs text-on-dim/60 mt-1">Публичный HTTPS URL. Должен возвращать 2xx за ≤10 сек.</p>
       </div>
       <div>
         <label class="text-xs font-bold text-on-dim mb-1 block">Описание (опционально)</label>
-        <input id="whDesc" class="inp" placeholder="my-bitrix-sync" maxlength="200">
+        <input id="whDesc" class="inp" placeholder="my-bitrix-sync" maxlength="200" aria-label="my-bitrix-sync">
       </div>
       <div>
         <label class="text-xs font-bold text-on-dim mb-1 block">События</label>

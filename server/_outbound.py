@@ -11,6 +11,9 @@
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -178,3 +181,30 @@ def dispatch_outbound(
     except Exception as e:
         log.warning(f"[{log_prefix}] persist_status failed: {e}")
     return result
+
+
+# ── Хелперы, общие для webhooks.py и crm.py ───────────────────────────────
+
+def serialize_payload(payload: dict) -> bytes:
+    """JSON → bytes детерминированно (sort_keys=True для верификации HMAC).
+
+    Без sort_keys одна и та же payload может быть сериализована в разном
+    порядке ключей на разных Python-версиях, и подпись на стороне приёмника
+    не сойдётся.
+    """
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+
+
+def hmac_sign_sha256(secret: str, body: bytes, *, prefix: str = "sha256=") -> str:
+    """HMAC-SHA256 подпись body. Формат: `<prefix><hex>` (по умолчанию `sha256=`)."""
+    h = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return f"{prefix}{h}"
+
+
+def result_to_dict(result: OutboundResult) -> dict:
+    """OutboundResult → {status, error, delivered} для UI/test endpoint'ов."""
+    return {
+        "status": result.status if result.status is not None else "error",
+        "error": result.error,
+        "delivered": result.delivered,
+    }
