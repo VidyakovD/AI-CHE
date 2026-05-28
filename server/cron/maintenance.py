@@ -166,3 +166,66 @@ async def llm_cache_cleanup_loop():
         except Exception as e:
             log.error(f"[llm-cache-cleanup] tick error: {e}")
         await asyncio.sleep(86400)
+
+
+# ── Site failed-generation monitor: алерт админу если >30% упало за час ──
+
+async def _site_failures_monitor_tick():
+    """Каждый час проверяет процент failed site-generations за последний час.
+    Если > FAILURE_THRESHOLD_PCT (default 30) и не меньше 5 попыток — алертим
+    админу. Защита от «тихого» breakage когда LLM-провайдеры упали — мы
+    сами замечаем не дожидаясь жалоб юзеров."""
+    from server.db import db_session
+    from server.models import SiteProject
+    threshold_pct = int(os.getenv("SITE_FAILURE_THRESHOLD_PCT", "30"))
+    min_attempts = int(os.getenv("SITE_FAILURE_MIN_ATTEMPTS", "5"))
+    cutoff = datetime.utcnow() - timedelta(hours=1)
+    try:
+        with db_session() as db:
+            rows = (db.query(SiteProject)
+                      .filter(SiteProject.gen_started_at != None,  # noqa: E711
+                              SiteProject.gen_started_at >= cutoff,
+                              SiteProject.gen_status.in_(("done", "failed")))
+                      .all())
+            total = len(rows)
+            if total < min_attempts:
+                return  # слишком мало данных
+            failed = sum(1 for r in rows if r.gen_status == "failed")
+            pct = failed * 100 / total
+            if pct < threshold_pct:
+                return
+            # Берём примеры ошибок
+            errors = []
+            for r in rows:
+                if r.gen_status == "failed" and r.gen_error:
+                    errors.append(r.gen_error[:140])
+                if len(errors) >= 3:
+                    break
+        # Алерт админу
+        try:
+            from server.ai import _notify_admin
+            msg = (
+                f"🚨 Site generations: {failed}/{total} failed за последний час "
+                f"({pct:.0f}% > порог {threshold_pct}%).\n"
+                f"Примеры ошибок:\n" + "\n".join(f"  • {e}" for e in errors[:3])
+            )
+            _notify_admin(msg)
+            log.warning(f"[site-monitor] {msg}")
+        except Exception as e:
+            log.error(f"[site-monitor] notify failed: {e}")
+    except Exception as e:
+        log.error(f"[site-monitor] tick failed: {e}")
+
+
+async def site_failures_monitor_loop():
+    """Раз в час проверяет % failed site-generations + алерт админу."""
+    from server.worker_lock import worker_lock
+    await asyncio.sleep(1800)  # 30 мин после старта (стабилизация)
+    while True:
+        try:
+            with worker_lock("site_failures_monitor", ttl_sec=3600 + 300) as acquired:
+                if acquired:
+                    await _site_failures_monitor_tick()
+        except Exception as e:
+            log.error(f"[site-monitor] loop error: {e}")
+        await asyncio.sleep(3600)

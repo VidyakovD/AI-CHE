@@ -2,7 +2,44 @@
 
 > Что делать в новых сессиях. **Структура по модулям** — открой нужный `.md` в `docs/modules/` для контекста перед работой.
 
-_Последнее обновление: 2026-05-22 (после большой сессии — 26 закрытых задач, см. HANDOVER.md)._
+_Последнее обновление: 2026-05-28 (большая сессия — 30+ закрытых задач + true zero-downtime blue/green на проде)._
+
+## 🆕 Состояние 2026-05-28
+
+**Прод**: HEAD = `e9dad93+`, gunicorn + 2 инстанса (8000 GREEN + 8001 BLUE) за nginx upstream. **120/120 = 100% zero-downtime** при rolling deploy. Деплой = `scripts/deploy.sh`. См. [docs/DEPLOY.md](docs/DEPLOY.md).
+
+### Закрыто в этой сессии (28 коммитов поверх `236020e`):
+
+**Wave 4 security audit (10 фиксов):**
+- P0×3: validate_external_url, /api/v1 rate-limit, scope CSV strip
+- P1×3: MCP fail-closed, webhook HMAC sort_keys, follow_redirects=False
+- P2×3: bulk_prepare worker_lock, search_notes cap, FinanceTransaction BIGINT cap
+- cron_min_interval_ok (5 мин минимум) против DoS на per-user cron
+
+**TESTING_LOG отложенные:**
+- Embedding billing на /knowledge/upload (1 ₽/МБ + refund при ошибке)
+- XLSX bloat guards (100 листов, 10K симв/ячейка)
+- 7 багов от юзера: Perplexity всегда 3₽ (alt_model fallback), TG-бот retry+proxy,
+  Ctrl+Enter keypress, Sites preview белый/наезд/фото в edit-mode, цветные эмодзи на главной
+
+**Новые фичи:**
+- ✅ **Custom-домены через CNAME + Let's Encrypt** (модуль 09-sites)
+- ✅ **Скилы модулей (Итерация 4)** — чекбоксы с доплатой
+- ✅ **Биллинг ИИ-агент real_cost × 3** (margin из ai.reply_margin_pct)
+- ✅ **Питание-агент проактивный** (рацион + калории + [LEARNED:fact])
+- ✅ **Тренер** — новый модуль coach (планы + фиксация прогресса + скилы)
+- ✅ **Чат-бот на сайте** — relay TG/MAX + AI с предобучением
+- ✅ **Платный хостинг сайтов + SEO** (meta + sitemap + robots)
+- ✅ **Новостник** — модуль news_aggregator с автопостингом в TG
+- ✅ **Динамические цены USD × курс ЦБ × 3** + accumulator недокопеек
+- ✅ **Раздел «Сервисы» + распознавание голоса** (/services/voice.html)
+
+**Инфра:**
+- ✅ **gunicorn вместо uvicorn** (max_requests, graceful_timeout)
+- ✅ **blue/green** с nginx upstream + proxy_next_upstream → true zero-downtime
+- ✅ **scripts/deploy.sh** для координированного rollout
+
+_Последнее обновление до этой сессии: 2026-05-22._
 
 > ℹ️ **Pre-launch stage:** база на проде пустая, только админ. Перфоманс/N+1/A-B-тесты/аналитика usage преждевременны. Приоритет — security к моменту запуска, оставшиеся блокеры на стороне юзера.
 
@@ -31,16 +68,27 @@ _Последнее обновление: 2026-05-22 (после большой 
 
 | Приоритет | Что |
 |---|---|
-| 🟠 high | **Custom-домен через CNAME** для сайтов + Let's Encrypt automation (B2B value) |
-| 🟢 low | **Миграция `notify_user()`** на `personal_tg_chat_id` (legacy push → новый flow) |
-| 🟢 low | **Удалить legacy endpoints** `/user/tg-link/*` и `/user/max-link/*` (UI больше не вызывает) |
-| 🟢 low | **Удалить** `server/tg_management.py / max_management.py` после миграции notify_user |
 | 🟢 low | **UI настроек модуля** через формы (сейчас `custom_settings_json` только через PATCH API) |
-| 🟢 low | **Скилы модулей** (Итерация 4 roadmap-23) — чекбоксы, price_delta |
 | 🟢 low | **Multi-LLM паттерны** Pipeline/Parallel/Verify из ТЗ ВРЕМЯ-агента |
 | 🟢 low | **Module manifest.yaml** формат (рефакторинг 48 ролей) — для будущего marketplace |
 | 🟢 low | **Тесты на OAuth flow** для Calendar (mock exchange request) |
 | 🟢 low | **Cron sync для Calendar** (раз в час), сейчас fetch on-demand при invoke_module |
+| 🟢 low | **A11y на остальных страницах** (proposals/sites/chatbots/agents/admin/api) |
+| 🟢 low | **Самопрогон 40 пилотов Solutions** на синтетических кейсах для тюна промптов |
+| 🟢 low | **Bulk-генерация КП из CSV** для агентств |
+| 🟢 low | **Auto-fill КП из IMAP** — paste raw email → парсим поля |
+| 🟢 low | **A/B сравнение 3 КП-presets** за одну цену |
+| 🟢 low | **Видео-приветствие** через Veo в КП (персонализация) |
+| 🟢 low | **Calendar integration в КП** — авто-создание встречи при ответе клиента |
+| 🟢 low | **Marketplace withdrawal flow** (если решим вернуть marketplace) |
+
+#### Снято с очереди (проверено в сессии 2026-05-28):
+- ~~Удалить /user/tg-link/* /user/max-link/*~~ — index.html всё ещё их использует
+  для notification-settings + legacy push. Не удаляем, оставляем работать
+  параллельно с personal-bot flow.
+- ~~notify_user через personal_tg~~ — текущий код в `tg_management.py` работает,
+  миграция несёт риск потери уведомлений у юзеров с не-personal botом.
+  Делать только когда все юзеры мигрированы на personal-bot.
 
 ---
 

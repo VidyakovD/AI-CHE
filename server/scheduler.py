@@ -274,6 +274,7 @@ from server.cron.maintenance import (  # noqa: E402, F401
     _cleanup_old_action_logs_tick, audit_cleanup_loop,
     _cleanup_old_conversations_tick, conv_cleanup_loop,
     llm_cache_cleanup_loop,
+    site_failures_monitor_loop,
 )
 
 
@@ -363,6 +364,7 @@ def start_scheduler():
     asyncio.create_task(conv_cleanup_loop())
     asyncio.create_task(audit_cleanup_loop())
     asyncio.create_task(llm_cache_cleanup_loop())
+    asyncio.create_task(site_failures_monitor_loop())
     asyncio.create_task(storage_billing_loop())
     asyncio.create_task(orchestra_schedules_loop())
     asyncio.create_task(idempotency_cleanup_loop())

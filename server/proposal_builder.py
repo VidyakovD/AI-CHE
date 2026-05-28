@@ -1239,3 +1239,143 @@ def _save_pdf(html: str, project_id: int) -> str:
     with open(out_path, "wb") as f:
         f.write(pdf_bytes)
     return f"/uploads/proposals/{fname}"
+
+
+def regenerate_signed_pdf(proposal_id: int) -> str | None:
+    """Перерисовать PDF КП с watermark «ПОДПИСАНО» + QR-кодом верификации.
+
+    Зовётся фоном из POST /p/{token}/sign после успешного commit ProposalSignature.
+    Берёт оригинальный generated_html, оборачивает CSS-watermark + QR-блоком,
+    конвертирует в PDF, сохраняет, обновляет proposal.generated_pdf.
+
+    Возвращает новый pdf_path или None при ошибке (логируется).
+    """
+    from server.db import db_session
+    from server.models import ProposalProject, ProposalSignature
+    import qrcode as _qrcode
+    import io as _io
+    import base64 as _base64
+    try:
+        with db_session() as db:
+            p = db.query(ProposalProject).filter_by(id=proposal_id).first()
+            if not p or not p.generated_html:
+                return None
+            sig = db.query(ProposalSignature).filter_by(proposal_id=p.id).first()
+            if not sig:
+                return None
+            html = p.generated_html
+            public_token = p.public_token or ""
+            old_pdf_rel = p.generated_pdf
+
+        # Генерируем QR с link на verify-страницу
+        verify_url = f"https://aiche.ru/p/{public_token}/verify"
+        qr_img = _qrcode.make(verify_url)
+        qr_buf = _io.BytesIO()
+        qr_img.save(qr_buf, format="PNG")
+        qr_b64 = _base64.b64encode(qr_buf.getvalue()).decode("ascii")
+        qr_data_url = f"data:image/png;base64,{qr_b64}"
+
+        signed_date = sig.signed_at.strftime("%d.%m.%Y %H:%M") if sig.signed_at else ""
+        sig_hash_short = (sig.sig_hash or "")[:16]
+
+        # Вставляем watermark CSS + QR-блок ПЕРЕД </body>
+        # Watermark — большой полупрозрачный текст по центру каждой страницы
+        # (через @page background или fixed-position div). xhtml2pdf поддерживает
+        # @page и position:fixed внутри @media print контекста.
+        watermark_block = f"""
+<style>
+  .__signed-watermark {{
+    position: fixed;
+    top: 38%;
+    left: 0;
+    right: 0;
+    text-align: center;
+    transform: rotate(-22deg);
+    color: rgba(72, 184, 76, 0.18);
+    font-size: 96pt;
+    font-weight: 900;
+    letter-spacing: 6pt;
+    z-index: -1;
+    pointer-events: none;
+    line-height: 1;
+  }}
+  .__signed-verify-block {{
+    margin-top: 36pt;
+    padding: 14pt 18pt;
+    border: 1pt solid #7bd968;
+    border-radius: 8pt;
+    background: rgba(123,217,104,0.06);
+    color: #1a3d0e;
+    font-size: 9pt;
+    line-height: 1.4;
+    font-family: 'Golos Text', sans-serif;
+  }}
+  .__signed-verify-block table {{ width: 100%; }}
+  .__signed-verify-block .v-qr {{
+    width: 90pt;
+    height: 90pt;
+    border: 1pt solid #7bd968;
+    border-radius: 4pt;
+  }}
+  .__signed-verify-block .v-title {{
+    font-size: 11pt;
+    font-weight: 700;
+    color: #2d6a3a;
+    margin-bottom: 6pt;
+  }}
+</style>
+<div class="__signed-watermark">ПОДПИСАНО</div>
+<div class="__signed-verify-block">
+  <table>
+    <tr>
+      <td style="vertical-align:top; padding-right:14pt">
+        <div class="v-title">✓ Документ электронно подписан</div>
+        <div><b>Подписант:</b> {(sig.signer_name or '')[:120]}{(', '+sig.signer_position) if sig.signer_position else ''}</div>
+        {f'<div><b>Email:</b> {sig.signer_email}</div>' if sig.signer_email else ''}
+        <div><b>Дата подписи:</b> {signed_date} (UTC)</div>
+        <div><b>IP:</b> {sig.ip or '—'}</div>
+        <div><b>Hash:</b> <code style="font-family:monospace;font-size:8pt">{sig_hash_short}…</code></div>
+        <div style="margin-top:6pt;color:#2d6a3a">
+          Подлинность можно проверить отсканировав QR →<br>
+          или открыв <a href="{verify_url}">{verify_url}</a>
+        </div>
+      </td>
+      <td style="vertical-align:middle; text-align:right; width:100pt">
+        <img src="{qr_data_url}" class="v-qr"/>
+      </td>
+    </tr>
+  </table>
+</div>
+"""
+        if "</body>" in html:
+            html = html.replace("</body>", watermark_block + "\n</body>", 1)
+        else:
+            html = html + watermark_block
+
+        # Сохраняем новый PDF
+        new_pdf_rel = _save_pdf(html, proposal_id)
+
+        with db_session() as db:
+            p = db.query(ProposalProject).filter_by(id=proposal_id).first()
+            if p:
+                p.generated_pdf = new_pdf_rel
+                db.commit()
+
+        # Удаляем старый файл (best-effort)
+        if old_pdf_rel and old_pdf_rel != new_pdf_rel:
+            try:
+                base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                old_abs = os.path.realpath(os.path.join(base, old_pdf_rel.lstrip("/")))
+                uploads_root = os.path.realpath(os.path.join(base, "uploads"))
+                if old_abs.startswith(uploads_root) and os.path.exists(old_abs):
+                    os.remove(old_abs)
+            except Exception:
+                pass
+
+        return new_pdf_rel
+    except Exception as e:
+        import logging
+        logging.getLogger("proposals").error(
+            f"[regenerate_signed_pdf] proposal={proposal_id}: {type(e).__name__}: {e}"
+        )
+        return None

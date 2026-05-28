@@ -881,6 +881,94 @@ def serve_public_proposal(public_token: str, request: "Request"):
 
 
 
+@app.get("/p/{public_token}/verify", include_in_schema=False)
+def serve_public_proposal_verify(public_token: str):
+    """Публичная страница проверки подписи КП.
+
+    QR-код на signed PDF ведёт сюда. Открыв с телефона/планшета юзер видит:
+    подписан ли документ, кто подписал, когда, IP, hash.
+
+    БЕЗ auth — это публичная верификация, защита через unguessable public_token.
+    """
+    from fastapi.responses import HTMLResponse, JSONResponse
+    from server.db import db_session
+    from server.models import ProposalProject, ProposalSignature
+    if not public_token or len(public_token) < 16:
+        return JSONResponse({"detail": "Invalid token"}, status_code=404)
+    with db_session() as _db:
+        p = _db.query(ProposalProject).filter_by(public_token=public_token).first()
+        if not p:
+            return JSONResponse({"detail": "КП не найдено"}, status_code=404)
+        sig = _db.query(ProposalSignature).filter_by(proposal_id=p.id).first()
+        proposal_name = p.name or "Документ"
+    if not sig:
+        status_html = """
+        <div class="card unsigned">
+          <div class="big">📄</div>
+          <div class="title">Документ не подписан</div>
+          <div class="hint">Этот документ ещё не подписан. Если он у вас на руках — это либо черновик, либо подделка.</div>
+        </div>
+        """
+    else:
+        status_html = f"""
+        <div class="card signed">
+          <div class="big">✓</div>
+          <div class="title">Документ подписан</div>
+          <div class="rows">
+            <div class="row"><span class="k">Подписант</span><span class="v">{(sig.signer_name or '')[:120]}{(', '+sig.signer_position) if sig.signer_position else ''}</span></div>
+            {f'<div class="row"><span class="k">Email</span><span class="v">{sig.signer_email}</span></div>' if sig.signer_email else ''}
+            <div class="row"><span class="k">Дата</span><span class="v">{sig.signed_at.strftime('%d.%m.%Y %H:%M') if sig.signed_at else '—'} UTC</span></div>
+            <div class="row"><span class="k">IP</span><span class="v">{sig.ip or '—'}</span></div>
+            <div class="row"><span class="k">Hash</span><span class="v mono">{(sig.sig_hash or '')[:32]}…</span></div>
+          </div>
+          <div class="hint">Подпись юридически зафиксирована на нашем сервере. Изменение документа после подписи невозможно без обнаружения (content_hash проверка).</div>
+        </div>
+        """
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Верификация подписи · {proposal_name[:60]}</title>
+  <style>
+    body {{ margin:0; background:#1C1C1C; color:#f0e6d8;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }}
+    .wrap {{ max-width: 540px; width: 100%; }}
+    h1 {{ font-size: 22px; margin: 0 0 6px; color: #f0e6d8; }}
+    .doc {{ color: #a89880; font-size: 13px; margin-bottom: 18px; }}
+    .card {{ background: #1e1a14; border-radius: 16px; padding: 28px 24px; border: 2px solid; }}
+    .card.signed {{ border-color: #7bd968; }}
+    .card.unsigned {{ border-color: #ffb347; }}
+    .big {{ font-size: 56px; text-align: center; margin-bottom: 8px; }}
+    .signed .big {{ color: #7bd968; }}
+    .unsigned .big {{ color: #ffb347; }}
+    .title {{ text-align: center; font-size: 19px; font-weight: 700; margin-bottom: 18px; }}
+    .rows {{ background: rgba(123,217,104,0.05); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }}
+    .row {{ display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(74,63,47,0.3); font-size: 13px; }}
+    .row:last-child {{ border-bottom: none; }}
+    .k {{ color: #a89880; flex-shrink: 0; padding-right: 10px; }}
+    .v {{ color: #f0e6d8; text-align: right; word-break: break-all; }}
+    .mono {{ font-family: ui-monospace, 'SF Mono', monospace; font-size: 11px; }}
+    .hint {{ font-size: 12px; color: #a89880; line-height: 1.5; }}
+    .footer {{ text-align: center; margin-top: 20px; font-size: 11px; color: #a89880; }}
+    .footer a {{ color: #ff8c42; text-decoration: none; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Верификация подписи</h1>
+    <div class="doc">📄 {proposal_name[:120]}</div>
+    {status_html}
+    <div class="footer">
+      Сервис электронной подписи · <a href="https://aiche.ru" target="_blank">AI Студия Че</a>
+    </div>
+  </div>
+</body>
+</html>"""
+    return HTMLResponse(html)
+
+
 @app.get("/p/{public_token}/pdf", include_in_schema=False)
 def serve_public_proposal_pdf(public_token: str):
     """Прямой PDF — для скачивания / iframe-превью на /p/{token}."""
@@ -1024,6 +1112,22 @@ async def sign_public_proposal(public_token: str, request: "Request"):
         owner_id = p.user_id
         proposal_name = p.name
         client_label = p.client_name or p.client_email or "Клиент"
+
+    # Регенерируем PDF с watermark «ПОДПИСАНО» + QR в фоне.
+    # Тяжёлая операция (xhtml2pdf конвертация может занять 2-10 сек), не блокируем
+    # response юзеру. В случае ошибки — старый PDF остаётся, юзер увидит без
+    # watermark. Лог ошибки в proposals-logger.
+    try:
+        from server._async_tasks import spawn
+        import asyncio as _asyncio
+        async def _regen_signed():
+            from server.proposal_builder import regenerate_signed_pdf
+            await _asyncio.get_event_loop().run_in_executor(
+                None, regenerate_signed_pdf, p.id
+            )
+        spawn(_regen_signed(), name=f"regen-signed-pdf-{p.id}")
+    except Exception:
+        pass
 
     # Audit log
     try:
