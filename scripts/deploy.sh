@@ -55,7 +55,14 @@ smoke_test() {
 cd "$REPO"
 
 log "── Шаг 1/5: подтягиваем код"
-git pull origin main
+# Если есть локальные изменения tracked файлов — сбрасываем (это сервер,
+# не разрабатываем тут). untracked файлы (.env.* бэкапы, .vapid) не трогаем.
+if ! git diff --quiet HEAD 2>/dev/null; then
+    log "  WARN: tracked файлы изменены — сбрасываю до HEAD"
+    git checkout -- .
+fi
+git fetch origin main 2>&1 | tail -1
+git reset --hard origin/main 2>&1 | tail -1
 
 log "── Шаг 2/5: обновляем зависимости"
 ./venv/bin/pip install -r requirements.txt --upgrade --quiet
