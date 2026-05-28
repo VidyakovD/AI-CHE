@@ -6,6 +6,10 @@ fastapi>=0.115.0,<0.116
 # Транзитивный pin для starlette — на случай если pip выберет старее
 starlette>=0.40.0,<0.42
 uvicorn>=0.30.0,<0.36
+# Gunicorn для zero-downtime rolling reload (SIGHUP → workers перезапускаются
+# по одному, старые дорабатывают активные запросы). См. gunicorn.conf.py +
+# deploy/ai-che.service. На systemd: `systemctl reload ai-che` без downtime.
+gunicorn>=22.0.0,<24
 sqlalchemy==2.0.30
 # Alembic для версионируемых миграций. Подключён параллельно с
 # LIGHTWEIGHT_MIGRATIONS (см. alembic/README.md). Используется для

@@ -1,24 +1,29 @@
 [Unit]
-Description=AI Studio Che — FastAPI app
+Description=AI Studio Che — FastAPI app (gunicorn + uvicorn workers)
 Documentation=https://aiche.ru
 After=network.target
 
 [Service]
-Type=simple
+Type=notify
 WorkingDirectory=/root/AI-CHE
 EnvironmentFile=/root/AI-CHE/.env
-ExecStart=/root/AI-CHE/venv/bin/python -m uvicorn main:app \
-    --host 127.0.0.1 \
-    --port 8000 \
-    --workers 4 \
-    --proxy-headers \
-    --forwarded-allow-ips=127.0.0.1
+# Gunicorn с UvicornWorker — поддерживает rolling reload через SIGHUP.
+# Конфиг в gunicorn.conf.py: workers=4, timeout=180, graceful_timeout=60,
+# max_requests=10000, access-log → journal.
+ExecStart=/root/AI-CHE/venv/bin/gunicorn main:app -c /root/AI-CHE/gunicorn.conf.py
+# Zero-downtime reload: gunicorn master ловит HUP → стартует новых workers с
+# новым кодом → старые workers получают TERM → дорабатывают активные
+# запросы (graceful_timeout=60s) → корректно завершаются. Порт всё время
+# отвечает. `systemctl reload ai-che` теперь = `kill -HUP $MAINPID`.
+ExecReload=/bin/kill -HUP $MAINPID
+PIDFile=/run/ai-che.pid
+
 Restart=on-failure
 RestartSec=5
 StartLimitInterval=300
 StartLimitBurst=5
 
-# Logs → journalctl
+# Logs → journalctl. Gunicorn пишет в stdout/stderr (см. gunicorn.conf.py).
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=ai-che
@@ -31,7 +36,18 @@ PrivateTmp=yes
 
 # Лимиты
 LimitNOFILE=65536
-TimeoutStopSec=30
+# Type=notify требует чтобы gunicorn master сам сигналил sd_notify(READY=1) —
+# UvicornWorker делает это автоматически. Если возникнут проблемы со стартом
+# (status=activating>limit) — поменять Type=notify → Type=simple. Гибрид
+# работает, но без notify systemd не знает когда сервис «реально готов».
+TimeoutStartSec=60
+# Graceful stop: дать gunicorn (graceful_timeout=60) + буфер.
+TimeoutStopSec=90
+
+# При reload не убивать процессы master/workers — gunicorn сам разруливает
+# через HUP. KillMode=mixed = SIGTERM master, SIGKILL children-orphans
+# если master не убил.
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target
