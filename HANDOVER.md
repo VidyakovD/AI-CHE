@@ -2,7 +2,107 @@
 
 > История спринтов. **Чтобы понять что было сделано — открой нужный модуль ниже.** Для деталей коммитов — `git log --oneline -100`.
 
-**Свежее состояние:** 2026-05-22. Прод на `193.187.92.147`. **533 теста проходят.**
+**Свежее состояние:** 2026-05-28. Прод на `193.187.92.147`. **HEAD=`15d2502`. Blue/green развёрнут.**
+
+---
+
+## 🔥 2026-05-26…28 — ГИГА-СЕССИЯ: 49 закрытых задач + true zero-downtime deploy
+
+Три дня крупнейших изменений. Закатано 29 коммитов на main с `236020e` по `15d2502`.
+
+### Архитектурные изменения
+
+1. **Blue/green deploy** через nginx upstream — true zero-downtime (120/120 OK замерено).
+   gunicorn × 2 инстанса (8000 GREEN + 8001 BLUE) + `scripts/deploy.sh`.
+2. **Биллинг ИИ агента = real_cost × 3** (через `calc_agent_cost_kop`) вместо
+   фикс 50/100 коп. Применено в 5 точках (chat/cron/manual/webhook/tg-relay).
+3. **Скилы модулей (Итерация 4)** — `register_agent(skills=[{slug, name,
+   price_delta_kop, tools, prompt_addon}])`. 10 скилов в 4 модулях.
+4. **Settings_schema модулей** — UI рендерит форму вместо raw JSON.
+5. **Custom-домены** для сайтов через CNAME + Let's Encrypt + certbot wrapper.
+6. **VK community-бот** для Че (личный) + для чат-ботов (уже было).
+7. **A/B стили КП** (sales/consultative/technical/default) — параметр ?style=
+8. **Watermark «ПОДПИСАНО» + QR** в PDF КП → /p/{token}/verify.
+
+### 5 новых модулей в AGENT_REGISTRY
+
+- **🏋 Тренер** (`coach`) — программы тренировок + фиксация прогресса
+- **🎯 Директолог Я.Директ** (`direct_ads`) — анализ/A-B/рекомендации (read-only)
+- **🥗 Питание** (`nutrition`) — рацион + калории + [LEARNED:fact]
+- **📰 Новостник** (`news_aggregator`) — сбор новостей + автопостинг TG
+- **💙 ВК Реклама** (`vk_ads`) — анализ кампаний через ads API (нужен user-токен)
+
+### Wave 4 security audit (10 фиксов)
+
+P0 (3): validate_external_url создан, /api/v1 rate-limit, scope CSV strip.
+P1 (3): MCP fail-closed, webhook HMAC sort_keys, follow_redirects=False.
+P2 (3): bulk_prepare worker_lock, search_notes cap, FinanceTransaction int4-CAP.
+Plus cron_min_interval_ok (5 мин против DoS на per-user cron).
+
+### Bugfixes от юзера
+
+- Perplexity всегда 3 ₽ → alt_model fallback в calculate_cost
+- TG-бот ConnectError → убрал AI_HTTPS_PROXY fallback (Xray не маршрутизирует TG)
+- Ctrl+Enter переносит → keypress handler с preventDefault
+- Sites preview белый/наезд/фото-edit → 3 фикса
+- Цветные эмодзи на главной → убраны
+- Xray VLESS-сервер умер → юзер дал HTTP-прокси, AI_HTTPS_PROXY обновлён
+- Чат-бот не появлялся на сайте → attach-bot сразу инжектит widget-script
+
+### Прочие фичи
+
+- **Embedding billing** при /knowledge/upload (1 ₽/МБ через pricing_config)
+- **XLSX bloat guards** (100 sheets / 10K char per cell)
+- **Auto-flag failed site generations** (cron monitor, email админу)
+- **Регенерация сайта** другой моделью (Opus после Sonnet)
+- **Bulk-генерация КП из CSV** (до 100 строк за раз)
+- **Auto-fill КП из email** (LLM парсит → structured JSON)
+- **Calendar integration в КП** (событие при подписи)
+- **Cron Calendar sync** раз в 30 мин (cached_events_json)
+- **Раздел «Сервисы»** с `/services/voice.html` (Whisper transcribe)
+- **A11y skip-link** на 6 страницах (index/proposals/sites/chatbots/agents/admin)
+- **Тесты**: 512 passed на dev (Py3.14 + bcrypt-broken), 4 skipped
+
+### Файлы коммитов (укрупнённо)
+
+```
+172d8b0  security: wave 4 audit — 10 fixes
+cb2278d  feat(knowledge)+security: embedding billing + XLSX
+4cf201c  feat(agents): Итерация 4 — Скилы модулей
+8f62cc7  feat(sites): кастомные домены CNAME + Let's Encrypt
+2e0d973  fix(billing+ui): 7 багов от юзера
+aa63cf3  feat(billing): ИИ-агент real_cost × 3
+25a3706  feat(agents): питание-агент проактивный + 3 скила
+d73326f  feat(services): раздел Сервисы + распознавание голоса
+94c0ffc  feat(sites): чат-виджет на сайте — 2 режима
+337a518  feat(sites): платный хостинг + SEO + sitemap/robots
+93ea5d6  feat(agents): news_aggregator — новостник + автопостинг
+b9bf48f  feat(agents): 🏋 Тренер — программы + фиксация прогресса
+8d454ca  feat(billing): динамические цены = USD × курс ЦБ × ×3
+e1b9fbe  feat(services): /services/voice.html страница
+03513dd…e9dad93 (8 коммитов) feat(deploy): gunicorn + blue/green
+ee69774  feat(agents): VK community-бот + Директолог Я.Директ
+ca4e702  feat: backlog batch — calendar cron, bulk КП, autofill, a11y
+62a1c16  feat: backlog batch — a11y + calendar в КП + settings-form + style
+9761887  fix(personal-bot): убрать AI_HTTPS_PROXY fallback для TG
+53c0d08  feat(sites): чат-бот авто-встраивается в сайт сразу после выбора
+15d2502  feat(agents): 💙 ВК Реклама — новый модуль агента
+```
+
+### Что осталось (отложено по приоритету)
+
+🟢 low: A/B preset видео-приветствие в КП через Veo, manifest.yaml refactor,
+splitting chatbot_engine._execute_node, Multi-LLM Pipeline/Parallel/Verify
+паттерны, A11y по proposals/sites/chatbots/agents/admin (skip-link сделан,
+остальное — aria-label на иконки + label-for на inputs).
+
+⏸ продуктовое решение: Marketplace withdrawal flow.
+
+### Известные проблемы (НЕ блокеры)
+
+- **Imagen/Veo** не работают — Google Cloud billing исчерпан (юзер пополняет)
+- **VK ads** нужен user-токен (юзер получит на vkhost.github.io)
+- **bcrypt 5 + Py3.14** на dev — 2 теста падают, известно
 
 ---
 

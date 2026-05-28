@@ -2,11 +2,79 @@
 
 > Что делать в новых сессиях. **Структура по модулям** — открой нужный `.md` в `docs/modules/` для контекста перед работой.
 
-_Последнее обновление: 2026-05-28 (большая сессия — 30+ закрытых задач + true zero-downtime blue/green на проде)._
+_Последнее обновление: 2026-05-28 (гига-сессия 26-28 мая — 49 закрытых задач + true zero-downtime blue/green + 5 новых модулей агентов)._
 
 ## 🆕 Состояние 2026-05-28
 
 **Прод**: HEAD = `e9dad93+`, gunicorn + 2 инстанса (8000 GREEN + 8001 BLUE) за nginx upstream. **120/120 = 100% zero-downtime** при rolling deploy. Деплой = `scripts/deploy.sh`. См. [docs/DEPLOY.md](docs/DEPLOY.md).
+
+### Закрыто в гига-сессии 26-28 мая (29 коммитов: `236020e` → `15d2502`):
+
+**Архитектура:**
+- ✅ **Blue/green deploy** с nginx upstream — true zero-downtime (scripts/deploy.sh)
+- ✅ **gunicorn** вместо uvicorn standalone (gunicorn.conf.py)
+- ✅ **2 systemd unit'а** (ai-che + ai-che-blue) на портах 8000+8001
+
+**Биллинг:**
+- ✅ **ИИ-агент = real_cost × 3** через `calc_agent_cost_kop` (5 точек: chat/cron/manual/webhook/tg-relay)
+- ✅ **Динамические цены** USD × курс ЦБ × 3 (cron daily recalc)
+- ✅ **Embedding billing** на /knowledge/upload (1 ₽/МБ + refund при ошибке)
+
+**Новые модули (5):**
+- ✅ 🏋 **Тренер** (`coach`) — программы + фиксация прогресса
+- ✅ 🎯 **Директолог Я.Директ** (`direct_ads`) — анализ/A-B/рекомендации
+- ✅ 🥗 **Питание** (`nutrition`) — проактивный с [LEARNED:fact]
+- ✅ 📰 **Новостник** (`news_aggregator`) — автопостинг TG
+- ✅ 💙 **ВК Реклама** (`vk_ads`) — анализ через ads API
+
+**Инфра модулей:**
+- ✅ **Скилы (Итерация 4)** — register_agent(skills=[...]) с price_delta
+- ✅ **Settings_schema** — UI рендерит форму вместо raw JSON
+
+**КП:**
+- ✅ **Custom-домены через CNAME** + Let's Encrypt (B2B value)
+- ✅ **Watermark «ПОДПИСАНО» + QR** в PDF → /p/{token}/verify
+- ✅ **A/B стили КП** (default/sales/consultative/technical)
+- ✅ **Bulk-импорт из CSV** до 100 строк
+- ✅ **Auto-fill из email** (LLM парсит → fields)
+- ✅ **Cron auto-followup** уже было
+- ✅ **Calendar integration в КП** — событие при подписи
+
+**Сайты:**
+- ✅ **Custom-домен** через CNAME + nginx upstream + certbot
+- ✅ **Платный хостинг + SEO** (meta + sitemap + robots + OG)
+- ✅ **Чат-бот авто-встраивается** в сайт сразу после выбора
+- ✅ **Регенерация другой моделью** (Sonnet→Opus переключение)
+- ✅ **Auto-flag failed generations** (cron monitor + админ алерт)
+- ✅ **A/B preset стили** — уже сделано в КП, для сайтов будущим спринтом
+
+**VK интеграции:**
+- ✅ **VK community-бот в /chatbots.html** — было, но переподтверждено
+- ✅ **VK community-бот к Че** — личный (/agents-modular.html → 📲 → VK)
+- ✅ **VK Ads модуль** — анализ кампаний (нужен user-токен)
+
+**Сервисы:**
+- ✅ **Раздел «Сервисы»** в sidebar + `/services/voice.html` (Whisper)
+
+**Календарь:**
+- ✅ **Cron sync** раз в 30 мин (cached_events_json)
+
+**A11y:**
+- ✅ **Skip-link** на 6 страницах (index/proposals/sites/chatbots/agents/admin)
+
+**Безопасность:**
+- ✅ **Wave 4 audit** — 10 фиксов (3×P0 + 3×P1 + 3×P2)
+- ✅ **cron_min_interval_ok** (5 мин минимум на per-user cron)
+
+**Bugfix-ы:**
+- ✅ Perplexity всегда 3 ₽ → alt_model fallback
+- ✅ TG-бот ConnectError → убран AI_HTTPS_PROXY fallback
+- ✅ Ctrl+Enter переносит → keypress preventDefault
+- ✅ Sites preview белый/наезд/фото-edit (3 фикса)
+- ✅ Цветные эмодзи на главной → убраны
+
+**Прокси:**
+- ✅ Xray VLESS заменён на HTTP `154.205.231.44:63602`
 
 ### Закрыто в этой сессии (28 коммитов поверх `236020e`):
 
@@ -64,23 +132,22 @@ _Последнее обновление до этой сессии: 2026-05-22.
 
 ✅ Закрыто: ЮKassa+ОФД (Evotor подключен 2026-05-22).
 
-### 🟡 Открытые задачи следующих сессий
+### 🟡 Открытые задачи следующих сессий (после 28 мая)
 
 | Приоритет | Что |
 |---|---|
-| 🟢 low | **UI настроек модуля** через формы (сейчас `custom_settings_json` только через PATCH API) |
-| 🟢 low | **Multi-LLM паттерны** Pipeline/Parallel/Verify из ТЗ ВРЕМЯ-агента |
-| 🟢 low | **Module manifest.yaml** формат (рефакторинг 48 ролей) — для будущего marketplace |
+| 🟢 low | **Multi-LLM паттерны** Pipeline/Parallel/Verify (workflow patterns) — большой scope |
+| 🟢 low | **Module manifest.yaml** формат — рефакторинг 28 модулей (для будущего marketplace) |
+| 🟢 low | **Splitting `chatbot_engine._execute_node`** (1100 строк) — высокий риск, без покрытия тестами |
 | 🟢 low | **Тесты на OAuth flow** для Calendar (mock exchange request) |
-| 🟢 low | **Cron sync для Calendar** (раз в час), сейчас fetch on-demand при invoke_module |
-| 🟢 low | **A11y на остальных страницах** (proposals/sites/chatbots/agents/admin/api) |
+| 🟢 low | **A11y aria-label + alt + label-for** на 6 страницах (skip-link уже есть) |
 | 🟢 low | **Самопрогон 40 пилотов Solutions** на синтетических кейсах для тюна промптов |
-| 🟢 low | **Bulk-генерация КП из CSV** для агентств |
-| 🟢 low | **Auto-fill КП из IMAP** — paste raw email → парсим поля |
-| 🟢 low | **A/B сравнение 3 КП-presets** за одну цену |
-| 🟢 low | **Видео-приветствие** через Veo в КП (персонализация) |
-| 🟢 low | **Calendar integration в КП** — авто-создание встречи при ответе клиента |
-| 🟢 low | **Marketplace withdrawal flow** (если решим вернуть marketplace) |
+| 🟢 low | **Видео-приветствие** через Veo в КП (зависит от Google Cloud credits) |
+| 🟢 low | **Settings_schema** для остальных 23 модулей (5 уже сделано) |
+| 🟢 low | **VK ads — write-операции** (создание/изменение кампаний). MVP только READ |
+| 🟢 low | **Splitting `views/icons.js`** (2700 строк) — косметика |
+| 🟢 low | **Marketplace withdrawal flow** — продуктовое решение |
+| 🟢 low | **Migrate notify_user() на personal_tg** — отложено (риск потери push при не-personal-bot)|
 
 #### Снято с очереди (проверено в сессии 2026-05-28):
 - ~~Удалить /user/tg-link/* /user/max-link/*~~ — index.html всё ещё их использует
