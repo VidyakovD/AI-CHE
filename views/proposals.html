@@ -87,10 +87,83 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
         <p class="text-sm text-on-dim">Персонализированные КП на основе бренда, прайса и контекста заявки</p>
       </div>
     </div>
-    <button onclick="openCreate()" class="btn-p">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-      Создать КП
-    </button>
+    <div class="flex items-center gap-2">
+      <button onclick="openBulkCsv()" class="btn-g" title="Импорт списка клиентов из CSV — каждый ряд создаст черновик КП">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+        📥 Bulk из CSV
+      </button>
+      <button onclick="openCreate()" class="btn-p">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+        Создать КП
+      </button>
+    </div>
+  </div>
+
+  <!-- Auto-fill from email modal -->
+  <div id="autoFillModal" class="modal-bg" onclick="if(event.target===this)closeAutoFillEmail()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-bold sig-text">📧 Распознать из письма</h2>
+        <button class="btn-g btn-icon" onclick="closeAutoFillEmail()" title="Закрыть">✕</button>
+      </div>
+      <p class="text-sm text-on-dim mb-3">
+        Вставь сырое письмо от клиента (из Outlook → File → Save As .eml,
+        или Mail.app → View → Message → Raw Source). AI извлечёт имя,
+        email, телефон, сайт, суть запроса и подставит в форму выше.
+        Стоит <b>5 ₽</b>.
+      </p>
+      <textarea id="autoFillRawEmail" class="inp" rows="14"
+                style="font-family:monospace;font-size:12px"
+                placeholder="From: ivan@romashka.ru&#10;To: us@aiche.ru&#10;Subject: Запрос на расчёт&#10;&#10;Здравствуйте, нас интересует..."></textarea>
+      <div class="flex justify-end gap-2 mt-3">
+        <button onclick="closeAutoFillEmail()" class="btn-g">Отмена</button>
+        <button onclick="submitAutoFillEmail()" id="autoFillSubmitBtn" class="btn-p">📧 Распознать (5 ₽)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk CSV modal -->
+  <div id="bulkCsvModal" class="modal-bg" onclick="if(event.target===this)closeBulkCsv()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold sig-text">📥 Bulk-импорт из CSV</h2>
+        <button class="btn-g btn-icon" onclick="closeBulkCsv()" title="Закрыть">✕</button>
+      </div>
+      <p class="text-sm text-on-dim mb-3">
+        Создать драфты КП по списку клиентов. Каждый ряд = отдельный черновик.
+        Генерация запускается отдельно (≈50 ₽ за каждый).
+      </p>
+
+      <div class="bg-surface2 rounded-lg p-3 mb-3 text-xs text-on-dim">
+        <div class="font-bold text-on-surface mb-1">Формат CSV (заголовки в первой строке):</div>
+        <code style="font-family:monospace;display:block;white-space:pre">name,client_email,client_request,client_site_url,extra_notes
+Иванов И.И.,ivanov@example.ru,Нужна доработка сайта,https://example.ru/,Срочно
+ООО Ромашка,info@romashka.ru,Корпоративный портал,,Бюджет 500к</code>
+        <div class="mt-2">Только <code>name</code> обязательна. Макс 100 строк.</div>
+      </div>
+
+      <label class="block text-sm mb-1">Файл CSV / TSV</label>
+      <input type="file" id="bulkCsvFile" accept=".csv,.tsv,.txt" class="inp mb-3"/>
+
+      <label class="block text-sm mb-1">Бренд для всех (опционально)</label>
+      <select id="bulkBrandSelect" class="inp mb-3">
+        <option value="">— Без бренда —</option>
+      </select>
+
+      <label class="block text-sm mb-1">Прайс для всех (опционально)</label>
+      <select id="bulkPriceSelect" class="inp mb-3">
+        <option value="">— Без прайса —</option>
+      </select>
+
+      <label class="block text-sm mb-1">Доп. инструкции для всех (опционально)</label>
+      <textarea id="bulkExtraNotes" class="inp" rows="2"
+                placeholder="Например: «Подчеркнуть скидку 15% до конца месяца»"></textarea>
+
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="closeBulkCsv()" class="btn-g">Отмена</button>
+        <button onclick="submitBulkCsv()" id="bulkSubmitBtn" class="btn-p">📥 Импортировать</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── Переключатель «Проекты / Бренды / Прайсы» ── -->
@@ -230,7 +303,13 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
         </div>
       </div>
       <div class="field">
-        <label>Запрос клиента (текст письма/заявки)</label>
+        <label class="flex items-center justify-between">
+          <span>Запрос клиента (текст письма/заявки)</span>
+          <button type="button" onclick="openAutoFillEmail()" class="btn-g text-xs"
+                  title="Вставь сырое письмо от клиента — AI распознает имя/email/телефон/сайт/суть (~5 ₽)">
+            📧 Распознать из письма
+          </button>
+        </label>
         <textarea id="pClientReq" rows="4" class="inp resize-none" placeholder="Здравствуйте, нас интересует ваше оборудование для пищевого производства..."></textarea>
       </div>
       <div class="field">
@@ -920,6 +999,140 @@ function toggleProposalTplGrid(){
   } else {
     grid.style.display = 'none';
     btn.textContent = 'Показать';
+  }
+}
+
+// ── Auto-fill из IMAP-письма ───────────────────────────────────────────────
+function openAutoFillEmail(){
+  document.getElementById('autoFillRawEmail').value = '';
+  document.getElementById('autoFillModal').classList.add('show');
+  setTimeout(() => document.getElementById('autoFillRawEmail').focus(), 50);
+}
+function closeAutoFillEmail(){
+  document.getElementById('autoFillModal').classList.remove('show');
+}
+async function submitAutoFillEmail(){
+  const raw = (document.getElementById('autoFillRawEmail').value || '').trim();
+  if (raw.length < 30){
+    if (window.aiAlert) await window.aiAlert('Письмо слишком короткое', 'warn');
+    return;
+  }
+  const btn = document.getElementById('autoFillSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Распознаю...';
+  try {
+    const r = await fetch(`${API}/proposals/autofill-from-email`, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({raw_email: raw}),
+    });
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(d.detail || 'HTTP '+r.status);
+    const f = d.fields || {};
+    // Заполняем форму создания КП — только пустые поля, не перетираем заполненные
+    const setIfEmpty = (id, val) => {
+      const el = document.getElementById(id);
+      if (el && !el.value && val) el.value = val;
+    };
+    setIfEmpty('pClientName', f.client_name);
+    setIfEmpty('pClientEmail', f.client_email);
+    setIfEmpty('pClientSite', f.client_site_url);
+    setIfEmpty('pClientReq', f.client_request);
+    setIfEmpty('pNotes', f.extra_notes);
+    // pNa (название КП) — если пустое, ставим «КП — <имя клиента>»
+    const pNa = document.getElementById('pNa');
+    if (pNa && !pNa.value && f.client_name) pNa.value = `КП — ${f.client_name}`;
+    closeAutoFillEmail();
+    const filled = Object.entries(f).filter(([_, v]) => v).length;
+    if (window.aiAlert) await window.aiAlert(
+      `✓ Распознано ${filled} полей. Проверь и дополни если что-то не так.`,
+      'success');
+  } catch(e){
+    if (window.aiAlert) await window.aiAlert('Не удалось распознать: '+e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📧 Распознать (5 ₽)';
+  }
+}
+
+// ── Bulk CSV ───────────────────────────────────────────────────────────────
+async function openBulkCsv(){
+  document.getElementById('bulkCsvFile').value = '';
+  document.getElementById('bulkExtraNotes').value = '';
+  // Заполнить селекторы из текущих brands / pricelists
+  try {
+    const [bResp, pResp] = await Promise.all([
+      fetch(`${API}/proposals/brands`, {credentials:'same-origin'}),
+      fetch(`${API}/proposals/pricelists`, {credentials:'same-origin'}),
+    ]);
+    const bSel = document.getElementById('bulkBrandSelect');
+    bSel.innerHTML = '<option value="">— Без бренда —</option>';
+    if (bResp.ok) {
+      const brands = await bResp.json();
+      (brands.brands || brands || []).forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = b.name || `#${b.id}`;
+        bSel.appendChild(opt);
+      });
+    }
+    const pSel = document.getElementById('bulkPriceSelect');
+    pSel.innerHTML = '<option value="">— Без прайса —</option>';
+    if (pResp.ok) {
+      const pls = await pResp.json();
+      (pls.price_lists || pls || []).forEach(pl => {
+        const opt = document.createElement('option');
+        opt.value = pl.id;
+        opt.textContent = pl.name || `#${pl.id}`;
+        pSel.appendChild(opt);
+      });
+    }
+  } catch(_) {}
+  document.getElementById('bulkCsvModal').classList.add('show');
+}
+
+function closeBulkCsv(){
+  document.getElementById('bulkCsvModal').classList.remove('show');
+}
+
+async function submitBulkCsv(){
+  const fileInput = document.getElementById('bulkCsvFile');
+  if (!fileInput.files || !fileInput.files[0]){
+    if (window.aiAlert) await window.aiAlert('Выбери CSV/TSV файл', 'warn');
+    return;
+  }
+  const btn = document.getElementById('bulkSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Импорт...';
+  try {
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    const brand = document.getElementById('bulkBrandSelect').value;
+    const price = document.getElementById('bulkPriceSelect').value;
+    const notes = (document.getElementById('bulkExtraNotes').value || '').trim();
+    const params = new URLSearchParams();
+    if (brand) params.set('brand_id', brand);
+    if (price) params.set('price_list_id', price);
+    if (notes) params.set('extra_notes', notes);
+    const url = `${API}/proposals/bulk-from-csv${params.toString() ? '?'+params : ''}`;
+    const r = await fetch(url, {method:'POST', credentials:'same-origin', body: fd});
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(d.detail || 'HTTP '+r.status);
+    if (window.aiAlert) {
+      const msg = `✓ Создано ${d.created_count} драфтов из ${d.total_rows} строк`
+        + (d.skipped ? `\nПропущено пустых: ${d.skipped}` : '')
+        + (d.errors && d.errors.length ? `\n\nОшибки:\n• ${d.errors.join('\n• ')}` : '')
+        + (d.next_step ? `\n\n${d.next_step}` : '');
+      await window.aiAlert(msg, 'success');
+    }
+    closeBulkCsv();
+    // Перезагрузим список КП
+    if (typeof loadProjects === 'function') await loadProjects();
+  } catch(e){
+    if (window.aiAlert) await window.aiAlert('Ошибка импорта: '+e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📥 Импортировать';
   }
 }
 

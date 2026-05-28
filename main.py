@@ -417,6 +417,8 @@ app.include_router(widget_router)
 app.include_router(public_router)
 app.include_router(assets_router)
 app.include_router(proposals_router)
+from server.routes.proposals_bulk import router as proposals_bulk_router  # noqa: E402
+app.include_router(proposals_bulk_router)
 app.include_router(assistant_router)
 app.include_router(qr_login_router)
 app.include_router(mobile_router)

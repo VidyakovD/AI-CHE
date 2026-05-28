@@ -202,6 +202,10 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("users", "personal_vk_bot_token_hash", "VARCHAR"),
     ("users", "personal_vk_confirmation", "VARCHAR"),
     ("users", "personal_vk_webhook_set", "BOOLEAN DEFAULT 0"),
+    # Calendar cache (2026-05-28): cron calendar_sync_loop кладёт сюда
+    # JSON-список событий на ближайшие 14 дней. Модуль calendar при invoke
+    # читает кэш если last_synced_at <30 мин — экономит OAuth-вызовы и время.
+    ("user_calendar_connections", "cached_events_json", "TEXT"),
     # Auto-followup для КП: cron шлёт напоминалку клиенту если КП открыт не был
     ("proposal_projects", "auto_followup_enabled", "BOOLEAN DEFAULT 1"),
     ("proposal_projects", "followup_sent_at", "DATETIME"),

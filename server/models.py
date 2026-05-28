@@ -1915,6 +1915,11 @@ class UserCalendarConnection(Base):
     last_error      = Column(Text, nullable=True)
     fail_count      = Column(Integer, default=0)
     created_at      = Column(DateTime, default=datetime.utcnow)
+    # Кэш событий из cron-sync (calendar_sync_loop, раз в 30 мин).
+    # JSON-список событий на ближайшие 14 дней. Используется в
+    # _fetch_calendar_context_for_user когда last_synced_at <30 мин назад —
+    # тогда не делаем live-запрос к Google/Yandex/ICS (быстрее ответ агента).
+    cached_events_json = Column(Text, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "provider", "account_email",

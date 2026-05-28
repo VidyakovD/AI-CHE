@@ -236,6 +236,8 @@ body.welcome #inputArea{display:none!important}
 <script src="/icons.js" defer></script>
 </head>
 <body class="bg-background text-on-surface font-body welcome" data-assistant-section="index.chat" data-assistant-label="главная · чат">
+<!-- Skip-link для клавиатурной навигации / screen-reader'ов. Видимый при фокусе. -->
+<a href="#main-content" class="sr-only focus:not-sr-only" style="position:fixed;top:8px;left:8px;z-index:9999;padding:8px 14px;background:#ff8c42;color:#141210;font-weight:700;border-radius:8px;text-decoration:none;transform:translateY(-200%);transition:transform .15s" onfocus="this.style.transform='translateY(0)'" onblur="this.style.transform='translateY(-200%)'">Перейти к содержимому</a>
 <!-- Draggable titlebar — виден ТОЛЬКО в standalone режиме (PWA на Mac/Win) -->
 <div class="app-titlebar standalone-only">
   <span style="font-size:14px;margin-right:8px">🤖</span>
@@ -346,7 +348,7 @@ body.welcome #inputArea{display:none!important}
 </aside>
 
 <!-- ══ MAIN ══════════════════════════════════════════════════════════════════ -->
-<main class="lg:ml-[272px] h-screen flex flex-col overflow-hidden">
+<main id="main-content" class="lg:ml-[272px] h-screen flex flex-col overflow-hidden">
   <!-- Topnav -->
   <nav class="fixed top-0 right-0 left-0 lg:left-[272px] z-30 flex items-center justify-between px-3 sm:px-5 bg-surface/85 backdrop-blur-xl h-14 border-b border-outline/15">
     <div class="flex items-center gap-2 sm:gap-3 min-w-0">

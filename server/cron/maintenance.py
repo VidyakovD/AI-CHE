@@ -229,3 +229,80 @@ async def site_failures_monitor_loop():
         except Exception as e:
             log.error(f"[site-monitor] loop error: {e}")
         await asyncio.sleep(3600)
+
+
+# ── Calendar sync: pre-fetch событий раз в 30 мин для активных подключений ──
+
+async def _calendar_sync_tick():
+    """Обновляет cached_events_json для всех активных UserCalendarConnection.
+
+    Это даёт быстрый ответ модулю calendar при invoke — он берёт кэш вместо
+    live-запроса к Google/Yandex/ICS (экономит ~1-3 сек на каждый чат).
+
+    Группируем по user_id чтобы один проход fetch_all_user_events обслуживал
+    все подключения юзера сразу (Google+Yandex+ICS в одном запросе).
+    """
+    from server.db import db_session
+    from server.models import UserCalendarConnection, AgentModule
+    import json as _json
+
+    # Берём юзеров с активным calendar-модулем — тех у кого fetch имеет смысл.
+    # Иначе мы бы pre-fetch'или для юзеров которые модуль не используют.
+    with db_session() as db:
+        active_users = (db.query(AgentModule.id, AgentModule.agent_id)
+                          .filter(AgentModule.slug == "calendar",
+                                  AgentModule.is_enabled.is_(True))
+                          .all())
+        if not active_users:
+            return
+        # AgentModule.agent_id → Agent.user_id. Достанем через JOIN
+        from server.models import Agent
+        user_ids = (db.query(Agent.user_id)
+                      .filter(Agent.id.in_([a.agent_id for a in active_users]))
+                      .all())
+        user_ids = list({uid for (uid,) in user_ids if uid})
+
+    if not user_ids:
+        return
+
+    from server.calendar_sync import fetch_all_user_events
+    for uid in user_ids[:50]:  # cap 50 юзеров за tick (защита от лавины)
+        try:
+            with db_session() as db:
+                events = await fetch_all_user_events(db, uid, days_ahead=14)
+                # Сохраняем в первое подключение юзера (упрощение — для lookup
+                # нужно только один источник). Альтернатива: per-provider кэш,
+                # но горизонт 14 дней едва ли пересекается с фильтрами.
+                conn = (db.query(UserCalendarConnection)
+                          .filter_by(user_id=uid, is_active=True)
+                          .order_by(UserCalendarConnection.id.asc())
+                          .first())
+                if conn:
+                    serializable = []
+                    for e in events[:50]:
+                        ev = dict(e)
+                        for k in ("start", "end"):
+                            if ev.get(k) and hasattr(ev[k], "isoformat"):
+                                ev[k] = ev[k].isoformat()
+                        serializable.append(ev)
+                    conn.cached_events_json = _json.dumps(serializable, ensure_ascii=False)
+                    conn.last_synced_at = datetime.utcnow()
+                    conn.last_error = None
+                    db.commit()
+        except Exception as e:
+            log.warning(f"[calendar-sync] user={uid} failed: {type(e).__name__}: {e}")
+            continue
+
+
+async def calendar_sync_loop():
+    """Раз в 30 минут pre-fetch'ит события календарей юзеров с active calendar модулем."""
+    from server.worker_lock import worker_lock
+    await asyncio.sleep(900)  # 15 мин после старта
+    while True:
+        try:
+            with worker_lock("calendar_sync", ttl_sec=1800 + 60) as acquired:
+                if acquired:
+                    await _calendar_sync_tick()
+        except Exception as e:
+            log.error(f"[calendar-sync] loop error: {e}")
+        await asyncio.sleep(1800)  # 30 мин

@@ -754,24 +754,90 @@ def _build_module_extra_context(slug: str, user_id: int | None) -> str:
 def _fetch_calendar_context_for_user(user_id: int) -> str:
     """Подмешать ближайшие события Calendar (Google/Yandex/ICS) в context.
 
-    Берём события на 14 дней вперёд. Если подключений нет — пустая строка
-    (system_prompt модуля уже описывает что нужно подключить календарь).
+    Сначала пробуем кэш из UserCalendarConnection.cached_events_json (если
+    last_synced_at <30 мин назад — cron calendar_sync_loop его обновляет).
+    Это даёт мгновенный ответ модуля без OAuth/CalDAV/ICS-вызовов.
 
-    fetch_all_user_events — async, но invoke_module sync. Поэтому
-    run_until_complete через создание нового loop (если активного нет).
-    Аналогично делает _fetch_mail_context_for_user — там IMAP sync.
+    Если кэша нет / он устарел / нет подключений — fallback на live-запрос.
     """
     import asyncio as _asyncio
+    import json as _json
+    from datetime import datetime as _dt_cal, timedelta as _td_cal
     from server.db import db_session
     from server.calendar_sync import fetch_all_user_events, format_events_for_llm
+    from server.models import UserCalendarConnection, LocalCalendarEvent
 
+    # 1) Cache lookup — быстрый путь
+    try:
+        with db_session() as db:
+            now = _dt_cal.utcnow()
+            cache_age_limit = now - _td_cal(minutes=30)
+            conn = (db.query(UserCalendarConnection)
+                      .filter(UserCalendarConnection.user_id == user_id,
+                              UserCalendarConnection.is_active.is_(True),
+                              UserCalendarConnection.last_synced_at != None,  # noqa: E711
+                              UserCalendarConnection.last_synced_at >= cache_age_limit,
+                              UserCalendarConnection.cached_events_json != None)  # noqa: E711
+                      .order_by(UserCalendarConnection.last_synced_at.desc())
+                      .first())
+            if conn and conn.cached_events_json:
+                try:
+                    cached = _json.loads(conn.cached_events_json)
+                    # Конвертируем ISO-строки обратно в datetime для format_events_for_llm
+                    events = []
+                    for e in cached:
+                        if not isinstance(e, dict):
+                            continue
+                        ev = dict(e)
+                        for k in ("start", "end"):
+                            if isinstance(ev.get(k), str):
+                                try:
+                                    ev[k] = _dt_cal.fromisoformat(ev[k].replace("Z", "+00:00"))
+                                    if ev[k].tzinfo is not None:
+                                        ev[k] = ev[k].astimezone().replace(tzinfo=None)
+                                except Exception:
+                                    pass
+                        # Фильтр на «прошедшее» — кэш мог быть свежий 25 мин назад
+                        if ev.get("start") and isinstance(ev["start"], _dt_cal):
+                            if ev["start"] < now - _td_cal(days=1):
+                                continue
+                        events.append(ev)
+                    # Дополняем локальными событиями (они могли быть добавлены
+                    # юзером ПОСЛЕ последнего sync — например через
+                    # tool_create_calendar_event из чата)
+                    local_rows = (db.query(LocalCalendarEvent)
+                                    .filter(LocalCalendarEvent.user_id == user_id,
+                                            LocalCalendarEvent.start >= now - _td_cal(days=1),
+                                            LocalCalendarEvent.start <= now + _td_cal(days=14))
+                                    .order_by(LocalCalendarEvent.start)
+                                    .all())
+                    local_ids = {f"local:{r.id}" for r in local_rows}
+                    existing_local = {e.get("uid") for e in events
+                                       if e.get("source") == "local"}
+                    for r in local_rows:
+                        if f"local:{r.id}" in existing_local:
+                            continue
+                        events.append({
+                            "title": r.title, "start": r.start, "end": r.end,
+                            "description": r.description or "",
+                            "location": r.location or "",
+                            "all_day": bool(r.all_day),
+                            "source": "local",
+                            "uid": f"local:{r.id}",
+                        })
+                    events.sort(key=lambda e: e.get("start") or now)
+                    return "\n" + format_events_for_llm(events[:50])
+                except Exception as e:
+                    log.warning("[calendar-context] cache parse failed: %s", e)
+    except Exception as e:
+        log.warning("[calendar-context] cache lookup failed: %s", e)
+
+    # 2) Fallback live-fetch — если кэша нет или устарел
     async def _run():
         with db_session() as db:
             return await fetch_all_user_events(db, user_id, days_ahead=14)
 
     try:
-        # Если уже есть running loop (никогда не должно в sync invoke_module,
-        # но защита от race) — создаём отдельный thread
         loop = _asyncio.new_event_loop()
         try:
             events = loop.run_until_complete(_run())
