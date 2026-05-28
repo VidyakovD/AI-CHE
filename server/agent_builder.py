@@ -1459,17 +1459,46 @@ def invoke_module(*, slug: str, task: str, profile: dict,
 
 # Какие модули могут предлагать какие действия.
 # Логика добавления нового модуля = одна строка + регистрация executor в agent_actions.py.
+# Какие действия может предложить юзеру каждый модуль.
+# Cross-module: некоторые действия (create_google_event, log_meal) расшарены
+# между модулями — например, Тренер после плана тренировки может предложить
+# поставить событие в Google и запланировать post-workout приём пищи.
+# Юзер подтверждает каждое действие ОТДЕЛЬНО через карточку в чате.
+#
+# Resource-scoped actions (требуют токена/настроек СВОЕГО модуля):
+#   yandex_direct_*  — нужен oauth_token из custom_settings direct_ads
+#   vk_ads_*         — нужен ads_token из custom_settings vk_ads
+# Эти НЕ шарим cross-module, чтобы не вводить connection-токенов в чужие модули.
+#
+# User-scoped actions (работают с user-level ресурсами):
+#   create_google_event       — UserCalendarConnection
+#   log_workout / log_meal    — WorkoutLog / MealLog по user_id
+#   add_finance_transaction   — FinanceTransaction по user_id
+#   send_email                — UserMailbox по user_id
+#   publish_to_creators       — CreatorBrand по user_id
+# Их шарим между модулями для «живого» межсистемного взаимодействия.
 _ALLOWED_ACTIONS_BY_MODULE: dict[str, list[str]] = {
-    "mail":       ["send_email"],
+    # Почта может ответить + предложить встречу из переписки в календаре
+    "mail":       ["send_email", "create_google_event"],
+    # Календарь — только create (свой основной action)
     "calendar":   ["create_google_event"],
-    "finance":    ["add_finance_transaction"],
-    "coach":      ["log_workout"],
-    "nutrition":  ["log_meal"],
+    # Финансы — запись + напоминание (например «оплатить аренду 5 числа»)
+    "finance":    ["add_finance_transaction", "create_google_event"],
+    # Тренер — фиксация тренировки + запись post-workout приёма пищи +
+    # план следующей тренировки в Google
+    "coach":      ["log_workout", "log_meal", "create_google_event"],
+    # Питание — запись приёма пищи + напоминание о следующем приёме в Google
+    "nutrition":  ["log_meal", "log_workout", "create_google_event"],
+    # Я.Директ — только свои write-ops + напоминание в календаре
     "direct_ads": ["yandex_direct_pause_campaign",
                    "yandex_direct_resume_campaign",
-                   "yandex_direct_set_daily_budget"],
-    "vk_ads":     ["vk_ads_pause_campaign", "vk_ads_set_day_limit"],
-    "copywriter": ["publish_to_creators"],
+                   "yandex_direct_set_daily_budget",
+                   "create_google_event"],
+    # VK Ads — то же
+    "vk_ads":     ["vk_ads_pause_campaign", "vk_ads_set_day_limit",
+                   "create_google_event"],
+    # Копирайтер — публикация + напоминание «через 2 часа выйдет пост»
+    "copywriter": ["publish_to_creators", "create_google_event"],
 }
 
 
