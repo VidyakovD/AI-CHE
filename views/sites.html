@@ -263,10 +263,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
         <div class="cost-badge text-[#1C1C1C]/70 bg-black/10 border-black/10" id="detailCost">0.00 ₽</div>
       </div>
       <div class="flex items-center gap-2">
-        <button id="dmFullscreenBtn" onclick="toggleDetailFullscreen()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C]" title="На весь экран">
+        <button id="dmFullscreenBtn" onclick="toggleDetailFullscreen()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C]" title="На весь экран" aria-label="На весь экран">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
         </button>
-        <button onclick="deleteCurrentProject()" class="btn-d text-xs py-1.5 px-3">
+        <button onclick="deleteCurrentProject()" class="btn-d text-xs py-1.5 px-3" aria-label="Удалить проект">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
         </button>
         <button onclick="closeDetail()" class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center hover:bg-black/20 text-[#1C1C1C] text-lg leading-none" aria-label="Закрыть">✕</button>
@@ -433,7 +433,8 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
                window.open('_blank') и атаковать parent через opener. -->
           <iframe id="previewFrame" class="preview-frame"
                   sandbox="allow-scripts allow-modals allow-forms"
-                  referrerpolicy="no-referrer"></iframe>
+                  referrerpolicy="no-referrer"
+                  title="Предпросмотр сайта"></iframe>
         </div>
       </div>
       <!-- Spec tab -->
@@ -496,10 +497,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- SEO modal -->
-<div id="seoModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeSeoModal()">
+<div id="seoModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeSeoModal()" role="dialog" aria-modal="true" aria-labelledby="seoModalTitle">
   <div class="bg-surface border border-outline/30 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
     <div class="flex items-center justify-between mb-3">
-      <h3 class="text-lg font-bold">🔎 SEO продвижение</h3>
+      <h3 class="text-lg font-bold" id="seoModalTitle">🔎 SEO продвижение</h3>
       <button onclick="closeSeoModal()" class="btn-g text-sm" aria-label="Закрыть">✕</button>
     </div>
     <p class="text-xs text-on-dim mb-4">
@@ -529,10 +530,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- Site Chat Widget modal -->
-<div id="widgetModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeWidgetModal()">
+<div id="widgetModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeWidgetModal()" role="dialog" aria-modal="true" aria-labelledby="widgetModalTitle">
   <div class="bg-surface border border-outline/30 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
     <div class="flex items-center justify-between mb-3">
-      <h3 class="text-lg font-bold">💬 Собственный виджет чата</h3>
+      <h3 class="text-lg font-bold" id="widgetModalTitle">💬 Собственный виджет чата</h3>
       <button onclick="closeWidgetModal()" class="btn-g text-sm" aria-label="Закрыть">✕</button>
     </div>
     <p class="text-xs text-on-dim mb-3">
@@ -612,10 +613,10 @@ body{background:#1C1C1C;color:#f0e6d8;font-family:'Golos Text',Inter,sans-serif;
 </div>
 
 <!-- Custom domains modal -->
-<div id="customDomainsModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeCustomDomainsModal()">
+<div id="customDomainsModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeCustomDomainsModal()" role="dialog" aria-modal="true" aria-labelledby="customDomainsModalTitle">
   <div class="bg-surface border border-outline/30 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
     <div class="flex items-center justify-between mb-3">
-      <h3 class="text-lg font-bold">🌐 Кастомные домены</h3>
+      <h3 class="text-lg font-bold" id="customDomainsModalTitle">🌐 Кастомные домены</h3>
       <button onclick="closeCustomDomainsModal()" class="btn-g text-sm" aria-label="Закрыть">✕</button>
     </div>
     <p class="text-xs text-on-dim mb-4">

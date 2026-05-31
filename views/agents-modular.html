@@ -296,10 +296,10 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 </div>
 
 <!-- Catalog modal -->
-<div id="catalogModal" class="modal-bg">
+<div id="catalogModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="catalogModalTitle">
   <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:20px;max-width:720px;width:100%" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-3">
-      <h3 class="text-lg font-bold">🧩 Каталог агентов</h3>
+      <h3 class="text-lg font-bold" id="catalogModalTitle">🧩 Каталог агентов</h3>
       <button class="btn-g" onclick="closeCatalog()" aria-label="Закрыть">✕</button>
     </div>
     <input class="inp cat-search" id="catSearch" placeholder="Поиск по названию или ключевым словам..." aria-label="Поиск по названию или ключевым словам..."/>
@@ -311,12 +311,12 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 </div>
 
 <!-- Schedule (cron) modal -->
-<div id="scheduleModal" class="modal-bg">
+<div id="scheduleModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="scheduleModalTitle">
   <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;max-width:520px;width:100%;max-height:88vh;display:flex;flex-direction:column" onclick="event.stopPropagation()">
     <!-- Sticky header — всегда видно даже при scroll -->
     <div style="padding:20px 22px 12px;border-bottom:1px solid rgba(74,63,47,0.4);position:sticky;top:0;background:#1e1a14;border-radius:16px 16px 0 0;z-index:2">
       <div class="flex items-center justify-between gap-3">
-        <h3 class="text-lg font-bold m-0">⏰ Расписание агента <span id="schedSlug" style="color:#ffb347"></span></h3>
+        <h3 class="text-lg font-bold m-0" id="scheduleModalTitle">⏰ Расписание агента <span id="schedSlug" style="color:#ffb347"></span></h3>
         <button class="btn-g" onclick="closeScheduleModal()" aria-label="Закрыть" style="flex-shrink:0">✕</button>
       </div>
       <p class="text-xs text-on-dim mt-2 mb-0">Агент будет автоматически выполнять задачу по расписанию. Каждый запуск стоит как обычный вызов модуля (1 ₽).</p>
@@ -384,10 +384,10 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 </div>
 
 <!-- Channels modal — 4 способа использовать Че -->
-<div id="channelsModal" class="modal-bg">
+<div id="channelsModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="channelsModalTitle">
   <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:22px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-3">
-      <h3 class="text-lg font-bold">📲 Где использовать Че</h3>
+      <h3 class="text-lg font-bold" id="channelsModalTitle">📲 Где использовать Че</h3>
       <button class="btn-g" onclick="closeChannelsModal()" aria-label="Закрыть">✕</button>
     </div>
     <p class="text-xs text-on-dim mb-4">Че — один помощник, доступный отовсюду. История и память синхронизируются между каналами.</p>
@@ -578,9 +578,9 @@ textarea.inp{resize:none;line-height:1.45;max-height:160px}
 </div>
 
 <!-- Profile edit modal -->
-<div id="profileModal" class="modal-bg">
+<div id="profileModal" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
   <div style="background:#1e1a14;border:1.5px solid rgba(74,63,47,.4);border-radius:16px;padding:22px;max-width:480px;width:100%" onclick="event.stopPropagation()">
-    <h3 class="text-lg font-bold mb-4">⚙ Настройки агента</h3>
+    <h3 class="text-lg font-bold mb-4" id="profileModalTitle">⚙ Настройки агента</h3>
     <label class="block text-xs text-on-dim mb-1">Имя</label>
     <input class="inp mb-4" id="editName" maxlength="80" placeholder="Че" aria-label="Че"/>
 
