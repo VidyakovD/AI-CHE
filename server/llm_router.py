@@ -11,13 +11,21 @@ Router сам выбирает оптимальную модель из матр
   - sensitivity (low / high — для критичных = Claude который скорее откажется чем галлюцинирует)
   - user-override (если задан) — для продвинутых юзеров
 
-Базовый MVP — single-model routing. Паттерны Pipeline/Parallel/Verify добавим позже.
-
 Используется новыми модулями ИИ Агентов (server/agent_builder.py итд).
 Старые вызовы generate_response() напрямую — продолжают работать без изменений.
+
+═══ Multi-LLM patterns (раздел 4.3 ТЗ) ═══
+
+  pipeline_ask  — output модели A → context для модели B (research → synth)
+  parallel_ask  — N веток одновременно + опц. синтез одной моделью
+  verify_ask    — основная модель отвечает, верификатор проверяет на галлюцинации
+
+Все три — sync API, переиспользуют ask() и cached_generate_response внутри.
+Биллинг суммируется через raw["total_cost_kop"]. PrivacyGuard наследуется.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -316,3 +324,424 @@ def ask(messages: list, *, task: str | None = None,
         complexity=actual_complexity,
         raw=result if isinstance(result, dict) else {"content": str(result)},
     )
+
+
+# ── Multi-LLM patterns ─────────────────────────────────────────────────────
+#
+# Три паттерна из ТЗ Project Loom v0.2 раздел 4.3:
+#   pipeline_ask  — последовательная цепочка моделей (research → synth)
+#   parallel_ask  — N веток одновременно + опц. синтез одной моделью
+#   verify_ask    — основная модель отвечает, верификатор проверяет
+#
+# Все три — sync API поверх ask(). Биллинг суммируется через
+# raw["total_cost_kop"]. На каждом шаге cache (cached_generate_response).
+
+
+def _extract_cost_kop(raw: dict | None) -> int:
+    """Безопасно достать actual_cost_kop из result.raw['usage']."""
+    if not isinstance(raw, dict):
+        return 0
+    try:
+        return int(raw.get("usage", {}).get("actual_cost_kop", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _replace_last_user(messages: list, new_content: str) -> list:
+    """Вернуть копию messages с заменой content последнего user-сообщения.
+    Если user-сообщений нет — добавляет одно в конец."""
+    if not messages:
+        return [{"role": "user", "content": new_content}]
+    out = [dict(m) for m in messages]
+    last_idx = -1
+    for i, m in enumerate(out):
+        if m.get("role") == "user":
+            last_idx = i
+    if last_idx >= 0:
+        out[last_idx]["content"] = new_content
+    else:
+        out.append({"role": "user", "content": new_content})
+    return out
+
+
+def _extract_initial_query(messages: list) -> str:
+    """Текст последнего user-сообщения (для подстановки {initial} в шаблон)."""
+    for m in reversed(messages or []):
+        if m.get("role") == "user":
+            c = m.get("content")
+            if isinstance(c, str):
+                return c
+            if isinstance(c, list):
+                for blk in c:
+                    if isinstance(blk, dict) and blk.get("type") == "text":
+                        return blk.get("text", "") or ""
+    return ""
+
+
+def pipeline_ask(
+    initial_messages: list,
+    steps: list[dict],
+    *,
+    sensitivity: str = "low",
+    user_api_key: str | None = None,
+    extra: dict | None = None,
+) -> RouteResult:
+    """Последовательная цепочка LLM-вызовов. Output шага N → context шага N+1.
+
+    Args:
+        initial_messages: стартовый [{role, content}] для шага 0
+        steps: список конфигов шагов. Каждый шаг — dict с ключами:
+            task: str            — task-type для router'а (обязательно)
+            complexity: str      — simple|medium|complex (def "medium")
+            prompt_template: str — для step>=1: шаблон с {prev} (def "{prev}")
+                                   Также доступен {initial} — исх. user-запрос
+            system_prompt: str   — для step>=1: новый system (def — берёт из initial_messages)
+
+    Шаг 0 использует initial_messages как есть. Шаг N>=1: system берётся из
+    step.system_prompt или из последнего system в initial_messages, user-msg
+    формируется из prompt_template (подстановка {prev}/{initial}).
+
+    Returns:
+        RouteResult последнего УСПЕШНОГО шага. Дополнительно в raw:
+            pipeline_trace: [{step, model, task, content_preview}, ...]
+            total_cost_kop: суммарная стоимость всех шагов
+            pipeline_error: str — если цепочка прервалась
+    """
+    if not steps:
+        raise ValueError("pipeline_ask: steps must be non-empty")
+
+    initial_query = _extract_initial_query(initial_messages)
+    # Базовый system — первый system-msg из initial_messages (если есть)
+    base_system = None
+    for m in (initial_messages or []):
+        if m.get("role") == "system":
+            base_system = m.get("content")
+            break
+
+    trace: list[dict] = []
+    total_cost = 0
+    prev_output: str = ""
+    last_result: RouteResult | None = None
+    pipeline_error: str | None = None
+
+    for idx, step in enumerate(steps):
+        task = step.get("task", "default")
+        complexity = step.get("complexity", "medium")
+
+        if idx == 0:
+            messages = list(initial_messages or [])
+        else:
+            template = step.get("prompt_template", "{prev}")
+            try:
+                user_text = template.format(prev=prev_output, initial=initial_query)
+            except (KeyError, IndexError) as e:
+                pipeline_error = f"step {idx}: prompt_template format failed: {e}"
+                log.warning(f"[pipeline] {pipeline_error}")
+                break
+            system_text = step.get("system_prompt", base_system)
+            messages = []
+            if system_text:
+                messages.append({"role": "system", "content": system_text})
+            messages.append({"role": "user", "content": user_text})
+
+        try:
+            result = ask(
+                messages, task=task, complexity=complexity,
+                sensitivity=sensitivity, extra=extra, user_api_key=user_api_key,
+            )
+        except Exception as e:
+            pipeline_error = f"step {idx} ({task}): {type(e).__name__}: {e}"
+            log.warning(f"[pipeline] {pipeline_error}")
+            break
+
+        prev_output = result.content or ""
+        last_result = result
+        total_cost += _extract_cost_kop(result.raw)
+        trace.append({
+            "step": idx,
+            "model": result.model_used,
+            "task": result.task_type,
+            "complexity": result.complexity,
+            "content_preview": (result.content or "")[:200],
+        })
+
+    if last_result is None:
+        # Все шаги упали (или прервалось до первого). Возвращаем пустой результат.
+        return RouteResult(
+            content="", model_used="", task_type="default", complexity="medium",
+            raw={"pipeline_trace": trace, "total_cost_kop": 0,
+                 "pipeline_error": pipeline_error or "no steps executed"},
+        )
+
+    last_result.raw.setdefault("pipeline_trace", trace)
+    last_result.raw["pipeline_trace"] = trace
+    last_result.raw["total_cost_kop"] = total_cost
+    if pipeline_error:
+        last_result.raw["pipeline_error"] = pipeline_error
+    return last_result
+
+
+PARALLEL_MAX_BRANCHES = 5
+
+
+def parallel_ask(
+    messages: list,
+    branches: list[dict],
+    *,
+    synthesize: dict | None = None,
+    sensitivity: str = "low",
+    user_api_key: str | None = None,
+    extra: dict | None = None,
+) -> RouteResult:
+    """N веток одновременно через asyncio.gather. Опционально — синтез одной моделью.
+
+    Args:
+        messages: общий контекст [{role, content}] для всех веток
+        branches: список конфигов веток (1..5). Каждая — dict:
+            task: str            — task-type (обязательно)
+            complexity: str      — def "medium"
+            prompt_template: str — опц. шаблон для замены последнего user-msg,
+                                   подстановка {initial} = исх. user-запрос
+        synthesize: опц. dict — финальный синтез:
+            task: str            — def "deep_analysis"
+            complexity: str      — def "medium"
+            prompt_template: str — обязательно. Доступны {branch_0}..{branch_N}
+                                   и {initial}
+
+    Returns:
+        Если synthesize задан: RouteResult синтеза. raw содержит:
+            branch_trace: [{branch, model, task, content_preview}, ...]
+            total_cost_kop: суммарно
+        Если synthesize нет: первая успешная ветка + branch_trace со всеми.
+
+    Raises:
+        ValueError: если branches пуст или больше PARALLEL_MAX_BRANCHES.
+    """
+    if not branches:
+        raise ValueError("parallel_ask: branches must be non-empty")
+    if len(branches) > PARALLEL_MAX_BRANCHES:
+        raise ValueError(
+            f"parallel_ask: too many branches ({len(branches)} > "
+            f"{PARALLEL_MAX_BRANCHES}). Лимит против биллинг-blow-up."
+        )
+
+    initial_query = _extract_initial_query(messages)
+
+    def _build_branch_messages(branch_cfg: dict) -> list:
+        tpl = branch_cfg.get("prompt_template")
+        if not tpl:
+            return list(messages or [])
+        try:
+            new_user = tpl.format(initial=initial_query)
+        except (KeyError, IndexError):
+            new_user = tpl  # fallback — без подстановки
+        return _replace_last_user(messages or [], new_user)
+
+    def _run_branch(branch_cfg: dict) -> RouteResult | None:
+        try:
+            return ask(
+                _build_branch_messages(branch_cfg),
+                task=branch_cfg.get("task", "default"),
+                complexity=branch_cfg.get("complexity", "medium"),
+                sensitivity=sensitivity, extra=extra, user_api_key=user_api_key,
+            )
+        except Exception as e:
+            log.warning(f"[parallel] branch {branch_cfg.get('task')} failed: "
+                        f"{type(e).__name__}: {e}")
+            return None
+
+    async def _gather_all() -> list[RouteResult | None]:
+        # asyncio.to_thread: ask() — sync, выносим в threadpool чтобы реально
+        # ускорить вызовы (httpx внутри отпускает GIL на I/O).
+        return await asyncio.gather(
+            *[asyncio.to_thread(_run_branch, b) for b in branches],
+            return_exceptions=False,
+        )
+
+    try:
+        # Если уже в event loop — нельзя asyncio.run; используем nested loop.
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Создаём отдельный поток для запуска asyncio.run — редкий путь
+            # (когда parallel_ask вызвана из async-контекста). Sync API.
+            import concurrent.futures as _cf
+            with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+                results = pool.submit(lambda: asyncio.run(_gather_all())).result()
+        else:
+            results = asyncio.run(_gather_all())
+    except RuntimeError:
+        results = asyncio.run(_gather_all())
+
+    trace = []
+    total_cost = 0
+    successful: list[RouteResult] = []
+    for i, r in enumerate(results):
+        if r is None:
+            trace.append({"branch": i, "model": "", "task": branches[i].get("task"),
+                          "error": True, "content_preview": ""})
+            continue
+        trace.append({
+            "branch": i, "model": r.model_used, "task": r.task_type,
+            "complexity": r.complexity,
+            "content_preview": (r.content or "")[:200],
+        })
+        total_cost += _extract_cost_kop(r.raw)
+        successful.append(r)
+
+    if not successful:
+        return RouteResult(
+            content="", model_used="", task_type="default", complexity="medium",
+            raw={"branch_trace": trace, "total_cost_kop": 0,
+                 "parallel_error": "all branches failed"},
+        )
+
+    # Без синтеза — возвращаем первую успешную ветку
+    if not synthesize:
+        first = successful[0]
+        first.raw["branch_trace"] = trace
+        first.raw["total_cost_kop"] = total_cost
+        return first
+
+    # С синтезом — формируем prompt с {branch_N}
+    template = synthesize.get("prompt_template")
+    if not template:
+        raise ValueError("parallel_ask: synthesize.prompt_template is required")
+    fmt_kwargs: dict[str, str] = {"initial": initial_query}
+    for i, r in enumerate(results):
+        fmt_kwargs[f"branch_{i}"] = (r.content if r else "") or "(нет ответа)"
+    try:
+        synth_user = template.format(**fmt_kwargs)
+    except (KeyError, IndexError) as e:
+        log.warning(f"[parallel] synthesize template failed: {e}")
+        first = successful[0]
+        first.raw["branch_trace"] = trace
+        first.raw["total_cost_kop"] = total_cost
+        first.raw["parallel_error"] = f"synthesize template failed: {e}"
+        return first
+
+    base_system = None
+    for m in (messages or []):
+        if m.get("role") == "system":
+            base_system = m.get("content")
+            break
+    synth_messages: list[dict] = []
+    if base_system:
+        synth_messages.append({"role": "system", "content": base_system})
+    synth_messages.append({"role": "user", "content": synth_user})
+
+    try:
+        synth_result = ask(
+            synth_messages,
+            task=synthesize.get("task", "deep_analysis"),
+            complexity=synthesize.get("complexity", "medium"),
+            sensitivity=sensitivity, extra=extra, user_api_key=user_api_key,
+        )
+    except Exception as e:
+        log.warning(f"[parallel] synthesize call failed: {type(e).__name__}: {e}")
+        first = successful[0]
+        first.raw["branch_trace"] = trace
+        first.raw["total_cost_kop"] = total_cost
+        first.raw["parallel_error"] = f"synthesize failed: {e}"
+        return first
+
+    total_cost += _extract_cost_kop(synth_result.raw)
+    synth_result.raw["branch_trace"] = trace
+    synth_result.raw["total_cost_kop"] = total_cost
+    return synth_result
+
+
+_VERIFY_SYSTEM = (
+    "Ты верификатор фактической корректности. Проверь ответ другой модели "
+    "на галлюцинации, выдуманные цитаты, неверные даты и числа. "
+    "Если всё фактически корректно — ответь одним словом VERIFIED. "
+    "Если есть проблемы — кратко перечисли (1-3 пункта) что именно неточно. "
+    "Если ответ полностью противоречит фактам — начни с CONTRADICTED:."
+)
+
+
+def verify_ask(
+    messages: list,
+    *,
+    primary_task: str | None = None,
+    primary_complexity: str = "medium",
+    verifier_task: str = "factcheck",
+    verifier_complexity: str = "medium",
+    sensitivity: str = "low",
+    user_api_key: str | None = None,
+    extra: dict | None = None,
+) -> RouteResult:
+    """Первичный ответ + верификация другой моделью.
+
+    Use case: realtime (Grok хорошо читает X но галлюцинирует цитаты на 94%)
+    — пара с Perplexity для проверки. Любая creative_writing где важна
+    фактическая точность — verify через factcheck.
+
+    Args:
+        messages: исходный диалог
+        primary_task: task для primary (если None — auto-classify)
+        primary_complexity: complexity для primary
+        verifier_task: task для верификатора (def "factcheck" → Perplexity)
+        verifier_complexity: complexity верификатора
+        sensitivity, user_api_key, extra: проброс в ask()
+
+    Returns:
+        RouteResult primary call'а. Дополнительно в raw:
+            verification: {
+                verdict: "verified" | "issues_found" | "contradicted",
+                verifier_model: str,
+                verifier_content: str,
+            }
+            total_cost_kop: primary + verifier
+            verify_error: str — если верификация упала (primary всё равно вернётся)
+
+    Note: автоматического retry при issues_found НЕТ — caller решает сам
+    что делать (показать предупреждение, спросить юзера, переключить модель).
+    """
+    primary = ask(
+        messages, task=primary_task, complexity=primary_complexity,
+        sensitivity=sensitivity, extra=extra, user_api_key=user_api_key,
+    )
+    total_cost = _extract_cost_kop(primary.raw)
+
+    primary_content = primary.content or ""
+    initial_query = _extract_initial_query(messages)
+    verifier_messages = [
+        {"role": "system", "content": _VERIFY_SYSTEM},
+        {"role": "user", "content": (
+            f"Исходный запрос юзера:\n{initial_query}\n\n"
+            f"Ответ от модели ({primary.model_used}):\n{primary_content}\n\n"
+            f"Проверь."
+        )},
+    ]
+
+    try:
+        verifier = ask(
+            verifier_messages, task=verifier_task, complexity=verifier_complexity,
+            sensitivity=sensitivity, extra=extra, user_api_key=user_api_key,
+        )
+    except Exception as e:
+        log.warning(f"[verify] verifier failed: {type(e).__name__}: {e}")
+        primary.raw["verify_error"] = f"{type(e).__name__}: {e}"
+        primary.raw["total_cost_kop"] = total_cost
+        return primary
+
+    total_cost += _extract_cost_kop(verifier.raw)
+    vcontent = (verifier.content or "").strip()
+    vupper = vcontent.upper()
+
+    if vupper.startswith("CONTRADICTED"):
+        verdict = "contradicted"
+    elif "VERIFIED" in vupper and len(vcontent) < 60:
+        # Короткий ответ с VERIFIED — однозначно ok. Длинный — модель добавила
+        # комментарий → скорее всего issues_found.
+        verdict = "verified"
+    else:
+        verdict = "issues_found"
+
+    primary.raw["verification"] = {
+        "verdict": verdict,
+        "verifier_model": verifier.model_used,
+        "verifier_content": vcontent,
+    }
+    primary.raw["total_cost_kop"] = total_cost
+    return primary
