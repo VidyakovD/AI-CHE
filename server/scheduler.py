@@ -340,6 +340,7 @@ from server.cron.creators import (  # noqa: E402, F401
 from server.cron.agents_modules import (  # noqa: E402, F401
     _agents_modules_cron_tick, agents_modules_cron_loop, cron_should_fire,
     pending_actions_expire_loop, expire_old_pending_actions,
+    failed_webhooks_retry_loop, _retry_failed_webhooks_tick,
 )
 
 
@@ -376,6 +377,7 @@ def start_scheduler():
     asyncio.create_task(creators_publish_loop())
     asyncio.create_task(agents_modules_cron_loop())
     asyncio.create_task(pending_actions_expire_loop())
+    asyncio.create_task(failed_webhooks_retry_loop())
     asyncio.create_task(proposals_followup_loop())
     asyncio.create_task(creators_metrics_loop())
     # Пересчёт цен моделей: USD × курс ЦБ × ×3 (раз в сутки).

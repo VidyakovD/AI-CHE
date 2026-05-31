@@ -39,15 +39,22 @@ VK_API_VERSION = "5.131"
 
 
 def _tg_proxy() -> str | None:
-    """Прокси для api.telegram.org только если ЯВНО задан TG_HTTPS_PROXY.
+    """Прокси для api.telegram.org. Берётся из TG_HTTPS_PROXY env.
 
-    Раньше fallback'или на AI_HTTPS_PROXY (Xray) — это БЫЛО ОШИБКОЙ. Xray
-    настроен под OpenAI/Anthropic/Google и НЕ маршрутизирует TG (на проде
-    тест: curl -x http://127.0.0.1:10809 api.telegram.org → 000). TG доступен
-    напрямую с прод-сервера (HOSTKEY Москва) — `curl api.telegram.org` → 302.
+    История:
+    - До 2026-05-28: TG доступен напрямую с прод-сервера (HOSTKEY Москва).
+      `curl api.telegram.org` → 302. Прокси НЕ нужен.
+    - 2026-05-28 (заменили Xray VLESS на HTTP-прокси `154.205.231.44:63602`
+      для OpenAI/Anthropic/Google) — попутно перестал работать прямой
+      доступ к api.telegram.org (Connection timed out) — судя по всему
+      RU-провайдер начал блокировать TG-фронтенд (или конкретно этот IP
+      ушёл в чёрный список).
+    - 2026-05-31: тест показал что новый HTTP-прокси МАРШРУТИЗИРУЕТ TG
+      (curl -x ... api.telegram.org → HTTP 302). Установлен
+      TG_HTTPS_PROXY=<тот же URL> на проде.
 
-    Если когда-то TG заблокируют — установить TG_HTTPS_PROXY=http://...
-    в .env. Пока этого env'а нет — идём напрямую."""
+    Если TG снова станет доступен напрямую — можно убрать TG_HTTPS_PROXY
+    из .env, _tg_proxy вернёт None, запросы пойдут direct."""
     return (os.getenv("TG_HTTPS_PROXY") or "").strip() or None
 
 

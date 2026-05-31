@@ -450,3 +450,104 @@ async def pending_actions_expire_loop():
             log.error(f"[agents.expire] loop error: {e}")
         # Раз в час — большой интервал, т.к. это housekeeping
         await asyncio.sleep(3600)
+
+
+# ── Auto-retry: установка TG/MAX/VK webhook'ов которые упали при connect ─────
+
+async def _retry_failed_webhooks_tick() -> dict:
+    """Найти юзеров с подключённым personal-ботом, но без working webhook,
+    и попробовать его установить. Сам вылечит timeout'ы при первом connect.
+
+    Возвращает {tg_fixed, max_fixed, vk_fixed} — сколько успешно установили.
+    """
+    from server.db import db_session
+    from server.models import User
+    from server.personal_bot_relay import (
+        tg_set_webhook, max_set_webhook, vk_set_callback,
+    )
+    fixed = {"tg": 0, "max": 0, "vk": 0}
+    try:
+        with db_session() as db:
+            # TG
+            tg_pending = (db.query(User)
+                            .filter(User.personal_tg_bot_token.isnot(None),
+                                    User.personal_tg_webhook_set.is_(False))
+                            .all())
+            for u in tg_pending:
+                token = u.personal_tg_bot_token
+                token_hash = u.personal_tg_bot_token_hash
+                if not (token and token_hash):
+                    continue
+                try:
+                    r = await tg_set_webhook(token, token_hash)
+                    if r.get("ok"):
+                        u.personal_tg_webhook_set = True
+                        fixed["tg"] += 1
+                        log.info(f"[webhook-retry] TG fixed user={u.id} @{u.personal_tg_bot_username}")
+                except Exception as e:
+                    log.warning(f"[webhook-retry] TG user={u.id} failed: {e}")
+            # MAX
+            max_pending = (db.query(User)
+                             .filter(User.personal_max_bot_token.isnot(None),
+                                     User.personal_max_webhook_set.is_(False))
+                             .all())
+            for u in max_pending:
+                token = u.personal_max_bot_token
+                token_hash = u.personal_max_bot_token_hash
+                if not (token and token_hash):
+                    continue
+                try:
+                    r = await max_set_webhook(token, token_hash)
+                    if r.get("ok"):
+                        u.personal_max_webhook_set = True
+                        fixed["max"] += 1
+                        log.info(f"[webhook-retry] MAX fixed user={u.id}")
+                except Exception as e:
+                    log.warning(f"[webhook-retry] MAX user={u.id} failed: {e}")
+            # VK Community
+            vk_pending = (db.query(User)
+                            .filter(User.personal_vk_bot_token.isnot(None),
+                                    User.personal_vk_group_id.isnot(None),
+                                    User.personal_vk_webhook_set.is_(False))
+                            .all())
+            for u in vk_pending:
+                token = u.personal_vk_bot_token
+                gid = u.personal_vk_group_id
+                token_hash = u.personal_vk_bot_token_hash
+                if not (token and gid and token_hash):
+                    continue
+                try:
+                    r = await vk_set_callback(token, gid, token_hash)
+                    if r.get("ok"):
+                        u.personal_vk_webhook_set = True
+                        fixed["vk"] += 1
+                        log.info(f"[webhook-retry] VK fixed user={u.id}")
+                except Exception as e:
+                    log.warning(f"[webhook-retry] VK user={u.id} failed: {e}")
+            db.commit()
+    except Exception as e:
+        log.error(f"[webhook-retry] tick error: {type(e).__name__}: {e}")
+    total = sum(fixed.values())
+    if total > 0:
+        log.info(f"[webhook-retry] fixed {total} webhook(s): {fixed}")
+    return fixed
+
+
+async def failed_webhooks_retry_loop():
+    """Раз в 10 минут пробует установить webhook'и для ботов где webhook_set=False.
+
+    Зачем: при connect TG/MAX/VK может ответить ConnectTimeout (сеть, блокировки)
+    → токен сохранён, webhook не установлен → бот молчит. Этот cron сам всё
+    вылечит когда сеть восстановится / прокси заработает.
+    """
+    from server.worker_lock import worker_lock
+    log.info("Failed-webhooks retry loop started")
+    await asyncio.sleep(180)  # старт после init'а
+    while True:
+        try:
+            with worker_lock("failed_webhooks_retry", ttl_sec=540) as acquired:
+                if acquired:
+                    await _retry_failed_webhooks_tick()
+        except Exception as e:
+            log.error(f"[webhook-retry] loop error: {e}")
+        await asyncio.sleep(600)  # 10 минут

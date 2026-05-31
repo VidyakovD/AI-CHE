@@ -381,7 +381,9 @@ class TestFetchYandexEvents:
 
     def test_parses_multistatus_with_ics(self, monkeypatch):
         from server import calendar_sync as cs
-        # Yandex отвечает Multi-Status с calendar-data блоками
+        # Yandex отвечает Multi-Status с calendar-data блоками.
+        # Дату ставим заведомо в будущем — иначе тест сломается со временем
+        # (parse_ics_events фильтрует past события по from_dt=now).
         multistatus = """<?xml version="1.0" encoding="utf-8"?>
 <D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
   <D:response>
@@ -392,7 +394,7 @@ VERSION:2.0
 BEGIN:VEVENT
 UID:y-1
 SUMMARY:Yandex встреча
-DTSTART:20260530T140000Z
+DTSTART:20300101T140000Z
 END:VEVENT
 END:VCALENDAR</C:calendar-data>
       </D:prop>

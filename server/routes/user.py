@@ -522,11 +522,17 @@ async def personal_tg_connect(payload: PersonalBotConnectBody,
     # Set webhook
     wh = await tg_set_webhook(token, token_hash)
     if not wh.get("ok"):
-        # Сохранили токен, но webhook не встал — юзер может попробовать reconnect
-        log.warning(f"[personal-tg] setWebhook failed user={user.id}: {wh.get('error')}")
+        # Сохранили токен, но webhook не встал — это нормально. Cron
+        # failed_webhooks_retry_loop каждые 10 мин повторит попытку.
+        # Юзеру говорим что всё под контролем — не нужно ничего делать.
+        log.warning(f"[personal-tg] setWebhook failed user={user.id}: {wh.get('error')} (cron retry в течение 10 мин)")
         return {"status": "connected_partial",
                 "bot_username": u.personal_tg_bot_username,
-                "error": f"Бот подключен, но webhook не установился: {wh.get('error')}. Попробуй переподключить."}
+                "error": (f"Бот подключен ✓. Telegram временно недоступен "
+                          f"({wh.get('error')}) — система автоматически "
+                          f"установит webhook в течение 10 минут. Можешь не "
+                          f"переподключать. Когда заработает — напиши /start "
+                          f"в бот.")}
     u.personal_tg_webhook_set = True
     db.commit()
 
