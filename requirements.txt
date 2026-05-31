@@ -94,3 +94,6 @@ boto3==1.35.0
 # Custom-домены для сайтов: проверка TXT-записей при verify (CNAME → aiche.ru).
 # Без этой либы fallback на subprocess `dig` — но не на всех системах есть dig.
 dnspython>=2.6.0,<3.0
+# Module manifest.yaml — формат для марktplace третьих модулей агентов.
+# Каждый модуль = один YAML под server/agents/manifests/. Loader подхватывает.
+PyYAML>=6.0.2,<7.0

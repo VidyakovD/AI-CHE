@@ -1496,7 +1496,12 @@ _CATEGORY_LABELS = {
 
 
 def _slug_category(slug: str) -> str:
-    return _CATEGORY_MAP.get(slug, "other")
+    # 1) Манифест/Python-блок может задать category напрямую (YAML migration)
+    # 2) Fallback — старая статическая карта _CATEGORY_MAP
+    # 3) "other" — если нигде нет
+    from server.agent_runner import AGENT_REGISTRY
+    meta = AGENT_REGISTRY.get(slug) or {}
+    return meta.get("category") or _CATEGORY_MAP.get(slug, "other")
 
 
 @router.get("/catalog")

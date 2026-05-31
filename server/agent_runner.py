@@ -72,6 +72,7 @@ def register_agent(
     handler=None,
     skills: list[dict] | None = None,
     settings_schema: list[dict] | None = None,
+    category: str | None = None,
 ) -> None:
     """Register a new agent type. Idempotent — safe to call on every import.
 
@@ -152,6 +153,7 @@ def register_agent(
         "handler":       handler,
         "skills":        norm_skills,
         "settings_schema": norm_schema,
+        "category":      (category or None),
     }
     log.info(f"[Registry] Registered: {agent_id} — {name}")
 

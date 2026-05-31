@@ -139,7 +139,7 @@ _Последнее обновление до этой сессии: 2026-05-22.
 | 🟢 low | **Multi-LLM паттерны** Pipeline/Parallel/Verify (workflow patterns) — большой scope |
 | 🟢 low | **Module manifest.yaml** формат — рефакторинг 28 модулей |
 | 🟢 low | **Splitting `chatbot_engine._execute_node`** (1100 строк) — высокий риск, без покрытия тестами |
-| 🟢 low | **Тесты на OAuth flow** для Calendar (mock exchange request) |
+| ✅ done | ~~Тесты на OAuth flow для Calendar~~ — закрыто (tests/test_calendar_oauth.py 16 + test_calendar_sync.py 24) |
 | 🟢 low | **A11y aria-label + alt + label-for** на 6 страницах (skip-link уже есть) |
 | 🟢 low | **Самопрогон 40 пилотов Solutions** на синтетических кейсах для тюна промптов |
 | 🟢 low | **Видео-приветствие** через Veo в КП (зависит от Google Cloud credits) |
