@@ -216,6 +216,17 @@ register_agent(
 Используй web_search для актуальных трендов и вирусных форматов.
 Готовый контент сохраняй через write_output.""",
     allowed_tools=["web_search", "run_llm", "write_output", "send_tg_message", "finish"],
+    settings_schema=[
+        {"key": "brand_name", "label": "Название бренда", "type": "text",
+         "hint": "Подставится в посты от первого лица"},
+        {"key": "tone", "label": "Тон постов", "type": "select",
+         "options": ["экспертный", "дружелюбный", "провокационный", "официальный", "юмор"],
+         "default": "дружелюбный"},
+        {"key": "platforms", "label": "Целевые платформы", "type": "text",
+         "default": "TG, VK", "hint": "Через запятую: TG, VK, IG, YT, TikTok"},
+        {"key": "audience", "label": "Целевая аудитория", "type": "textarea",
+         "hint": "Возраст, профессия, боли — модель учтёт в постах"},
+    ],
 )
 
 register_agent(
@@ -303,6 +314,17 @@ register_agent(
             "prompt_addon": "В конце текста добавь блок «Хэштеги:» с 5-10 релевантных #тегов для TG/VK/Instagram.",
         },
     ],
+    settings_schema=[
+        {"key": "author_name", "label": "Имя автора / бренда", "type": "text",
+         "hint": "От чьего лица пишутся тексты"},
+        {"key": "target_audience", "label": "Целевая аудитория", "type": "textarea",
+         "hint": "Возраст, занятие, боли — модель учтёт"},
+        {"key": "tone", "label": "Тон", "type": "select",
+         "options": ["экспертный", "дружелюбный", "продающий", "официальный", "юмор"],
+         "default": "дружелюбный"},
+        {"key": "stop_words", "label": "Стоп-слова", "type": "text",
+         "hint": "Через запятую: «гарантия 100%», «уникальный», «инновационный»"},
+    ],
 )
 
 register_agent(
@@ -337,6 +359,16 @@ register_agent(
 
 Спрашивай: тема, платформа, ЦА, желаемое действие зрителя.""",
     allowed_tools=["web_search", "run_llm", "write_output", "finish"],
+    settings_schema=[
+        {"key": "default_platform", "label": "Платформа по умолчанию", "type": "select",
+         "options": ["TikTok", "Reels (Instagram)", "Shorts (YouTube)", "VK Клипы", "длинное YT-видео"],
+         "default": "Reels (Instagram)"},
+        {"key": "default_length", "label": "Длина видео", "type": "select",
+         "options": ["15 сек", "30 сек", "60 сек", "3-5 мин", "10-15 мин"],
+         "default": "30 сек"},
+        {"key": "audience", "label": "Целевая аудитория", "type": "textarea",
+         "hint": "Возраст, интересы — формирует тон и крючок"},
+    ],
 )
 
 register_agent(
@@ -518,6 +550,16 @@ register_agent(
 
 Никогда не пугай цифрами без объяснения. Всегда давай контекст (норма по отрасли, динамика).""",
     allowed_tools=["run_llm", "web_search", "write_output", "finish"],
+    settings_schema=[
+        {"key": "currency", "label": "Валюта отчётов", "type": "select",
+         "options": ["RUB", "USD", "EUR", "CNY", "KZT"],
+         "default": "RUB"},
+        {"key": "industry", "label": "Отрасль", "type": "text",
+         "hint": "Например: e-commerce, SaaS, услуги, производство — для сравнения с нормами"},
+        {"key": "period_default", "label": "Период по умолчанию", "type": "select",
+         "options": ["месяц", "квартал", "полугодие", "год"],
+         "default": "квартал"},
+    ],
 )
 
 register_agent(
@@ -576,6 +618,14 @@ register_agent(
 Используй web_search для сбора актуальных данных.
 Формат: таблица конкурентов + выводы + рекомендации.""",
     allowed_tools=["web_search", "browse_url", "run_llm", "write_output", "finish"],
+    settings_schema=[
+        {"key": "niche", "label": "Ниша / тематика", "type": "text",
+         "hint": "Узкий сегмент рынка — для фокуса поиска"},
+        {"key": "key_competitors", "label": "Ключевые конкуренты", "type": "textarea",
+         "hint": "По одному на строку или через запятую"},
+        {"key": "region", "label": "Регион", "type": "text",
+         "default": "Россия", "hint": "Россия, Москва, СНГ — для гео-фильтра"},
+    ],
 )
 
 register_agent(

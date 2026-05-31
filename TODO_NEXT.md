@@ -143,10 +143,10 @@ _Последнее обновление до этой сессии: 2026-05-22.
 | 🟢 low | **A11y aria-label + alt + label-for** на 6 страницах (skip-link уже есть) |
 | 🟢 low | **Самопрогон 40 пилотов Solutions** на синтетических кейсах для тюна промптов |
 | 🟢 low | **Видео-приветствие** через Veo в КП (зависит от Google Cloud credits) |
-| 🟢 low | **Settings_schema** для остальных 23 модулей (5 уже сделано) |
+| 🟢 low | **Settings_schema** для остальных 18 модулей (13 уже сделано — +5: smm/copywriter/scriptwriter/fin_analyst/comp_intel) |
 | 🟢 low | **VK ads — write-операции** (создание/изменение кампаний). MVP только READ |
 | 🟢 low | **Splitting `views/icons.js`** (2700 строк) — косметика |
-| 🟢 low | **Migrate notify_user() на personal_tg** — отложено (риск потери push при не-personal-bot)|
+| ✅ done | ~~Migrate notify_user() на personal_tg~~ — закрыто, fallback chain (personal → legacy), 10 тестов |
 
 #### Удалено окончательно в сессии 2026-05-28:
 - ~~Marketplace ботов~~ — фича снесена полностью (была отключена 2026-05-10
