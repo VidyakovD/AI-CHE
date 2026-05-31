@@ -98,6 +98,39 @@ def send_message_sync(tg_user_id: str, text: str,
         return False
 
 
+def send_personal_tg_sync(bot_token: str, chat_id: str, text: str,
+                           reply_markup: dict | None = None,
+                           parse_mode: str = "HTML") -> bool:
+    """Sync send через PERSONAL бот юзера (его собственный @BotFather токен).
+
+    Используется в notify_user для модели «юзер подключает свой бот»
+    (см. server/personal_bot_relay.py). Отличается от send_message_sync
+    тем что bot_token передаётся явно, а не берётся из env TG_MGMT_BOT_TOKEN.
+    """
+    if not bot_token or not chat_id:
+        return False
+    payload = {
+        "chat_id": str(chat_id),
+        "text": text[:4000],
+        "parse_mode": parse_mode,
+        "disable_web_page_preview": True,
+    }
+    if reply_markup:
+        import json as _json
+        payload["reply_markup"] = _json.dumps(reply_markup, ensure_ascii=False)
+    url = f"{TG_API_BASE}{bot_token.strip()}/sendMessage"
+    try:
+        with httpx.Client(timeout=12) as client:
+            r = client.post(url, json=payload)
+            if r.status_code != 200:
+                log.warning(f"[personal-tg-sync] {chat_id}: {r.status_code} {r.text[:200]}")
+                return False
+        return True
+    except Exception as e:
+        log.warning(f"[personal-tg-sync] {chat_id} error: {type(e).__name__}")
+        return False
+
+
 async def answer_callback(callback_query_id: str, text: str = "",
                            show_alert: bool = False) -> None:
     """Ответ на нажатие inline-кнопки (убирает «часики» в Telegram)."""
@@ -643,17 +676,41 @@ async def _do_relay_to_che(chat_id: str, tg_uid: str, text: str) -> None:
 def notify_user(user_id: int, text: str, kind: str = "info",
                  reply_markup: dict | None = None) -> bool:
     """Отправить push-уведомление юзеру в его привязанный TG.
-    kind: 'proposals' | 'records' | 'errors' — соответствует toggle-флагам.
-    Возвращает True если сообщение ушло."""
+
+    Приоритет канала (2026-05 миграция «общий бот» → «свой бот»):
+      1. personal_tg_bot_token + personal_tg_chat_id — современный flow,
+         юзер подключил свой @BotFather бот в /agents-modular.html
+      2. Fallback: legacy tg_user_id + global TG_MGMT_BOT_TOKEN — для
+         юзеров кто ещё не мигрировал на свой бот
+
+    kind: 'proposals' | 'records' | 'errors' | 'info' — соответствует
+    toggle-флагам (tg_notify_*). 'info' — без toggle-проверки (системное).
+    Возвращает True если сообщение ушло хоть одним способом.
+    """
     from server.db import db_session
     from server.models import User
     field = {"proposals":"tg_notify_proposals", "records":"tg_notify_records",
              "errors":"tg_notify_errors", "info":None}.get(kind)
     with db_session() as db:
         u = db.query(User).filter_by(id=user_id).first()
-        if not u or not u.tg_user_id:
+        if not u:
             return False
         if field and not getattr(u, field, True):
-            return False  # юзер выключил этот тип
-        tg_uid = u.tg_user_id
-    return send_message_sync(tg_uid, text, reply_markup=reply_markup)
+            return False  # юзер выключил этот тип уведомления
+        # Снимаем значения здесь — после выхода из with объект отвяжется от сессии
+        personal_token = u.personal_tg_bot_token
+        personal_chat = u.personal_tg_chat_id
+        legacy_uid = u.tg_user_id
+
+    # Современный канал: personal bot
+    if personal_token and personal_chat:
+        if send_personal_tg_sync(personal_token, personal_chat, text,
+                                  reply_markup=reply_markup):
+            return True
+        # Personal bot не доставил (заблокирован/удалён юзером) →
+        # пробуем legacy если есть. Иначе считаем что юзер недоступен.
+
+    # Legacy fallback: общий бот платформы
+    if legacy_uid:
+        return send_message_sync(legacy_uid, text, reply_markup=reply_markup)
+    return False
