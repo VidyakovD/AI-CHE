@@ -55,14 +55,22 @@ def is_configured() -> bool:
 
 
 async def _tg_call(method: str, payload: dict) -> Optional[dict]:
-    """Базовый вызов Telegram API."""
+    """Базовый вызов Telegram API.
+
+    Проксирование: api.telegram.org с РФ-IP заблокирован с 2026-05-28 —
+    прокси берётся из TG_HTTPS_PROXY env (тот же что у personal_bot_relay).
+    Если env пуст — ходим напрямую (вернётся если разблокируют)."""
     token = _bot_token()
     if not token:
         log.warning(f"[aiche-tg] no token, skipping {method}")
         return None
+    proxy = (os.getenv("TG_HTTPS_PROXY") or "").strip() or None
     url = f"{TG_API_BASE}{token}/{method}"
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
+        kwargs: dict = {"timeout": 20}
+        if proxy:
+            kwargs["proxy"] = proxy
+        async with httpx.AsyncClient(**kwargs) as client:
             r = await client.post(url, json=payload)
             if r.status_code != 200:
                 log.warning(f"[aiche-tg] {method} → {r.status_code}: {r.text[:200]}")
@@ -112,8 +120,36 @@ async def answer_callback(callback_query_id: str, text: str = "",
 
 
 async def send_chat_action(chat_id: str, action: str = "typing") -> None:
-    """Показать «бот печатает...» в TG. Без await ответа."""
+    """Показать «бот печатает...» в TG. Без await ответа.
+    action: typing | upload_photo | upload_video | record_video..."""
     await _tg_call("sendChatAction", {"chat_id": str(chat_id), "action": action})
+
+
+async def send_photo(chat_id: str, photo_url: str,
+                      caption: Optional[str] = None,
+                      reply_markup: Optional[dict] = None) -> Optional[dict]:
+    """sendPhoto через URL (TG скачает сам). photo_url должен быть публично
+    доступен — у нас /uploads/* проксируется через nginx из aiche.ru."""
+    payload: dict = {"chat_id": str(chat_id), "photo": photo_url}
+    if caption:
+        payload["caption"] = caption[:1024]
+        payload["parse_mode"] = "HTML"
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    return await _tg_call("sendPhoto", payload)
+
+
+async def send_video(chat_id: str, video_url: str,
+                      caption: Optional[str] = None,
+                      reply_markup: Optional[dict] = None) -> Optional[dict]:
+    """sendVideo через URL. TG скачает MP4 и пришлёт юзеру."""
+    payload: dict = {"chat_id": str(chat_id), "video": video_url}
+    if caption:
+        payload["caption"] = caption[:1024]
+        payload["parse_mode"] = "HTML"
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    return await _tg_call("sendVideo", payload)
 
 
 # ── Conversation state (in-memory, TTL 10 мин) ────────────────────────────
@@ -354,11 +390,21 @@ async def _handle_message(msg: dict) -> None:
 
     # Если юзер в режиме «жду промпта» — обрабатываем как чат с AI.
     state = _get_state(tg_uid)
-    if state and state.get("mode") == "chat":
+    if state:
+        mode = state.get("mode")
         user_id = _find_or_create_user(tg_uid, tg_username, full_name)
-        await _do_chat_message(chat_id, user_id, tg_uid, text,
-                                state.get("model") or "claude")
-        return
+        if mode == "chat":
+            await _do_chat_message(chat_id, user_id, tg_uid, text,
+                                    state.get("model") or "claude")
+            return
+        if mode == "image":
+            await _do_image_message(chat_id, user_id, text,
+                                     state.get("model") or "gpt-image")
+            return
+        if mode == "video":
+            await _do_video_message(chat_id, user_id, text,
+                                     state.get("model") or "kling")
+            return
 
     # Иначе — короткая подсказка с меню
     await send_message(chat_id,
@@ -521,15 +567,55 @@ async def _handle_callback(cb: dict) -> None:
             reply_markup=_chat_active_kb())
         return
 
-    # Заглушки для будущих стадий
-    if data in ("menu_image", "menu_video", "menu_settings"):
-        labels = {
-            "menu_image": "🎨 Картинка",
-            "menu_video": "🎬 Видео",
-            "menu_settings": "⚙ Настройки",
-        }
+    # Stage 3a: GPT-image
+    if data == "menu_image":
+        _clear_state(tg_uid)
+        _set_state(tg_uid, mode="image", model="gpt-image")
         await edit_message(chat_id, msg_id,
-            f"<b>{labels[data]}</b>\n\n"
+            "🎨 <b>Генерация картинки (GPT-image)</b>\n\n"
+            "Отправь текст-описание (на русском или английском).\n"
+            "Пример: <i>«Лиса на закате в стиле акварели»</i>\n\n"
+            "💸 Цена: 60 ₽ за картинку.\n"
+            "Можешь продолжить присылать промпты — каждый = новая картинка.\n"
+            "Выход — /menu.",
+            reply_markup=_chat_active_kb())
+        return
+
+    # Stage 3b: Kling video — submenu (2 модели)
+    if data == "menu_video":
+        _clear_state(tg_uid)
+        await edit_message(chat_id, msg_id,
+            "🎬 <b>Видео (Kling AI)</b>\n\n"
+            "Выбери модель — Kling v1 быстрее и дешевле, Pro качественнее.\n"
+            "<i>Видео делается 2-5 минут. Я пришлю как только готово.</i>",
+            reply_markup={"inline_keyboard": [
+                [{"text": "🎬 Kling v1 (50 ₽)", "callback_data": "video:kling"}],
+                [{"text": "🎬 Kling Pro v1.6 (80 ₽)", "callback_data": "video:kling-pro"}],
+                [{"text": "← Назад", "callback_data": "menu_main"}],
+            ]})
+        return
+
+    if data.startswith("video:"):
+        model_id = data.split(":", 1)[1]
+        if model_id not in ("kling", "kling-pro"):
+            await edit_message(chat_id, msg_id, "Неизвестная модель видео.",
+                                reply_markup=_back_kb())
+            return
+        _set_state(tg_uid, mode="video", model=model_id)
+        await edit_message(chat_id, msg_id,
+            f"🎬 <b>Видео через {model_id}</b>\n\n"
+            "Опиши что должно быть в видео. 5-секундный ролик 16:9.\n"
+            "Пример: <i>«Кот гуляет по крыше под луной, плавная панорама»</i>\n\n"
+            "💸 Цена: " + ("50" if model_id == "kling" else "80") + " ₽ за видео.\n"
+            "После старта подожди 2-5 минут — пришлю готовое.\n"
+            "Выход — /menu.",
+            reply_markup=_chat_active_kb())
+        return
+
+    # Заглушки для оставшихся стадий
+    if data == "menu_settings":
+        await edit_message(chat_id, msg_id,
+            "<b>⚙ Настройки</b>\n\n"
             "🚧 В разработке. Скоро будет доступно.",
             reply_markup=_back_kb())
         return
