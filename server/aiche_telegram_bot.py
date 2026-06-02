@@ -20,6 +20,7 @@ ENV:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -727,6 +728,246 @@ async def _do_chat_message(chat_id: str, user_id: int, tg_uid: str,
         body += "\n…[ответ обрезан]"
     await send_message(chat_id, body + footer,
                         reply_markup=_chat_active_kb())
+
+
+# ── Stage 3a: GPT-image ──────────────────────────────────────────────────
+
+
+async def _do_image_message(chat_id: str, user_id: int,
+                              prompt_text: str, model_id: str) -> None:
+    """Юзер в режиме картинки прислал промпт. Генерируем + списываем."""
+    from server.billing import deduct_strict, get_balance
+    from server.db import db_session
+    from server.models import Transaction
+    from server.ai import generate_response
+
+    # Фикс-цена gpt-image-1 = 60 ₽ (см. server.ai TOKEN_COST).
+    # Списание после успешной генерации (юзер не платит за упавшие запросы).
+    IMAGE_COST_KOP = 6000
+
+    # Pre-check
+    current = get_user_balance_kop(user_id)
+    if current < IMAGE_COST_KOP:
+        await send_message(chat_id,
+            f"⚠ <b>Недостаточно средств</b>\n\n"
+            f"Баланс: {_format_balance(current)}\n"
+            f"Картинка стоит {IMAGE_COST_KOP/100:.0f} ₽.\n\n"
+            f"💳 Пополни через главное меню.",
+            reply_markup=_main_menu_kb())
+        return
+
+    await send_chat_action(chat_id, "upload_photo")
+    await send_message(chat_id,
+        "🎨 Генерирую картинку, обычно ~10-20 секунд…")
+
+    try:
+        result = generate_response(
+            model_id, [{"role": "user", "content": prompt_text}],
+            extra={"_user_id": user_id, "_purpose": "aiche_bot_image",
+                   "size": "1024x1024", "quality": "high"},
+        )
+    except Exception as e:
+        log.error(f"[aiche-tg] image gen failed: {type(e).__name__}: {e}")
+        await send_message(chat_id,
+            "⚠ Сервис временно недоступен. Не списал, попробуй позже.",
+            reply_markup=_chat_active_kb())
+        return
+
+    if not isinstance(result, dict):
+        await send_message(chat_id, "⚠ Не удалось получить картинку.",
+                            reply_markup=_chat_active_kb())
+        return
+
+    img_url = result.get("url") or result.get("content") or ""
+    if not img_url or img_url.startswith("Сервис временно") or not img_url.startswith("/"):
+        # Текстовая ошибка от провайдера → не списываем
+        await send_message(chat_id, str(img_url or "Пустой ответ"),
+                            reply_markup=_chat_active_kb())
+        return
+
+    # Списание
+    with db_session() as db:
+        ok = deduct_strict(db, user_id, IMAGE_COST_KOP)
+        if not ok:
+            new_bal = get_balance(db, user_id)
+        else:
+            db.add(Transaction(
+                user_id=user_id, type="usage",
+                tokens_delta=-IMAGE_COST_KOP,
+                description=f"[aiche_bot] image:{model_id}",
+                model=model_id,
+            ))
+            db.commit()
+            new_bal = get_balance(db, user_id)
+
+    # Публичная ссылка на /uploads/* через nginx
+    app_url = os.getenv("APP_URL", "https://aiche.ru").rstrip("/")
+    public_url = f"{app_url}{img_url}"
+    caption = (f"🎨 Готово\n— − {IMAGE_COST_KOP/100:.2f} ₽ · "
+                f"💰 баланс {new_bal/100:.2f} ₽")
+    await send_photo(chat_id, public_url, caption=caption,
+                       reply_markup=_chat_active_kb())
+
+
+# ── Stage 3b: Kling video ────────────────────────────────────────────────
+
+
+# Активные задачи Kling: task_id → {user_id, chat_id, model, started_at,
+# cost_kop, attempts}. Polled background task'ом, удаляется при success/fail.
+_KLING_TASKS: dict[str, dict] = {}
+_KLING_POLL_INTERVAL = 30  # сек
+_KLING_MAX_ATTEMPTS = 20    # = 10 минут общий таймаут
+
+
+KLING_COST_KOP = {"kling": 5000, "kling-pro": 8000}
+
+
+async def _do_video_message(chat_id: str, user_id: int,
+                              prompt_text: str, model_id: str) -> None:
+    """Submit Kling task → юзеру: «генерируется» → background poller дошлёт видео."""
+    from server.ai import generate_response
+
+    cost_kop = KLING_COST_KOP.get(model_id, 5000)
+    current = get_user_balance_kop(user_id)
+    if current < cost_kop:
+        await send_message(chat_id,
+            f"⚠ <b>Недостаточно средств</b>\n\n"
+            f"Баланс: {_format_balance(current)}\n"
+            f"Видео ({model_id}) стоит {cost_kop/100:.0f} ₽.",
+            reply_markup=_main_menu_kb())
+        return
+
+    await send_chat_action(chat_id, "upload_video")
+    await send_message(chat_id,
+        "🎬 Принял. Видео генерируется 2-5 минут, я пришлю как только готово.")
+
+    try:
+        result = generate_response(
+            model_id, [{"role": "user", "content": prompt_text}],
+            extra={"_user_id": user_id, "_purpose": "aiche_bot_video",
+                   "prompt": prompt_text, "aspect_ratio": "16:9",
+                   "duration": 5, "mode": "std",
+                   "generation_mode": "text2video"},
+        )
+    except Exception as e:
+        log.error(f"[aiche-tg] kling submit failed: {type(e).__name__}: {e}")
+        await send_message(chat_id,
+            "⚠ Kling временно недоступен. Не списал, попробуй позже.",
+            reply_markup=_chat_active_kb())
+        return
+
+    if not isinstance(result, dict) or result.get("type") != "video_task":
+        # Текстовая ошибка
+        text = (result.get("content") if isinstance(result, dict)
+                else str(result))
+        await send_message(chat_id, text or "⚠ Не удалось запустить задачу.",
+                            reply_markup=_chat_active_kb())
+        return
+
+    task_id = result.get("task_id")
+    if not task_id:
+        await send_message(chat_id, "⚠ Kling не вернул task_id.",
+                            reply_markup=_chat_active_kb())
+        return
+
+    # Регистрируем в poller'е
+    _KLING_TASKS[task_id] = {
+        "user_id": user_id, "chat_id": chat_id, "model": model_id,
+        "started_at": time.time(), "cost_kop": cost_kop, "attempts": 0,
+    }
+    # asyncio.create_task — fire-and-forget, мы вернём управление сразу
+    asyncio.create_task(_poll_kling_task(task_id))
+
+
+async def _poll_kling_task(task_id: str) -> None:
+    """Background poller. Тикает каждые 30 сек, пока видео не готово или
+    не превышен лимит попыток. Когда готово — sendVideo + списание."""
+    from server.ai import _get_kling_jwt
+    from server.billing import deduct_strict, get_balance
+    from server.db import db_session
+    from server.models import Transaction
+
+    while True:
+        info = _KLING_TASKS.get(task_id)
+        if not info:
+            return  # удалили извне
+
+        info["attempts"] = info.get("attempts", 0) + 1
+        if info["attempts"] > _KLING_MAX_ATTEMPTS:
+            await send_message(info["chat_id"],
+                "⏱ Видео не удалось получить за 10 минут. "
+                "Не списал. Попробуй ещё раз.",
+                reply_markup=_chat_active_kb())
+            _KLING_TASKS.pop(task_id, None)
+            return
+
+        await asyncio.sleep(_KLING_POLL_INTERVAL)
+        token = _get_kling_jwt()
+        if not token:
+            log.warning(f"[aiche-tg] kling JWT failed for task {task_id}")
+            continue
+
+        try:
+            async with httpx.AsyncClient(timeout=20) as cli:
+                r = await cli.get(
+                    f"https://api.klingai.com/v1/videos/text2video/{task_id}",
+                    headers={"Authorization": f"Bearer {token}"})
+                data = r.json() if r.status_code == 200 else {}
+        except Exception as e:
+            log.warning(f"[aiche-tg] kling poll {task_id} err: {type(e).__name__}")
+            continue
+
+        # Парсим ответ Kling: data.data.task_status (succeed/failed/processing)
+        task_data = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(task_data, dict):
+            continue
+        status = (task_data.get("task_status") or "").lower()
+
+        if status in ("failed", "error"):
+            await send_message(info["chat_id"],
+                f"⚠ Kling не смог сгенерировать видео: "
+                f"{task_data.get('task_status_msg', 'unknown')}\n"
+                "Не списал, попробуй другой промпт.",
+                reply_markup=_chat_active_kb())
+            _KLING_TASKS.pop(task_id, None)
+            return
+
+        if status in ("succeed", "success", "completed"):
+            # video URL в data.data.task_result.videos[0].url
+            video_url = ""
+            try:
+                videos = (task_data.get("task_result") or {}).get("videos") or []
+                if videos:
+                    video_url = videos[0].get("url") or ""
+            except Exception:
+                pass
+            if not video_url:
+                await send_message(info["chat_id"],
+                    "⚠ Видео готово, но Kling не вернул URL.",
+                    reply_markup=_chat_active_kb())
+                _KLING_TASKS.pop(task_id, None)
+                return
+
+            # Списание
+            with db_session() as db:
+                ok = deduct_strict(db, info["user_id"], info["cost_kop"])
+                if ok:
+                    db.add(Transaction(
+                        user_id=info["user_id"], type="usage",
+                        tokens_delta=-info["cost_kop"],
+                        description=f"[aiche_bot] video:{info['model']}",
+                        model=info["model"],
+                    ))
+                    db.commit()
+                new_bal = get_balance(db, info["user_id"])
+
+            caption = (f"🎬 Готово\n— − {info['cost_kop']/100:.2f} ₽ · "
+                        f"💰 баланс {new_bal/100:.2f} ₽")
+            await send_video(info["chat_id"], video_url, caption=caption,
+                              reply_markup=_chat_active_kb())
+            _KLING_TASKS.pop(task_id, None)
+            return
+        # status processing → крутимся дальше
 
 
 async def setup_webhook(public_url: str) -> dict:

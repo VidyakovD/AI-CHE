@@ -267,12 +267,13 @@ class TestCallbacks:
         assert len(kb) == 6
 
     def test_stub_callbacks_show_coming_soon(self, captured_tg_calls):
-        """Stage 1: menu_image/video/settings — заглушки.
-        menu_chat живой (Stage 2) — проверяется в test_aiche_bot_stage2_chat.py."""
+        """Stage 1: menu_settings — заглушка.
+        menu_chat (Stage 2) / menu_image / menu_video (Stage 3) — живые,
+        тестируются в test_aiche_bot_stage2_chat.py и test_aiche_bot_stage3_media.py."""
         from server import aiche_telegram_bot as bot
         tg_uid = f"cb-stub-{uuid.uuid4().hex[:6]}"
         _setup_user_for_callback(tg_uid)
-        for data in ("menu_image", "menu_video", "menu_settings"):
+        for data in ("menu_settings",):
             captured_tg_calls.clear()
             update = {
                 "callback_query": {
