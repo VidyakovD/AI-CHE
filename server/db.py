@@ -362,6 +362,10 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     ("users", "vk_user_id", "BIGINT"),
     # Единый trial для всех поверхностей. NULL = trial кончился / не было.
     ("users", "trial_ends_at", "DATETIME"),
+    # @aiche_bot — модель чата по умолчанию (server/aiche_telegram_bot.py).
+    # NULL = default = первая в CHAT_MODELS (claude haiku). Меняется через
+    # Settings submenu в боте. Любой из ID моделей в CHAT_MODELS.
+    ("users", "tg_default_chat_model", "VARCHAR"),
 ]
 
 # Note: push_subscriptions / solution_run_templates создаются Base.metadata.create_all

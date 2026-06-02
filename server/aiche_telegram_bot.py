@@ -267,6 +267,57 @@ def get_user_balance_kop(user_id: int) -> int:
         return get_balance(db, user_id)
 
 
+def _get_user_info(user_id: int) -> dict:
+    """Снапшот User для отображения в Settings → Профиль."""
+    from server.db import db_session
+    from server.models import User
+    with db_session() as db:
+        u = db.query(User).filter_by(id=user_id).first()
+        if not u:
+            return {"name": "?", "email": "?", "tg_username": "",
+                    "balance_kop": 0, "trial_ends_at": None}
+        return {
+            "name": u.name or "Без имени",
+            "email": u.email or "",
+            "email_synthetic": (u.email or "").endswith("@aiche.local"),
+            "tg_username": u.tg_username or "",
+            "balance_kop": int(u.tokens_balance or 0),
+            "trial_ends_at": (u.trial_ends_at.isoformat()
+                              if u.trial_ends_at else None),
+        }
+
+
+def _get_default_chat_model(user_id: int) -> Optional[str]:
+    """Сохранённая модель чата по умолчанию (NULL = первая в CHAT_MODELS)."""
+    from server.db import db_session
+    from server.models import User
+    with db_session() as db:
+        u = db.query(User).filter_by(id=user_id).first()
+        return (u.tg_default_chat_model if u else None)
+
+
+def _set_default_chat_model(user_id: int, model_id: str) -> None:
+    from server.db import db_session
+    from server.models import User
+    with db_session() as db:
+        u = db.query(User).filter_by(id=user_id).first()
+        if u:
+            u.tg_default_chat_model = model_id
+            db.commit()
+
+
+def _unlink_tg(user_id: int) -> None:
+    """Стереть tg_user_id + tg_username у User'а. Баланс/email/история не трогаем."""
+    from server.db import db_session
+    from server.models import User
+    with db_session() as db:
+        u = db.query(User).filter_by(id=user_id).first()
+        if u:
+            u.tg_user_id = None
+            u.tg_username = None
+            db.commit()
+
+
 # ── Menu builders ─────────────────────────────────────────────────────────
 
 
@@ -301,11 +352,12 @@ CHAT_MODELS = [
 ]
 
 
-def _chat_models_kb() -> dict:
-    rows = [
-        [{"text": label, "callback_data": f"chat:{mid}"}]
-        for mid, label in CHAT_MODELS
-    ]
+def _chat_models_kb(default_model: Optional[str] = None) -> dict:
+    """Submenu выбора модели для чата. Если задан default — помечается ⭐."""
+    rows = []
+    for mid, label in CHAT_MODELS:
+        mark = "⭐ " if default_model and mid == default_model else ""
+        rows.append([{"text": mark + label, "callback_data": f"chat:{mid}"}])
     rows.append([{"text": "← Назад", "callback_data": "menu_main"}])
     return {"inline_keyboard": rows}
 
@@ -545,10 +597,12 @@ async def _handle_callback(cb: dict) -> None:
     # Stage 2: чат с AI
     if data == "menu_chat":
         _clear_state(tg_uid)  # выходим из старого режима если был
+        default = _get_default_chat_model(user_id)
         await edit_message(chat_id, msg_id,
             "🤖 <b>Выбери модель для чата</b>\n\n"
-            "<i>После выбора отправь сообщение — модель ответит с учётом цены.</i>",
-            reply_markup=_chat_models_kb())
+            "<i>После выбора отправь сообщение — модель ответит с учётом цены.</i>" +
+            ("\n\n⭐ — твоя дефолтная (поменять в ⚙ Настройки)." if default else ""),
+            reply_markup=_chat_models_kb(default))
         return
 
     if data.startswith("chat:"):
@@ -613,12 +667,89 @@ async def _handle_callback(cb: dict) -> None:
             reply_markup=_chat_active_kb())
         return
 
-    # Заглушки для оставшихся стадий
+    # Stage 4: Настройки
     if data == "menu_settings":
+        _clear_state(tg_uid)
         await edit_message(chat_id, msg_id,
-            "<b>⚙ Настройки</b>\n\n"
-            "🚧 В разработке. Скоро будет доступно.",
-            reply_markup=_back_kb())
+            "<b>⚙ Настройки</b>",
+            reply_markup={"inline_keyboard": [
+                [{"text": "👤 Мой профиль", "callback_data": "settings_profile"}],
+                [{"text": "🤖 Модель чата по умолчанию", "callback_data": "settings_default_model"}],
+                [{"text": "🔓 Отвязать аккаунт", "callback_data": "settings_unlink"}],
+                [{"text": "← Назад", "callback_data": "menu_main"}],
+            ]})
+        return
+
+    if data == "settings_profile":
+        info = _get_user_info(user_id)
+        text = (
+            f"👤 <b>Профиль</b>\n\n"
+            f"<b>Имя:</b> {info['name']}\n"
+            f"<b>Email:</b> <code>{info['email']}</code>\n"
+            f"<b>TG:</b> @{info['tg_username']}\n"
+            f"<b>Баланс:</b> {_format_balance(info['balance_kop'])}\n"
+        )
+        if info.get("trial_ends_at"):
+            text += f"<b>Trial до:</b> {info['trial_ends_at'][:10]}\n"
+        if info.get("email_synthetic"):
+            text += "\n<i>Email синтетический — привяжи к сайту через /menu → Привязать @aiche_bot из Кабинета на aiche.ru.</i>"
+        await edit_message(chat_id, msg_id, text,
+                            reply_markup={"inline_keyboard": [
+                                [{"text": "← Назад", "callback_data": "menu_settings"}],
+                            ]})
+        return
+
+    if data == "settings_default_model":
+        current = _get_default_chat_model(user_id) or CHAT_MODELS[0][0]
+        rows = []
+        for mid, label in CHAT_MODELS:
+            mark = "⭐ " if mid == current else "   "
+            rows.append([{"text": mark + label,
+                           "callback_data": f"settings_set_model:{mid}"}])
+        rows.append([{"text": "← Назад", "callback_data": "menu_settings"}])
+        await edit_message(chat_id, msg_id,
+            "🤖 <b>Модель чата по умолчанию</b>\n\n"
+            "Выбранная модель будет автоматически использоваться когда "
+            "ты заходишь в «🤖 Чат с AI».\n\n"
+            f"Сейчас: <b>{_get_model_label(current)}</b>",
+            reply_markup={"inline_keyboard": rows})
+        return
+
+    if data.startswith("settings_set_model:"):
+        new_model = data.split(":", 1)[1]
+        if new_model not in {m for m, _ in CHAT_MODELS}:
+            await answer_callback(cb_id, "Неизвестная модель", show_alert=True)
+            return
+        _set_default_chat_model(user_id, new_model)
+        await edit_message(chat_id, msg_id,
+            f"✅ Модель по умолчанию: <b>{_get_model_label(new_model)}</b>",
+            reply_markup={"inline_keyboard": [
+                [{"text": "← Назад", "callback_data": "menu_settings"}],
+            ]})
+        return
+
+    if data == "settings_unlink":
+        await edit_message(chat_id, msg_id,
+            "🔓 <b>Отвязать аккаунт?</b>\n\n"
+            "После отвязки бот «забудет» твой aiche.ru-аккаунт. "
+            "Баланс и история на сайте сохранятся. Чтобы продолжить пользоваться "
+            "ботом — придётся снова привязать через Кабинет → Настройки.\n\n"
+            "⚠ Бот сам не удаляет твои данные. Чтобы удалить аккаунт целиком — "
+            "пиши на support@aiche.ru.",
+            reply_markup={"inline_keyboard": [
+                [{"text": "🔓 Да, отвязать", "callback_data": "settings_unlink_confirm"}],
+                [{"text": "← Отмена", "callback_data": "menu_settings"}],
+            ]})
+        return
+
+    if data == "settings_unlink_confirm":
+        _unlink_tg(user_id)
+        _clear_state(tg_uid)
+        await edit_message(chat_id, msg_id,
+            "✅ <b>Готово, отвязано</b>\n\n"
+            "Если решишь вернуться — открой бота и нажми /start. "
+            "Создадим новый аккаунт или сможешь привязать к существующему сайтовому.",
+            reply_markup=None)
         return
 
     # Unknown callback

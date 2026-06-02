@@ -133,6 +133,8 @@ class User(Base):
     vk_user_id   = Column(BigInteger, nullable=True, index=True)
     # Единый trial для всех поверхностей. NULL = trial кончился / не было.
     trial_ends_at = Column(DateTime, nullable=True)
+    # @aiche_bot — модель чата по умолчанию. NULL = первая в CHAT_MODELS.
+    tg_default_chat_model = Column(String, nullable=True)
     created_at       = Column(DateTime, default=datetime.utcnow)
 
     messages      = relationship("Message",      back_populates="user")

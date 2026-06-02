@@ -266,26 +266,21 @@ class TestCallbacks:
         # 6 строк меню
         assert len(kb) == 6
 
-    def test_stub_callbacks_show_coming_soon(self, captured_tg_calls):
-        """Stage 1: menu_settings — заглушка.
-        menu_chat (Stage 2) / menu_image / menu_video (Stage 3) — живые,
-        тестируются в test_aiche_bot_stage2_chat.py и test_aiche_bot_stage3_media.py."""
+    def test_unknown_callback_returns_to_menu(self, captured_tg_calls):
+        """Неизвестный callback_data → fallback в главное меню.
+        Stage 1-4 все callbacks теперь живые, заглушек не осталось."""
         from server import aiche_telegram_bot as bot
-        tg_uid = f"cb-stub-{uuid.uuid4().hex[:6]}"
+        tg_uid = f"cb-unk-{uuid.uuid4().hex[:6]}"
         _setup_user_for_callback(tg_uid)
-        for data in ("menu_settings",):
-            captured_tg_calls.clear()
-            update = {
-                "callback_query": {
-                    "id": f"cb-{data}", "data": data,
-                    "from": {"id": tg_uid},
-                    "message": {"chat": {"id": 1}, "message_id": 400},
-                }
-            }
-            _run(bot.handle_update(update))
-            edit_calls = [c for c in captured_tg_calls if c[0] == "editMessageText"]
-            assert len(edit_calls) == 1
-            assert "разработке" in edit_calls[0][1]["text"].lower()
+        update = {"callback_query": {
+            "id": "cb-unknown", "data": "totally_unknown_action_xyz",
+            "from": {"id": tg_uid},
+            "message": {"chat": {"id": 1}, "message_id": 400},
+        }}
+        _run(bot.handle_update(update))
+        edit_calls = [c for c in captured_tg_calls if c[0] == "editMessageText"]
+        assert len(edit_calls) == 1
+        assert "Неизвестная" in edit_calls[0][1]["text"]
 
 
 # ── Webhook secret check ─────────────────────────────────────────────────
