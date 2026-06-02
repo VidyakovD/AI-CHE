@@ -95,6 +95,13 @@ DEFAULTS: dict[str, tuple[int, str]] = {
     # routes/auth.py verify-email и получают welcome-bonus там — не дублируем.
     "multi_surface.trial_credits_kop": (50_000, "Trial-кредит при auto-create через TG/VK/MAX (500 ₽)"),
     "multi_surface.trial_days": (14, "Длительность trial в днях"),
+    # ── VK MiniApp specific ────────────────────────────────────────────────
+    # Локальные дефолты для VK MiniApp backend'а (aichevk.ru). Читаются через
+    # /internal/v1/pricing → ключи "vkma.*". Соответствуют его прежним
+    # message_send (0.10 кр) / autopost (0.50 кр), нормализованные в копейки.
+    # Меняются через админку aiche.ru без редеплоя VK MiniApp.
+    "vkma.message_send": (10, "VK: одно сообщение от агента в рассылке (10 коп = 0.10 кр)"),
+    "vkma.autopost":     (50, "VK: автопост на стену сообщества (50 коп = 0.50 кр)"),
 }
 
 
