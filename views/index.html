@@ -1063,10 +1063,14 @@ const MODELS=[
   {id:"nano",            label:"Imagen 4 Ultra",    group:"Imagen",     tab:"Imagen",     icon:"image"},
   // Видео-генерация через Google Veo 3 — отдельная вкладка «Видео».
   {id:"veo",             label:"Видео (Veo 3)",    group:"Видео",      tab:"Видео",      icon:"videocam"},
+  // Kling — китайская видео-нейросеть, отдельный шлюз api.klingai.com (не блокируется в РФ).
+  // Дешевле Veo, поддерживает text2video/image2video/motion control/avatar/native audio.
+  {id:"kling",           label:"Kling v1 (50 ₽)",  group:"Видео",      tab:null,         icon:"videocam"},
+  {id:"kling-pro",       label:"Kling Pro v1.6",   group:"Видео",      tab:null,         icon:"videocam"},
 ];
 // VIDEO_MODELS — модели, для которых рендерим панель параметров (см. toggleVideoPanel).
 // nano (Imagen) тоже сюда — у него свой набор полей в VIDEO_PARAMS.
-const VIDEO_MODELS=["veo","nano"];
+const VIDEO_MODELS=["veo","nano","kling","kling-pro"];
 const VIDEO_PARAMS={
   // ── Kling: полные параметры по официальной документации API ──────────────
   kling:[
