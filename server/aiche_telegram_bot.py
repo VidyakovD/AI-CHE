@@ -111,6 +111,53 @@ async def answer_callback(callback_query_id: str, text: str = "",
     })
 
 
+async def send_chat_action(chat_id: str, action: str = "typing") -> None:
+    """Показать «бот печатает...» в TG. Без await ответа."""
+    await _tg_call("sendChatAction", {"chat_id": str(chat_id), "action": action})
+
+
+# ── Conversation state (in-memory, TTL 10 мин) ────────────────────────────
+# tg_user_id → {mode: "chat"|"image"|"video", model: "claude-sonnet", expires_at}
+# Для multi-worker: каждый воркер свой dict — если юзер попал на другой воркер
+# при следующем сообщении, режим теряется (UX: «Я ожидал текст для X»). Это
+# некритично — юзер просто перевыберет модель. Redis-backed state — отдельный
+# спринт когда станет важно.
+
+import threading
+
+_STATE_LOCK = threading.Lock()
+_USER_STATE: dict[str, dict] = {}
+_STATE_TTL_SEC = 600  # 10 минут
+
+
+def _set_state(tg_uid: str, **kwargs) -> None:
+    with _STATE_LOCK:
+        # GC устаревших
+        now = time.time()
+        expired = [k for k, v in _USER_STATE.items()
+                   if v.get("expires_at", 0) < now]
+        for k in expired:
+            _USER_STATE.pop(k, None)
+        kwargs["expires_at"] = now + _STATE_TTL_SEC
+        _USER_STATE[tg_uid] = kwargs
+
+
+def _get_state(tg_uid: str) -> Optional[dict]:
+    with _STATE_LOCK:
+        st = _USER_STATE.get(tg_uid)
+        if not st:
+            return None
+        if st.get("expires_at", 0) < time.time():
+            _USER_STATE.pop(tg_uid, None)
+            return None
+        return dict(st)
+
+
+def _clear_state(tg_uid: str) -> None:
+    with _STATE_LOCK:
+        _USER_STATE.pop(tg_uid, None)
+
+
 # ── Identity: find-or-create user by tg_user_id ───────────────────────────
 
 
@@ -186,6 +233,42 @@ def _back_kb() -> dict:
     ]}
 
 
+# ── Chat-with-AI submenu (Stage 2) ────────────────────────────────────────
+# 5 моделей. Внутреннее имя соответствует server.ai.MODELS keys.
+
+CHAT_MODELS = [
+    ("claude",          "🟠 Claude Haiku (быстрый, дешёвый)"),
+    ("claude-sonnet",   "🟠 Claude Sonnet (флагман Anthropic)"),
+    ("openai",          "🔵 GPT-4o (OpenAI)"),
+    ("grok",            "⚡ Grok 3 (xAI)"),
+    ("perplexity",      "🌐 Perplexity (с поиском в интернете)"),
+]
+
+
+def _chat_models_kb() -> dict:
+    rows = [
+        [{"text": label, "callback_data": f"chat:{mid}"}]
+        for mid, label in CHAT_MODELS
+    ]
+    rows.append([{"text": "← Назад", "callback_data": "menu_main"}])
+    return {"inline_keyboard": rows}
+
+
+def _chat_active_kb() -> dict:
+    """Клавиатура когда юзер «в чате» — позволяет сменить модель или выйти."""
+    return {"inline_keyboard": [
+        [{"text": "🔄 Сменить модель", "callback_data": "menu_chat"}],
+        [{"text": "🏠 Главное меню", "callback_data": "menu_main"}],
+    ]}
+
+
+def _get_model_label(model_id: str) -> str:
+    for mid, label in CHAT_MODELS:
+        if mid == model_id:
+            return label
+    return model_id
+
+
 def _format_balance(balance_kop: int) -> str:
     rub = balance_kop / 100.0
     return f"{rub:.2f} ₽"
@@ -250,7 +333,15 @@ async def _handle_message(msg: dict) -> None:
             reply_markup=_back_kb())
         return
 
-    # Без команды — пока показываем меню (Stage 2 поймает «жду промпта»)
+    # Если юзер в режиме «жду промпта» — обрабатываем как чат с AI.
+    state = _get_state(tg_uid)
+    if state and state.get("mode") == "chat":
+        user_id = _find_or_create_user(tg_uid, tg_username, full_name)
+        await _do_chat_message(chat_id, user_id, tg_uid, text,
+                                state.get("model") or "claude")
+        return
+
+    # Иначе — короткая подсказка с меню
     await send_message(chat_id,
         "Я понимаю команды /start /menu /balance.\n\n"
         "Для AI-чата / картинок / видео — выбери из меню:",
@@ -385,10 +476,35 @@ async def _handle_callback(cb: dict) -> None:
             reply_markup=_back_kb())
         return
 
+    # Stage 2: чат с AI
+    if data == "menu_chat":
+        _clear_state(tg_uid)  # выходим из старого режима если был
+        await edit_message(chat_id, msg_id,
+            "🤖 <b>Выбери модель для чата</b>\n\n"
+            "<i>После выбора отправь сообщение — модель ответит с учётом цены.</i>",
+            reply_markup=_chat_models_kb())
+        return
+
+    if data.startswith("chat:"):
+        model_id = data.split(":", 1)[1]
+        if model_id not in {m for m, _ in CHAT_MODELS}:
+            await edit_message(chat_id, msg_id, "Неизвестная модель.",
+                                reply_markup=_chat_models_kb())
+            return
+        _set_state(tg_uid, mode="chat", model=model_id)
+        label = _get_model_label(model_id)
+        await edit_message(chat_id, msg_id,
+            f"✏ <b>Чат с {label}</b>\n\n"
+            "Отправь сообщение в этот чат — я перешлю модели и пришлю ответ.\n\n"
+            "💡 Списание происходит по фактической стоимости запроса × 3 "
+            "(минимум 1 ₽ за сообщение).\n"
+            "Чтобы сменить модель или выйти — /menu.",
+            reply_markup=_chat_active_kb())
+        return
+
     # Заглушки для будущих стадий
-    if data in ("menu_chat", "menu_image", "menu_video", "menu_settings"):
+    if data in ("menu_image", "menu_video", "menu_settings"):
         labels = {
-            "menu_chat": "🤖 Чат с AI",
             "menu_image": "🎨 Картинка",
             "menu_video": "🎬 Видео",
             "menu_settings": "⚙ Настройки",
@@ -406,6 +522,106 @@ async def _handle_callback(cb: dict) -> None:
 
 
 # ── Webhook utilities ─────────────────────────────────────────────────────
+
+
+async def _do_chat_message(chat_id: str, user_id: int, tg_uid: str,
+                            user_text: str, model_id: str) -> None:
+    """Юзер в режиме чата прислал сообщение → вызываем LLM, списываем, отвечаем.
+
+    Алгоритм:
+      1. Pre-check баланса (≥ 100 коп, защита от absolute zero)
+      2. Indicate «typing...» в TG
+      3. generate_response(model, [{role:user, content:text}])
+      4. Compute cost via calc_agent_cost_kop (real_cost × 3, min 100 коп)
+      5. deduct_strict — если не хватило (race), refund-like flow (Transaction
+         не пишется, но ответ всё равно отдаём, потому что мы за него заплатили)
+      6. Иначе debit + Transaction, отдаём response
+
+    Состояние юзера НЕ сбрасывается — следующее сообщение продолжит чат
+    с той же моделью.
+    """
+    from server.billing import deduct_strict, get_balance
+    from server.db import db_session
+    from server.models import Transaction
+    from server.pricing import calc_agent_cost_kop
+    from server.ai import generate_response
+
+    # 1. Pre-check
+    current_balance = get_user_balance_kop(user_id)
+    if current_balance < 100:  # < 1 ₽
+        await send_message(chat_id,
+            f"⚠ <b>Недостаточно средств</b>\n\n"
+            f"Баланс: {_format_balance(current_balance)}\n"
+            f"Для AI-запроса нужно минимум 1.00 ₽.\n\n"
+            f"💳 Нажми кнопку для пополнения.",
+            reply_markup=_main_menu_kb())
+        return
+
+    # 2. Typing indicator
+    await send_chat_action(chat_id, "typing")
+
+    # 3. LLM call
+    messages = [{"role": "user", "content": user_text}]
+    try:
+        result = generate_response(
+            model_id, messages,
+            extra={"_user_id": user_id, "_purpose": "aiche_bot_chat",
+                   "max_tokens": 2000, "temperature": 0.7},
+        )
+    except Exception as e:
+        log.error(f"[aiche-tg] LLM call failed: {type(e).__name__}: {e}")
+        await send_message(chat_id,
+            "⚠ Сервис временно недоступен. Попробуй через минуту.",
+            reply_markup=_chat_active_kb())
+        return
+
+    content = ""
+    if isinstance(result, dict):
+        content = result.get("content", "") or ""
+    if not content or content.startswith("Сервис временно недоступен"):
+        await send_message(chat_id,
+            content or "⚠ Пустой ответ от модели.",
+            reply_markup=_chat_active_kb())
+        return  # без списания — модель не сработала
+
+    # 4. Cost
+    usage = result.get("usage", {}) if isinstance(result, dict) else {}
+    in_tok = int(usage.get("input_tokens", 0) or 0)
+    out_tok = int(usage.get("output_tokens", 0) or 0)
+    try:
+        cost_kop = calc_agent_cost_kop(model_id, in_tok, out_tok,
+                                         base_min_kop=100)
+    except Exception:
+        cost_kop = 100  # safe-default 1 ₽
+
+    # 5+6. Debit + Transaction
+    with db_session() as db:
+        ok = deduct_strict(db, user_id, cost_kop)
+        if ok:
+            tx = Transaction(
+                user_id=user_id, type="usage",
+                tokens_delta=-cost_kop,
+                description=f"[aiche_bot] chat:{model_id}",
+                model=model_id,
+            )
+            db.add(tx)
+            db.commit()
+            new_balance = get_balance(db, user_id)
+        else:
+            new_balance = get_balance(db, user_id)
+
+    # 7. Send response
+    cost_rub = cost_kop / 100.0
+    bal_rub = new_balance / 100.0
+    footer = (f"\n\n— — —\n"
+              f"💸 −{cost_rub:.2f} ₽ · 💰 баланс {bal_rub:.2f} ₽ "
+              f"· модель: {_get_model_label(model_id).split(' ', 1)[1].split('(')[0].strip()}")
+    # Если ответ длинный — режем чтобы войти в 4096 char limit TG с запасом
+    body = content[:3700]
+    if len(content) > 3700:
+        body += "\n…[ответ обрезан]"
+    await send_message(chat_id, body + footer,
+                        reply_markup=_chat_active_kb())
 
 
 async def setup_webhook(public_url: str) -> dict:
