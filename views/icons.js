@@ -1672,8 +1672,29 @@
     } else {
       setTimeout(() => window.aiBalance.refresh(), 0);
     }
-    // Обновляем каждые 60 сек (юзер может пополнить или потратить)
-    setInterval(() => window.aiBalance.refresh(), 60000);
+    // Polling — 15 сек когда таб видим, пауза когда скрыт. Юзер может
+    // потратить на другой поверхности (TG-бот, VK Mini App) — изменения
+    // подтянутся с задержкой ≤15 сек.
+    let _bal_timer = null;
+    function _startPoll(){
+      if (_bal_timer) return;
+      _bal_timer = setInterval(() => {
+        if (!document.hidden) window.aiBalance.refresh();
+      }, 15000);
+    }
+    function _stopPoll(){
+      if (_bal_timer){ clearInterval(_bal_timer); _bal_timer = null; }
+    }
+    _startPoll();
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden){
+        _stopPoll();
+      } else {
+        window.aiBalance.refresh();
+        _startPoll();
+      }
+    });
+    window.addEventListener('focus', () => window.aiBalance.refresh());
   }
 
 

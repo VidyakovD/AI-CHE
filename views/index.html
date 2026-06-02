@@ -1811,15 +1811,23 @@ async function refreshBalance(){
   }catch{}
 }
 
-// Обновляем баланс каждые 30 секунд + при фокусе вкладки + при возврате со скрытой вкладки
+// Обновляем баланс каждые 15 сек + при фокусе вкладки + при visibilitychange.
+// Юзер может потратить на другой поверхности (TG-бот, VK Mini App) — изменения
+// подтянутся с задержкой ≤15 сек. Таймер ставится на паузу когда таб скрыт.
 let _balanceTimer = null;
 function startBalancePolling(){
   if(_balanceTimer) clearInterval(_balanceTimer);
-  _balanceTimer = setInterval(refreshBalance, 30000);
+  _balanceTimer = setInterval(() => {
+    if(!document.hidden) refreshBalance();
+  }, 15000);
+}
+function stopBalancePolling(){
+  if(_balanceTimer){ clearInterval(_balanceTimer); _balanceTimer = null; }
 }
 window.addEventListener('focus', refreshBalance);
 document.addEventListener('visibilitychange', () => {
-  if(!document.hidden) refreshBalance();
+  if(document.hidden){ stopBalancePolling(); }
+  else { refreshBalance(); startBalancePolling(); }
 });
 
 function updateAuthUI(){
