@@ -230,6 +230,13 @@ async def _handle_message(msg: dict) -> None:
 
     # /start [arg]
     if text.startswith("/start"):
+        # /start LINK_<code> — deeplink с сайта для привязки tg_user_id
+        # к существующему aiche.ru-аккаунту (см. server/link_codes.py).
+        m = re.match(r"^/start\s+LINK_([A-Z0-9]+)$", text, re.IGNORECASE)
+        if m:
+            code = m.group(1).upper()
+            await _do_deeplink(chat_id, tg_uid, tg_username, full_name, code)
+            return
         await _do_start(chat_id, tg_uid, tg_username, full_name)
         return
     if text == "/menu":
@@ -259,6 +266,73 @@ async def _do_start(chat_id: str, tg_uid: str, tg_username: str,
         chat_id, _greet_text(balance_kop),
         reply_markup=_main_menu_kb(),
     )
+
+
+def _link_tg_to_existing_user(target_user_id: int, tg_uid: str,
+                                tg_username: str) -> tuple[bool, str]:
+    """Привязать tg_user_id к существующему юзеру aiche.ru.
+
+    Если у tg_user_id уже был auto-created анонимный аккаунт — переносит
+    баланс на основной (target_user_id) и помечает auto-аккаунт ban'ом.
+
+    Returns (ok, message). Message — для показа юзеру в TG.
+    """
+    from server.db import db_session
+    from server.models import User, Transaction
+    with db_session() as db:
+        target = db.query(User).filter_by(id=target_user_id).first()
+        if not target:
+            return False, "Аккаунт не найден на сайте."
+        # Существующий auto-account с этим tg_uid (если был)?
+        prev = db.query(User).filter_by(tg_user_id=tg_uid).first()
+        if prev and prev.id == target.id:
+            # Уже привязан — просто подтверждаем
+            return True, "Уже привязано."
+        if prev and prev.id != target.id:
+            # Перенос баланса с auto-account на основной
+            transfer = int(prev.tokens_balance or 0)
+            if transfer > 0:
+                target.tokens_balance = (target.tokens_balance or 0) + transfer
+                tx = Transaction(
+                    user_id=target.id, type="bonus",
+                    tokens_delta=transfer,
+                    description=f"[merge] перенос с auto-account #{prev.id} при привязке TG",
+                )
+                db.add(tx)
+            # Освобождаем tg_user_id на старом account'е и помечаем archived
+            prev.tg_user_id = None
+            prev.is_active = False
+            prev.email = f"merged-{prev.id}-{prev.email}"  # освобождаем UNIQUE
+        target.tg_user_id = tg_uid
+        if tg_username:
+            target.tg_username = tg_username
+        db.commit()
+        msg = f"✅ Привязано к аккаунту <code>{target.email}</code>.\n\n💰 Баланс: <b>{_format_balance(int(target.tokens_balance or 0))}</b>"
+        return True, msg
+
+
+async def _do_deeplink(chat_id: str, tg_uid: str, tg_username: str,
+                        full_name: str, code: str) -> None:
+    """Обработка /start LINK_<code> — обмен кода на привязку."""
+    from server.link_codes import redeem_code
+    result = redeem_code(code, tg_uid)
+    if not result:
+        await send_message(chat_id,
+            "⏱ Код устарел или уже использован.\n\n"
+            "Сгенерируй новый на aiche.ru → Кабинет → Привязать @aiche_bot.",
+            reply_markup=_back_kb())
+        return
+    target_user_id, kind = result
+    if kind != "tg_user_id":
+        await send_message(chat_id,
+            "❌ Этот код не для Telegram-привязки.",
+            reply_markup=_back_kb())
+        return
+    ok, msg = _link_tg_to_existing_user(target_user_id, tg_uid, tg_username)
+    if not ok:
+        await send_message(chat_id, f"❌ {msg}", reply_markup=_back_kb())
+        return
+    await send_message(chat_id, msg, reply_markup=_main_menu_kb())
 
 
 async def _handle_callback(cb: dict) -> None:

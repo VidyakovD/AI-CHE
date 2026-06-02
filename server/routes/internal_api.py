@@ -316,21 +316,6 @@ async def link_identifier(request: Request) -> dict:
 # ── /link/code/issue + /link/code/redeem ───────────────────────────────────
 
 
-# In-memory store: (code → (user_id, kind, expires_at)). TTL 10 мин.
-# Для multi-worker: либо Redis-backend, либо БД-таблица. Для MVP с 4 юзерами
-# in-memory сойдёт; в продакшене с >1 worker эти коды могут пропадать между
-# воркерами — приемлемо, юзер просто сгенерирует новый.
-_LINK_CODES: dict[str, tuple[int, str, float]] = {}
-_LINK_CODE_TTL = 600  # 10 мин
-
-
-def _gc_link_codes() -> None:
-    now = time.monotonic()
-    expired = [c for c, (_, _, exp) in _LINK_CODES.items() if exp < now]
-    for c in expired:
-        _LINK_CODES.pop(c, None)
-
-
 @router.post("/link/code/issue")
 async def link_code_issue(request: Request) -> dict:
     """Выдать одноразовый код привязки.
@@ -338,16 +323,18 @@ async def link_code_issue(request: Request) -> dict:
     Body: {user_id, kind}    # для какого канала ожидается redeem
     Response: {code, expires_in_sec}
     """
+    from server.link_codes import issue_code, DEFAULT_TTL_SEC
     raw_body = await _verify_hmac(request)
     payload = _parse_body(raw_body)
     user_id = payload.get("user_id")
     kind = (payload.get("kind") or "").strip()
     if not user_id or kind not in _IDENT_KINDS:
         raise HTTPException(400, "user_id, kind required")
-    _gc_link_codes()
-    code = f"{secrets.randbelow(10**6):06d}"  # 6-значный, лидирующие нули
-    _LINK_CODES[code] = (int(user_id), kind, time.monotonic() + _LINK_CODE_TTL)
-    return {"code": code, "expires_in_sec": _LINK_CODE_TTL}
+    try:
+        code = issue_code(int(user_id), kind)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"code": code, "expires_in_sec": DEFAULT_TTL_SEC}
 
 
 @router.post("/link/code/redeem")
@@ -357,19 +344,17 @@ async def link_code_redeem(request: Request) -> dict:
     Body: {code, value}    # kind берётся из issue
     Response: {ok, user_id, kind}
     """
+    from server.link_codes import redeem_code
     raw_body = await _verify_hmac(request)
     payload = _parse_body(raw_body)
     code = (payload.get("code") or "").strip()
     value = (payload.get("value") or "").strip()
     if not code or not value:
         raise HTTPException(400, "code, value required")
-    _gc_link_codes()
-    item = _LINK_CODES.pop(code, None)
-    if not item:
+    result = redeem_code(code, value)
+    if not result:
         raise HTTPException(404, "Code not found or expired")
-    user_id, kind, exp = item
-    if exp < time.monotonic():
-        raise HTTPException(410, "Code expired")
+    user_id, kind = result
     with db_session() as db:
         u = db.query(User).filter_by(id=user_id).first()
         if not u:

@@ -2822,6 +2822,13 @@ function copyRef(code){
 async function renderSettingsTab(el){
   const thr = cabinetData?.user?.low_balance_threshold_rub ?? 10;
   el.innerHTML=`<div class="space-y-6">
+    <!-- @aiche_bot — общий бот платформы с AI -->
+    <div id="s_aichebot_block">
+      <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">💬 @aiche_bot в Telegram</p>
+      <p class="text-xs text-on-dim mb-3">Используй AI Студию Че прямо в Telegram: чат с моделями, картинки, видео, проверка баланса. Привязка к этому аккаунту — баланс общий.</p>
+      <button onclick="_genAicheBotLinkCode()" class="btn-p text-sm py-2 px-4">📲 Привязать @aiche_bot</button>
+      <div id="s_aichebot_code_wrap" class="hidden mt-3"></div>
+    </div>
     <!-- Telegram-бот управления -->
     <div id="s_tg_block">
       <p class="text-[10px] text-on-surface-dim/60 uppercase tracking-wider font-bold mb-3">🤖 Telegram-бот управления</p>
@@ -3103,6 +3110,26 @@ async function _copyTgCode(code){
     await navigator.clipboard.writeText('/link ' + code);
     aiToast('Скопировано — вставь в боте', 'success');
   }catch(e){ aiAlert('Не удалось скопировать. Скопируй вручную команду /link XXXXXX', 'warn'); }
+}
+
+// ── @aiche_bot deep-link привязка (новый общий бот платформы с AI) ─────
+async function _genAicheBotLinkCode(){
+  try{
+    const r = await apiPost('/user/tg-link/aiche-bot/code', {});
+    const wrap = document.getElementById('s_aichebot_code_wrap');
+    if(!wrap) return;
+    wrap.classList.remove('hidden');
+    wrap.innerHTML = `
+      <div class="bg-surface2 border border-primary/30 rounded-lg p-3">
+        <p class="text-xs text-on-dim mb-2">Код действует ${esc(r.expires_in_minutes)} мин:</p>
+        <p class="font-mono text-2xl font-bold text-primary text-center my-3">${esc(r.code)}</p>
+        <a href="${esc(r.deep_link)}" target="_blank" rel="noopener"
+           class="block w-full text-center btn-p text-sm py-2 px-4">
+          📲 Открыть @${esc(r.bot_username)} с автопривязкой
+        </a>
+        <p class="text-xs text-on-dim mt-2">После клика TG откроет бот и линк применится автоматически.</p>
+      </div>`;
+  }catch(e){ aiAlertError(e); }
 }
 
 async function _unlinkTg(){

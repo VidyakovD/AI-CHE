@@ -393,6 +393,37 @@ def tg_link_code(user: User = Depends(current_user), db: Session = Depends(get_d
     return {"code": code, "deep_link": deep_link, "expires_in_minutes": 10}
 
 
+@router.post("/tg-link/aiche-bot/code")
+def aiche_bot_link_code(user: User = Depends(current_user)):
+    """Сгенерировать код для привязки tg_user_id к @aiche_bot (общему боту платформы).
+
+    Возвращает {code, deep_link, expires_in_minutes}.
+    Юзер открывает deep_link → TG авто-запускает бот с pre-filled /start LINK_<code>.
+    Бот вызывает link_codes.redeem_code → линкует tg_user_id к существующему User.
+
+    Отличие от /tg-link/code: тот для legacy mgmt-бота (push-нотификации),
+    этот для нового @aiche_bot (интерактивный + AI).
+    """
+    from server.link_codes import issue_code, DEFAULT_TTL_SEC
+    bot_username = (os.getenv("AICHE_TG_BOT_USERNAME") or "").strip().lstrip("@")
+    if not bot_username:
+        raise HTTPException(503, "@aiche_bot не настроен (AICHE_TG_BOT_USERNAME пустой)")
+    code = issue_code(user.id, "tg_user_id")
+    deep_link = f"https://t.me/{bot_username}?start=LINK_{code}"
+    try:
+        from server.audit_log import log_action
+        log_action("user.aiche_bot_link_code_generated", user_id=user.id,
+                   target_type="user", target_id=user.id)
+    except Exception:
+        pass
+    return {
+        "code": code,
+        "deep_link": deep_link,
+        "expires_in_minutes": DEFAULT_TTL_SEC // 60,
+        "bot_username": bot_username,
+    }
+
+
 @router.post("/tg-link/unlink")
 def tg_link_unlink(user: User = Depends(current_user), db: Session = Depends(get_db)):
     from server.tg_management import unlink
