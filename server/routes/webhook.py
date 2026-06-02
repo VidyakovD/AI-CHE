@@ -753,3 +753,37 @@ async def wazzup_webhook(bot_id: int, request: Request,
             await send_whatsapp(bot.wazzup_api_key, bot.wazzup_channel_id,
                                   chat_id, answer)
     return {"ok": True}
+
+
+# ── @aiche_bot — общий TG-бот платформы для НОВЫХ юзеров ──────────────────
+# Отдельная поверхность, рядом с web/VK MiniApp/MAX. См. server/aiche_telegram_bot.py.
+# Webhook URL для регистрации в TG: https://aiche.ru/webhook/aiche-tg/<SECRET>
+# Secret валидируется через сравнение с AICHE_TG_BOT_WEBHOOK_SECRET (env).
+
+
+@router.post("/aiche-tg/{secret}")
+async def aiche_tg_webhook(secret: str, request: Request):
+    """Webhook от @aiche_bot. Secret в URL = защита от случайных запросов."""
+    from server.aiche_telegram_bot import (
+        _webhook_secret as _aiche_secret,
+        handle_update as _handle_update,
+    )
+    expected = _aiche_secret()
+    if not expected:
+        # Если секрет не настроен в env — webhook полностью отключён.
+        # Это намеренно: чтобы случайно засеть на старый токен невозможно.
+        log.warning("[aiche-tg] webhook hit but AICHE_TG_BOT_WEBHOOK_SECRET not set")
+        raise HTTPException(503, "aiche-tg bot not configured")
+    if secret != expected:
+        # Не палим что секрет неправильный — просто 404
+        raise HTTPException(404, "not found")
+    update = await _safe_json(request)
+    if not update:
+        return {"ok": True}  # пустой / битый — игнорим без шума
+    try:
+        await _handle_update(update)
+    except Exception as e:
+        log.error(f"[aiche-tg] handle_update error: {type(e).__name__}: {e}")
+        # Возвращаем 200 чтобы TG не ретраил — лучше лог + молчание чем
+        # бесконечная re-доставка одного и того же update.
+    return {"ok": True}
