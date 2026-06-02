@@ -89,6 +89,12 @@ DEFAULTS: dict[str, tuple[int, str]] = {
     # 990 ₽ — стандартная цена за «вечный» хостинг страницы на нашем сервере.
     # При повторной публикации (juniorы редактируют сайт) — не списываем.
     "sites.host_fix": (99_000, "Хостинг опубликованного сайта (разово, 990 ₽)"),
+    # ── Multi-surface trial (Internal API /identify auto-create) ───────────
+    # Стартовый кредит при первом identify через vk_user_id / tg_user_id /
+    # max_user_id (без email). Юзеры через email-регистрацию идут через
+    # routes/auth.py verify-email и получают welcome-bonus там — не дублируем.
+    "multi_surface.trial_credits_kop": (50_000, "Trial-кредит при auto-create через TG/VK/MAX (500 ₽)"),
+    "multi_surface.trial_days": (14, "Длительность trial в днях"),
 }
 
 

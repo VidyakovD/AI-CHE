@@ -172,8 +172,10 @@ def _find_or_create_user(tg_uid: str, tg_username: str = "",
     обращении к атрибутам объекта вне сессии.
     """
     import secrets as _secrets
+    from datetime import timedelta
     from server.db import db_session
-    from server.models import User
+    from server.models import User, Transaction
+    from server.pricing import get_price
     with db_session() as db:
         u = db.query(User).filter_by(tg_user_id=tg_uid).first()
         if u:
@@ -182,6 +184,15 @@ def _find_or_create_user(tg_uid: str, tg_username: str = "",
                 u.tg_username = tg_username
                 db.commit()
             return int(u.id)
+
+        # Trial-кредит — та же политика что в Internal API /identify.
+        trial_kop = max(0, int(get_price("multi_surface.trial_credits_kop",
+                                          default=50_000)))
+        trial_days = max(0, int(get_price("multi_surface.trial_days",
+                                            default=14)))
+        from datetime import datetime as _dt
+        trial_ends = (_dt.utcnow() + timedelta(days=trial_days)
+                      if trial_days > 0 else None)
 
         # Auto-create: синтетический email чтобы UNIQUE NOT NULL констрейнт прошёл
         synthetic_email = f"tg-{tg_uid}@aiche.local"
@@ -194,13 +205,21 @@ def _find_or_create_user(tg_uid: str, tg_username: str = "",
             is_verified=False,
             is_active=True,
             agreed_to_terms=True,
-            tokens_balance=0,
+            tokens_balance=trial_kop,
+            trial_ends_at=trial_ends,
             referral_code=_secrets.token_hex(4).upper(),
         )
         db.add(u)
+        db.flush()
+        if trial_kop > 0:
+            db.add(Transaction(
+                user_id=u.id, type="bonus", tokens_delta=trial_kop,
+                description="[aiche_bot] trial credits on first /start",
+            ))
         db.commit()
         db.refresh(u)
-        log.info(f"[aiche-tg] auto-created user_id={u.id} for tg_uid={tg_uid}")
+        log.info(f"[aiche-tg] auto-created user_id={u.id} for tg_uid={tg_uid} "
+                 f"trial_kop={trial_kop}")
         return int(u.id)
 
 

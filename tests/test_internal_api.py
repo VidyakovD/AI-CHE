@@ -145,7 +145,12 @@ class TestIdentify:
         })
         assert r.status_code == 404
 
-    def test_identify_unknown_auto_creates(self):
+    def test_identify_unknown_auto_creates(self, monkeypatch):
+        """Auto-create без trial (для проверки самого факта создания).
+        Trial-flow покрыт отдельным тестом TestIdentifyTrial ниже."""
+        from server import pricing as _pricing
+        monkeypatch.setattr(_pricing, "get_price",
+                            lambda k, default=0: 0 if "trial" in k else (default or 0))
         suffix = uuid.uuid4().hex[:8]
         r = _post("/internal/v1/identify", {
             "kind": "tg_user_id", "value": f"new-tg-{suffix}",
@@ -156,6 +161,49 @@ class TestIdentify:
         assert data["is_new"] is True
         assert data["tg_user_id"] == f"new-tg-{suffix}"
         assert data["balance_kop"] == 0
+
+
+class TestIdentifyTrial:
+    def test_auto_create_via_vk_grants_trial(self):
+        """vk_user_id auto-create → trial 500 ₽ + trial_ends_at."""
+        from server.models import User, Transaction
+        suffix = int(time.time() * 1000) % 10**8
+        r = _post("/internal/v1/identify", {
+            "kind": "vk_user_id", "value": str(suffix),
+            "display_name": "VK user",
+        })
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["is_new"] is True
+        # Default trial = 50000 коп (500 ₽)
+        assert data["balance_kop"] == 50000
+        assert data["trial_ends_at"] is not None
+
+        # Transaction записана
+        db = SessionLocal()
+        try:
+            uid = data["user_id"]
+            tx = (db.query(Transaction)
+                    .filter_by(user_id=uid, type="bonus")
+                    .order_by(Transaction.id.desc()).first())
+            assert tx is not None
+            assert tx.tokens_delta == 50000
+            assert "trial" in (tx.description or "").lower()
+        finally:
+            db.close()
+
+    def test_auto_create_via_email_no_trial(self, monkeypatch):
+        """Email auto-create НЕ получает trial — email-юзеры идут через
+        verify-email flow в auth.py где есть welcome-bonus."""
+        suffix = uuid.uuid4().hex[:8]
+        r = _post("/internal/v1/identify", {
+            "kind": "email", "value": f"trial-test-{suffix}@test.com",
+        })
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["is_new"] is True
+        assert data["balance_kop"] == 0
+        assert data["trial_ends_at"] is None
 
     def test_identify_invalid_kind_400(self):
         r = _post("/internal/v1/identify", {"kind": "fingerprint", "value": "x"})

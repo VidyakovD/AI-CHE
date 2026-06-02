@@ -75,9 +75,14 @@ class TestConfig:
 
 
 class TestStartAutoCreate:
-    def test_start_creates_new_user(self, captured_tg_calls):
+    def test_start_creates_new_user(self, captured_tg_calls, monkeypatch):
+        """Новый юзер через /start auto-created с trial-балансом."""
         from server import aiche_telegram_bot as bot
+        from server import pricing as _pricing
         from server.models import User
+        # Зануляем trial — get_price импортируется внутри функции, патчим в pricing.
+        monkeypatch.setattr(_pricing, "get_price",
+                            lambda k, default=0: 0 if "trial" in k else (default or 0))
         tg_uid = f"new-{uuid.uuid4().hex[:8]}"
         update = {
             "message": {
@@ -88,7 +93,6 @@ class TestStartAutoCreate:
                           "first_name": "Test", "last_name": "User"},
             }
         }
-        # Используем stable числовой id из hex
         tg_uid_num = str(update["message"]["from"]["id"])
         update["message"]["from"]["id"] = int(tg_uid_num)
 
@@ -100,6 +104,7 @@ class TestStartAutoCreate:
             u = db.query(User).filter_by(tg_user_id=tg_uid_num).first()
             assert u is not None, "Юзер должен быть auto-created"
             assert u.tg_username == "testuser"
+            # Баланс 0 потому что мы зануливли trial
             assert u.tokens_balance == 0
         finally:
             db.close()
@@ -109,12 +114,34 @@ class TestStartAutoCreate:
         assert len(send_calls) >= 1
         payload = send_calls[0][1]
         assert payload["chat_id"] == "123"
-        assert "0.00" in payload["text"]  # баланс
+        assert "0.00" in payload["text"]
         assert "inline_keyboard" in payload["reply_markup"]
-        # Кнопки на месте
         buttons_text = [b[0]["text"] for b in payload["reply_markup"]["inline_keyboard"]]
         assert "💰 Баланс" in buttons_text
         assert "💳 Пополнить" in buttons_text
+
+    def test_start_grants_trial_by_default(self, captured_tg_calls):
+        """Без monkeypatch'инга trial — новый юзер получает default 500 ₽."""
+        from server import aiche_telegram_bot as bot
+        from server.models import User, Transaction
+        # Уникальный numeric tg_user_id из uuid hex
+        tg_uid_num = int(uuid.uuid4().hex[:8], 16) % (10**9)
+        update = {"message": {
+            "chat": {"id": 555}, "text": "/start",
+            "from": {"id": tg_uid_num, "username": "trialer"},
+        }}
+        _run(bot.handle_update(update))
+        db = SessionLocal()
+        try:
+            u = db.query(User).filter_by(tg_user_id=str(tg_uid_num)).first()
+            assert u is not None
+            assert u.tokens_balance == 50_000  # default 500 ₽
+            assert u.trial_ends_at is not None
+            tx = (db.query(Transaction).filter_by(user_id=u.id, type="bonus")
+                    .first())
+            assert tx is not None and tx.tokens_delta == 50_000
+        finally:
+            db.close()
 
     def test_start_existing_user_reuses(self, captured_tg_calls):
         from server import aiche_telegram_bot as bot

@@ -260,6 +260,20 @@ async def identify(request: Request) -> dict:
             slug = re.sub(r"[^a-z0-9]+", "", str(value).lower())[:30] or "anon"
             synthetic_email = f"{kind}-{slug}-{secrets.token_hex(4)}@aiche.local"
 
+        # Trial-кредит для non-email auto-creates (TG/VK/MAX/phone).
+        # Email-юзеры идут через verify-email flow и получают welcome-bonus там.
+        from datetime import timedelta
+        from server.pricing import get_price
+        trial_kop = 0
+        trial_ends = None
+        if kind != "email":
+            trial_kop = max(0, int(get_price("multi_surface.trial_credits_kop",
+                                              default=50_000)))
+            trial_days = max(0, int(get_price("multi_surface.trial_days",
+                                                default=14)))
+            if trial_days > 0:
+                trial_ends = datetime.utcnow() + timedelta(days=trial_days)
+
         new_user = User(
             email=synthetic_email,
             password_hash="!",  # неактивный пароль — login только через линк
@@ -267,14 +281,26 @@ async def identify(request: Request) -> dict:
             is_verified=False,
             is_active=True,
             agreed_to_terms=True,
-            tokens_balance=0,
+            tokens_balance=trial_kop,
+            trial_ends_at=trial_ends,
             referral_code=secrets.token_hex(4).upper(),
         )
         _set_identifier(new_user, kind, value)
         db.add(new_user)
+        db.flush()  # получить user.id для Transaction
+
+        # Лог trial-начисления отдельной транзакцией для audit-trail.
+        if trial_kop > 0:
+            db.add(Transaction(
+                user_id=new_user.id,
+                type="bonus",
+                tokens_delta=trial_kop,
+                description=f"[internal] trial credits on first identify via {kind}",
+            ))
         db.commit()
         db.refresh(new_user)
-        log.info(f"[internal] auto-created user_id={new_user.id} via {kind}={value}")
+        log.info(f"[internal] auto-created user_id={new_user.id} via {kind}={value} "
+                 f"trial_kop={trial_kop}")
         return {**_user_to_dict(new_user), "is_new": True}
 
 
