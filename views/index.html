@@ -1065,12 +1065,20 @@ const MODELS=[
   {id:"veo",             label:"Видео (Veo 3)",    group:"Видео",      tab:"Видео",      icon:"videocam"},
   // Kling — китайская видео-нейросеть, отдельный шлюз api.klingai.com (не блокируется в РФ).
   // Дешевле Veo, поддерживает text2video/image2video/motion control/avatar/native audio.
-  {id:"kling",           label:"Kling v1 (50 ₽)",  group:"Видео",      tab:null,         icon:"videocam"},
-  {id:"kling-pro",       label:"Kling Pro v1.6",   group:"Видео",      tab:null,         icon:"videocam"},
+  // Цены — в копейках через TOKEN_COST (см. server/ai.py).
+  {id:"kling",           label:"Kling v1 (60 ₽)",        group:"Видео",      tab:null,         icon:"videocam"},
+  {id:"kling-1-6",       label:"Kling v1.6 (120 ₽)",     group:"Видео",      tab:null,         icon:"videocam"},
+  {id:"kling-1-6-pro",   label:"Kling v1.6 Pro (180 ₽)", group:"Видео",      tab:null,         icon:"videocam"},
+  {id:"kling-2-1",       label:"Kling v2.1 fast (100 ₽)",group:"Видео",      tab:null,         icon:"videocam"},
+  {id:"kling-2",         label:"Kling v2.0 (150 ₽)",     group:"Видео",      tab:null,         icon:"videocam"},
+  {id:"kling-2-pro",     label:"Kling v2.0 Pro (300 ₽)", group:"Видео",      tab:null,         icon:"videocam"},
+  {id:"kling-3",         label:"Kling v3.0 (240 ₽)",     group:"Видео",      tab:null,         icon:"videocam"},
+  // Старый alias оставлен для backward-compat (URL'ы со ?model=kling-pro).
+  {id:"kling-pro",       label:"Kling Pro (=v1.6)",      group:"Видео",      tab:null,         icon:"videocam"},
 ];
 // VIDEO_MODELS — модели, для которых рендерим панель параметров (см. toggleVideoPanel).
 // nano (Imagen) тоже сюда — у него свой набор полей в VIDEO_PARAMS.
-const VIDEO_MODELS=["veo","nano","kling","kling-pro"];
+const VIDEO_MODELS=["veo","nano","kling","kling-1-6","kling-1-6-pro","kling-2","kling-2-pro","kling-2-1","kling-3","kling-pro"];
 const VIDEO_PARAMS={
   // ── Kling: полные параметры по официальной документации API ──────────────
   kling:[
@@ -1156,6 +1164,13 @@ const VIDEO_PARAMS={
     ]},
   ],
 };
+
+// Все Kling-aliases используют тот же полный набор параметров что и
+// kling-pro (модели/режимы/камера/аудио/motion/avatar). Цена выбирается
+// по `id` модели в TOKEN_COST на backend.
+["kling-1-6","kling-1-6-pro","kling-2","kling-2-pro","kling-2-1","kling-3"].forEach(
+  k => { VIDEO_PARAMS[k] = VIDEO_PARAMS["kling-pro"]; }
+);
 
 // ── Feature flags ──────────────────────────────────────────────────────────
 let FEATURES={};

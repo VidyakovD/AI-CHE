@@ -263,9 +263,20 @@ TOKEN_COST = {
     "veo-3.0-generate-001":           50000,  # 500 ₽ (себест ~$0.60 + аудио = 60₽; маржа 8×)
     "veo-3.1-fast-generate-preview":  40000,  # 400 ₽ (preview, чуть дороже fast)
     "veo-3.1-generate-preview":       60000,  # 600 ₽ (лучшее качество)
-    # Kling (старая интеграция, не пересчитывалась)
-    "kling-v1":                5000,   # 50 ₽
-    "kling-v1-5":              8000,
+    # ── Kling AI (text2video / image2video / motion / avatar) ──────────────
+    # Себест Kling published API rates × ×3 margin × округление до 10 ₽.
+    # std mode = 5-сек 720p; pro = 1080p; v3+ — 1080p по дефолту.
+    "kling-v1":                 6000,   # 60 ₽  (легаси, std)
+    "kling-v1-5":               9000,   # 90 ₽  (legacy v1.5)
+    "kling-v1-6":              12000,   # 120 ₽ (v1.6 std — баланс цена/качество)
+    "kling-v1-6-pro":          18000,   # 180 ₽ (v1.6 pro 1080p)
+    # Kling 2.0 — резкое улучшение качества:
+    "kling-v2-master":         15000,   # 150 ₽ (v2.0 std)
+    "kling-v2-pro":            30000,   # 300 ₽ (v2.0 pro)
+    # Kling 2.1 — быстрый/дешёвый вариант:
+    "kling-v2-1-master":       10000,   # 100 ₽ (v2.1 std fast)
+    # Kling v3.0 — топ (motion_control использует это по умолчанию):
+    "kling-v3-0":              24000,   # 240 ₽ (v3.0 std — лучшее качество для motion)
 }
 
 def get_token_cost(model: str) -> int:
@@ -404,7 +415,16 @@ def kling_response(model: str, messages: list, extra: dict = None) -> dict:
         return {"type": "text", "content": "Сервис временно недоступен. Повторите попытку позже…"}
     log.info("[Kling] JWT сгенерирован успешно")
 
-    KLING_MODEL_MAP = {"kling": "kling-v1", "kling-pro": "kling-v1-6"}
+    KLING_MODEL_MAP = {
+        "kling":         "kling-v1",
+        "kling-pro":     "kling-v1-6",       # legacy alias
+        "kling-1-6":     "kling-v1-6",
+        "kling-1-6-pro": "kling-v1-6-pro",
+        "kling-2":       "kling-v2-master",
+        "kling-2-pro":   "kling-v2-pro",
+        "kling-2-1":     "kling-v2-1-master",
+        "kling-3":       "kling-v3-0",
+    }
     prompt    = extra.get("prompt") or _last_text(messages) or ""
     neg       = extra.get("negative_prompt", "")
     aspect    = extra.get("aspect_ratio", "16:9")
@@ -929,8 +949,14 @@ MODEL_REGISTRY = {
     # Новая модель OpenAI gpt-image-1 — поддерживает генерацию и редактирование
     # изображений. Идёт через тот же эндпоинт images.generate.
     "gpt-image":       {"provider": "openai_image","real_model": "gpt-image-1"},
-    "kling":           {"provider": "kling",       "real_model": "kling-v1"},
-    "kling-pro":       {"provider": "kling",       "real_model": "kling-v1-6"},
+    "kling":           {"provider": "kling",       "real_model": "kling-v1"},        # 60 ₽
+    "kling-pro":       {"provider": "kling",       "real_model": "kling-v1-6"},      # 120 ₽ — legacy alias
+    "kling-1-6":       {"provider": "kling",       "real_model": "kling-v1-6"},      # 120 ₽ — явный alias
+    "kling-1-6-pro":   {"provider": "kling",       "real_model": "kling-v1-6-pro"},  # 180 ₽
+    "kling-2":         {"provider": "kling",       "real_model": "kling-v2-master"}, # 150 ₽
+    "kling-2-pro":     {"provider": "kling",       "real_model": "kling-v2-pro"},    # 300 ₽
+    "kling-2-1":       {"provider": "kling",       "real_model": "kling-v2-1-master"}, # 100 ₽ (fast)
+    "kling-3":         {"provider": "kling",       "real_model": "kling-v3-0"},      # 240 ₽
     "veo":             {"provider": "veo",         "real_model": "veo-3"},
 }
 

@@ -194,21 +194,24 @@ class TestVideoMenu:
         kb = edit[0][1]["reply_markup"]["inline_keyboard"]
         callbacks = [row[0]["callback_data"] for row in kb]
         assert "video:kling" in callbacks
-        assert "video:kling-pro" in callbacks
+        # Kling-A: добавлены v1.6/v2/v2.1/v3
+        assert "video:kling-1-6" in callbacks
+        assert "video:kling-2" in callbacks
+        assert "video:kling-3" in callbacks
 
     def test_video_selection_sets_state(self, captured_tg_calls):
         from server import aiche_telegram_bot as bot
         tg_uid = f"vid-sel-{uuid.uuid4().hex[:6]}"
         _make_user_with_tg(tg_uid)
         update = {"callback_query": {
-            "id": "cb-v2", "data": "video:kling-pro",
+            "id": "cb-v2", "data": "video:kling-2",
             "from": {"id": tg_uid},
             "message": {"chat": {"id": 1}, "message_id": 300},
         }}
         _run(bot.handle_update(update))
         st = bot._get_state(tg_uid)
         assert st and st["mode"] == "video"
-        assert st["model"] == "kling-pro"
+        assert st["model"] == "kling-2"
 
 
 class TestVideoSubmit:
@@ -250,7 +253,7 @@ class TestVideoSubmit:
         assert "kling-task-abc123" in bot._KLING_TASKS
         info = bot._KLING_TASKS["kling-task-abc123"]
         assert info["user_id"] == uid
-        assert info["cost_kop"] == 5000
+        assert info["cost_kop"] == 6000  # kling v1 = 60 ₽ после recalc
 
         # poll-coroutine был создан
         assert len(captured_tasks) == 1

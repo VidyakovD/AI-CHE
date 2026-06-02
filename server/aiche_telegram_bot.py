@@ -636,32 +636,41 @@ async def _handle_callback(cb: dict) -> None:
             reply_markup=_chat_active_kb())
         return
 
-    # Stage 3b: Kling video — submenu (2 модели)
+    # Stage 3b: Kling video — submenu со всеми версиями
     if data == "menu_video":
         _clear_state(tg_uid)
+        rows = []
+        for alias, name, cost_kop, desc in KLING_MODELS_UI:
+            rows.append([{
+                "text": f"{name} · {cost_kop/100:.0f} ₽ — {desc}",
+                "callback_data": f"video:{alias}",
+            }])
+        rows.append([{"text": "← Назад", "callback_data": "menu_main"}])
         await edit_message(chat_id, msg_id,
             "🎬 <b>Видео (Kling AI)</b>\n\n"
-            "Выбери модель — Kling v1 быстрее и дешевле, Pro качественнее.\n"
-            "<i>Видео делается 2-5 минут. Я пришлю как только готово.</i>",
-            reply_markup={"inline_keyboard": [
-                [{"text": "🎬 Kling v1 (50 ₽)", "callback_data": "video:kling"}],
-                [{"text": "🎬 Kling Pro v1.6 (80 ₽)", "callback_data": "video:kling-pro"}],
-                [{"text": "← Назад", "callback_data": "menu_main"}],
-            ]})
+            "Сейчас доступен режим <b>текст → видео</b> (5 сек, 16:9). "
+            "image2video / motion / avatar — добавлю отдельно (нужна загрузка фото).\n\n"
+            "<i>Генерация 2-5 минут. Я пришлю готовое в чат.</i>",
+            reply_markup={"inline_keyboard": rows})
         return
 
     if data.startswith("video:"):
         model_id = data.split(":", 1)[1]
-        if model_id not in ("kling", "kling-pro"):
+        valid_models = {a for a, _, _, _ in KLING_MODELS_UI}
+        if model_id not in valid_models:
             await edit_message(chat_id, msg_id, "Неизвестная модель видео.",
                                 reply_markup=_back_kb())
             return
         _set_state(tg_uid, mode="video", model=model_id)
+        cost = KLING_COST_KOP.get(model_id, 6000)
+        # name из UI tuple
+        name = next((n for a, n, _, _ in KLING_MODELS_UI if a == model_id),
+                     model_id)
         await edit_message(chat_id, msg_id,
-            f"🎬 <b>Видео через {model_id}</b>\n\n"
+            f"🎬 <b>{name}</b>\n\n"
             "Опиши что должно быть в видео. 5-секундный ролик 16:9.\n"
             "Пример: <i>«Кот гуляет по крыше под луной, плавная панорама»</i>\n\n"
-            "💸 Цена: " + ("50" if model_id == "kling" else "80") + " ₽ за видео.\n"
+            f"💸 Цена: <b>{cost/100:.0f} ₽</b> за видео.\n"
             "После старта подожди 2-5 минут — пришлю готовое.\n"
             "Выход — /menu.",
             reply_markup=_chat_active_kb())
@@ -950,7 +959,28 @@ _KLING_POLL_INTERVAL = 30  # сек
 _KLING_MAX_ATTEMPTS = 20    # = 10 минут общий таймаут
 
 
-KLING_COST_KOP = {"kling": 5000, "kling-pro": 8000}
+KLING_COST_KOP = {
+    "kling":          6000,    # v1 std
+    "kling-1-6":     12000,    # v1.6 std
+    "kling-1-6-pro": 18000,    # v1.6 pro
+    "kling-2":       15000,    # v2.0 std
+    "kling-2-pro":   30000,    # v2.0 pro
+    "kling-2-1":     10000,    # v2.1 fast
+    "kling-3":       24000,    # v3.0
+    # Legacy alias (не убираем — оставшиеся ссылки в Stage 3 коде):
+    "kling-pro":     12000,    # = kling-1-6
+}
+
+# Метаинфа для UI: (alias, краткое имя, цена_коп, описание)
+KLING_MODELS_UI = [
+    ("kling",          "Kling v1",        6000,  "Базовая, быстрая"),
+    ("kling-1-6",      "Kling v1.6",     12000,  "Хорошее качество, баланс"),
+    ("kling-1-6-pro",  "Kling v1.6 Pro", 18000,  "1080p, чётче"),
+    ("kling-2-1",      "Kling v2.1",     10000,  "Быстрая, экономная"),
+    ("kling-2",        "Kling v2.0",     15000,  "Качество v2 — лучше композиция"),
+    ("kling-2-pro",    "Kling v2.0 Pro", 30000,  "Топ-качество v2 1080p"),
+    ("kling-3",        "Kling v3.0",     24000,  "Новейшая, лучшее движение"),
+]
 
 
 async def _do_video_message(chat_id: str, user_id: int,

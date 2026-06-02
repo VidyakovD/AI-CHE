@@ -343,7 +343,12 @@ def send_message(req: MessageRequest,
     # Auto-refund: если запрашивали видео/картинку, а вернулся text с ошибкой
     # («Видео не сгенерировано», «Сервис временно недоступен», 429 quota и т.п.)
     # — НЕ списываем деньги. Юзер не получил товар.
-    is_media_request = req.model in ("veo", "nano", "gpt-image", "dalle", "kling", "kling-pro")
+    is_media_request = req.model in (
+        "veo", "nano", "gpt-image", "dalle",
+        "kling", "kling-pro",  # legacy aliases
+        "kling-1-6", "kling-1-6-pro",
+        "kling-2", "kling-2-pro", "kling-2-1", "kling-3",
+    )
     looks_like_error = (
         resp_type == "text"
         and isinstance(content, str)
