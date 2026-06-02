@@ -349,6 +349,19 @@ LIGHTWEIGHT_MIGRATIONS: list[tuple[str, str, str]] = [
     # Без этого cron каждую минуту молотил неработающее API.
     ("content_items", "publish_fail_count", "INTEGER DEFAULT 0"),
     ("content_items", "publish_next_retry_at", "DATETIME"),
+    # ── Multi-surface identity (2026-06-01) ─────────────────────────────────
+    # Единый аккаунт на 4 поверхности: web + VK MiniApp + TG bot + MAX bot.
+    # Identity matching через phone (auto-link 1-тап) или pairing-code.
+    #
+    # phone — нормализованный +7XXXXXXXXXX (NULL allowed для legacy юзеров).
+    #         UNIQUE индекс ставится отдельным SQL ниже, потому что
+    #         LIGHTWEIGHT_MIGRATIONS делает только plain ADD COLUMN.
+    ("users", "phone", "VARCHAR(20)"),
+    # vk_user_id — прямая колонка дублирующая oauth_sub когда oauth_provider='vk'.
+    # Нужна для быстрого индекса от VK MiniApp (он часто дёргает /internal/v1/identify).
+    ("users", "vk_user_id", "BIGINT"),
+    # Единый trial для всех поверхностей. NULL = trial кончился / не было.
+    ("users", "trial_ends_at", "DATETIME"),
 ]
 
 # Note: push_subscriptions / solution_run_templates создаются Base.metadata.create_all

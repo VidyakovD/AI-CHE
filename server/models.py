@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, BigInteger, String, Text, Float, Boolean, DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import TypeDecorator
 from server.db import Base
@@ -118,6 +118,21 @@ class User(Base):
     # Только админам — обычным юзерам не предлагаем 2FA пока что.
     totp_secret  = Column(EncryptedString, nullable=True)
     totp_enabled = Column(Boolean, default=False)
+    # ── Multi-surface identity (2026-06-01) ──────────────────────────────────
+    # Единый аккаунт на 4 поверхности: web + VK MiniApp + TG bot + MAX bot.
+    # См. server/internal_api.py.
+    #
+    # phone — нормализованный +7XXXXXXXXXX. Используется для auto-link при
+    # первом контакте через TG/MAX-бот (юзер делает share-contact). UNIQUE на
+    # стороне приложения (проверка в /internal/v1/identify), индекс БД для
+    # быстрого lookup.
+    phone        = Column(String(20), nullable=True, index=True)
+    # vk_user_id — прямая колонка для быстрого индекса от VK MiniApp.
+    # Дублирует oauth_sub когда oauth_provider='vk'. BigInteger потому что
+    # VK ID может быть до 10^10.
+    vk_user_id   = Column(BigInteger, nullable=True, index=True)
+    # Единый trial для всех поверхностей. NULL = trial кончился / не было.
+    trial_ends_at = Column(DateTime, nullable=True)
     created_at       = Column(DateTime, default=datetime.utcnow)
 
     messages      = relationship("Message",      back_populates="user")
