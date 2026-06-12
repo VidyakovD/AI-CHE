@@ -135,6 +135,9 @@ class User(Base):
     trial_ends_at = Column(DateTime, nullable=True)
     # @aiche_bot — модель чата по умолчанию. NULL = первая в CHAT_MODELS.
     tg_default_chat_model = Column(String, nullable=True)
+    # 152-ФЗ — согласие на обработку ПД. NULL = не дал. Используется VK MiniApp
+    # surface (ConsentGate panel показывает чекбокс при первом входе).
+    pd_consent_at = Column(DateTime, nullable=True)
     created_at       = Column(DateTime, default=datetime.utcnow)
 
     messages      = relationship("Message",      back_populates="user")

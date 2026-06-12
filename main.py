@@ -48,6 +48,12 @@ from server.routes.crm import router as crm_router
 from server.routes.mcp import router as mcp_router
 from server.routes.creators import router as creators_router
 from server.routes.internal_api import router as internal_api_router
+# ── VKMA surface (Stage 2: пока только health + me) ──────────────────────
+# server.integrations.vkma регистрирует свои модели в Base.metadata через
+# импорт submodule в __init__.py. Это критично — иначе модели не попадут
+# в metadata и create_all() их пропустит на свежей dev-БД.
+import server.integrations.vkma  # noqa: F401 — register models
+from server.integrations.vkma.api.health import router as vkma_health_router
 
 load_dotenv()
 
@@ -430,6 +436,7 @@ app.include_router(crm_router)
 app.include_router(mcp_router)
 app.include_router(creators_router)
 app.include_router(internal_api_router)
+app.include_router(vkma_health_router)
 
 # ── Static files (uploads) ────────────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
